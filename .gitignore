@@ -9,3 +9,4 @@ Cargo.lock
 *.db
 *.sqlite
 *.sqlite3
+settings.yaml

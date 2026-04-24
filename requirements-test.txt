@@ -1,0 +1,4 @@
+requests>=2.31
+pyyaml>=6.0
+protobuf>=4.0
+grpcio-tools>=1.60

@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package dailytip;
+
+message TipsQuery {
+    uint64 count = 1;
+    string topics = 2; // comma separated
+}
+
+message TipCardResponse {
+    int64 id = 1;
+    string topic = 2;
+    string full_content = 3;
+    string compressed_content = 4;
+}
+
+message TipsResponse {
+    repeated TipCardResponse tips = 1;
+}
+
+message ReviewPayload {
+    int64 card_id = 1;
+    uint32 grade = 2; // 0-5
+}

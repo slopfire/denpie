@@ -29,3 +29,15 @@ CREATE TABLE IF NOT EXISTS review_states (
     next_review_at DATETIME NOT NULL,
     FOREIGN KEY(card_id) REFERENCES tipcards(id)
 );
+
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS passkeys (
+    passkey_id BLOB PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    passkey TEXT NOT NULL, -- JSON serialized webauthn_rs::Passkey
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
