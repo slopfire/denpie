@@ -10,3 +10,5 @@ Cargo.lock
 *.sqlite
 *.sqlite3
 settings.yaml
+.gitconfig
+.sqlx/
