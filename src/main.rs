@@ -94,6 +94,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
 ) -> Router {
     let api_routes = Router::new()
         .route("/tips", post(api::get_tips))
+        .route("/topics", get(api::get_topics))
         .route("/review", post(api::review_card))
         .route_layer(from_fn_with_state(
             shared_state.clone(),
@@ -111,6 +112,8 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
                 .post(dashboard::create_api_key)
                 .delete(dashboard::delete_api_key)
         )
+        .route("/admin/topics", get(dashboard::list_topics))
+        .route("/admin/tipcards", get(dashboard::list_tipcards))
         .route_layer(axum::middleware::from_fn(auth::require_session));
 
     Router::new()

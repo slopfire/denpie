@@ -12,3 +12,5 @@ Cargo.lock
 settings.yaml
 .gitconfig
 .sqlx/
+__pycache__/
+dailytip_pb2.py

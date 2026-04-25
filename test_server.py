@@ -33,6 +33,7 @@ import dailytip_pb2
 BASE_URL = "http://127.0.0.1:3001"
 passed = 0
 failed = 0
+skipped = 0
 
 
 def test(name, condition, detail=""):
@@ -43,6 +44,12 @@ def test(name, condition, detail=""):
     else:
         failed += 1
         print(f"  ❌ {name} — {detail}")
+
+
+def skip(name, detail=""):
+    global skipped
+    skipped += 1
+    print(f"  ⏭️  {name} — SKIPPED ({detail})")
 
 
 def section(title):
@@ -63,6 +70,7 @@ def main():
         with open("settings.yaml", "r") as f:
             settings = yaml.safe_load(f)
             admin_token = settings.get("admin_token", "")
+            has_api_key = bool(settings.get("llm_api_key"))
     except FileNotFoundError:
         print("❌ settings.yaml not found. Start the server first (cargo run).")
         sys.exit(1)
@@ -108,18 +116,23 @@ def main():
     test("Settings has model field", "model" in data, f"keys: {list(data.keys())}")
     test("Settings has template field", "template" in data, f"keys: {list(data.keys())}")
 
-    resp = session.post(f"{BASE_URL}/admin/settings", json={
-        "model": "google/gemini-2.5-pro",
-        "template": "Tell me about {topic}.",
-        "api_key": "",
-        "base_url": "https://openrouter.ai/api/v1"
-    })
-    test("POST /admin/settings (update) → 200", resp.status_code == 200, f"got {resp.status_code}")
+    if has_api_key:
+        skip("POST /admin/settings (update)", "api_key already set")
+        skip("Settings persisted model update", "api_key already set")
+        skip("Settings persisted template update", "api_key already set")
+    else:
+        resp = session.post(f"{BASE_URL}/admin/settings", json={
+            "model": "google/gemini-2.5-pro",
+            "template": "Tell me about {topic}.",
+            "api_key": "",
+            "base_url": "https://openrouter.ai/api/v1"
+        })
+        test("POST /admin/settings (update) → 200", resp.status_code == 200, f"got {resp.status_code}")
 
-    resp = session.get(f"{BASE_URL}/admin/settings")
-    data = resp.json()
-    test("Settings persisted model update", data["model"] == "google/gemini-2.5-pro", f"got {data.get('model')}")
-    test("Settings persisted template update", data["template"] == "Tell me about {topic}.", f"got {data.get('template')}")
+        resp = session.get(f"{BASE_URL}/admin/settings")
+        data = resp.json()
+        test("Settings persisted model update", data["model"] == "google/gemini-2.5-pro", f"got {data.get('model')}")
+        test("Settings persisted template update", data["template"] == "Tell me about {topic}.", f"got {data.get('template')}")
 
     # ─── API Key Management ───────────────────────────────
     section("API KEYS")
@@ -234,9 +247,11 @@ def main():
         print("  ⚠️  Could not find test key to delete")
 
     # ─── Summary ──────────────────────────────────────────
-    total = passed + failed
+    total = passed + failed + skipped
     print(f"\n{'═'*50}")
     print(f"  Results: {passed}/{total} passed", end="")
+    if skipped > 0:
+        print(f", {skipped} skipped", end="")
     if failed > 0:
         print(f" — {failed} FAILED ❌")
     else:

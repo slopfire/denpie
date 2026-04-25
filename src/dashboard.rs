@@ -120,3 +120,51 @@ pub async fn delete_api_key(State(state): State<Arc<AppState>>, Json(req): Json<
         StatusCode::INTERNAL_SERVER_ERROR
     }
 }
+
+#[derive(Serialize)]
+pub struct TopicInfo {
+    pub id: i64,
+    pub name: String,
+}
+
+pub async fn list_topics(State(state): State<Arc<AppState>>) -> Json<Vec<TopicInfo>> {
+    let rows = sqlx::query!("SELECT id, name FROM topics ORDER BY name ASC")
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
+    
+    let topics = rows.into_iter().map(|r| TopicInfo { id: r.id.unwrap_or(0), name: r.name }).collect();
+    Json(topics)
+}
+
+#[derive(Serialize)]
+pub struct TipcardInfo {
+    pub id: i64,
+    pub topic_name: String,
+    pub full_content: String,
+    pub compressed_content: String,
+    pub created_at: String,
+}
+
+pub async fn list_tipcards(State(state): State<Arc<AppState>>) -> Json<Vec<TipcardInfo>> {
+    let rows = sqlx::query!(
+        "SELECT t.id, top.name as topic_name, t.full_content, t.compressed_content, t.created_at 
+         FROM tipcards t
+         JOIN topics top ON t.topic_id = top.id
+         ORDER BY t.created_at DESC"
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let cards = rows.into_iter().map(|r| TipcardInfo {
+        id: r.id,
+        topic_name: r.topic_name,
+        full_content: r.full_content,
+        compressed_content: r.compressed_content,
+        created_at: r.created_at.map(|d| d.to_string()).unwrap_or_default(),
+    }).collect();
+
+    Json(cards)
+}
+

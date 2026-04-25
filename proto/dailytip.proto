@@ -22,3 +22,7 @@ message ReviewPayload {
     int64 card_id = 1;
     uint32 grade = 2; // 0-5
 }
+
+message GetTopicsResponse {
+    repeated string topics = 1;
+}

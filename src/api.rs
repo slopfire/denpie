@@ -132,3 +132,14 @@ pub async fn review_card(
         Err((StatusCode::NOT_FOUND, "Card not found in user reviews".to_string()))
     }
 }
+
+pub async fn get_topics(
+    State(state): State<Arc<AppState>>,
+) -> Result<Response, (StatusCode, String)> {
+    let rows = sqlx::query!("SELECT name FROM topics ORDER BY name ASC")
+        .fetch_all(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    
+    let topics = rows.into_iter().map(|r| r.name).collect();
+    let response = pb::GetTopicsResponse { topics };
+    Ok(protobuf_response(&response))
+}
