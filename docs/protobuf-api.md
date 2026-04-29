@@ -1,0 +1,68 @@
+# Daily Tip Unified Protobuf API
+
+Base URL for local development:
+
+```text
+http://127.0.0.1:3001
+```
+
+`POST /api` is the canonical API for both card clients and administration. The server is single-user, so an API key has full access to tips, reviews, settings, API-key management, topic metadata, card deletion, and summary counts.
+
+Requests and responses use `application/x-protobuf` with the canonical schema in [`proto/dailytip.proto`](../proto/dailytip.proto).
+
+The root page at `GET /` is a browser control panel that uses this same protobuf endpoint.
+
+## Authentication
+
+Every `ApiRequest` has an `auth` field. Set it to the raw `sk_live_*` API key for every operation except `bootstrap_api_key`.
+
+To create the first key without a session cookie, call `bootstrap_api_key` with the startup `admin_token`:
+
+```proto
+ApiRequest {
+  bootstrap_api_key: {
+    admin_token: "token-from-settings-yaml"
+    client_name: "desktop"
+  }
+}
+```
+
+The response contains `api_key_created.api_key`. Store it client-side; the server stores only a SHA-256 hash.
+
+## Operations
+
+`ApiRequest.op` is a `oneof`:
+
+| Operation | Result | Purpose |
+|---|---|---|
+| `bootstrap_api_key` | `api_key_created` | Create the first/full-access API key using `admin_token`. |
+| `tips` | `tips` | Get due cards or generate new cards. |
+| `review` | `ok` | Review, dismiss, acknowledge, repeat, or memorize a card. |
+| `get_topics` | `topics` | List known topic names. |
+| `get_topic_classes` | `topic_classes` | List topic classes and card behavior types. |
+| `get_settings` | `settings` | Read LLM, prompt, theme, and autoupdate settings. |
+| `update_settings` | `ok` | Update provided settings fields. Unset optional fields are preserved. |
+| `create_api_key` | `api_key_created` | Create another full-access API key. |
+| `list_api_keys` | `api_keys` | List key metadata. Raw keys are never returned. |
+| `delete_api_key` | `ok` | Delete a key by database ID. |
+| `list_admin_topics` | `admin_topics` | List topics with prompt overrides. |
+| `list_tipcards` | `tipcards` | List stored cards with status and repeat count. |
+| `delete_tipcard` | `ok` | Delete a card and its review state. |
+| `get_summary` | `summary` | Read card/topic counts. |
+| `list_app_topics` | `app_topics` | Read topic rows with due/completed counts. |
+| `update_topic` | `ok` | Set or clear a topic prompt override. |
+
+## Removed Routes
+
+Legacy route-specific APIs are gone. `/tips`, `/topics`, `/topic-classes`, `/review`, `/auth/login`, `/admin/*`, and `/app/*` return `404 Not Found`. Use `POST /api` for all client and admin operations. `GET /` is only the HTML control page.
+
+## Status Codes
+
+| Case | Status |
+|---|---:|
+| Success | `200 OK` |
+| Invalid protobuf body or missing operation | `400 Bad Request` |
+| Invalid `admin_token` for bootstrap | `401 Unauthorized` |
+| Missing or invalid API key | `401 Unauthorized` |
+| Missing card/topic for mutation | `404 Not Found` |
+| SQL, settings, or stored-state failure | `500 Internal Server Error` |

@@ -11,7 +11,6 @@ WorkingDirectory=/var/lib/dailytipdraft
 Environment=DAILYTIP_BIND_ADDR=127.0.0.1:3001
 Environment=DAILYTIP_DATA_DIR=/var/lib/dailytipdraft
 Environment=DAILYTIP_SCHEMA_PATH=/usr/local/share/dailytipdraft/schema.sql
-Environment=DAILYTIP_TEMPLATE_DIR=/usr/local/share/dailytipdraft/templates
 ExecStart=/usr/local/bin/dailytipdraft
 Restart=on-failure
 RestartSec=5

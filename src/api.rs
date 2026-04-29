@@ -6,7 +6,9 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use prost::Message;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::{QueryBuilder, Sqlite};
 use std::fs;
 use std::sync::Arc;
@@ -29,6 +31,218 @@ fn protobuf_response<T: Message>(msg: &T) -> Response {
         buf.freeze(),
     )
         .into_response()
+}
+
+fn empty_response() -> pb::ApiResponse {
+    pb::ApiResponse {
+        result: Some(pb::api_response::Result::Ok(pb::Empty {})),
+    }
+}
+
+fn hash_api_key(api_key: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(api_key.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+async fn require_api_key(state: &AppState, api_key: &str) -> Result<(), (StatusCode, String)> {
+    if api_key.trim().is_empty() {
+        return Err((StatusCode::UNAUTHORIZED, "Missing API key".to_string()));
+    }
+
+    let exists: Option<String> =
+        sqlx::query_scalar("SELECT client_name FROM api_keys WHERE key_hash = ?")
+            .bind(hash_api_key(api_key))
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if exists.is_some() {
+        Ok(())
+    } else {
+        Err((StatusCode::UNAUTHORIZED, "Invalid API key".to_string()))
+    }
+}
+
+async fn create_raw_api_key(
+    state: &AppState,
+    client_name: Option<String>,
+) -> Result<String, (StatusCode, String)> {
+    let raw_key: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect();
+    let api_key = format!("sk_live_{}", raw_key);
+    let client_name = client_name
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "default_client".to_string());
+
+    sqlx::query("INSERT INTO api_keys (key_hash, client_name) VALUES (?, ?)")
+        .bind(hash_api_key(&api_key))
+        .bind(client_name)
+        .execute(&state.db)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(api_key)
+}
+
+fn read_settings_value(state: &AppState) -> serde_yaml::Value {
+    let settings_str = fs::read_to_string(&state.settings_path).unwrap_or_default();
+    let settings: serde_yaml::Value = serde_yaml::from_str(&settings_str)
+        .unwrap_or(serde_yaml::Value::Mapping(Default::default()));
+    if settings.is_mapping() {
+        settings
+    } else {
+        serde_yaml::Value::Mapping(Default::default())
+    }
+}
+
+fn current_settings(state: &AppState) -> pb::Settings {
+    let settings = read_settings_value(state);
+    let base_url = settings
+        .get("llm_base_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("https://openrouter.ai/api/v1")
+        .to_string();
+
+    pb::Settings {
+        model: settings
+            .get("llm_model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("google/gemini-3.1-flash")
+            .to_string(),
+        compress_model: settings
+            .get("llm_compress_model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("google/gemini-3.1-flash-lite-preview")
+            .to_string(),
+        template: settings
+            .get("prompt_template")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Give a smart tip about {topic}.")
+            .to_string(),
+        api_key: settings
+            .get("llm_api_key")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        base_url: base_url.clone(),
+        compress_base_url: settings
+            .get("llm_compress_base_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&base_url)
+            .to_string(),
+        reasoning_effort: settings
+            .get("llm_reasoning_effort")
+            .and_then(|v| v.as_str())
+            .unwrap_or("none")
+            .to_string(),
+        compress_reasoning_effort: settings
+            .get("llm_compress_reasoning_effort")
+            .and_then(|v| v.as_str())
+            .unwrap_or("none")
+            .to_string(),
+        color_scheme: settings
+            .get("color_scheme")
+            .and_then(|v| v.as_str())
+            .unwrap_or("default")
+            .to_string(),
+        autoupdate_enabled: settings
+            .get("autoupdate_enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        autoupdate_repo: settings
+            .get("autoupdate_repo")
+            .and_then(|v| v.as_str())
+            .unwrap_or("slopfire/dailytipdraft")
+            .to_string(),
+        autoupdate_branch: settings
+            .get("autoupdate_branch")
+            .and_then(|v| v.as_str())
+            .unwrap_or("main")
+            .to_string(),
+        autoupdate_check_interval_secs: settings
+            .get("autoupdate_check_interval_secs")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3600),
+        autoupdate_command: settings
+            .get("autoupdate_command")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        autoupdate_last_seen_sha: settings
+            .get("autoupdate_last_seen_sha")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+    }
+}
+
+fn put_string_setting(map: &mut serde_yaml::Mapping, key: &str, value: Option<String>) {
+    if let Some(value) = value {
+        map.insert(
+            serde_yaml::Value::String(key.to_string()),
+            serde_yaml::Value::String(value),
+        );
+    }
+}
+
+fn put_bool_setting(map: &mut serde_yaml::Mapping, key: &str, value: Option<bool>) {
+    if let Some(value) = value {
+        map.insert(
+            serde_yaml::Value::String(key.to_string()),
+            serde_yaml::Value::Bool(value),
+        );
+    }
+}
+
+fn put_u64_setting(map: &mut serde_yaml::Mapping, key: &str, value: Option<u64>) {
+    if let Some(value) = value {
+        map.insert(
+            serde_yaml::Value::String(key.to_string()),
+            serde_yaml::Value::Number(value.into()),
+        );
+    }
+}
+
+fn update_settings_file(
+    state: &AppState,
+    req: pb::UpdateSettingsRequest,
+) -> Result<(), (StatusCode, String)> {
+    let mut settings = read_settings_value(state);
+    if let serde_yaml::Value::Mapping(ref mut map) = settings {
+        put_string_setting(map, "llm_model", req.model);
+        put_string_setting(map, "llm_compress_model", req.compress_model);
+        put_string_setting(map, "prompt_template", req.template);
+        put_string_setting(map, "llm_api_key", req.api_key);
+        put_string_setting(map, "llm_base_url", req.base_url);
+        put_string_setting(map, "llm_compress_base_url", req.compress_base_url);
+        put_string_setting(map, "llm_reasoning_effort", req.reasoning_effort);
+        put_string_setting(
+            map,
+            "llm_compress_reasoning_effort",
+            req.compress_reasoning_effort,
+        );
+        put_string_setting(map, "color_scheme", req.color_scheme);
+        put_bool_setting(map, "autoupdate_enabled", req.autoupdate_enabled);
+        put_string_setting(map, "autoupdate_repo", req.autoupdate_repo);
+        put_string_setting(map, "autoupdate_branch", req.autoupdate_branch);
+        put_u64_setting(
+            map,
+            "autoupdate_check_interval_secs",
+            req.autoupdate_check_interval_secs,
+        );
+        put_string_setting(map, "autoupdate_command", req.autoupdate_command);
+    }
+
+    let out_str = serde_yaml::to_string(&settings)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    fs::write(&state.settings_path, out_str)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -68,11 +282,240 @@ pub struct TipCardJson {
     pub tipcard_type: String,
 }
 
-#[derive(Deserialize)]
-pub struct ReviewJsonRequest {
-    pub card_id: i64,
-    pub grade: Option<u8>,
-    pub action: Option<String>,
+async fn list_api_keys_pb(state: &AppState) -> Result<pb::ApiKeys, (StatusCode, String)> {
+    let rows = sqlx::query_as::<_, (i64, String, String)>(
+        "SELECT id, client_name, COALESCE(CAST(created_at AS TEXT), '') FROM api_keys ORDER BY created_at DESC",
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(pb::ApiKeys {
+        keys: rows
+            .into_iter()
+            .map(|row| pb::ApiKeyInfo {
+                id: row.0,
+                client_name: row.1,
+                created_at: row.2,
+            })
+            .collect(),
+    })
+}
+
+async fn delete_api_key_by_id(state: &AppState, id: i64) -> Result<(), (StatusCode, String)> {
+    sqlx::query("DELETE FROM api_keys WHERE id = ?")
+        .bind(id)
+        .execute(&state.db)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(())
+}
+
+async fn list_admin_topics_pb(state: &AppState) -> Result<pb::AdminTopics, (StatusCode, String)> {
+    let rows = sqlx::query_as::<_, (i64, String, Option<String>)>(
+        "SELECT id, name, prompt_template FROM topics ORDER BY name ASC",
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(pb::AdminTopics {
+        topics: rows
+            .into_iter()
+            .map(|row| pb::AdminTopic {
+                id: row.0,
+                name: row.1,
+                prompt_template: row.2.unwrap_or_default(),
+            })
+            .collect(),
+    })
+}
+
+async fn delete_tipcard_by_id(state: &AppState, id: i64) -> Result<(), (StatusCode, String)> {
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    sqlx::query("DELETE FROM review_states WHERE card_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    sqlx::query("DELETE FROM tipcards WHERE id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    tx.commit()
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(())
+}
+
+async fn list_tipcards_pb(state: &AppState) -> Result<pb::Tipcards, (StatusCode, String)> {
+    let rows = sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+        ),
+    >(
+        "SELECT t.id,
+                top.name AS topic_name,
+                t.full_content,
+                t.compressed_content,
+                COALESCE(CAST(t.created_at AS TEXT), '') AS created_at,
+                t.tipcard_type,
+                COALESCE(tc.name, 'default') AS topic_class,
+                COALESCE(r.status, 'active') AS status,
+                COALESCE(CAST(r.next_review_at AS TEXT), '') AS next_review_at,
+                COALESCE(r.state_data, '') AS state_data
+         FROM tipcards t
+         JOIN topics top ON t.topic_id = top.id
+         LEFT JOIN topic_classes tc ON top.class_id = tc.id
+         LEFT JOIN review_states r ON r.card_id = t.id
+         ORDER BY t.created_at DESC",
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(pb::Tipcards {
+        cards: rows
+            .into_iter()
+            .map(|row| pb::TipcardInfo {
+                id: row.0,
+                topic_name: row.1,
+                full_content: row.2,
+                compressed_content: row.3,
+                created_at: row.4,
+                tipcard_type: row.5,
+                topic_class: row.6,
+                status: row.7,
+                next_review_at: row.8,
+                repeat_count: serde_json::from_str::<serde_json::Value>(&row.9)
+                    .ok()
+                    .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
+                    .unwrap_or(0) as u32,
+            })
+            .collect(),
+    })
+}
+
+async fn app_summary_pb(state: &AppState) -> Result<pb::AppSummary, (StatusCode, String)> {
+    let now = Utc::now();
+    let topics = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM topics")
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let total_cards = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tipcards")
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let due_cards = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM review_states WHERE status = 'active' AND next_review_at <= ?",
+    )
+    .bind(now)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let active_cards =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM review_states WHERE status = 'active'")
+            .fetch_one(&state.db)
+            .await
+            .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(pb::AppSummary {
+        topics,
+        total_cards,
+        due_cards,
+        active_cards,
+    })
+}
+
+async fn app_topics_pb(state: &AppState) -> Result<pb::AppTopics, (StatusCode, String)> {
+    let now = Utc::now();
+    let rows = sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            i64,
+            i64,
+            i64,
+        ),
+    >(
+        "SELECT top.id,
+                top.name,
+                tc.name AS class_name,
+                tc.tipcard_type,
+                top.prompt_template,
+                COUNT(t.id) AS total_cards,
+                SUM(CASE WHEN r.status = 'active' AND r.next_review_at <= ? THEN 1 ELSE 0 END) AS due_cards,
+                SUM(CASE WHEN r.status != 'active' THEN 1 ELSE 0 END) AS completed_cards
+         FROM topics top
+         LEFT JOIN topic_classes tc ON top.class_id = tc.id
+         LEFT JOIN tipcards t ON t.topic_id = top.id
+         LEFT JOIN review_states r ON r.card_id = t.id
+         GROUP BY top.id, top.name, top.prompt_template, tc.name, tc.tipcard_type
+         ORDER BY due_cards DESC, top.name ASC",
+    )
+    .bind(now)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(pb::AppTopics {
+        topics: rows
+            .into_iter()
+            .map(|row| pb::AppTopicInfo {
+                id: row.0,
+                name: row.1,
+                class_name: row.2.unwrap_or_else(|| "default".to_string()),
+                tipcard_type: row.3.unwrap_or_else(|| "srs_tip".to_string()),
+                prompt_template: row.4.unwrap_or_default(),
+                total_cards: row.5,
+                due_cards: row.6,
+                completed_cards: row.7,
+            })
+            .collect(),
+    })
+}
+
+async fn update_topic_prompt(
+    state: &AppState,
+    req: pb::UpdateTopicRequest,
+) -> Result<(), (StatusCode, String)> {
+    let prompt_template = req
+        .prompt_template
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let result = sqlx::query("UPDATE topics SET prompt_template = ? WHERE id = ?")
+        .bind(prompt_template)
+        .bind(req.id)
+        .execute(&state.db)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if result.rows_affected() == 0 {
+        return Err((StatusCode::NOT_FOUND, "Topic not found".to_string()));
+    }
+
+    Ok(())
 }
 
 fn normalize_tipcard_type(value: &str, class_name: &str) -> String {
@@ -412,35 +855,167 @@ pub async fn build_tips(
     Ok(responses)
 }
 
-pub async fn get_tips(
+pub async fn unified_api(
     State(state): State<Arc<AppState>>,
     body: Bytes,
 ) -> Result<Response, (StatusCode, String)> {
-    let query =
-        pb::TipsQuery::decode(body).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    let responses = build_tips(
-        &state,
-        TipsJsonRequest {
-            count: Some(query.count as u32),
-            topics: query.topics,
-            topic_class: Some(query.topic_class),
-            tipcard_type: Some(query.tipcard_type),
-            exclude_card_ids: None,
-        },
-    )
-    .await?
-    .into_iter()
-    .map(|card| pb::TipCardResponse {
-        id: card.id,
-        topic: card.topic,
-        full_content: card.full_content,
-        compressed_content: card.compressed_content,
-        topic_class: card.topic_class,
-        tipcard_type: card.tipcard_type,
-    })
-    .collect();
-    let tips_response = pb::TipsResponse { tips: responses };
-    Ok(protobuf_response(&tips_response))
+    let request =
+        pb::ApiRequest::decode(body).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let op = request
+        .op
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing API operation".to_string()))?;
+
+    let response = match op {
+        pb::api_request::Op::BootstrapApiKey(req) => {
+            let settings = read_settings_value(&state);
+            let real_token = settings
+                .get("admin_token")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if real_token.is_empty() || req.admin_token != real_token {
+                return Err((StatusCode::UNAUTHORIZED, "Invalid admin token".to_string()));
+            }
+            let api_key = create_raw_api_key(&state, Some(req.client_name)).await?;
+            pb::ApiResponse {
+                result: Some(pb::api_response::Result::ApiKeyCreated(pb::ApiKeyCreated {
+                    api_key,
+                })),
+            }
+        }
+        other => {
+            require_api_key(&state, &request.auth).await?;
+            match other {
+                pb::api_request::Op::Tips(query) => {
+                    let responses = build_tips(
+                        &state,
+                        TipsJsonRequest {
+                            count: Some(query.count as u32),
+                            topics: query.topics,
+                            topic_class: Some(query.topic_class),
+                            tipcard_type: Some(query.tipcard_type),
+                            exclude_card_ids: Some(query.exclude_card_ids),
+                        },
+                    )
+                    .await?
+                    .into_iter()
+                    .map(|card| pb::TipCardResponse {
+                        id: card.id,
+                        topic: card.topic,
+                        full_content: card.full_content,
+                        compressed_content: card.compressed_content,
+                        topic_class: card.topic_class,
+                        tipcard_type: card.tipcard_type,
+                    })
+                    .collect();
+                    pb::ApiResponse {
+                        result: Some(pb::api_response::Result::Tips(pb::TipsResponse {
+                            tips: responses,
+                        })),
+                    }
+                }
+                pb::api_request::Op::Review(payload) => {
+                    apply_review(
+                        &state,
+                        payload.card_id,
+                        payload.grade as u8,
+                        &payload.action,
+                    )
+                    .await?;
+                    empty_response()
+                }
+                pb::api_request::Op::GetTopics(_) => {
+                    let rows = sqlx::query_scalar::<_, String>(
+                        "SELECT name FROM topics ORDER BY name ASC",
+                    )
+                    .fetch_all(&state.db)
+                    .await
+                    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+                    pb::ApiResponse {
+                        result: Some(pb::api_response::Result::Topics(pb::GetTopicsResponse {
+                            topics: rows,
+                        })),
+                    }
+                }
+                pb::api_request::Op::GetTopicClasses(_) => {
+                    let rows = sqlx::query_as::<_, (i64, String, String)>(
+                        "SELECT id, name, tipcard_type FROM topic_classes ORDER BY name ASC",
+                    )
+                    .fetch_all(&state.db)
+                    .await
+                    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+                    pb::ApiResponse {
+                        result: Some(pb::api_response::Result::TopicClasses(
+                            pb::GetTopicClassesResponse {
+                                classes: rows
+                                    .into_iter()
+                                    .map(|row| pb::TopicClass {
+                                        id: row.0,
+                                        name: row.1,
+                                        tipcard_type: row.2,
+                                    })
+                                    .collect(),
+                            },
+                        )),
+                    }
+                }
+                pb::api_request::Op::GetSettings(_) => pb::ApiResponse {
+                    result: Some(pb::api_response::Result::Settings(current_settings(&state))),
+                },
+                pb::api_request::Op::UpdateSettings(req) => {
+                    update_settings_file(&state, req)?;
+                    empty_response()
+                }
+                pb::api_request::Op::CreateApiKey(req) => {
+                    let api_key = create_raw_api_key(&state, Some(req.client_name)).await?;
+                    pb::ApiResponse {
+                        result: Some(pb::api_response::Result::ApiKeyCreated(pb::ApiKeyCreated {
+                            api_key,
+                        })),
+                    }
+                }
+                pb::api_request::Op::ListApiKeys(_) => pb::ApiResponse {
+                    result: Some(pb::api_response::Result::ApiKeys(
+                        list_api_keys_pb(&state).await?,
+                    )),
+                },
+                pb::api_request::Op::DeleteApiKey(req) => {
+                    delete_api_key_by_id(&state, req.id).await?;
+                    empty_response()
+                }
+                pb::api_request::Op::ListAdminTopics(_) => pb::ApiResponse {
+                    result: Some(pb::api_response::Result::AdminTopics(
+                        list_admin_topics_pb(&state).await?,
+                    )),
+                },
+                pb::api_request::Op::ListTipcards(_) => pb::ApiResponse {
+                    result: Some(pb::api_response::Result::Tipcards(
+                        list_tipcards_pb(&state).await?,
+                    )),
+                },
+                pb::api_request::Op::DeleteTipcard(req) => {
+                    delete_tipcard_by_id(&state, req.id).await?;
+                    empty_response()
+                }
+                pb::api_request::Op::GetSummary(_) => pb::ApiResponse {
+                    result: Some(pb::api_response::Result::Summary(
+                        app_summary_pb(&state).await?,
+                    )),
+                },
+                pb::api_request::Op::ListAppTopics(_) => pb::ApiResponse {
+                    result: Some(pb::api_response::Result::AppTopics(
+                        app_topics_pb(&state).await?,
+                    )),
+                },
+                pb::api_request::Op::UpdateTopic(req) => {
+                    update_topic_prompt(&state, req).await?;
+                    empty_response()
+                }
+                pb::api_request::Op::BootstrapApiKey(_) => unreachable!(),
+            }
+        }
+    };
+
+    Ok(protobuf_response(&response))
 }
 
 pub async fn apply_review(
@@ -538,57 +1113,6 @@ pub async fn apply_review(
     }
 }
 
-pub async fn review_card(
-    State(state): State<Arc<AppState>>,
-    body: Bytes,
-) -> Result<StatusCode, (StatusCode, String)> {
-    let payload =
-        pb::ReviewPayload::decode(body).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    apply_review(
-        &state,
-        payload.card_id,
-        payload.grade as u8,
-        &payload.action,
-    )
-    .await?;
-    Ok(StatusCode::OK)
-}
-
 fn is_queue_tipcard(tipcard_type: &str) -> bool {
     matches!(tipcard_type, "casual_tip" | "repeatable_tip")
-}
-
-pub async fn get_topics(
-    State(state): State<Arc<AppState>>,
-) -> Result<Response, (StatusCode, String)> {
-    let rows = sqlx::query_scalar::<_, String>("SELECT name FROM topics ORDER BY name ASC")
-        .fetch_all(&state.db)
-        .await
-        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let topics = rows;
-    let response = pb::GetTopicsResponse { topics };
-    Ok(protobuf_response(&response))
-}
-
-pub async fn get_topic_classes(
-    State(state): State<Arc<AppState>>,
-) -> Result<Response, (StatusCode, String)> {
-    let rows = sqlx::query_as::<_, (i64, String, String)>(
-        "SELECT id, name, tipcard_type FROM topic_classes ORDER BY name ASC",
-    )
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let classes = rows
-        .into_iter()
-        .map(|r| pb::TopicClass {
-            id: r.0,
-            name: r.1,
-            tipcard_type: r.2,
-        })
-        .collect();
-    let response = pb::GetTopicClassesResponse { classes };
-    Ok(protobuf_response(&response))
 }

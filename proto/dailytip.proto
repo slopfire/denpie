@@ -7,6 +7,7 @@ message TipsQuery {
     string topics = 2; // comma separated
     string topic_class = 3; // optional, defaults to "default"
     string tipcard_type = 4; // optional class type: "srs_tip", "casual_tip", or "repeatable_tip"
+    repeated int64 exclude_card_ids = 5; // optional: suppress cards already visible in a client flow
 }
 
 message TipCardResponse {
@@ -40,4 +41,161 @@ message TopicClass {
 
 message GetTopicClassesResponse {
     repeated TopicClass classes = 1;
+}
+
+message Empty {}
+
+message ApiRequest {
+    string auth = 1; // raw sk_live_* API key for every operation except bootstrap_api_key
+
+    oneof op {
+        BootstrapApiKeyRequest bootstrap_api_key = 2;
+        TipsQuery tips = 3;
+        ReviewPayload review = 4;
+        Empty get_topics = 5;
+        Empty get_topic_classes = 6;
+        Empty get_settings = 7;
+        UpdateSettingsRequest update_settings = 8;
+        CreateApiKeyRequest create_api_key = 9;
+        Empty list_api_keys = 10;
+        DeleteByIdRequest delete_api_key = 11;
+        Empty list_admin_topics = 12;
+        Empty list_tipcards = 13;
+        DeleteByIdRequest delete_tipcard = 14;
+        Empty get_summary = 15;
+        Empty list_app_topics = 16;
+        UpdateTopicRequest update_topic = 17;
+    }
+}
+
+message ApiResponse {
+    oneof result {
+        ApiKeyCreated api_key_created = 1;
+        TipsResponse tips = 2;
+        Empty ok = 3;
+        GetTopicsResponse topics = 4;
+        GetTopicClassesResponse topic_classes = 5;
+        Settings settings = 6;
+        ApiKeys api_keys = 7;
+        AdminTopics admin_topics = 8;
+        Tipcards tipcards = 9;
+        AppSummary summary = 10;
+        AppTopics app_topics = 11;
+    }
+}
+
+message BootstrapApiKeyRequest {
+    string admin_token = 1;
+    string client_name = 2;
+}
+
+message CreateApiKeyRequest {
+    string client_name = 1;
+}
+
+message ApiKeyCreated {
+    string api_key = 1;
+}
+
+message DeleteByIdRequest {
+    int64 id = 1;
+}
+
+message Settings {
+    string model = 1;
+    string compress_model = 2;
+    string template = 3;
+    string api_key = 4;
+    string base_url = 5;
+    string compress_base_url = 6;
+    string reasoning_effort = 7;
+    string compress_reasoning_effort = 8;
+    string color_scheme = 9;
+    bool autoupdate_enabled = 10;
+    string autoupdate_repo = 11;
+    string autoupdate_branch = 12;
+    uint64 autoupdate_check_interval_secs = 13;
+    string autoupdate_command = 14;
+    string autoupdate_last_seen_sha = 15;
+}
+
+message UpdateSettingsRequest {
+    optional string model = 1;
+    optional string compress_model = 2;
+    optional string template = 3;
+    optional string api_key = 4;
+    optional string base_url = 5;
+    optional string compress_base_url = 6;
+    optional string reasoning_effort = 7;
+    optional string compress_reasoning_effort = 8;
+    optional string color_scheme = 9;
+    optional bool autoupdate_enabled = 10;
+    optional string autoupdate_repo = 11;
+    optional string autoupdate_branch = 12;
+    optional uint64 autoupdate_check_interval_secs = 13;
+    optional string autoupdate_command = 14;
+}
+
+message ApiKeyInfo {
+    int64 id = 1;
+    string client_name = 2;
+    string created_at = 3;
+}
+
+message ApiKeys {
+    repeated ApiKeyInfo keys = 1;
+}
+
+message AdminTopic {
+    int64 id = 1;
+    string name = 2;
+    string prompt_template = 3;
+}
+
+message AdminTopics {
+    repeated AdminTopic topics = 1;
+}
+
+message TipcardInfo {
+    int64 id = 1;
+    string topic_name = 2;
+    string full_content = 3;
+    string compressed_content = 4;
+    string created_at = 5;
+    string tipcard_type = 6;
+    string topic_class = 7;
+    string status = 8;
+    string next_review_at = 9;
+    uint32 repeat_count = 10;
+}
+
+message Tipcards {
+    repeated TipcardInfo cards = 1;
+}
+
+message AppSummary {
+    int64 topics = 1;
+    int64 total_cards = 2;
+    int64 due_cards = 3;
+    int64 active_cards = 4;
+}
+
+message AppTopicInfo {
+    int64 id = 1;
+    string name = 2;
+    string class_name = 3;
+    string tipcard_type = 4;
+    string prompt_template = 5;
+    int64 total_cards = 6;
+    int64 due_cards = 7;
+    int64 completed_cards = 8;
+}
+
+message AppTopics {
+    repeated AppTopicInfo topics = 1;
+}
+
+message UpdateTopicRequest {
+    int64 id = 1;
+    optional string prompt_template = 2;
 }

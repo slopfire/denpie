@@ -1,5 +1,5 @@
 use axum::{
-    middleware::from_fn_with_state,
+    response::Html,
     routing::{get, post},
     Router,
 };
@@ -16,10 +16,8 @@ use tower_sessions::{Expiry, SessionManagerLayer};
 use tower_sessions_sqlx_store::SqliteStore;
 
 mod api;
-mod auth;
 mod autoupdate;
 mod context;
-mod dashboard;
 mod llm;
 mod srs;
 #[cfg(test)]
@@ -28,7 +26,6 @@ mod tests;
 pub struct AppState {
     pub db: SqlitePool,
     pub settings_path: PathBuf,
-    pub template_dir: PathBuf,
 }
 
 #[tokio::main]
@@ -110,9 +107,6 @@ async fn main() {
     let shared_state = Arc::new(AppState {
         db: pool,
         settings_path,
-        template_dir: std::env::var_os("DAILYTIP_TEMPLATE_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("templates")),
     });
     autoupdate::spawn(shared_state.settings_path.clone());
     let session_layer = SessionManagerLayer::new(session_store)
@@ -134,54 +128,15 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
     shared_state: Arc<AppState>,
     session_layer: SessionManagerLayer<S>,
 ) -> Router {
-    let api_routes = Router::new()
-        .route("/tips", post(api::get_tips))
-        .route("/topics", get(api::get_topics))
-        .route("/topic-classes", get(api::get_topic_classes))
-        .route("/review", post(api::review_card))
-        .route_layer(from_fn_with_state(
-            shared_state.clone(),
-            auth::verify_api_key,
-        ));
-
-    let admin_routes = Router::new()
-        .route(
-            "/admin/settings",
-            get(dashboard::get_settings).post(dashboard::update_settings),
-        )
-        .route(
-            "/admin/keys",
-            get(dashboard::list_api_keys)
-                .post(dashboard::create_api_key)
-                .delete(dashboard::delete_api_key),
-        )
-        .route("/admin/topics", get(dashboard::list_topics))
-        .route("/admin/topic-classes", get(dashboard::list_topic_classes))
-        .route(
-            "/admin/tipcards",
-            get(dashboard::list_tipcards).delete(dashboard::delete_tipcard),
-        )
-        .route_layer(axum::middleware::from_fn(auth::require_session));
-
-    let app_routes = Router::new()
-        .route("/app/summary", get(dashboard::app_summary))
-        .route(
-            "/app/topics",
-            get(dashboard::app_topics).patch(dashboard::update_topic),
-        )
-        .route("/app/tips", post(dashboard::app_tips))
-        .route("/app/review", post(dashboard::app_review))
-        .route_layer(axum::middleware::from_fn(auth::require_session));
-
     Router::new()
-        .merge(api_routes)
-        .merge(admin_routes)
-        .merge(app_routes)
-        .route("/", get(dashboard::app_index))
-        .route("/admin", get(dashboard::index))
-        .route("/auth/login", post(auth::login))
+        .route("/", get(root_page))
+        .route("/api", post(api::unified_api))
         .layer(session_layer)
         .with_state(shared_state)
+}
+
+async fn root_page() -> Html<&'static str> {
+    Html(include_str!("../templates/app.html"))
 }
 
 pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {

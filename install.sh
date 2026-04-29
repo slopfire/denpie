@@ -101,7 +101,6 @@ write_service() {
         -e "s|^Environment=DAILYTIP_BIND_ADDR=.*|Environment=DAILYTIP_BIND_ADDR=$BIND_ADDR|" \
         -e "s|^Environment=DAILYTIP_DATA_DIR=.*|Environment=DAILYTIP_DATA_DIR=$DATA_DIR|" \
         -e "s|^Environment=DAILYTIP_SCHEMA_PATH=.*|Environment=DAILYTIP_SCHEMA_PATH=$SHARE_DIR/schema.sql|" \
-        -e "s|^Environment=DAILYTIP_TEMPLATE_DIR=.*|Environment=DAILYTIP_TEMPLATE_DIR=$SHARE_DIR/templates|" \
         -e "s|^ExecStart=.*|ExecStart=$BIN_DIR/$APP_NAME|" \
         -e "s|^ReadWritePaths=.*|ReadWritePaths=$DATA_DIR|" \
         deploy/dailytipdraft.service > "$tmp_file"
@@ -163,6 +162,7 @@ install_app() {
 
     echo "Installed $APP_NAME"
     echo "URL: http://$BIND_ADDR/"
+    echo "API: http://$BIND_ADDR/api"
     echo "Logs: journalctl -u $APP_NAME -f"
     echo "Data: $DATA_DIR"
 }

@@ -45,11 +45,7 @@ mod tests {
         .unwrap();
 
         let db = setup_db().await;
-        let state = Arc::new(AppState {
-            db,
-            settings_path,
-            template_dir: PathBuf::from("templates"),
-        });
+        let state = Arc::new(AppState { db, settings_path });
         let session_store = MemoryStore::default();
         let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
         let app = build_app(state, session_layer);
@@ -75,475 +71,372 @@ mod tests {
         std::env::temp_dir().join(format!("dailytipdraft-test-settings-{suffix}.yaml"))
     }
 
-    // ──────────────────────────────────────────────
-    //  Auth Tests
-    // ──────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_login_success() {
-        let (url, client) = spawn_test_server().await;
-        let res = client
-            .post(format!("{url}/auth/login"))
-            .json(&serde_json::json!({ "admin_token": "test_admin_token_xyz" }))
+    async fn bootstrap_api_key(url: &str, client: &reqwest::Client, client_name: &str) -> String {
+        let request = crate::api::pb::ApiRequest {
+            auth: "".into(),
+            op: Some(crate::api::pb::api_request::Op::BootstrapApiKey(
+                crate::api::pb::BootstrapApiKeyRequest {
+                    admin_token: "test_admin_token_xyz".into(),
+                    client_name: client_name.into(),
+                },
+            )),
+        };
+        let response = client
+            .post(format!("{url}/api"))
+            .header("Content-Type", "application/x-protobuf")
+            .body(request.encode_to_vec())
             .send()
             .await
             .unwrap();
-        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let response =
+            crate::api::pb::ApiResponse::decode(response.bytes().await.unwrap()).unwrap();
+        match response.result.unwrap() {
+            crate::api::pb::api_response::Result::ApiKeyCreated(created) => created.api_key,
+            other => panic!("unexpected response: {:?}", other),
+        }
     }
 
-    #[tokio::test]
-    async fn test_login_wrong_token() {
-        let (url, client) = spawn_test_server().await;
-        let res = client
-            .post(format!("{url}/auth/login"))
-            .json(&serde_json::json!({ "admin_token": "wrong_token_lol" }))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(res.status(), reqwest::StatusCode::UNAUTHORIZED);
-    }
-
-    #[tokio::test]
-    async fn test_admin_routes_require_session() {
-        let (url, client) = spawn_test_server().await;
-        // No login performed — all admin routes should 401
-        let settings = client
-            .get(format!("{url}/admin/settings"))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(settings.status(), reqwest::StatusCode::UNAUTHORIZED);
-
-        let keys = client
-            .get(format!("{url}/admin/keys"))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(keys.status(), reqwest::StatusCode::UNAUTHORIZED);
-
-        let create = client
-            .post(format!("{url}/admin/keys"))
-            .json(&serde_json::json!({ "client_name": "nope" }))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(create.status(), reqwest::StatusCode::UNAUTHORIZED);
-
-        let app_summary = client
-            .get(format!("{url}/app/summary"))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(app_summary.status(), reqwest::StatusCode::UNAUTHORIZED);
-    }
-
-    // ──────────────────────────────────────────────
-    //  Admin Dashboard HTML
-    // ──────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_root_app_page_serves_html() {
-        let (url, client) = spawn_test_server().await;
-        let res = client.get(format!("{url}/")).send().await.unwrap();
-        assert_eq!(res.status(), reqwest::StatusCode::OK);
-        let body = res.text().await.unwrap();
-        assert!(
-            body.contains("MindLift SRS"),
-            "Root app should contain the app title"
-        );
-        assert!(
-            body.contains("admin-token"),
-            "Root app should contain the login input"
-        );
-        assert!(
-            body.contains("theme-select"),
-            "Root app should contain color scheme controls"
-        );
-        assert!(
-            body.contains("flow-list-btn"),
-            "Root app should contain the flow layout toggle"
-        );
-        assert!(
-            body.contains("renderMarkdown"),
-            "Root app should render tipcard markdown"
-        );
-        assert!(
-            body.contains("markdown-content"),
-            "Root app should include markdown tipcard styles"
-        );
-        assert!(
-            !body.contains("tips-class"),
-            "Root app should not expose a card class text field"
-        );
-        assert!(
-            !body.contains("<option value=\"srs_tip\">"),
-            "Root app should not expose SRS as a card class"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_admin_page_serves_html() {
-        let (url, client) = spawn_test_server().await;
-        let res = client.get(format!("{url}/admin")).send().await.unwrap();
-        assert_eq!(res.status(), reqwest::StatusCode::OK);
-        let body = res.text().await.unwrap();
-        assert!(
-            body.contains("DAILY"),
-            "Admin page should contain the app title"
-        );
-        assert!(
-            body.contains("TIP"),
-            "Admin page should contain the app title part 2"
-        );
-        assert!(
-            body.contains("adminTokenInput"),
-            "Admin page should contain the login input"
-        );
-        assert!(
-            body.contains("renderMarkdown"),
-            "Admin page should render tipcard markdown"
-        );
-        assert!(
-            body.contains("markdown-content"),
-            "Admin page should include markdown tipcard styles"
-        );
-    }
-
-    // ──────────────────────────────────────────────
-    //  Settings CRUD
-    // ──────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_get_and_update_settings() {
-        let (url, client) = spawn_test_server().await;
-
-        // Login first
+    async fn post_api(
+        url: &str,
+        client: &reqwest::Client,
+        request: crate::api::pb::ApiRequest,
+    ) -> reqwest::Response {
         client
-            .post(format!("{url}/auth/login"))
-            .json(&serde_json::json!({ "admin_token": "test_admin_token_xyz" }))
+            .post(format!("{url}/api"))
+            .header("Content-Type", "application/x-protobuf")
+            .body(request.encode_to_vec())
             .send()
             .await
-            .unwrap();
+            .unwrap()
+    }
 
-        // GET defaults
+    #[tokio::test]
+    async fn test_legacy_api_routes_are_removed() {
+        let (url, client) = spawn_test_server().await;
+        let routes = [
+            ("GET", "/admin"),
+            ("POST", "/auth/login"),
+            ("GET", "/admin/settings"),
+            ("POST", "/admin/keys"),
+            ("GET", "/app/summary"),
+            ("POST", "/tips"),
+            ("GET", "/topics"),
+            ("GET", "/topic-classes"),
+            ("POST", "/review"),
+        ];
+
+        for (method, path) in routes {
+            let request = match method {
+                "GET" => client.get(format!("{url}{path}")),
+                "POST" => client.post(format!("{url}{path}")),
+                _ => unreachable!(),
+            };
+            let response = request.send().await.unwrap();
+            assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND, "{path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_root_page_serves_html() {
+        let (url, client) = spawn_test_server().await;
+        let response = client.get(format!("{url}/")).send().await.unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let body = response.text().await.unwrap();
+        assert!(body.contains("Daily Tip"));
+        assert!(body.contains("POST /api") || body.contains("protobuf"));
+        assert!(body.contains("protobufjs"));
+    }
+
+    #[tokio::test]
+    async fn test_unified_protobuf_api_bootstrap_and_manage() {
+        let (url, client) = spawn_test_server().await;
+
+        let bootstrap = crate::api::pb::ApiRequest {
+            auth: "".into(),
+            op: Some(crate::api::pb::api_request::Op::BootstrapApiKey(
+                crate::api::pb::BootstrapApiKeyRequest {
+                    admin_token: "test_admin_token_xyz".into(),
+                    client_name: "unified".into(),
+                },
+            )),
+        };
         let res = client
-            .get(format!("{url}/admin/settings"))
+            .post(format!("{url}/api"))
+            .header("Content-Type", "application/x-protobuf")
+            .body(bootstrap.encode_to_vec())
             .send()
             .await
             .unwrap();
         assert_eq!(res.status(), reqwest::StatusCode::OK);
-        let data: serde_json::Value = res.json().await.unwrap();
-        assert!(data["model"].as_str().is_some());
-        assert!(data["compress_model"].as_str().is_some());
-        assert!(data["template"].as_str().is_some());
-        assert_eq!(data["reasoning_effort"], "none");
-        assert_eq!(data["compress_reasoning_effort"], "none");
-        assert_eq!(data["color_scheme"], "default");
-        assert_eq!(data["autoupdate_enabled"], false);
-        assert_eq!(data["autoupdate_repo"], "slopfire/dailytipdraft");
-        assert_eq!(data["autoupdate_branch"], "main");
-        assert_eq!(data["autoupdate_check_interval_secs"], 3600);
-        assert_eq!(data["autoupdate_command"], "");
+        let resp = crate::api::pb::ApiResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let api_key = match resp.result.unwrap() {
+            crate::api::pb::api_response::Result::ApiKeyCreated(created) => created.api_key,
+            other => panic!("unexpected response: {:?}", other),
+        };
+        assert!(api_key.starts_with("sk_live_"));
 
-        // POST update
-        let update_res = client
-            .post(format!("{url}/admin/settings"))
-            .json(&serde_json::json!({
-                "model": "google/gemini-2.5-pro",
-                "compress_model": "google/gemini-3.1-flash-lite-preview",
-                "template": "Tell me a fun fact about {topic}.",
-                "api_key": "test-api-key-123",
-                "base_url": "https://openrouter.ai/api/v1",
-                "compress_base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-                "reasoning_effort": "low",
-                "compress_reasoning_effort": "none",
-                "autoupdate_enabled": true,
-                "autoupdate_repo": "owner/repo",
-                "autoupdate_branch": "main",
-                "autoupdate_check_interval_secs": 600,
-                "autoupdate_command": "/usr/local/bin/dailytipdraft-update"
-            }))
-            .send()
-            .await
-            .unwrap();
-        let update_status = update_res.status();
-        let update_body = update_res.text().await.unwrap_or_default();
-        assert_eq!(
-            update_status,
-            reqwest::StatusCode::OK,
-            "Settings update failed: body={}",
-            update_body
-        );
-
-        // GET again to verify persistence
+        let update_settings = crate::api::pb::ApiRequest {
+            auth: api_key.clone(),
+            op: Some(crate::api::pb::api_request::Op::UpdateSettings(
+                crate::api::pb::UpdateSettingsRequest {
+                    model: Some("google/gemini-2.5-pro".into()),
+                    color_scheme: Some("solarized".into()),
+                    ..Default::default()
+                },
+            )),
+        };
         let res = client
-            .get(format!("{url}/admin/settings"))
+            .post(format!("{url}/api"))
+            .body(update_settings.encode_to_vec())
             .send()
             .await
             .unwrap();
-        let data: serde_json::Value = res.json().await.unwrap();
-        assert_eq!(data["model"], "google/gemini-2.5-pro");
-        assert_eq!(
-            data["compress_model"],
-            "google/gemini-3.1-flash-lite-preview"
-        );
-        assert_eq!(data["template"], "Tell me a fun fact about {topic}.");
-        assert_eq!(
-            data["compress_base_url"],
-            "https://generativelanguage.googleapis.com/v1beta/openai"
-        );
-        assert_eq!(data["reasoning_effort"], "low");
-        assert_eq!(data["compress_reasoning_effort"], "none");
-        assert_eq!(data["autoupdate_enabled"], true);
-        assert_eq!(data["autoupdate_repo"], "owner/repo");
-        assert_eq!(data["autoupdate_branch"], "main");
-        assert_eq!(data["autoupdate_check_interval_secs"], 600);
-        assert_eq!(
-            data["autoupdate_command"],
-            "/usr/local/bin/dailytipdraft-update"
-        );
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
 
-        let theme_update_res = client
-            .post(format!("{url}/admin/settings"))
-            .json(&serde_json::json!({
-                "color_scheme": "dracula"
-            }))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(theme_update_res.status(), reqwest::StatusCode::OK);
-
+        let get_settings = crate::api::pb::ApiRequest {
+            auth: api_key.clone(),
+            op: Some(crate::api::pb::api_request::Op::GetSettings(
+                crate::api::pb::Empty {},
+            )),
+        };
         let res = client
-            .get(format!("{url}/admin/settings"))
+            .post(format!("{url}/api"))
+            .body(get_settings.encode_to_vec())
             .send()
             .await
             .unwrap();
-        let data: serde_json::Value = res.json().await.unwrap();
-        assert_eq!(data["model"], "google/gemini-2.5-pro");
-        assert_eq!(data["color_scheme"], "dracula");
-    }
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        let resp = crate::api::pb::ApiResponse::decode(res.bytes().await.unwrap()).unwrap();
+        match resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Settings(settings) => {
+                assert_eq!(settings.model, "google/gemini-2.5-pro");
+                assert_eq!(settings.color_scheme, "solarized");
+            }
+            other => panic!("unexpected response: {:?}", other),
+        }
 
-    // ──────────────────────────────────────────────
-    //  API Key Management
-    // ──────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn test_key_create_list_delete() {
-        let (url, client) = spawn_test_server().await;
-        client
-            .post(format!("{url}/auth/login"))
-            .json(&serde_json::json!({ "admin_token": "test_admin_token_xyz" }))
+        let tips = crate::api::pb::ApiRequest {
+            auth: api_key,
+            op: Some(crate::api::pb::api_request::Op::Tips(
+                crate::api::pb::TipsQuery {
+                    count: 1,
+                    topics: "rust".into(),
+                    topic_class: "default".into(),
+                    tipcard_type: "srs_tip".into(),
+                    exclude_card_ids: vec![],
+                },
+            )),
+        };
+        let res = client
+            .post(format!("{url}/api"))
+            .body(tips.encode_to_vec())
             .send()
             .await
             .unwrap();
-
-        // Create two keys
-        let key1: String = client
-            .post(format!("{url}/admin/keys"))
-            .json(&serde_json::json!({ "client_name": "widget" }))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        assert!(
-            key1.starts_with("sk_live_"),
-            "Key should have sk_live_ prefix"
-        );
-
-        let _key2: String = client
-            .post(format!("{url}/admin/keys"))
-            .json(&serde_json::json!({ "client_name": "telegram_bot" }))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-
-        // List — should be 2
-        let keys: Vec<crate::dashboard::ApiKeyInfo> = client
-            .get(format!("{url}/admin/keys"))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        assert_eq!(keys.len(), 2);
-
-        // Delete one
-        let id_to_delete = keys.iter().find(|k| k.client_name == "widget").unwrap().id;
-        let del = client
-            .delete(format!("{url}/admin/keys"))
-            .json(&serde_json::json!({ "id": id_to_delete }))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(del.status(), reqwest::StatusCode::OK);
-
-        // List — should be 1
-        let keys: Vec<crate::dashboard::ApiKeyInfo> = client
-            .get(format!("{url}/admin/keys"))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        assert_eq!(keys.len(), 1);
-        assert_eq!(keys[0].client_name, "telegram_bot");
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        let resp = crate::api::pb::ApiResponse::decode(res.bytes().await.unwrap()).unwrap();
+        match resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Tips(tips) => {
+                assert_eq!(tips.tips.len(), 1);
+                assert_eq!(tips.tips[0].topic, "rust");
+            }
+            other => panic!("unexpected response: {:?}", other),
+        }
     }
 
     #[tokio::test]
-    async fn test_browser_app_tip_review_flow() {
+    async fn test_unified_tip_review_flow() {
         let (url, client) = spawn_test_server().await;
-        client
-            .post(format!("{url}/auth/login"))
-            .json(&serde_json::json!({ "admin_token": "test_admin_token_xyz" }))
-            .send()
-            .await
-            .unwrap();
+        let api_key = bootstrap_api_key(&url, &client, "browser_flow").await;
 
-        let tips: serde_json::Value = client
-            .post(format!("{url}/app/tips"))
-            .json(&serde_json::json!({
-                "topics": "rust",
-                "topic_class": "casual",
-                "tipcard_type": "casual_tip",
-                "count": 1
-            }))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Tips(
+                    crate::api::pb::TipsQuery {
+                        count: 1,
+                        topics: "rust".into(),
+                        topic_class: "casual".into(),
+                        tipcard_type: "casual_tip".into(),
+                        exclude_card_ids: vec![],
+                    },
+                )),
+            },
+        )
+        .await;
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        let resp = crate::api::pb::ApiResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let first = match resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Tips(tips) => tips.tips[0].clone(),
+            other => panic!("unexpected response: {:?}", other),
+        };
+        assert_eq!(first.topic, "rust");
+        assert_eq!(first.topic_class, "casual");
+        assert_eq!(first.tipcard_type, "casual_tip");
 
-        let first = tips.as_array().unwrap().first().unwrap();
-        assert_eq!(first["topic"], "rust");
-        assert_eq!(first["topic_class"], "casual");
-        assert_eq!(first["tipcard_type"], "casual_tip");
-
-        let review = client
-            .post(format!("{url}/app/review"))
-            .json(&serde_json::json!({
-                "card_id": first["id"],
-                "action": "acknowledge"
-            }))
-            .send()
-            .await
-            .unwrap();
+        let review = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Review(
+                    crate::api::pb::ReviewPayload {
+                        card_id: first.id,
+                        grade: 3,
+                        action: "acknowledge".into(),
+                    },
+                )),
+            },
+        )
+        .await;
         assert_eq!(review.status(), reqwest::StatusCode::OK);
 
-        let summary: serde_json::Value = client
-            .get(format!("{url}/app/summary"))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        assert_eq!(summary["topics"], 1);
-        assert_eq!(summary["total_cards"], 1);
+        let summary = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key,
+                op: Some(crate::api::pb::api_request::Op::GetSummary(
+                    crate::api::pb::Empty {},
+                )),
+            },
+        )
+        .await;
+        assert_eq!(summary.status(), reqwest::StatusCode::OK);
+        let resp = crate::api::pb::ApiResponse::decode(summary.bytes().await.unwrap()).unwrap();
+        match resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Summary(summary) => {
+                assert_eq!(summary.topics, 1);
+                assert_eq!(summary.total_cards, 1);
+            }
+            other => panic!("unexpected response: {:?}", other),
+        }
     }
 
     #[tokio::test]
-    async fn test_browser_app_can_delete_tipcard() {
+    async fn test_unified_api_can_delete_tipcard() {
         let (url, client) = spawn_test_server().await;
-        client
-            .post(format!("{url}/auth/login"))
-            .json(&serde_json::json!({ "admin_token": "test_admin_token_xyz" }))
-            .send()
-            .await
-            .unwrap();
+        let api_key = bootstrap_api_key(&url, &client, "delete_flow").await;
 
-        let tips: serde_json::Value = client
-            .post(format!("{url}/app/tips"))
-            .json(&serde_json::json!({
-                "topics": "rust",
-                "topic_class": "repeatable",
-                "tipcard_type": "repeatable_tip",
-                "count": 1
-            }))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        let card_id = tips.as_array().unwrap().first().unwrap()["id"]
-            .as_i64()
-            .unwrap();
+        let tips = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Tips(
+                    crate::api::pb::TipsQuery {
+                        count: 1,
+                        topics: "rust".into(),
+                        topic_class: "repeatable".into(),
+                        tipcard_type: "repeatable_tip".into(),
+                        exclude_card_ids: vec![],
+                    },
+                )),
+            },
+        )
+        .await;
+        let resp = crate::api::pb::ApiResponse::decode(tips.bytes().await.unwrap()).unwrap();
+        let card_id = match resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Tips(tips) => tips.tips[0].id,
+            other => panic!("unexpected response: {:?}", other),
+        };
 
-        let delete = client
-            .delete(format!("{url}/admin/tipcards"))
-            .json(&serde_json::json!({ "id": card_id }))
-            .send()
-            .await
-            .unwrap();
+        let delete = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::DeleteTipcard(
+                    crate::api::pb::DeleteByIdRequest { id: card_id },
+                )),
+            },
+        )
+        .await;
         assert_eq!(delete.status(), reqwest::StatusCode::OK);
 
-        let cards: Vec<crate::dashboard::TipcardInfo> = client
-            .get(format!("{url}/admin/tipcards"))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        assert!(cards.iter().all(|card| card.id != card_id));
+        let cards = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::ListTipcards(
+                    crate::api::pb::Empty {},
+                )),
+            },
+        )
+        .await;
+        let resp = crate::api::pb::ApiResponse::decode(cards.bytes().await.unwrap()).unwrap();
+        match resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Tipcards(cards) => {
+                assert!(cards.cards.iter().all(|card| card.id != card_id));
+            }
+            other => panic!("unexpected response: {:?}", other),
+        }
 
-        let review = client
-            .post(format!("{url}/app/review"))
-            .json(&serde_json::json!({ "card_id": card_id, "action": "dismiss" }))
-            .send()
-            .await
-            .unwrap();
+        let review = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key,
+                op: Some(crate::api::pb::api_request::Op::Review(
+                    crate::api::pb::ReviewPayload {
+                        card_id,
+                        grade: 3,
+                        action: "dismiss".into(),
+                    },
+                )),
+            },
+        )
+        .await;
         assert_eq!(review.status(), reqwest::StatusCode::NOT_FOUND);
     }
 
-    // ──────────────────────────────────────────────
-    //  API Key Auth (tips/review endpoints)
-    // ──────────────────────────────────────────────
-
     #[tokio::test]
-    async fn test_api_with_invalid_key() {
+    async fn test_unified_api_with_invalid_key() {
         let (url, client) = spawn_test_server().await;
-
-        let tips_query = crate::api::pb::TipsQuery {
-            count: 1,
-            topics: "rust".into(),
-            topic_class: "".into(),
-            tipcard_type: "".into(),
-        };
-        let res = client
-            .post(format!("{url}/tips"))
-            .header("Authorization", "sk_live_totallyFakeKeyBruh")
-            .body(tips_query.encode_to_vec())
-            .send()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: "sk_live_totallyFakeKeyBruh".into(),
+                op: Some(crate::api::pb::api_request::Op::Tips(
+                    crate::api::pb::TipsQuery {
+                        count: 1,
+                        topics: "rust".into(),
+                        topic_class: "".into(),
+                        tipcard_type: "".into(),
+                        exclude_card_ids: vec![],
+                    },
+                )),
+            },
+        )
+        .await;
         assert_eq!(res.status(), reqwest::StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
-    async fn test_api_missing_auth_header() {
+    async fn test_unified_api_missing_auth() {
         let (url, client) = spawn_test_server().await;
-
-        let tips_query = crate::api::pb::TipsQuery {
-            count: 1,
-            topics: "rust".into(),
-            topic_class: "".into(),
-            tipcard_type: "".into(),
-        };
-        let res = client
-            .post(format!("{url}/tips"))
-            .body(tips_query.encode_to_vec())
-            .send()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: "".into(),
+                op: Some(crate::api::pb::api_request::Op::Tips(
+                    crate::api::pb::TipsQuery {
+                        count: 1,
+                        topics: "rust".into(),
+                        topic_class: "".into(),
+                        tipcard_type: "".into(),
+                        exclude_card_ids: vec![],
+                    },
+                )),
+            },
+        )
+        .await;
         assert_eq!(res.status(), reqwest::StatusCode::UNAUTHORIZED);
     }
 
@@ -554,24 +447,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_api_flow() {
         let (url, client) = spawn_test_server().await;
-
-        // Login and create a key
-        client
-            .post(format!("{url}/auth/login"))
-            .json(&serde_json::json!({ "admin_token": "test_admin_token_xyz" }))
-            .send()
-            .await
-            .unwrap();
-
-        let api_key: String = client
-            .post(format!("{url}/admin/keys"))
-            .json(&serde_json::json!({ "client_name": "flow_test" }))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
+        let api_key = bootstrap_api_key(&url, &client, "flow_test").await;
 
         // Fetch tips
         let tips_query = crate::api::pb::TipsQuery {
@@ -579,17 +455,24 @@ mod tests {
             topics: "rust".into(),
             topic_class: "".into(),
             tipcard_type: "".into(),
+            exclude_card_ids: vec![],
         };
-        let res = client
-            .post(format!("{url}/tips"))
-            .header("Authorization", &api_key)
-            .body(tips_query.encode_to_vec())
-            .send()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Tips(tips_query)),
+            },
+        )
+        .await;
         assert_eq!(res.status(), reqwest::StatusCode::OK);
 
-        let tips_resp = crate::api::pb::TipsResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let api_resp = crate::api::pb::ApiResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let tips_resp = match api_resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Tips(tips) => tips,
+            other => panic!("unexpected response: {:?}", other),
+        };
         assert_eq!(tips_resp.tips.len(), 1);
         let card_id = tips_resp.tips[0].id;
         assert!(!tips_resp.tips[0].full_content.is_empty());
@@ -602,13 +485,15 @@ mod tests {
             grade: 4,
             action: "".into(),
         };
-        let res = client
-            .post(format!("{url}/review"))
-            .header("Authorization", &api_key)
-            .body(review.encode_to_vec())
-            .send()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Review(review)),
+            },
+        )
+        .await;
         assert_eq!(res.status(), reqwest::StatusCode::OK);
 
         // Review a card that doesn't exist — should 404
@@ -617,13 +502,15 @@ mod tests {
             grade: 3,
             action: "".into(),
         };
-        let res = client
-            .post(format!("{url}/review"))
-            .header("Authorization", &api_key)
-            .body(ghost_review.encode_to_vec())
-            .send()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key,
+                op: Some(crate::api::pb::api_request::Op::Review(ghost_review)),
+            },
+        )
+        .await;
         assert_eq!(res.status(), reqwest::StatusCode::NOT_FOUND);
     }
 
@@ -634,36 +521,16 @@ mod tests {
     #[tokio::test]
     async fn test_tips_bad_protobuf_body() {
         let (url, client) = spawn_test_server().await;
-
-        // Login and create key
-        client
-            .post(format!("{url}/auth/login"))
-            .json(&serde_json::json!({ "admin_token": "test_admin_token_xyz" }))
-            .send()
-            .await
-            .unwrap();
-        let api_key: String = client
-            .post(format!("{url}/admin/keys"))
-            .json(&serde_json::json!({ "client_name": "garbage_test" }))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-
-        // Send garbage bytes
         let res = client
-            .post(format!("{url}/tips"))
-            .header("Authorization", &api_key)
+            .post(format!("{url}/api"))
+            .header("Content-Type", "application/x-protobuf")
             .body(vec![0xDE, 0xAD, 0xBE, 0xEF])
             .send()
             .await
             .unwrap();
-        // Protobuf is lenient, but let's verify it at least doesn't 500
         assert!(
-            res.status() == reqwest::StatusCode::OK
-                || res.status() == reqwest::StatusCode::BAD_REQUEST,
+            res.status() == reqwest::StatusCode::BAD_REQUEST
+                || res.status() == reqwest::StatusCode::UNAUTHORIZED,
             "Should handle garbage protobuf gracefully, got {}",
             res.status()
         );
@@ -676,39 +543,31 @@ mod tests {
     #[tokio::test]
     async fn test_tips_multiple_topics() {
         let (url, client) = spawn_test_server().await;
-
-        client
-            .post(format!("{url}/auth/login"))
-            .json(&serde_json::json!({ "admin_token": "test_admin_token_xyz" }))
-            .send()
-            .await
-            .unwrap();
-        let api_key: String = client
-            .post(format!("{url}/admin/keys"))
-            .json(&serde_json::json!({ "client_name": "multi_topic" }))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
+        let api_key = bootstrap_api_key(&url, &client, "multi_topic").await;
 
         let tips_query = crate::api::pb::TipsQuery {
             count: 3,
             topics: "rust, python, go".into(),
             topic_class: "".into(),
             tipcard_type: "".into(),
+            exclude_card_ids: vec![],
         };
-        let res = client
-            .post(format!("{url}/tips"))
-            .header("Authorization", &api_key)
-            .body(tips_query.encode_to_vec())
-            .send()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key,
+                op: Some(crate::api::pb::api_request::Op::Tips(tips_query)),
+            },
+        )
+        .await;
         assert_eq!(res.status(), reqwest::StatusCode::OK);
 
-        let tips_resp = crate::api::pb::TipsResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let api_resp = crate::api::pb::ApiResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let tips_resp = match api_resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Tips(tips) => tips,
+            other => panic!("unexpected response: {:?}", other),
+        };
         assert_eq!(tips_resp.tips.len(), 3);
 
         let topics: Vec<&str> = tips_resp.tips.iter().map(|t| t.topic.as_str()).collect();
@@ -720,38 +579,30 @@ mod tests {
     #[tokio::test]
     async fn test_repeatable_tipcards_can_dismiss_and_get_new_card() {
         let (url, client) = spawn_test_server().await;
-
-        client
-            .post(format!("{url}/auth/login"))
-            .json(&serde_json::json!({ "admin_token": "test_admin_token_xyz" }))
-            .send()
-            .await
-            .unwrap();
-        let api_key: String = client
-            .post(format!("{url}/admin/keys"))
-            .json(&serde_json::json!({ "client_name": "repeatable_flow" }))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
+        let api_key = bootstrap_api_key(&url, &client, "repeatable_flow").await;
 
         let tips_query = crate::api::pb::TipsQuery {
             count: 1,
             topics: "spanish".into(),
             topic_class: "re:word".into(),
             tipcard_type: "repeatable_tip".into(),
+            exclude_card_ids: vec![],
         };
-        let res = client
-            .post(format!("{url}/tips"))
-            .header("Authorization", &api_key)
-            .body(tips_query.encode_to_vec())
-            .send()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Tips(tips_query.clone())),
+            },
+        )
+        .await;
         assert_eq!(res.status(), reqwest::StatusCode::OK);
-        let first_resp = crate::api::pb::TipsResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let api_resp = crate::api::pb::ApiResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let first_resp = match api_resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Tips(tips) => tips,
+            other => panic!("unexpected response: {:?}", other),
+        };
         assert_eq!(first_resp.tips.len(), 1);
         assert_eq!(first_resp.tips[0].topic_class, "re:word");
         assert_eq!(first_resp.tips[0].tipcard_type, "repeatable_tip");
@@ -762,24 +613,32 @@ mod tests {
             grade: 0,
             action: "dismiss".into(),
         };
-        let res = client
-            .post(format!("{url}/review"))
-            .header("Authorization", &api_key)
-            .body(dismiss.encode_to_vec())
-            .send()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Review(dismiss)),
+            },
+        )
+        .await;
         assert_eq!(res.status(), reqwest::StatusCode::OK);
 
-        let res = client
-            .post(format!("{url}/tips"))
-            .header("Authorization", &api_key)
-            .body(tips_query.encode_to_vec())
-            .send()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key,
+                op: Some(crate::api::pb::api_request::Op::Tips(tips_query)),
+            },
+        )
+        .await;
         assert_eq!(res.status(), reqwest::StatusCode::OK);
-        let second_resp = crate::api::pb::TipsResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let api_resp = crate::api::pb::ApiResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let second_resp = match api_resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Tips(tips) => tips,
+            other => panic!("unexpected response: {:?}", other),
+        };
         assert_eq!(second_resp.tips.len(), 1);
         assert_ne!(second_resp.tips[0].id, first_id);
     }
@@ -791,11 +650,7 @@ mod tests {
             .await
             .unwrap();
         let db = setup_db().await;
-        let state = AppState {
-            db,
-            settings_path,
-            template_dir: PathBuf::from("templates"),
-        };
+        let state = AppState { db, settings_path };
 
         let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
             .bind("repeatable")
@@ -870,11 +725,7 @@ mod tests {
             .await
             .unwrap();
         let db = setup_db().await;
-        let state = AppState {
-            db,
-            settings_path,
-            template_dir: PathBuf::from("templates"),
-        };
+        let state = AppState { db, settings_path };
 
         let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
             .bind("repeatable")
@@ -942,38 +793,30 @@ mod tests {
     #[tokio::test]
     async fn test_casual_tipcards_can_dismiss_or_acknowledge_and_get_new_card() {
         let (url, client) = spawn_test_server().await;
-
-        client
-            .post(format!("{url}/auth/login"))
-            .json(&serde_json::json!({ "admin_token": "test_admin_token_xyz" }))
-            .send()
-            .await
-            .unwrap();
-        let api_key: String = client
-            .post(format!("{url}/admin/keys"))
-            .json(&serde_json::json!({ "client_name": "casual_flow" }))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
+        let api_key = bootstrap_api_key(&url, &client, "casual_flow").await;
 
         let tips_query = crate::api::pb::TipsQuery {
             count: 1,
             topics: "rust".into(),
             topic_class: "casual".into(),
             tipcard_type: "casual_tip".into(),
+            exclude_card_ids: vec![],
         };
-        let res = client
-            .post(format!("{url}/tips"))
-            .header("Authorization", &api_key)
-            .body(tips_query.encode_to_vec())
-            .send()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Tips(tips_query.clone())),
+            },
+        )
+        .await;
         assert_eq!(res.status(), reqwest::StatusCode::OK);
-        let first_resp = crate::api::pb::TipsResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let api_resp = crate::api::pb::ApiResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let first_resp = match api_resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Tips(tips) => tips,
+            other => panic!("unexpected response: {:?}", other),
+        };
         assert_eq!(first_resp.tips.len(), 1);
         assert_eq!(first_resp.tips[0].topic_class, "casual");
         assert_eq!(first_resp.tips[0].tipcard_type, "casual_tip");
@@ -984,24 +827,32 @@ mod tests {
             grade: 0,
             action: "dismiss".into(),
         };
-        let res = client
-            .post(format!("{url}/review"))
-            .header("Authorization", &api_key)
-            .body(dismiss.encode_to_vec())
-            .send()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Review(dismiss)),
+            },
+        )
+        .await;
         assert_eq!(res.status(), reqwest::StatusCode::OK);
 
-        let res = client
-            .post(format!("{url}/tips"))
-            .header("Authorization", &api_key)
-            .body(tips_query.encode_to_vec())
-            .send()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Tips(tips_query.clone())),
+            },
+        )
+        .await;
         assert_eq!(res.status(), reqwest::StatusCode::OK);
-        let second_resp = crate::api::pb::TipsResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let api_resp = crate::api::pb::ApiResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let second_resp = match api_resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Tips(tips) => tips,
+            other => panic!("unexpected response: {:?}", other),
+        };
         assert_eq!(second_resp.tips.len(), 1);
         assert_ne!(second_resp.tips[0].id, first_id);
         let second_id = second_resp.tips[0].id;
@@ -1011,24 +862,32 @@ mod tests {
             grade: 5,
             action: "acknowledge".into(),
         };
-        let res = client
-            .post(format!("{url}/review"))
-            .header("Authorization", &api_key)
-            .body(acknowledge.encode_to_vec())
-            .send()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Review(acknowledge)),
+            },
+        )
+        .await;
         assert_eq!(res.status(), reqwest::StatusCode::OK);
 
-        let res = client
-            .post(format!("{url}/tips"))
-            .header("Authorization", &api_key)
-            .body(tips_query.encode_to_vec())
-            .send()
-            .await
-            .unwrap();
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key,
+                op: Some(crate::api::pb::api_request::Op::Tips(tips_query)),
+            },
+        )
+        .await;
         assert_eq!(res.status(), reqwest::StatusCode::OK);
-        let third_resp = crate::api::pb::TipsResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let api_resp = crate::api::pb::ApiResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let third_resp = match api_resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Tips(tips) => tips,
+            other => panic!("unexpected response: {:?}", other),
+        };
         assert_eq!(third_resp.tips.len(), 1);
         assert_ne!(third_resp.tips[0].id, second_id);
     }
