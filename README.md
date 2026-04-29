@@ -116,7 +116,7 @@ All runtime configuration lives in `settings.yaml` and is managed exclusively th
 
 ### GitHub Autoupdate
 
-Autoupdate is intentionally off by default. For the systemd installation, the installer enables a `dailytipdraft-autoupdate.timer` that reads `settings.yaml`; checking **Enable GitHub autoupdate** in the app is enough. On the first successful check the updater records the current commit SHA as a baseline and does not update. On later checks, a changed SHA triggers a root-owned update helper that fetches the configured branch, runs `cargo build --release`, installs the new binary plus shared files, records the new SHA, and restarts `dailytipdraft.service`. The host must keep the build tools available after installation (`git`, `cargo`, and `protoc`/`protobuf-compiler`).
+Autoupdate is intentionally off by default. For the systemd installation, the installer enables a `dailytipdraft-autoupdate.timer` that reads `settings.yaml`; checking **Enable GitHub autoupdate** in the app is enough. On the first successful check the updater records the current commit SHA as a baseline and does not update. On later checks, a changed SHA triggers a root-owned update helper that fetches the configured branch, runs `cargo build --release`, installs the new binary plus shared files, records the new SHA, and restarts `dailytipdraft.service`. The host must keep the build tools available after installation (`git`, `cargo` from the installer-managed rustup toolchain or another Rust installation, and `protoc`/`protobuf-compiler`).
 
 Default repository comes from this repo's `origin` remote: `slopfire/dailytipdraft`. You can override it with another `owner/repo`, `https://github.com/owner/repo`, or `git@github.com:owner/repo.git` value. Example:
 
@@ -157,10 +157,10 @@ dailytipdraft
 Use the installer on a Linux host with systemd:
 
 ```bash
-sudo ./install.sh
+./install.sh
 ```
 
-The installer builds `target/release/dailytipdraft`, installs the binary to `/usr/local/bin/dailytipdraft`, installs `schema.sql` and templates to `/usr/local/share/dailytipdraft`, creates a `dailytipdraft` system user, stores runtime data in `/var/lib/dailytipdraft`, and starts `dailytipdraft.service`.
+The installer installs Rust with rustup if `cargo` is not available, builds `target/release/dailytipdraft`, installs the binary to `/usr/local/bin/dailytipdraft`, installs `schema.sql` and templates to `/usr/local/share/dailytipdraft`, creates a `dailytipdraft` system user, stores runtime data in `/var/lib/dailytipdraft`, and starts `dailytipdraft.service`. It uses `sudo` internally for system directories, service users, and systemd commands.
 It also installs and enables `dailytipdraft-autoupdate.timer`, which stays idle unless `autoupdate_enabled: true` is set in `settings.yaml`.
 
 Useful commands:
@@ -171,13 +171,13 @@ sudo journalctl -u dailytipdraft -f
 sudo systemctl restart dailytipdraft
 sudo systemctl status dailytipdraft-autoupdate.timer
 sudo systemctl start dailytipdraft-autoupdate.service
-sudo ./install.sh uninstall
+./install.sh uninstall
 ```
 
 Set a different loopback port during install when needed:
 
 ```bash
-sudo BIND_ADDR=127.0.0.1:3010 ./install.sh
+BIND_ADDR=127.0.0.1:3010 ./install.sh
 ```
 
 The generated admin token is printed in the service logs on first startup:

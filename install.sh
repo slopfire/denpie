@@ -24,12 +24,53 @@ Environment overrides:
   LIBEXEC_DIR     helper script directory (default: /usr/local/libexec)
   SERVICE_USER    system user name (default: dailytipdraft)
   SKIP_BUILD=1    install existing target/release/dailytipdraft
+  RUSTUP_INIT_URL rustup installer URL (default: https://sh.rustup.rs)
 EOF
 }
 
-need_root() {
-    if [ "$(id -u)" -ne 0 ]; then
-        echo "Run as root, for example: sudo ./install.sh $ACTION" >&2
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+require_sudo_access() {
+    if [ "$(id -u)" -ne 0 ] && ! command_exists sudo; then
+        echo "sudo is required for system installation when not running as root" >&2
+        exit 1
+    fi
+}
+
+run_as_root() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
+
+install_rust_toolchain() {
+    export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+    export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+    export PATH="$CARGO_HOME/bin:$PATH"
+
+    if command_exists cargo; then
+        return
+    fi
+
+    if command_exists rustup; then
+        rustup toolchain install stable
+        rustup default stable
+    elif command_exists curl; then
+        curl --proto '=https' --tlsv1.2 -sSf "${RUSTUP_INIT_URL:-https://sh.rustup.rs}" | sh -s -- -y --profile minimal
+    elif command_exists wget; then
+        wget -qO- "${RUSTUP_INIT_URL:-https://sh.rustup.rs}" | sh -s -- -y --profile minimal
+    else
+        echo "curl or wget is required to install Rust with rustup" >&2
+        exit 1
+    fi
+
+    export PATH="$CARGO_HOME/bin:$PATH"
+    if ! command_exists cargo; then
+        echo "Rust installation completed, but cargo is still not available" >&2
         exit 1
     fi
 }
@@ -38,19 +79,21 @@ build_release() {
     if [ "${SKIP_BUILD:-0}" = "1" ]; then
         return
     fi
+    install_rust_toolchain
     cargo build --release
 }
 
 ensure_user() {
     if ! getent group "$SERVICE_GROUP" >/dev/null 2>&1; then
-        groupadd --system "$SERVICE_GROUP"
+        run_as_root groupadd --system "$SERVICE_GROUP"
     fi
     if ! id "$SERVICE_USER" >/dev/null 2>&1; then
-        useradd --system --gid "$SERVICE_GROUP" --home-dir "$DATA_DIR" --create-home --shell /usr/sbin/nologin "$SERVICE_USER"
+        run_as_root useradd --system --gid "$SERVICE_GROUP" --home-dir "$DATA_DIR" --create-home --shell /usr/sbin/nologin "$SERVICE_USER"
     fi
 }
 
 write_service() {
+    tmp_file="$(mktemp)"
     sed \
         -e "s|^User=.*|User=$SERVICE_USER|" \
         -e "s|^Group=.*|Group=$SERVICE_GROUP|" \
@@ -61,11 +104,15 @@ write_service() {
         -e "s|^Environment=DAILYTIP_TEMPLATE_DIR=.*|Environment=DAILYTIP_TEMPLATE_DIR=$SHARE_DIR/templates|" \
         -e "s|^ExecStart=.*|ExecStart=$BIN_DIR/$APP_NAME|" \
         -e "s|^ReadWritePaths=.*|ReadWritePaths=$DATA_DIR|" \
-        deploy/dailytipdraft.service > "$SYSTEMD_DIR/$APP_NAME.service"
+        deploy/dailytipdraft.service > "$tmp_file"
+    run_as_root install -m 0644 "$tmp_file" "$SYSTEMD_DIR/$APP_NAME.service"
+    rm -f "$tmp_file"
 }
 
 write_autoupdate_defaults() {
-    cat > "$DEFAULTS_DIR/$APP_NAME-autoupdate" <<EOF
+    tmp_file="$(mktemp)"
+    rust_path="${CARGO_HOME:-$HOME/.cargo}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    cat > "$tmp_file" <<EOF
 APP_NAME=$APP_NAME
 SERVICE_NAME=$APP_NAME.service
 BIN_DIR=$BIN_DIR
@@ -73,38 +120,46 @@ SHARE_DIR=$SHARE_DIR
 DATA_DIR=$DATA_DIR
 SETTINGS_PATH=$DATA_DIR/settings.yaml
 STATE_DIR=$DATA_DIR/autoupdate
+PATH=$rust_path
+CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}
+RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}
 DEFAULT_REPO=slopfire/dailytipdraft
 DEFAULT_BRANCH=main
 EOF
+    run_as_root install -m 0644 "$tmp_file" "$DEFAULTS_DIR/$APP_NAME-autoupdate"
+    rm -f "$tmp_file"
 }
 
 write_autoupdate_units() {
-    install -d -m 0755 "$LIBEXEC_DIR" "$DEFAULTS_DIR"
-    install -m 0755 deploy/dailytipdraft-autoupdate.sh "$LIBEXEC_DIR/$APP_NAME-autoupdate"
+    run_as_root install -d -m 0755 "$LIBEXEC_DIR" "$DEFAULTS_DIR"
+    run_as_root install -m 0755 deploy/dailytipdraft-autoupdate.sh "$LIBEXEC_DIR/$APP_NAME-autoupdate"
+    tmp_file="$(mktemp)"
     sed \
         -e "s|^EnvironmentFile=.*|EnvironmentFile=-$DEFAULTS_DIR/$APP_NAME-autoupdate|" \
         -e "s|^ExecStart=.*|ExecStart=$LIBEXEC_DIR/$APP_NAME-autoupdate|" \
-        deploy/dailytipdraft-autoupdate.service > "$SYSTEMD_DIR/$APP_NAME-autoupdate.service"
-    install -m 0644 deploy/dailytipdraft-autoupdate.timer "$SYSTEMD_DIR/$APP_NAME-autoupdate.timer"
+        deploy/dailytipdraft-autoupdate.service > "$tmp_file"
+    run_as_root install -m 0644 "$tmp_file" "$SYSTEMD_DIR/$APP_NAME-autoupdate.service"
+    rm -f "$tmp_file"
+    run_as_root install -m 0644 deploy/dailytipdraft-autoupdate.timer "$SYSTEMD_DIR/$APP_NAME-autoupdate.timer"
     write_autoupdate_defaults
 }
 
 install_app() {
-    need_root
+    require_sudo_access
     build_release
     ensure_user
 
-    install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/templates"
-    install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$DATA_DIR"
-    install -m 0755 "target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
-    install -m 0644 schema.sql "$SHARE_DIR/schema.sql"
-    install -m 0644 templates/*.html "$SHARE_DIR/templates/"
+    run_as_root install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/templates"
+    run_as_root install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$DATA_DIR"
+    run_as_root install -m 0755 "target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
+    run_as_root install -m 0644 schema.sql "$SHARE_DIR/schema.sql"
+    run_as_root install -m 0644 templates/*.html "$SHARE_DIR/templates/"
     write_service
     write_autoupdate_units
 
-    systemctl daemon-reload
-    systemctl enable --now "$APP_NAME.service"
-    systemctl enable --now "$APP_NAME-autoupdate.timer"
+    run_as_root systemctl daemon-reload
+    run_as_root systemctl enable --now "$APP_NAME.service"
+    run_as_root systemctl enable --now "$APP_NAME-autoupdate.timer"
 
     echo "Installed $APP_NAME"
     echo "URL: http://$BIND_ADDR/"
@@ -113,12 +168,12 @@ install_app() {
 }
 
 uninstall_app() {
-    need_root
-    systemctl disable --now "$APP_NAME.service" >/dev/null 2>&1 || true
-    systemctl disable --now "$APP_NAME-autoupdate.timer" >/dev/null 2>&1 || true
-    rm -f "$SYSTEMD_DIR/$APP_NAME.service"
-    rm -f "$SYSTEMD_DIR/$APP_NAME-autoupdate.service" "$SYSTEMD_DIR/$APP_NAME-autoupdate.timer"
-    systemctl daemon-reload
+    require_sudo_access
+    run_as_root systemctl disable --now "$APP_NAME.service" >/dev/null 2>&1 || true
+    run_as_root systemctl disable --now "$APP_NAME-autoupdate.timer" >/dev/null 2>&1 || true
+    run_as_root rm -f "$SYSTEMD_DIR/$APP_NAME.service"
+    run_as_root rm -f "$SYSTEMD_DIR/$APP_NAME-autoupdate.service" "$SYSTEMD_DIR/$APP_NAME-autoupdate.timer"
+    run_as_root systemctl daemon-reload
     echo "Removed systemd services. Data left in $DATA_DIR and binary left in $BIN_DIR."
 }
 
