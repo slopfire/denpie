@@ -66,6 +66,9 @@ async fn main() {
                 .expect("Failed to execute schema");
         }
     }
+    apply_schema_migrations(&pool)
+        .await
+        .expect("Failed to apply schema migrations");
 
     let session_store = SqliteStore::new(pool.clone());
     session_store
@@ -95,6 +98,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
     let api_routes = Router::new()
         .route("/tips", post(api::get_tips))
         .route("/topics", get(api::get_topics))
+        .route("/topic-classes", get(api::get_topic_classes))
         .route("/review", post(api::review_card))
         .route_layer(from_fn_with_state(
             shared_state.clone(),
@@ -123,4 +127,55 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .route("/auth/login", post(auth::login))
         .layer(session_layer)
         .with_state(shared_state)
+}
+
+pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    ensure_column(pool, "topics", "class_id", "INTEGER").await?;
+    ensure_column(pool, "tipcards", "tipcard_type", "TEXT NOT NULL DEFAULT 'srs_tip'").await?;
+    ensure_column(pool, "review_states", "status", "TEXT NOT NULL DEFAULT 'active'").await?;
+
+    sqlx::query(
+        "INSERT OR IGNORE INTO topic_classes (name, tipcard_type) VALUES ('default', 'srs_tip')",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "UPDATE topics
+         SET class_id = (SELECT id FROM topic_classes WHERE name = 'default')
+         WHERE class_id IS NULL",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query("UPDATE tipcards SET tipcard_type = 'srs_tip' WHERE tipcard_type IS NULL")
+        .execute(pool)
+        .await?;
+
+    sqlx::query("UPDATE review_states SET status = 'active' WHERE status IS NULL")
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+async fn ensure_column(
+    pool: &SqlitePool,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<(), sqlx::Error> {
+    let pragma = format!("PRAGMA table_info({table})");
+    let rows = sqlx::query(&pragma).fetch_all(pool).await?;
+    let exists = rows.iter().any(|row| {
+        use sqlx::Row;
+        row.try_get::<String, _>("name")
+            .map(|name| name == column)
+            .unwrap_or(false)
+    });
+    if !exists {
+        let statement = format!("ALTER TABLE {table} ADD COLUMN {column} {definition}");
+        sqlx::query(&statement).execute(pool).await?;
+    }
+    Ok(())
 }

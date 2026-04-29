@@ -5,6 +5,9 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 ## Features
 
 - **Spaced Repetition System (SRS)**: SM-2 and FSRS algorithms optimize tip delivery based on user review grades.
+- **Casual Cards**: Queue-style tips can be dismissed or acknowledged so clients can pull the next card immediately.
+- **Repeatable Cards**: Re:word-style cards can be dismissed, repeated, memorized, or acknowledged so clients can keep pulling the next card.
+- **Topic Classes**: Topics belong to a class that defines the card behavior type, such as standard SRS tips or repeatable practice cards.
 - **Any OpenAI-Compatible LLM**: Configure the API key, base URL, and model through the admin dashboard — no hardcoded vendor lock-in.
 - **Admin Dashboard**: Web UI for managing LLM settings, prompt templates, and client API keys. All settings persist to `settings.yaml`.
 - **Token-Based Admin Auth**: On first startup the server generates and prints a one-time admin token. Use it to log in at `/admin`.
@@ -29,16 +32,17 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 ```
 .
 ├── src/
-│   ├── main.rs        # Router setup, state, app initialization, integration tests
+│   ├── main.rs        # Router setup, state, app initialization
 │   ├── api.rs         # /tips and /review endpoints (protobuf)
 │   ├── auth.rs        # Admin session middleware + client API key validation
 │   ├── dashboard.rs   # Admin HTML page + settings/key management REST endpoints
 │   ├── llm.rs         # LLM wrappers (generate_new_card, compress_card)
 │   └── srs.rs         # SM-2 and FSRS algorithm implementations
 ├── schema.sql         # SQLite table definitions (applied automatically on startup)
-├── settings.yaml      # Runtime config — excluded from version control
-├── .env.example       # Environment variable template
-└── dailytip.proto     # Protobuf schema for TipsQuery, TipsResponse, ReviewPayload
+├── proto/
+│   └── dailytip.proto # Protobuf schema for TipsQuery, TipsResponse, ReviewPayload
+├── docs/              # Split API documentation
+└── settings.yaml      # Runtime config, generated locally and ignored
 ```
 
 ## Getting Started
@@ -62,11 +66,11 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    ```bash
    cargo run
    ```
-   The server starts on `http://127.0.0.1:3000`. On the first run it will:
+   The server starts on `http://127.0.0.1:3001`. On the first run it will:
    - Create `dailytip.db` and apply `schema.sql` automatically.
    - Generate and print a one-time admin token to the console.
 
-4. **Access the admin dashboard** at `http://localhost:3000/admin` and log in with the printed token.
+4. **Access the admin dashboard** at `http://127.0.0.1:3001/admin` and log in with the printed token.
 
 5. **Configure your LLM** in the Configuration panel:
    - **LLM Model** — e.g. `google/gemini-2.5-pro` or `openai/gpt-4o`
@@ -88,44 +92,23 @@ All runtime configuration lives in `settings.yaml` and is managed exclusively th
 | `llm_api_key` | API key for the LLM provider | *(empty — set via dashboard)* |
 | `llm_base_url` | Base URL for the OpenAI-compatible API | `https://openrouter.ai/api/v1` |
 
-## API Reference
+## API Documentation
 
-All client endpoints require an `Authorization: <api_key>` header.
+The API reference is split by audience:
 
-### `POST /tips`
-
-Body: `TipsQuery` (protobuf)
-
-```proto
-message TipsQuery {
-  uint32 count  = 1;  // number of tips to return
-  string topics = 2;  // comma-separated topic names
-}
-```
-
-Returns: `TipsResponse` (protobuf) containing a list of `TipCardResponse` messages.
-
-### `POST /review`
-
-Body: `ReviewPayload` (protobuf)
-
-```proto
-message ReviewPayload {
-  int64  card_id = 1;
-  uint32 grade   = 2;  // 0–5 (Anki-style)
-}
-```
-
-Returns: `200 OK` on success, `404` if the card has no review state.
+- [Client API](docs/client-api.md): protobuf routes for `/tips`, `/topics`, and `/review`.
+- [Admin API](docs/admin-api.md): JSON/session routes for settings, key management, topics, and tipcards.
+- [Agent Server Talk Guide](docs/agent-server-guide.md): operational playbook for agents that need to talk with a running server.
 
 ## Database Schema
 
 | Table | Purpose |
 |---|---|
 | `api_keys` | Hashed client keys with display names |
-| `topics` | Topic categories |
-| `tipcards` | Generated tips (full + compressed content) |
-| `review_states` | Per-card SRS state and next review timestamp |
+| `topic_classes` | Topic class definitions, including card behavior type |
+| `topics` | Topic categories linked to topic classes |
+| `tipcards` | Generated tips (full + compressed content) with card type |
+| `review_states` | Per-card review state, status, and next review timestamp |
 
 ## Running Tests
 

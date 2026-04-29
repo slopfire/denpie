@@ -563,9 +563,27 @@
         const safeFullContent = card.full_content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const safeCompressed = card.compressed_content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-        // Using standard parsing for dates, fallback to simple string
-        let dateStr = card.created_at;
-        try { dateStr = new Date(card.created_at + 'Z').toLocaleDateString(); } catch (e) {}
+        // Parse sqlite-style timestamps and ISO timestamps without forcing an extra timezone suffix.
+        const formatCreatedAt = (raw) => {
+          if (!raw) return '';
+          const trimmed = String(raw).trim();
+          const candidates = [trimmed];
+
+          // sqlite DATETIME often arrives as "YYYY-MM-DD HH:MM:SS"
+          if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(trimmed)) {
+            candidates.push(trimmed.replace(' ', 'T') + 'Z');
+          }
+
+          for (const candidate of candidates) {
+            const parsed = new Date(candidate);
+            if (!Number.isNaN(parsed.getTime())) {
+              return parsed.toLocaleDateString();
+            }
+          }
+
+          return trimmed;
+        };
+        const dateStr = formatCreatedAt(card.created_at);
 
         el.innerHTML = `
           <div class="flex justify-between items-start mb-1">

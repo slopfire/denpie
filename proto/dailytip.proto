@@ -5,6 +5,8 @@ package dailytip;
 message TipsQuery {
     uint64 count = 1;
     string topics = 2; // comma separated
+    string topic_class = 3; // optional, defaults to "default"
+    string tipcard_type = 4; // optional class type: "srs_tip", "casual_tip", or "repeatable_tip"
 }
 
 message TipCardResponse {
@@ -12,6 +14,8 @@ message TipCardResponse {
     string topic = 2;
     string full_content = 3;
     string compressed_content = 4;
+    string topic_class = 5;
+    string tipcard_type = 6;
 }
 
 message TipsResponse {
@@ -21,8 +25,19 @@ message TipsResponse {
 message ReviewPayload {
     int64 card_id = 1;
     uint32 grade = 2; // 0-5
+    string action = 3; // optional: "acknowledge", "repeat", "memorize", or "dismiss" for queue cards
 }
 
 message GetTopicsResponse {
     repeated string topics = 1;
+}
+
+message TopicClass {
+    int64 id = 1;
+    string name = 2;
+    string tipcard_type = 3;
+}
+
+message GetTopicClassesResponse {
+    repeated TopicClass classes = 1;
 }

@@ -1,0 +1,11 @@
+[
+  {
+    "label": "Run server",
+    "command": "cargo",
+    "args": ["run"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "allow_concurrent_runs": false,
+    "use_new_terminal": false,
+    "reveal": "always"
+  }
+]

@@ -7,26 +7,24 @@ Requires: pip install -r requirements-test.txt
 Requires: Server running on 127.0.0.1:3001 (cargo run)
 """
 
-import os
 import sys
 import subprocess
 import yaml
 import requests
 
 # ─── Compile Protobuf ────────────────────────────────────────
-if not os.path.exists("dailytip_pb2.py"):
-    print("Compiling dailytip.proto...")
-    try:
-        subprocess.run(
-            [sys.executable, "-m", "grpc_tools.protoc", "-Iproto", "--python_out=.", "proto/dailytip.proto"],
-            check=True,
-        )
-    except Exception:
-        print("Falling back to protoc...")
-        subprocess.run(
-            ["protoc", "-I=proto", "--python_out=.", "proto/dailytip.proto"],
-            check=True,
-        )
+print("Compiling dailytip.proto...")
+try:
+    subprocess.run(
+        [sys.executable, "-m", "grpc_tools.protoc", "-Iproto", "--python_out=.", "proto/dailytip.proto"],
+        check=True,
+    )
+except Exception:
+    print("Falling back to protoc...")
+    subprocess.run(
+        ["protoc", "-I=proto", "--python_out=.", "proto/dailytip.proto"],
+        check=True,
+    )
 
 import dailytip_pb2
 
@@ -190,6 +188,8 @@ def main():
         test("Tip has topic", len(tip.topic) > 0, "empty topic")
         test("Tip has full_content", len(tip.full_content) > 0, "empty content")
         test("Tip has compressed_content", len(tip.compressed_content) > 0, "empty compressed")
+        test("Tip has topic_class", len(tip.topic_class) > 0, "empty topic_class")
+        test("Tip has tipcard_type", tip.tipcard_type in ("srs_tip", "casual_tip", "repeatable_tip"), f"got {tip.tipcard_type}")
         print(f"       └─ [{tip.topic}] {tip.full_content[:50]}...")
     else:
         test("Tip content checks", False, "no tips returned")
@@ -225,6 +225,100 @@ def main():
         data=ghost.SerializeToString(),
     )
     test("POST /review non-existent card → 404", resp.status_code == 404, f"got {resp.status_code}")
+
+    # ─── Repeatable Cards ─────────────────────────────────
+    section("REPEATABLE CARDS")
+
+    repeatable_req = dailytip_pb2.TipsQuery(
+        count=1,
+        topics="spanish verbs",
+        topic_class="re:word",
+        tipcard_type="repeatable_tip",
+    )
+    resp = requests.post(
+        f"{BASE_URL}/tips",
+        headers={"Authorization": api_key, "Content-Type": "application/x-protobuf"},
+        data=repeatable_req.SerializeToString(),
+    )
+    test("POST /tips repeatable class → 200", resp.status_code == 200, f"got {resp.status_code}")
+
+    repeatable_resp = dailytip_pb2.TipsResponse()
+    repeatable_resp.ParseFromString(resp.content)
+    if len(repeatable_resp.tips) >= 1:
+        first_id = repeatable_resp.tips[0].id
+        test("Repeatable card has expected class", repeatable_resp.tips[0].topic_class == "re:word", f"got {repeatable_resp.tips[0].topic_class}")
+        test("Repeatable card has expected type", repeatable_resp.tips[0].tipcard_type == "repeatable_tip", f"got {repeatable_resp.tips[0].tipcard_type}")
+
+        dismiss_req = dailytip_pb2.ReviewPayload(card_id=first_id, action="dismiss")
+        resp = requests.post(
+            f"{BASE_URL}/review",
+            headers={"Authorization": api_key, "Content-Type": "application/x-protobuf"},
+            data=dismiss_req.SerializeToString(),
+        )
+        test("POST /review repeatable dismiss → 200", resp.status_code == 200, f"got {resp.status_code}")
+
+        resp = requests.post(
+            f"{BASE_URL}/tips",
+            headers={"Authorization": api_key, "Content-Type": "application/x-protobuf"},
+            data=repeatable_req.SerializeToString(),
+        )
+        repeatable_next = dailytip_pb2.TipsResponse()
+        repeatable_next.ParseFromString(resp.content)
+        got_new_card = (
+            resp.status_code == 200
+            and len(repeatable_next.tips) == 1
+            and repeatable_next.tips[0].id != first_id
+        )
+        test("Dismiss then next /tips gives new card", got_new_card, f"status={resp.status_code}")
+    else:
+        test("Repeatable card returned", False, "no tips returned")
+
+    # ─── Casual Cards ─────────────────────────────────────
+    section("CASUAL CARDS")
+
+    casual_req = dailytip_pb2.TipsQuery(
+        count=1,
+        topics="rust",
+        topic_class="casual",
+        tipcard_type="casual_tip",
+    )
+    resp = requests.post(
+        f"{BASE_URL}/tips",
+        headers={"Authorization": api_key, "Content-Type": "application/x-protobuf"},
+        data=casual_req.SerializeToString(),
+    )
+    test("POST /tips casual class → 200", resp.status_code == 200, f"got {resp.status_code}")
+
+    casual_resp = dailytip_pb2.TipsResponse()
+    casual_resp.ParseFromString(resp.content)
+    if len(casual_resp.tips) >= 1:
+        first_id = casual_resp.tips[0].id
+        test("Casual card has expected class", casual_resp.tips[0].topic_class == "casual", f"got {casual_resp.tips[0].topic_class}")
+        test("Casual card has expected type", casual_resp.tips[0].tipcard_type == "casual_tip", f"got {casual_resp.tips[0].tipcard_type}")
+
+        ack_req = dailytip_pb2.ReviewPayload(card_id=first_id, action="acknowledge")
+        resp = requests.post(
+            f"{BASE_URL}/review",
+            headers={"Authorization": api_key, "Content-Type": "application/x-protobuf"},
+            data=ack_req.SerializeToString(),
+        )
+        test("POST /review casual acknowledge → 200", resp.status_code == 200, f"got {resp.status_code}")
+
+        resp = requests.post(
+            f"{BASE_URL}/tips",
+            headers={"Authorization": api_key, "Content-Type": "application/x-protobuf"},
+            data=casual_req.SerializeToString(),
+        )
+        casual_next = dailytip_pb2.TipsResponse()
+        casual_next.ParseFromString(resp.content)
+        got_new_card = (
+            resp.status_code == 200
+            and len(casual_next.tips) == 1
+            and casual_next.tips[0].id != first_id
+        )
+        test("Acknowledge then next /tips gives new casual card", got_new_card, f"status={resp.status_code}")
+    else:
+        test("Casual card returned", False, "no tips returned")
 
     # ─── Cleanup ──────────────────────────────────────────
     section("CLEANUP")

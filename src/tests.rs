@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::{build_app, AppState};
+    use crate::{apply_schema_migrations, build_app, AppState};
     use prost::Message;
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::SqlitePool;
@@ -21,6 +21,7 @@ mod tests {
                 sqlx::query(query).execute(&pool).await.unwrap();
             }
         }
+        apply_schema_migrations(&pool).await.unwrap();
         pool
     }
 
@@ -249,6 +250,8 @@ mod tests {
         let tips_query = crate::api::pb::TipsQuery {
             count: 1,
             topics: "rust".into(),
+            topic_class: "".into(),
+            tipcard_type: "".into(),
         };
         let res = client
             .post(format!("{url}/tips"))
@@ -267,6 +270,8 @@ mod tests {
         let tips_query = crate::api::pb::TipsQuery {
             count: 1,
             topics: "rust".into(),
+            topic_class: "".into(),
+            tipcard_type: "".into(),
         };
         let res = client
             .post(format!("{url}/tips"))
@@ -307,6 +312,8 @@ mod tests {
         let tips_query = crate::api::pb::TipsQuery {
             count: 1,
             topics: "rust".into(),
+            topic_class: "".into(),
+            tipcard_type: "".into(),
         };
         let res = client
             .post(format!("{url}/tips"))
@@ -329,6 +336,7 @@ mod tests {
         let review = crate::api::pb::ReviewPayload {
             card_id,
             grade: 4,
+            action: "".into(),
         };
         let res = client
             .post(format!("{url}/review"))
@@ -343,6 +351,7 @@ mod tests {
         let ghost_review = crate::api::pb::ReviewPayload {
             card_id: 99999,
             grade: 3,
+            action: "".into(),
         };
         let res = client
             .post(format!("{url}/review"))
@@ -423,6 +432,8 @@ mod tests {
         let tips_query = crate::api::pb::TipsQuery {
             count: 3,
             topics: "rust, python, go".into(),
+            topic_class: "".into(),
+            tipcard_type: "".into(),
         };
         let res = client
             .post(format!("{url}/tips"))
@@ -441,5 +452,171 @@ mod tests {
         assert!(topics.contains(&"rust"));
         assert!(topics.contains(&"python"));
         assert!(topics.contains(&"go"));
+    }
+
+    #[tokio::test]
+    async fn test_repeatable_tipcards_can_dismiss_and_get_new_card() {
+        let (url, client) = spawn_test_server().await;
+
+        client
+            .post(format!("{url}/auth/login"))
+            .json(&serde_json::json!({ "admin_token": "test_admin_token_xyz" }))
+            .send()
+            .await
+            .unwrap();
+        let api_key: String = client
+            .post(format!("{url}/admin/keys"))
+            .json(&serde_json::json!({ "client_name": "repeatable_flow" }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+
+        let tips_query = crate::api::pb::TipsQuery {
+            count: 1,
+            topics: "spanish".into(),
+            topic_class: "re:word".into(),
+            tipcard_type: "repeatable_tip".into(),
+        };
+        let res = client
+            .post(format!("{url}/tips"))
+            .header("Authorization", &api_key)
+            .body(tips_query.encode_to_vec())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        let first_resp =
+            crate::api::pb::TipsResponse::decode(res.bytes().await.unwrap()).unwrap();
+        assert_eq!(first_resp.tips.len(), 1);
+        assert_eq!(first_resp.tips[0].topic_class, "re:word");
+        assert_eq!(first_resp.tips[0].tipcard_type, "repeatable_tip");
+        let first_id = first_resp.tips[0].id;
+
+        let dismiss = crate::api::pb::ReviewPayload {
+            card_id: first_id,
+            grade: 0,
+            action: "dismiss".into(),
+        };
+        let res = client
+            .post(format!("{url}/review"))
+            .header("Authorization", &api_key)
+            .body(dismiss.encode_to_vec())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+
+        let res = client
+            .post(format!("{url}/tips"))
+            .header("Authorization", &api_key)
+            .body(tips_query.encode_to_vec())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        let second_resp =
+            crate::api::pb::TipsResponse::decode(res.bytes().await.unwrap()).unwrap();
+        assert_eq!(second_resp.tips.len(), 1);
+        assert_ne!(second_resp.tips[0].id, first_id);
+    }
+
+    #[tokio::test]
+    async fn test_casual_tipcards_can_dismiss_or_acknowledge_and_get_new_card() {
+        let (url, client) = spawn_test_server().await;
+
+        client
+            .post(format!("{url}/auth/login"))
+            .json(&serde_json::json!({ "admin_token": "test_admin_token_xyz" }))
+            .send()
+            .await
+            .unwrap();
+        let api_key: String = client
+            .post(format!("{url}/admin/keys"))
+            .json(&serde_json::json!({ "client_name": "casual_flow" }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+
+        let tips_query = crate::api::pb::TipsQuery {
+            count: 1,
+            topics: "rust".into(),
+            topic_class: "casual".into(),
+            tipcard_type: "casual_tip".into(),
+        };
+        let res = client
+            .post(format!("{url}/tips"))
+            .header("Authorization", &api_key)
+            .body(tips_query.encode_to_vec())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        let first_resp =
+            crate::api::pb::TipsResponse::decode(res.bytes().await.unwrap()).unwrap();
+        assert_eq!(first_resp.tips.len(), 1);
+        assert_eq!(first_resp.tips[0].topic_class, "casual");
+        assert_eq!(first_resp.tips[0].tipcard_type, "casual_tip");
+        let first_id = first_resp.tips[0].id;
+
+        let dismiss = crate::api::pb::ReviewPayload {
+            card_id: first_id,
+            grade: 0,
+            action: "dismiss".into(),
+        };
+        let res = client
+            .post(format!("{url}/review"))
+            .header("Authorization", &api_key)
+            .body(dismiss.encode_to_vec())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+
+        let res = client
+            .post(format!("{url}/tips"))
+            .header("Authorization", &api_key)
+            .body(tips_query.encode_to_vec())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        let second_resp =
+            crate::api::pb::TipsResponse::decode(res.bytes().await.unwrap()).unwrap();
+        assert_eq!(second_resp.tips.len(), 1);
+        assert_ne!(second_resp.tips[0].id, first_id);
+        let second_id = second_resp.tips[0].id;
+
+        let acknowledge = crate::api::pb::ReviewPayload {
+            card_id: second_id,
+            grade: 5,
+            action: "acknowledge".into(),
+        };
+        let res = client
+            .post(format!("{url}/review"))
+            .header("Authorization", &api_key)
+            .body(acknowledge.encode_to_vec())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+
+        let res = client
+            .post(format!("{url}/tips"))
+            .header("Authorization", &api_key)
+            .body(tips_query.encode_to_vec())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        let third_resp =
+            crate::api::pb::TipsResponse::decode(res.bytes().await.unwrap()).unwrap();
+        assert_eq!(third_resp.tips.len(), 1);
+        assert_ne!(third_resp.tips[0].id, second_id);
     }
 }
