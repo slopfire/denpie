@@ -16,6 +16,8 @@ pub struct AutoupdateConfig {
     pub last_seen_sha: String,
 }
 
+const DEFAULT_REPO: &str = "slopfire/dailytipdraft";
+
 impl AutoupdateConfig {
     pub fn from_settings(settings: &Value) -> Self {
         Self {
@@ -23,12 +25,13 @@ impl AutoupdateConfig {
                 .get("autoupdate_enabled")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
-            repo: settings
-                .get("autoupdate_repo")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim()
-                .to_string(),
+            repo: normalize_repo(
+                settings
+                    .get("autoupdate_repo")
+                    .and_then(Value::as_str)
+                    .unwrap_or(DEFAULT_REPO)
+                    .trim(),
+            ),
             branch: settings
                 .get("autoupdate_branch")
                 .and_then(Value::as_str)
@@ -165,6 +168,7 @@ async fn latest_github_sha(
     repo: &str,
     branch: &str,
 ) -> Result<String, String> {
+    let repo = normalize_repo(repo);
     let repo = repo.trim_matches('/');
     let branch = if branch.trim().is_empty() {
         "main"
@@ -188,6 +192,31 @@ async fn latest_github_sha(
         .await
         .map_err(|err| format!("github response parse failed: {err}"))?;
     Ok(body.sha)
+}
+
+fn normalize_repo(repo: &str) -> String {
+    let mut value = repo.trim().to_string();
+    for prefix in [
+        "https://github.com/",
+        "http://github.com/",
+        "git@github.com:",
+    ] {
+        if let Some(stripped) = value.strip_prefix(prefix) {
+            value = stripped.to_string();
+            break;
+        }
+    }
+    if value.starts_with("git@") {
+        if let Some((_, path)) = value.split_once(':') {
+            value = path.to_string();
+        }
+    }
+    value = value
+        .trim_start_matches('/')
+        .trim_end_matches('/')
+        .trim_end_matches(".git")
+        .to_string();
+    value
 }
 
 async fn read_settings(path: &Path) -> Result<Value, String> {

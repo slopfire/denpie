@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily Tip Server Autoupdate
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/dailytipdraft-autoupdate
+ExecStart=/usr/local/libexec/dailytipdraft-autoupdate

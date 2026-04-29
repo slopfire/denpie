@@ -7,6 +7,7 @@ use axum::{
 use chrono::{Duration, Utc};
 use prost::Message;
 use serde::{Deserialize, Serialize};
+use sqlx::{QueryBuilder, Sqlite};
 use std::fs;
 use std::sync::Arc;
 
@@ -54,6 +55,7 @@ pub struct TipsJsonRequest {
     pub topics: String,
     pub topic_class: Option<String>,
     pub tipcard_type: Option<String>,
+    pub exclude_card_ids: Option<Vec<i64>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -205,6 +207,12 @@ pub async fn build_tips(
     let mut responses = Vec::new();
     let topic_class = query.topic_class.unwrap_or_default();
     let tipcard_type = query.tipcard_type.unwrap_or_default();
+    let exclude_card_ids: Vec<i64> = query
+        .exclude_card_ids
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|id| *id > 0)
+        .collect();
     let class_info = get_or_create_topic_class(state, &topic_class, &tipcard_type).await?;
 
     let settings_str = fs::read_to_string(&state.settings_path).unwrap_or_default();
@@ -261,24 +269,52 @@ pub async fn build_tips(
         let topic = get_or_create_topic(state, topic_name, class_info.id).await?;
 
         let now = Utc::now();
-        let due_card = sqlx::query_as::<_, (i64, String, String)>(
+        let mut due_query = QueryBuilder::<Sqlite>::new(
             "
             SELECT t.id, t.full_content, t.compressed_content
             FROM tipcards t
             JOIN review_states r ON t.id = r.card_id
-            WHERE t.topic_id = ?
-              AND t.tipcard_type = ?
+            WHERE t.topic_id = ",
+        );
+        due_query.push_bind(topic.id);
+        due_query.push(
+            "
+              AND t.tipcard_type = ",
+        );
+        due_query.push_bind(&class_info.tipcard_type);
+        due_query.push(
+            "
               AND r.status = 'active'
-              AND r.next_review_at <= ?
-            ORDER BY r.next_review_at ASC LIMIT 1
+              AND r.next_review_at <= ",
+        );
+        due_query.push_bind(now);
+        if !exclude_card_ids.is_empty() {
+            due_query.push(" AND t.id NOT IN (");
+            let mut separated = due_query.separated(", ");
+            for id in &exclude_card_ids {
+                separated.push_bind(id);
+            }
+            separated.push_unseparated(")");
+        }
+        due_query.push(
+            "
+            ORDER BY
+                CASE
+                    WHEN t.tipcard_type = 'repeatable_tip'
+                         AND COALESCE(CAST(json_extract(r.state_data, '$.repeats') AS INTEGER), 0) > 0
+                    THEN 0
+                    ELSE 1
+                END ASC,
+                r.next_review_at ASC
+            LIMIT 1
             ",
-        )
-        .bind(topic.id)
-        .bind(&class_info.tipcard_type)
-        .bind(now)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        );
+
+        let due_card = due_query
+            .build_query_as::<(i64, String, String)>()
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
         if let Some(card) = due_card {
             responses.push(tip_response_json(
@@ -389,6 +425,7 @@ pub async fn get_tips(
             topics: query.topics,
             topic_class: Some(query.topic_class),
             tipcard_type: Some(query.tipcard_type),
+            exclude_card_ids: None,
         },
     )
     .await?

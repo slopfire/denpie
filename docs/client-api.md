@@ -98,7 +98,7 @@ Behavior:
 - Only the first `count` topic entries are processed.
 - New topics are inserted automatically.
 - New topic classes are inserted automatically. `default` uses `srs_tip`; `casual` defaults to `casual_tip`; `repeatable`, `reword`, and `re:word` default to `repeatable_tip`.
-- Existing due cards are selected by earliest `review_states.next_review_at`.
+- Existing due cards are selected by earliest `review_states.next_review_at`. For repeatable cards, due known cards (`repeat_count > 0`) are preferred over never-repeated active cards so scheduled repeats are not buried behind fresh queue items.
 - Generated cards use a topic-specific prompt template when configured in the browser app; otherwise they use the global template. The prompt includes generated titles from existing and dismissed cards for the same topic/type so the model can avoid duplicate ideas.
 - `srs_tip` cards use the normal SRS schedule.
 - `casual_tip` cards are instant queue cards. Dismiss or acknowledge one, then call `/tips` again to get another card.

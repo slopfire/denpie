@@ -9,6 +9,8 @@ BIN_DIR="${BIN_DIR:-/usr/local/bin}"
 SHARE_DIR="${SHARE_DIR:-/usr/local/share/$APP_NAME}"
 DATA_DIR="${DATA_DIR:-/var/lib/$APP_NAME}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
+LIBEXEC_DIR="${LIBEXEC_DIR:-/usr/local/libexec}"
+DEFAULTS_DIR="${DEFAULTS_DIR:-/etc/default}"
 
 usage() {
     cat <<EOF
@@ -19,6 +21,7 @@ Environment overrides:
   BIN_DIR         binary install directory (default: /usr/local/bin)
   SHARE_DIR       schema install directory (default: /usr/local/share/dailytipdraft)
   DATA_DIR        runtime data directory (default: /var/lib/dailytipdraft)
+  LIBEXEC_DIR     helper script directory (default: /usr/local/libexec)
   SERVICE_USER    system user name (default: dailytipdraft)
   SKIP_BUILD=1    install existing target/release/dailytipdraft
 EOF
@@ -61,6 +64,31 @@ write_service() {
         deploy/dailytipdraft.service > "$SYSTEMD_DIR/$APP_NAME.service"
 }
 
+write_autoupdate_defaults() {
+    cat > "$DEFAULTS_DIR/$APP_NAME-autoupdate" <<EOF
+APP_NAME=$APP_NAME
+SERVICE_NAME=$APP_NAME.service
+BIN_DIR=$BIN_DIR
+SHARE_DIR=$SHARE_DIR
+DATA_DIR=$DATA_DIR
+SETTINGS_PATH=$DATA_DIR/settings.yaml
+STATE_DIR=$DATA_DIR/autoupdate
+DEFAULT_REPO=slopfire/dailytipdraft
+DEFAULT_BRANCH=main
+EOF
+}
+
+write_autoupdate_units() {
+    install -d -m 0755 "$LIBEXEC_DIR" "$DEFAULTS_DIR"
+    install -m 0755 deploy/dailytipdraft-autoupdate.sh "$LIBEXEC_DIR/$APP_NAME-autoupdate"
+    sed \
+        -e "s|^EnvironmentFile=.*|EnvironmentFile=-$DEFAULTS_DIR/$APP_NAME-autoupdate|" \
+        -e "s|^ExecStart=.*|ExecStart=$LIBEXEC_DIR/$APP_NAME-autoupdate|" \
+        deploy/dailytipdraft-autoupdate.service > "$SYSTEMD_DIR/$APP_NAME-autoupdate.service"
+    install -m 0644 deploy/dailytipdraft-autoupdate.timer "$SYSTEMD_DIR/$APP_NAME-autoupdate.timer"
+    write_autoupdate_defaults
+}
+
 install_app() {
     need_root
     build_release
@@ -72,9 +100,11 @@ install_app() {
     install -m 0644 schema.sql "$SHARE_DIR/schema.sql"
     install -m 0644 templates/*.html "$SHARE_DIR/templates/"
     write_service
+    write_autoupdate_units
 
     systemctl daemon-reload
     systemctl enable --now "$APP_NAME.service"
+    systemctl enable --now "$APP_NAME-autoupdate.timer"
 
     echo "Installed $APP_NAME"
     echo "URL: http://$BIND_ADDR/"
@@ -85,9 +115,11 @@ install_app() {
 uninstall_app() {
     need_root
     systemctl disable --now "$APP_NAME.service" >/dev/null 2>&1 || true
+    systemctl disable --now "$APP_NAME-autoupdate.timer" >/dev/null 2>&1 || true
     rm -f "$SYSTEMD_DIR/$APP_NAME.service"
+    rm -f "$SYSTEMD_DIR/$APP_NAME-autoupdate.service" "$SYSTEMD_DIR/$APP_NAME-autoupdate.timer"
     systemctl daemon-reload
-    echo "Removed systemd service. Data left in $DATA_DIR and binary left in $BIN_DIR."
+    echo "Removed systemd services. Data left in $DATA_DIR and binary left in $BIN_DIR."
 }
 
 ACTION="${1:-install}"

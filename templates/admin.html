@@ -265,7 +265,7 @@
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="block text-xs uppercase tracking-widest text-text-dim mb-2">GitHub Repo</label>
-              <input type="text" id="autoupdateRepoInput" class="premium-input w-full rounded-xl p-4" placeholder="owner/repo" />
+              <input type="text" id="autoupdateRepoInput" class="premium-input w-full rounded-xl p-4" placeholder="slopfire/dailytipdraft" />
             </div>
             <div>
               <label class="block text-xs uppercase tracking-widest text-text-dim mb-2">Branch</label>
@@ -278,7 +278,7 @@
           </div>
           <div>
             <label class="block text-xs uppercase tracking-widest text-text-dim mb-2">Update Command</label>
-            <textarea id="autoupdateCommandInput" class="premium-input w-full rounded-xl p-4 h-24 resize-none" placeholder="Command run after a new GitHub commit is detected"></textarea>
+            <textarea id="autoupdateCommandInput" class="premium-input w-full rounded-xl p-4 h-24 resize-none" placeholder="Optional command for non-systemd installs"></textarea>
           </div>
           <p class="text-xs text-text-dim">Last seen: <span id="autoupdateLastSha">not recorded</span></p>
         </div>
@@ -645,7 +645,7 @@
         document.getElementById('reasoningEffortInput').value = data.reasoning_effort || 'none';
         document.getElementById('compressReasoningEffortInput').value = data.compress_reasoning_effort || 'none';
         document.getElementById('autoupdateEnabledInput').checked = Boolean(data.autoupdate_enabled);
-        document.getElementById('autoupdateRepoInput').value = data.autoupdate_repo || '';
+        document.getElementById('autoupdateRepoInput').value = data.autoupdate_repo || 'slopfire/dailytipdraft';
         document.getElementById('autoupdateBranchInput').value = data.autoupdate_branch || 'main';
         document.getElementById('autoupdateIntervalInput').value = data.autoupdate_check_interval_secs || 3600;
         document.getElementById('autoupdateCommandInput').value = data.autoupdate_command || '';

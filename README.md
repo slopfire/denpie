@@ -12,7 +12,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Admin Dashboard**: Web UI for managing LLM settings, prompt templates, and client API keys. All settings persist to `settings.yaml`.
 - **Markdown Tipcards**: Browser UIs render generated tip content as sanitized markdown while API responses keep the original raw text.
 - **Browser Client App**: The server root (`/`) opens a session-backed MindLift SRS application for dashboard stats, unified flow over active cards, compact/expandable and copyable card text, drag-and-drop card ordering, grid/column layout switching, card deletion, API key management, settings, archive browsing, and configurable color schemes.
-- **Optional GitHub Autoupdate**: Disabled by default. When enabled, the server polls a configured GitHub repository branch for new commits and runs a configured local update command.
+- **Optional GitHub Autoupdate**: Disabled by default. The systemd install includes a root-owned updater timer, so enabling the checkbox is enough to poll GitHub, rebuild from the configured repository branch, install the new binary/templates/schema, and restart the service.
 - **Token-Based Admin Auth**: On first startup the server generates and prints a one-time admin token. Use it to log in at `/admin`.
 - **Protobuf API**: Tips and reviews are exchanged as Protocol Buffers for compact, typed serialization.
 - **Single-User, Multi-Client**: One user's SRS state is shared across all clients (desktop widget, Telegram bot, etc.) via per-client API keys.
@@ -38,6 +38,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 │   ├── main.rs        # Router setup, state, app initialization
 │   ├── api.rs         # /tips and /review endpoints (protobuf)
 │   ├── auth.rs        # Admin session middleware + client API key validation
+│   ├── autoupdate.rs  # Optional in-process GitHub change watcher
 │   ├── dashboard.rs   # Admin HTML page + settings/key management REST endpoints
 │   ├── llm.rs         # LLM wrappers (generate_new_card, compress_card, generate_card_title)
 │   └── srs.rs         # SM-2 and FSRS algorithm implementations
@@ -76,7 +77,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    - Create `dailytip.db` and apply `schema.sql` automatically.
    - Generate and print a one-time admin token to the console.
 
-4. **Open the browser client app** at `http://127.0.0.1:3001/` and log in with the printed token. The app includes the dashboard, unified flow over due active cards, compact/expandable and copyable card text, drag-and-drop card ordering, card deletion, grid/column layout switching, per-topic prompt overrides, settings, API keys, archive, and a color scheme selector with Default, Ayu, Solarized, Dracula, and Slate themes. Adding, dismissing, repeatable memorizing/repeating, and daily casual-card refreshes show skeleton loading cards while the server generates replacements.
+4. **Open the browser client app** at `http://127.0.0.1:3001/` and log in with the printed token. The app includes the dashboard, unified flow over due active cards, compact/expandable and copyable card text, drag-and-drop card ordering, card deletion, grid/column layout switching, per-topic prompt overrides, settings, API keys, archive, and a color scheme selector with Default, Ayu, Solarized, Dracula, and Slate themes. Adding, dismissing, repeatable memorizing/repeating, and daily casual-card refreshes show skeleton loading cards while the server generates replacements without reusing cards already visible in the flow.
 
    The legacy admin dashboard remains available at `http://127.0.0.1:3001/admin`.
 
@@ -107,27 +108,26 @@ All runtime configuration lives in `settings.yaml` and is managed exclusively th
 | `llm_compress_base_url` | Base URL for compression requests; defaults to `llm_base_url` when missing | `https://openrouter.ai/api/v1` |
 | `color_scheme` | Browser client color scheme | `default` |
 | `autoupdate_enabled` | Enable GitHub commit polling and command-based updates | `false` |
-| `autoupdate_repo` | GitHub repository in `owner/repo` form | *(empty)* |
+| `autoupdate_repo` | GitHub repository in `owner/repo` form, or a GitHub URL | `slopfire/dailytipdraft` |
 | `autoupdate_branch` | Branch or ref checked through the GitHub commits API | `main` |
 | `autoupdate_check_interval_secs` | Poll interval in seconds; values below 60 are clamped to 60 | `3600` |
-| `autoupdate_command` | Local shell command executed after a new commit is detected | *(empty)* |
+| `autoupdate_command` | Optional local shell command for non-systemd installs after a new commit is detected | *(empty)* |
 | `autoupdate_last_seen_sha` | Last GitHub commit SHA recorded by the updater | *(empty)* |
 
 ### GitHub Autoupdate
 
-Autoupdate is intentionally off by default and only runs when `autoupdate_enabled` is `true`, `autoupdate_repo` is set, and `autoupdate_command` is non-empty. On the first successful GitHub check the server records the current commit SHA as a baseline and does not update. On later checks, a changed SHA runs the configured command. If the command exits successfully, the server exits with a non-zero code so a supervisor such as systemd can restart it.
+Autoupdate is intentionally off by default. For the systemd installation, the installer enables a `dailytipdraft-autoupdate.timer` that reads `settings.yaml`; checking **Enable GitHub autoupdate** in the app is enough. On the first successful check the updater records the current commit SHA as a baseline and does not update. On later checks, a changed SHA triggers a root-owned update helper that fetches the configured branch, runs `cargo build --release`, installs the new binary plus shared files, records the new SHA, and restarts `dailytipdraft.service`. The host must keep the build tools available after installation (`git`, `cargo`, and `protoc`/`protobuf-compiler`).
 
-The update command runs with the same user, permissions, working directory, and sandboxing as the server process. For the systemd install, that is the `dailytipdraft` user with `WorkingDirectory=/var/lib/dailytipdraft`; make sure the command has permission to update whatever it needs. Example:
+Default repository comes from this repo's `origin` remote: `slopfire/dailytipdraft`. You can override it with another `owner/repo`, `https://github.com/owner/repo`, or `git@github.com:owner/repo.git` value. Example:
 
 ```yaml
 autoupdate_enabled: true
-autoupdate_repo: yourname/dailytipdraft
+autoupdate_repo: slopfire/dailytipdraft
 autoupdate_branch: main
 autoupdate_check_interval_secs: 1800
-autoupdate_command: /usr/local/bin/dailytipdraft-update
 ```
 
-Keep the command in a root-owned script when using systemd, and avoid putting secrets directly in `settings.yaml`.
+For non-systemd or custom deployments, set `autoupdate_command` to a local command that performs the update. In that mode, the command runs with the same user, permissions, and working directory as the server process; if it succeeds, the server exits with code `75` so an external supervisor can restart it.
 
 ## Runtime Environment
 
@@ -161,6 +161,7 @@ sudo ./install.sh
 ```
 
 The installer builds `target/release/dailytipdraft`, installs the binary to `/usr/local/bin/dailytipdraft`, installs `schema.sql` and templates to `/usr/local/share/dailytipdraft`, creates a `dailytipdraft` system user, stores runtime data in `/var/lib/dailytipdraft`, and starts `dailytipdraft.service`.
+It also installs and enables `dailytipdraft-autoupdate.timer`, which stays idle unless `autoupdate_enabled: true` is set in `settings.yaml`.
 
 Useful commands:
 
@@ -168,6 +169,8 @@ Useful commands:
 sudo systemctl status dailytipdraft
 sudo journalctl -u dailytipdraft -f
 sudo systemctl restart dailytipdraft
+sudo systemctl status dailytipdraft-autoupdate.timer
+sudo systemctl start dailytipdraft-autoupdate.service
 sudo ./install.sh uninstall
 ```
 

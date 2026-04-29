@@ -240,7 +240,7 @@ mod tests {
         assert_eq!(data["compress_reasoning_effort"], "none");
         assert_eq!(data["color_scheme"], "default");
         assert_eq!(data["autoupdate_enabled"], false);
-        assert_eq!(data["autoupdate_repo"], "");
+        assert_eq!(data["autoupdate_repo"], "slopfire/dailytipdraft");
         assert_eq!(data["autoupdate_branch"], "main");
         assert_eq!(data["autoupdate_check_interval_secs"], 3600);
         assert_eq!(data["autoupdate_command"], "");
@@ -782,6 +782,161 @@ mod tests {
         let second_resp = crate::api::pb::TipsResponse::decode(res.bytes().await.unwrap()).unwrap();
         assert_eq!(second_resp.tips.len(), 1);
         assert_ne!(second_resp.tips[0].id, first_id);
+    }
+
+    #[tokio::test]
+    async fn test_app_tip_replacement_excludes_visible_cards() {
+        let settings_path = unique_settings_path();
+        fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+            .await
+            .unwrap();
+        let db = setup_db().await;
+        let state = AppState {
+            db,
+            settings_path,
+            template_dir: PathBuf::from("templates"),
+        };
+
+        let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
+            .bind("repeatable")
+            .bind("repeatable_tip")
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        let topic_id = sqlx::query("INSERT INTO topics (name, class_id) VALUES (?, ?)")
+            .bind("spanish")
+            .bind(class_id)
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+
+        let mut visible_ids = Vec::new();
+        for label in ["one", "two"] {
+            let card_id = sqlx::query(
+                "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(topic_id)
+            .bind("repeatable_tip")
+            .bind(label)
+            .bind(format!("Full {label}"))
+            .bind(format!("Compressed {label}"))
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+            sqlx::query(
+                "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, ?, ?, 'active', ?)",
+            )
+            .bind(card_id)
+            .bind("repeatable")
+            .bind(r#"{"repeats":0}"#)
+            .bind(chrono::Utc::now())
+            .execute(&state.db)
+            .await
+            .unwrap();
+            visible_ids.push(card_id);
+        }
+
+        crate::api::apply_review(&state, visible_ids[0], 3, "repeat")
+            .await
+            .unwrap();
+
+        let replacement = crate::api::build_tips(
+            &state,
+            crate::api::TipsJsonRequest {
+                count: Some(1),
+                topics: "spanish".into(),
+                topic_class: Some("repeatable".into()),
+                tipcard_type: Some("repeatable_tip".into()),
+                exclude_card_ids: Some(visible_ids.clone()),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(replacement.len(), 1);
+        assert!(
+            !visible_ids.contains(&replacement[0].id),
+            "replacement should not reuse a card already visible in the flow"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_repeatable_due_selection_prefers_known_cards() {
+        let settings_path = unique_settings_path();
+        fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+            .await
+            .unwrap();
+        let db = setup_db().await;
+        let state = AppState {
+            db,
+            settings_path,
+            template_dir: PathBuf::from("templates"),
+        };
+
+        let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
+            .bind("repeatable")
+            .bind("repeatable_tip")
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        let topic_id = sqlx::query("INSERT INTO topics (name, class_id) VALUES (?, ?)")
+            .bind("spanish")
+            .bind(class_id)
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+
+        let now = chrono::Utc::now();
+        let mut card_ids = Vec::new();
+        for (label, repeats, due_at) in [
+            ("new", 0_u32, now - chrono::Duration::minutes(30)),
+            ("known", 2_u32, now - chrono::Duration::minutes(5)),
+        ] {
+            let card_id = sqlx::query(
+                "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(topic_id)
+            .bind("repeatable_tip")
+            .bind(label)
+            .bind(format!("Full {label}"))
+            .bind(format!("Compressed {label}"))
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+            sqlx::query(
+                "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, ?, ?, 'active', ?)",
+            )
+            .bind(card_id)
+            .bind("repeatable")
+            .bind(format!(r#"{{"repeats":{repeats}}}"#))
+            .bind(due_at)
+            .execute(&state.db)
+            .await
+            .unwrap();
+            card_ids.push(card_id);
+        }
+
+        let tips = crate::api::build_tips(
+            &state,
+            crate::api::TipsJsonRequest {
+                count: Some(1),
+                topics: "spanish".into(),
+                topic_class: Some("repeatable".into()),
+                tipcard_type: Some("repeatable_tip".into()),
+                exclude_card_ids: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(tips.len(), 1);
+        assert_eq!(tips[0].id, card_ids[1]);
     }
 
     #[tokio::test]

@@ -84,7 +84,7 @@ Response:
   "compress_base_url": "https://openrouter.ai/api/v1",
   "color_scheme": "default",
   "autoupdate_enabled": false,
-  "autoupdate_repo": "",
+  "autoupdate_repo": "slopfire/dailytipdraft",
   "autoupdate_branch": "main",
   "autoupdate_check_interval_secs": 3600,
   "autoupdate_command": "",
@@ -127,7 +127,7 @@ null
 
 Status: `200 OK` on success.
 
-Autoupdate is disabled unless `autoupdate_enabled` is `true`. The first successful GitHub check records `autoupdate_last_seen_sha` as a baseline. Later checks run `autoupdate_command` when the configured repository branch changes, then exit the server process with a non-zero code after a successful command so a supervisor can restart it.
+Autoupdate is disabled unless `autoupdate_enabled` is `true`. The systemd installer includes a root-owned `dailytipdraft-autoupdate.timer`; with that install path, enabling the checkbox is enough. The first successful GitHub check records `autoupdate_last_seen_sha` as a baseline. Later checks rebuild and install from the configured repository branch, then restart `dailytipdraft.service`. `autoupdate_command` is optional and intended for non-systemd or custom deployments.
 
 ## API Key Management
 
@@ -346,7 +346,7 @@ Status codes:
 
 ### `POST /app/tips`
 
-Session-backed JSON wrapper around the protobuf `/tips` behavior. It creates the topic/class if needed, returns due cards first, and generates new cards through the configured LLM when no due card exists. New card prompts use the topic prompt override when present; otherwise they use the global template. The prompt context includes generated titles from existing and dismissed cards for the same topic/type.
+Session-backed JSON wrapper around the protobuf `/tips` behavior. It creates the topic/class if needed, returns due cards first, and generates new cards through the configured LLM when no due card exists. Repeatable due cards with prior repeats are preferred over never-repeated active cards. New card prompts use the topic prompt override when present; otherwise they use the global template. The prompt context includes generated titles from existing and dismissed cards for the same topic/type.
 
 Request:
 
@@ -355,11 +355,12 @@ Request:
   "topics": "Rust, Python",
   "topic_class": "repeatable",
   "tipcard_type": "repeatable_tip",
-  "count": 2
+  "count": 2,
+  "exclude_card_ids": [12, 13]
 }
 ```
 
-The root app sends `topic_class` as either `repeatable` or `casual`. `tipcard_type` accepts `casual_tip` or `repeatable_tip` for app-created cards.
+The root app sends `topic_class` as either `repeatable` or `casual`. `tipcard_type` accepts `casual_tip` or `repeatable_tip` for app-created cards. `exclude_card_ids` is optional; the root app uses it when replacing a reviewed card so the server does not return another card already visible in the flow.
 
 Response:
 

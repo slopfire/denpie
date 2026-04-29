@@ -100,7 +100,7 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
     let autoupdate_repo = settings
         .get("autoupdate_repo")
         .and_then(|v| v.as_str())
-        .unwrap_or("")
+        .unwrap_or("slopfire/dailytipdraft")
         .to_string();
     let autoupdate_branch = settings
         .get("autoupdate_branch")
