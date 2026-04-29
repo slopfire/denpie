@@ -39,7 +39,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 │   ├── api.rs         # /tips and /review endpoints (protobuf)
 │   ├── auth.rs        # Admin session middleware + client API key validation
 │   ├── dashboard.rs   # Admin HTML page + settings/key management REST endpoints
-│   ├── llm.rs         # LLM wrappers (generate_new_card, compress_card)
+│   ├── llm.rs         # LLM wrappers (generate_new_card, compress_card, generate_card_title)
 │   └── srs.rs         # SM-2 and FSRS algorithm implementations
 ├── templates/
 │   ├── app.html       # Root browser client application
@@ -76,7 +76,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    - Create `dailytip.db` and apply `schema.sql` automatically.
    - Generate and print a one-time admin token to the console.
 
-4. **Open the browser client app** at `http://127.0.0.1:3001/` and log in with the printed token. The app includes the dashboard, unified flow over due active cards, compact/expandable and copyable card text, drag-and-drop card ordering, card deletion, grid/column layout switching, settings, API keys, archive, and a color scheme selector with Default, Ayu, Solarized, Dracula, and Slate themes. Adding, dismissing, repeatable memorizing/repeating, and daily casual-card refreshes show skeleton loading cards while the server generates replacements.
+4. **Open the browser client app** at `http://127.0.0.1:3001/` and log in with the printed token. The app includes the dashboard, unified flow over due active cards, compact/expandable and copyable card text, drag-and-drop card ordering, card deletion, grid/column layout switching, per-topic prompt overrides, settings, API keys, archive, and a color scheme selector with Default, Ayu, Solarized, Dracula, and Slate themes. Adding, dismissing, repeatable memorizing/repeating, and daily casual-card refreshes show skeleton loading cards while the server generates replacements.
 
    The legacy admin dashboard remains available at `http://127.0.0.1:3001/admin`.
 
@@ -84,7 +84,9 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    - **LLM Model** — e.g. `google/gemini-2.5-pro` or `openai/gpt-4o`
    - **LLM API Key** — your provider API key
    - **LLM Base URL** — e.g. `https://openrouter.ai/api/v1` or `https://generativelanguage.googleapis.com/v1beta/openai`
-   - **Prompt Template** — use `{topic}` as the placeholder
+   - **Prompt Template** — use `{topic}` as the placeholder; `{context}`, `{existing_cards}`, and `{dismissed_cards}` can place prior card titles explicitly
+
+   Each topic can also define its own prompt in the Active Topics panel. Empty topic prompts fall back to the global prompt template. When a new card is generated, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
 
 6. **Generate a client API key** in the Access Keys panel. Pass it as the `Authorization` header on every `/tips` and `/review` request.
 
@@ -96,9 +98,9 @@ All runtime configuration lives in `settings.yaml` and is managed exclusively th
 |---|---|---|
 | `admin_token` | Hashed token for dashboard login | Auto-generated on first run |
 | `llm_model` | Model identifier string | `google/gemini-3.1-flash` |
-| `llm_compress_model` | Model identifier string for compressed summaries | `google/gemini-3.1-flash-lite-preview` |
+| `llm_compress_model` | Model identifier string for compressed summaries and generated card titles | `google/gemini-3.1-flash-lite-preview` |
 | `llm_reasoning_effort` | Reasoning effort for generated tips: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh` | `none` |
-| `llm_compress_reasoning_effort` | Reasoning effort for compressed summaries; `none` disables compression thinking tokens | `none` |
+| `llm_compress_reasoning_effort` | Reasoning effort for compressed summaries and generated titles; `none` disables compression/title thinking tokens | `none` |
 | `prompt_template` | Tip generation prompt (`{topic}` placeholder) | `Give a smart tip about {topic}.` |
 | `llm_api_key` | API key for the LLM provider | *(empty — set via dashboard)* |
 | `llm_base_url` | Base URL for the OpenAI-compatible API | `https://openrouter.ai/api/v1` |
@@ -216,8 +218,8 @@ The API reference is split by audience:
 |---|---|
 | `api_keys` | Hashed client keys with display names |
 | `topic_classes` | Topic class definitions, including card behavior type |
-| `topics` | Topic categories linked to topic classes |
-| `tipcards` | Generated tips (full + compressed content) with card type |
+| `topics` | Topic categories linked to topic classes, with optional per-topic prompt template |
+| `tipcards` | Generated tips with full content, compact compressed content, title, and card type |
 | `review_states` | Per-card review state, status, and next review timestamp |
 
 Tip content can include markdown such as headings, lists, emphasis, links, blockquotes, inline code, and fenced code blocks. The root app and legacy admin dashboard render that markdown client-side after escaping unsafe HTML. Protobuf and JSON API routes still return raw `full_content` and `compressed_content` strings so external clients can choose their own renderer.

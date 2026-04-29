@@ -11,7 +11,7 @@ use std::fs;
 use std::sync::Arc;
 
 use crate::{
-    llm,
+    context, llm,
     srs::{self, Algorithm, SrsState},
     AppState,
 };
@@ -40,6 +40,12 @@ struct TopicClassInfo {
     id: i64,
     name: String,
     tipcard_type: String,
+}
+
+#[derive(Clone)]
+struct TopicInfo {
+    id: i64,
+    prompt_template: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -126,16 +132,20 @@ async fn get_or_create_topic(
     state: &AppState,
     topic_name: &str,
     class_id: i64,
-) -> Result<i64, (StatusCode, String)> {
-    if let Some(id) =
-        sqlx::query_scalar::<_, i64>("SELECT id FROM topics WHERE name = ? AND class_id = ?")
-            .bind(topic_name)
-            .bind(class_id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+) -> Result<TopicInfo, (StatusCode, String)> {
+    if let Some(row) = sqlx::query_as::<_, (i64, Option<String>)>(
+        "SELECT id, prompt_template FROM topics WHERE name = ? AND class_id = ?",
+    )
+    .bind(topic_name)
+    .bind(class_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     {
-        return Ok(id);
+        return Ok(TopicInfo {
+            id: row.0,
+            prompt_template: row.1,
+        });
     }
 
     match sqlx::query("INSERT INTO topics (name, class_id) VALUES (?, ?)")
@@ -144,15 +154,24 @@ async fn get_or_create_topic(
         .execute(&state.db)
         .await
     {
-        Ok(result) => Ok(result.last_insert_rowid()),
+        Ok(result) => Ok(TopicInfo {
+            id: result.last_insert_rowid(),
+            prompt_template: None,
+        }),
         Err(insert_error) => {
-            if let Some(id) = sqlx::query_scalar::<_, i64>("SELECT id FROM topics WHERE name = ?")
-                .bind(topic_name)
-                .fetch_optional(&state.db)
-                .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            if let Some(row) = sqlx::query_as::<_, (i64, Option<String>)>(
+                "SELECT id, prompt_template FROM topics WHERE name = ? AND class_id = ?",
+            )
+            .bind(topic_name)
+            .bind(class_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
             {
-                Ok(id)
+                Ok(TopicInfo {
+                    id: row.0,
+                    prompt_template: row.1,
+                })
             } else {
                 Err((StatusCode::INTERNAL_SERVER_ERROR, insert_error.to_string()))
             }
@@ -239,7 +258,7 @@ pub async fn build_tips(
             continue;
         }
 
-        let topic_id = get_or_create_topic(state, topic_name, class_info.id).await?;
+        let topic = get_or_create_topic(state, topic_name, class_info.id).await?;
 
         let now = Utc::now();
         let due_card = sqlx::query_as::<_, (i64, String, String)>(
@@ -254,7 +273,7 @@ pub async fn build_tips(
             ORDER BY r.next_review_at ASC LIMIT 1
             ",
         )
-        .bind(topic_id)
+        .bind(topic.id)
         .bind(&class_info.tipcard_type)
         .bind(now)
         .fetch_optional(&state.db)
@@ -270,10 +289,18 @@ pub async fn build_tips(
                 &class_info,
             ));
         } else {
+            let template = topic
+                .prompt_template
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(&template);
+            let card_context =
+                context::load_card_context(state, topic.id, &class_info.tipcard_type).await?;
+            let prompt = context::render_generation_prompt(topic_name, template, &card_context);
             let full_tip = llm::generate_new_card(
-                topic_name,
                 &llm_model,
-                &template,
+                &prompt,
                 &llm_api_key,
                 &llm_base_url,
                 &llm_reasoning,
@@ -287,12 +314,21 @@ pub async fn build_tips(
                 &llm_compress_reasoning,
             )
             .await;
+            let card_title = llm::generate_card_title(
+                &full_tip,
+                &llm_compress_model,
+                &llm_api_key,
+                &llm_compress_base_url,
+                &llm_compress_reasoning,
+            )
+            .await;
 
             let card_id = sqlx::query(
-                "INSERT INTO tipcards (topic_id, tipcard_type, full_content, compressed_content) VALUES (?, ?, ?, ?)",
+                "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
             )
-            .bind(topic_id)
+            .bind(topic.id)
             .bind(&class_info.tipcard_type)
+            .bind(&card_title)
             .bind(&full_tip)
             .bind(&compressed_tip)
             .execute(&state.db).await.map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

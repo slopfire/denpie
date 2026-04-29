@@ -210,7 +210,8 @@ Response:
 [
   {
     "id": 1,
-    "name": "rust"
+    "name": "rust",
+    "prompt_template": "Give a Rust ownership tip about {topic}."
   }
 ]
 ```
@@ -312,6 +313,7 @@ Response:
     "name": "Rust",
     "class_name": "repeatable",
     "tipcard_type": "repeatable_tip",
+    "prompt_template": "Give a Rust ownership tip about {topic}.",
     "total_cards": 12,
     "due_cards": 3,
     "completed_cards": 4
@@ -319,9 +321,32 @@ Response:
 ]
 ```
 
+### `PATCH /app/topics`
+
+Updates a topic-specific prompt template. Send an empty string or `null` to return the topic to the global prompt.
+
+Request:
+
+```json
+{
+  "id": 1,
+  "prompt_template": "Give a Rust ownership tip about {topic}. Avoid duplicates from {existing_cards} and {dismissed_cards}."
+}
+```
+
+Response body: empty
+
+Status codes:
+
+| Case | Status |
+|---|---:|
+| Topic updated | `200 OK` |
+| Topic ID missing | `404 Not Found` |
+| SQL failure | `500 Internal Server Error` |
+
 ### `POST /app/tips`
 
-Session-backed JSON wrapper around the protobuf `/tips` behavior. It creates the topic/class if needed, returns due cards first, and generates new cards through the configured LLM when no due card exists.
+Session-backed JSON wrapper around the protobuf `/tips` behavior. It creates the topic/class if needed, returns due cards first, and generates new cards through the configured LLM when no due card exists. New card prompts use the topic prompt override when present; otherwise they use the global template. The prompt context includes generated titles from existing and dismissed cards for the same topic/type.
 
 Request:
 

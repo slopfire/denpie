@@ -99,6 +99,7 @@ Behavior:
 - New topics are inserted automatically.
 - New topic classes are inserted automatically. `default` uses `srs_tip`; `casual` defaults to `casual_tip`; `repeatable`, `reword`, and `re:word` default to `repeatable_tip`.
 - Existing due cards are selected by earliest `review_states.next_review_at`.
+- Generated cards use a topic-specific prompt template when configured in the browser app; otherwise they use the global template. The prompt includes generated titles from existing and dismissed cards for the same topic/type so the model can avoid duplicate ideas.
 - `srs_tip` cards use the normal SRS schedule.
 - `casual_tip` cards are instant queue cards. Dismiss or acknowledge one, then call `/tips` again to get another card.
 - `repeatable_tip` cards are for queue-style practice. If no active due card exists, the server generates a new card immediately. The browser app uses this after repeatable `repeat`, `memorize`, or `dismiss` actions to keep the current slot filled with another card.
@@ -112,7 +113,7 @@ Response body: `TipsResponse`
 | `tips[].id` | `int64` | Card ID. Use this for `/review`. |
 | `tips[].topic` | `string` | Topic name used for the card. |
 | `tips[].full_content` | `string` | Full LLM-generated tip. |
-| `tips[].compressed_content` | `string` | Short compressed version. |
+| `tips[].compressed_content` | `string` | Short compressed version for compact card display. |
 | `tips[].topic_class` | `string` | Topic class used for the card. |
 | `tips[].tipcard_type` | `string` | Card behavior type: `srs_tip`, `casual_tip`, or `repeatable_tip`. |
 

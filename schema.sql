@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS topics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     class_id INTEGER,
+    prompt_template TEXT,
     UNIQUE(name, class_id),
     FOREIGN KEY(class_id) REFERENCES topic_classes(id)
 );
@@ -26,6 +27,7 @@ CREATE TABLE IF NOT EXISTS tipcards (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     topic_id INTEGER NOT NULL,
     tipcard_type TEXT NOT NULL DEFAULT 'srs_tip',
+    title TEXT,
     full_content TEXT NOT NULL,
     compressed_content TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

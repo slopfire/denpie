@@ -18,6 +18,7 @@ use tower_sessions_sqlx_store::SqliteStore;
 mod api;
 mod auth;
 mod autoupdate;
+mod context;
 mod dashboard;
 mod llm;
 mod srs;
@@ -164,7 +165,10 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
 
     let app_routes = Router::new()
         .route("/app/summary", get(dashboard::app_summary))
-        .route("/app/topics", get(dashboard::app_topics))
+        .route(
+            "/app/topics",
+            get(dashboard::app_topics).patch(dashboard::update_topic),
+        )
         .route("/app/tips", post(dashboard::app_tips))
         .route("/app/review", post(dashboard::app_review))
         .route_layer(axum::middleware::from_fn(auth::require_session));
@@ -182,6 +186,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
 
 pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     ensure_column(pool, "topics", "class_id", "INTEGER").await?;
+    ensure_column(pool, "topics", "prompt_template", "TEXT").await?;
     ensure_column(
         pool,
         "tipcards",
@@ -189,6 +194,7 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
         "TEXT NOT NULL DEFAULT 'srs_tip'",
     )
     .await?;
+    ensure_column(pool, "tipcards", "title", "TEXT").await?;
     ensure_column(
         pool,
         "review_states",

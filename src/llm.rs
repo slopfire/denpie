@@ -14,18 +14,39 @@ impl ReasoningConfig {
 }
 
 pub async fn generate_new_card(
-    topic: &str,
     model: &str,
-    template: &str,
+    prompt: &str,
     api_key: &str,
     api_base: &str,
     reasoning: &ReasoningConfig,
 ) -> String {
     if api_key.is_empty() {
-        return format!("Generated tip for {} (API KEY MISSING)", topic);
+        return format!("Generated tip (API KEY MISSING)\n\nPrompt:\n{}", prompt);
     }
 
-    let prompt = template.replace("{topic}", topic);
+    create_chat_completion(model, prompt, api_key, api_base, reasoning).await
+}
+
+pub async fn generate_card_title(
+    full_content: &str,
+    model: &str,
+    api_key: &str,
+    api_base: &str,
+    reasoning: &ReasoningConfig,
+) -> String {
+    if api_key.is_empty() {
+        return fallback_title(full_content);
+    }
+
+    let prompt = format!(
+        "Generate one concise card title for this tip.\n\
+         Requirements:\n\
+         - Return only the title, no quotes and no markdown.\n\
+         - Maximum 8 words.\n\
+         - Make it specific enough to distinguish the card from related tips.\n\n\
+         Tip:\n{}",
+        full_content
+    );
     create_chat_completion(model, &prompt, api_key, api_base, reasoning).await
 }
 
@@ -107,5 +128,48 @@ fn normalize_reasoning_effort(effort: &str) -> &'static str {
         "low" => "low",
         "minimal" => "minimal",
         _ => "none",
+    }
+}
+
+fn fallback_title(full_content: &str) -> String {
+    let first_line = full_content
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("Untitled card")
+        .trim_start_matches('#')
+        .trim();
+
+    let title = first_line
+        .split_whitespace()
+        .take(8)
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    if title.is_empty() {
+        "Untitled card".to_string()
+    } else {
+        title
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fallback_title;
+
+    #[test]
+    fn fallback_title_uses_first_non_empty_line_without_heading_marker() {
+        assert_eq!(
+            fallback_title("\n## Borrow Checking Prevents Aliasing Bugs\nMore text"),
+            "Borrow Checking Prevents Aliasing Bugs"
+        );
+    }
+
+    #[test]
+    fn fallback_title_limits_word_count() {
+        assert_eq!(
+            fallback_title("one two three four five six seven eight nine ten"),
+            "one two three four five six seven eight"
+        );
     }
 }

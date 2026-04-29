@@ -386,17 +386,24 @@ pub async fn delete_tipcard(
 pub struct TopicInfo {
     pub id: i64,
     pub name: String,
+    pub prompt_template: String,
 }
 
 pub async fn list_topics(State(state): State<Arc<AppState>>) -> Json<Vec<TopicInfo>> {
-    let rows = sqlx::query_as::<_, (i64, String)>("SELECT id, name FROM topics ORDER BY name ASC")
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
+    let rows = sqlx::query_as::<_, (i64, String, Option<String>)>(
+        "SELECT id, name, prompt_template FROM topics ORDER BY name ASC",
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
 
     let topics = rows
         .into_iter()
-        .map(|r| TopicInfo { id: r.0, name: r.1 })
+        .map(|r| TopicInfo {
+            id: r.0,
+            name: r.1,
+            prompt_template: r.2.unwrap_or_default(),
+        })
         .collect();
     Json(topics)
 }
@@ -474,6 +481,7 @@ pub struct AppTopicInfo {
     pub name: String,
     pub class_name: String,
     pub tipcard_type: String,
+    pub prompt_template: String,
     pub total_cards: i64,
     pub due_cards: i64,
     pub completed_cards: i64,
@@ -481,11 +489,24 @@ pub struct AppTopicInfo {
 
 pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopicInfo>> {
     let now = chrono::Utc::now();
-    let rows = sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, i64, i64, i64)>(
+    let rows = sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            i64,
+            i64,
+            i64,
+        ),
+    >(
         "SELECT top.id,
                 top.name,
                 tc.name AS class_name,
                 tc.tipcard_type,
+                top.prompt_template,
                 COUNT(t.id) AS total_cards,
                 SUM(CASE WHEN r.status = 'active' AND r.next_review_at <= ? THEN 1 ELSE 0 END) AS due_cards,
                 SUM(CASE WHEN r.status != 'active' THEN 1 ELSE 0 END) AS completed_cards
@@ -493,7 +514,7 @@ pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopic
          LEFT JOIN topic_classes tc ON top.class_id = tc.id
          LEFT JOIN tipcards t ON t.topic_id = top.id
          LEFT JOIN review_states r ON r.card_id = t.id
-         GROUP BY top.id, top.name, tc.name, tc.tipcard_type
+         GROUP BY top.id, top.name, top.prompt_template, tc.name, tc.tipcard_type
          ORDER BY due_cards DESC, top.name ASC",
     )
     .bind(now)
@@ -508,12 +529,42 @@ pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopic
                 name: r.1,
                 class_name: r.2.unwrap_or_else(|| "default".to_string()),
                 tipcard_type: r.3.unwrap_or_else(|| "srs_tip".to_string()),
-                total_cards: r.4,
-                due_cards: r.5,
-                completed_cards: r.6,
+                prompt_template: r.4.unwrap_or_default(),
+                total_cards: r.5,
+                due_cards: r.6,
+                completed_cards: r.7,
             })
             .collect(),
     )
+}
+
+#[derive(Deserialize)]
+pub struct UpdateTopicReq {
+    pub id: i64,
+    pub prompt_template: Option<String>,
+}
+
+pub async fn update_topic(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<UpdateTopicReq>,
+) -> Result<Json<()>, (StatusCode, String)> {
+    let prompt_template = req
+        .prompt_template
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let result = sqlx::query("UPDATE topics SET prompt_template = ? WHERE id = ?")
+        .bind(prompt_template)
+        .bind(req.id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if result.rows_affected() == 0 {
+        return Err((StatusCode::NOT_FOUND, "Topic not found".to_string()));
+    }
+
+    Ok(Json(()))
 }
 
 #[derive(Serialize, Deserialize)]
