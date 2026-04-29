@@ -282,6 +282,13 @@ pub struct TipCardJson {
     pub tipcard_type: String,
 }
 
+#[derive(Deserialize)]
+pub struct ReviewJsonRequest {
+    pub card_id: i64,
+    pub grade: Option<u8>,
+    pub action: Option<String>,
+}
+
 async fn list_api_keys_pb(state: &AppState) -> Result<pb::ApiKeys, (StatusCode, String)> {
     let rows = sqlx::query_as::<_, (i64, String, String)>(
         "SELECT id, client_name, COALESCE(CAST(created_at AS TEXT), '') FROM api_keys ORDER BY created_at DESC",

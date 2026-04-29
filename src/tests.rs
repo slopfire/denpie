@@ -45,7 +45,11 @@ mod tests {
         .unwrap();
 
         let db = setup_db().await;
-        let state = Arc::new(AppState { db, settings_path });
+        let state = Arc::new(AppState {
+            db,
+            settings_path,
+            template_dir: PathBuf::from("templates"),
+        });
         let session_store = MemoryStore::default();
         let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
         let app = build_app(state, session_layer);
@@ -115,11 +119,6 @@ mod tests {
     async fn test_legacy_api_routes_are_removed() {
         let (url, client) = spawn_test_server().await;
         let routes = [
-            ("GET", "/admin"),
-            ("POST", "/auth/login"),
-            ("GET", "/admin/settings"),
-            ("POST", "/admin/keys"),
-            ("GET", "/app/summary"),
             ("POST", "/tips"),
             ("GET", "/topics"),
             ("GET", "/topic-classes"),
@@ -143,9 +142,9 @@ mod tests {
         let response = client.get(format!("{url}/")).send().await.unwrap();
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         let body = response.text().await.unwrap();
-        assert!(body.contains("Daily Tip"));
-        assert!(body.contains("POST /api") || body.contains("protobuf"));
-        assert!(body.contains("protobufjs"));
+        assert!(body.contains("MindLift SRS"));
+        assert!(body.contains("admin-token"));
+        assert!(body.contains("/app/tips"));
     }
 
     #[tokio::test]
@@ -650,7 +649,11 @@ mod tests {
             .await
             .unwrap();
         let db = setup_db().await;
-        let state = AppState { db, settings_path };
+        let state = AppState {
+            db,
+            settings_path,
+            template_dir: PathBuf::from("templates"),
+        };
 
         let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
             .bind("repeatable")
@@ -725,7 +728,11 @@ mod tests {
             .await
             .unwrap();
         let db = setup_db().await;
-        let state = AppState { db, settings_path };
+        let state = AppState {
+            db,
+            settings_path,
+            template_dir: PathBuf::from("templates"),
+        };
 
         let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
             .bind("repeatable")

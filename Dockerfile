@@ -25,7 +25,8 @@ COPY templates /app/templates
 
 ENV DAILYTIP_BIND_ADDR=127.0.0.1:3001 \
     DAILYTIP_DATA_DIR=/var/lib/dailytipdraft \
-    DAILYTIP_SCHEMA_PATH=/app/schema.sql
+    DAILYTIP_SCHEMA_PATH=/app/schema.sql \
+    DAILYTIP_TEMPLATE_DIR=/app/templates
 
 VOLUME ["/var/lib/dailytipdraft"]
 EXPOSE 3001
