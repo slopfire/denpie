@@ -5,6 +5,7 @@ use axum::{
 };
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
 use tower_sessions::{Expiry, SessionManagerLayer};
@@ -20,6 +21,7 @@ mod tests;
 
 pub struct AppState {
     pub db: SqlitePool,
+    pub settings_path: PathBuf,
 }
 
 #[tokio::main]
@@ -27,8 +29,10 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     // Setup Admin Token
-    let settings_str = fs::read_to_string("settings.yaml").await.unwrap_or_default();
-    let mut settings: serde_yaml::Value = serde_yaml::from_str(&settings_str).unwrap_or(serde_yaml::Value::Mapping(Default::default()));
+    let settings_path = PathBuf::from("settings.yaml");
+    let settings_str = fs::read_to_string(&settings_path).await.unwrap_or_default();
+    let mut settings: serde_yaml::Value = serde_yaml::from_str(&settings_str)
+        .unwrap_or(serde_yaml::Value::Mapping(Default::default()));
     if !settings.is_mapping() {
         settings = serde_yaml::Value::Mapping(Default::default());
     }
@@ -36,12 +40,19 @@ async fn main() {
         token.to_string()
     } else {
         use rand::Rng;
-        let token: String = rand::thread_rng().sample_iter(&rand::distributions::Alphanumeric).take(24).map(char::from).collect();
+        let token: String = rand::thread_rng()
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .take(24)
+            .map(char::from)
+            .collect();
         if let serde_yaml::Value::Mapping(ref mut map) = settings {
-            map.insert(serde_yaml::Value::String("admin_token".to_string()), serde_yaml::Value::String(token.clone()));
+            map.insert(
+                serde_yaml::Value::String("admin_token".to_string()),
+                serde_yaml::Value::String(token.clone()),
+            );
         }
         let out_str = serde_yaml::to_string(&settings).unwrap();
-        fs::write("settings.yaml", out_str).await.unwrap();
+        fs::write(&settings_path, out_str).await.unwrap();
         token
     };
     println!(">>> ADMIN SETUP TOKEN: {} <<<", admin_token);
@@ -78,6 +89,7 @@ async fn main() {
 
     let shared_state = Arc::new(AppState {
         db: pool,
+        settings_path,
     });
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(false) // Set to true in prod with HTTPS
@@ -114,15 +126,28 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
             "/admin/keys",
             get(dashboard::list_api_keys)
                 .post(dashboard::create_api_key)
-                .delete(dashboard::delete_api_key)
+                .delete(dashboard::delete_api_key),
         )
         .route("/admin/topics", get(dashboard::list_topics))
-        .route("/admin/tipcards", get(dashboard::list_tipcards))
+        .route("/admin/topic-classes", get(dashboard::list_topic_classes))
+        .route(
+            "/admin/tipcards",
+            get(dashboard::list_tipcards).delete(dashboard::delete_tipcard),
+        )
+        .route_layer(axum::middleware::from_fn(auth::require_session));
+
+    let app_routes = Router::new()
+        .route("/app/summary", get(dashboard::app_summary))
+        .route("/app/topics", get(dashboard::app_topics))
+        .route("/app/tips", post(dashboard::app_tips))
+        .route("/app/review", post(dashboard::app_review))
         .route_layer(axum::middleware::from_fn(auth::require_session));
 
     Router::new()
         .merge(api_routes)
         .merge(admin_routes)
+        .merge(app_routes)
+        .route("/", get(dashboard::app_index))
         .route("/admin", get(dashboard::index))
         .route("/auth/login", post(auth::login))
         .layer(session_layer)
@@ -131,8 +156,20 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
 
 pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     ensure_column(pool, "topics", "class_id", "INTEGER").await?;
-    ensure_column(pool, "tipcards", "tipcard_type", "TEXT NOT NULL DEFAULT 'srs_tip'").await?;
-    ensure_column(pool, "review_states", "status", "TEXT NOT NULL DEFAULT 'active'").await?;
+    ensure_column(
+        pool,
+        "tipcards",
+        "tipcard_type",
+        "TEXT NOT NULL DEFAULT 'srs_tip'",
+    )
+    .await?;
+    ensure_column(
+        pool,
+        "review_states",
+        "status",
+        "TEXT NOT NULL DEFAULT 'active'",
+    )
+    .await?;
 
     sqlx::query(
         "INSERT OR IGNORE INTO topic_classes (name, tipcard_type) VALUES ('default', 'srs_tip')",

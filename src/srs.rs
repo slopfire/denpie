@@ -100,7 +100,7 @@ mod tests {
         let _ = calculate_next_review(&mut state, 4); // rep 1
         let _ = calculate_next_review(&mut state, 4); // rep 2
         assert_eq!(state.repetitions, 2);
-        
+
         let _ = calculate_next_review(&mut state, 2); // fail
         assert_eq!(state.interval, 1);
         assert_eq!(state.repetitions, 0);
@@ -162,4 +162,3 @@ mod tests {
         assert_eq!(state.repetitions, 0);
     }
 }
-

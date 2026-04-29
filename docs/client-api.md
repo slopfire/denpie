@@ -101,7 +101,7 @@ Behavior:
 - Existing due cards are selected by earliest `review_states.next_review_at`.
 - `srs_tip` cards use the normal SRS schedule.
 - `casual_tip` cards are instant queue cards. Dismiss or acknowledge one, then call `/tips` again to get another card.
-- `repeatable_tip` cards are for queue-style practice. If no active due card exists, the server generates a new card immediately.
+- `repeatable_tip` cards are for queue-style practice. If no active due card exists, the server generates a new card immediately. The browser app uses this after repeatable `repeat`, `memorize`, or `dismiss` actions to keep the current slot filled with another card.
 - Response order follows the processed topic order.
 
 Response body: `TipsResponse`
@@ -115,6 +115,8 @@ Response body: `TipsResponse`
 | `tips[].compressed_content` | `string` | Short compressed version. |
 | `tips[].topic_class` | `string` | Topic class used for the card. |
 | `tips[].tipcard_type` | `string` | Card behavior type: `srs_tip`, `casual_tip`, or `repeatable_tip`. |
+
+Tip text can contain markdown. The protobuf API returns raw strings; clients that display cards should render and sanitize markdown on their side.
 
 Status codes:
 
@@ -181,7 +183,7 @@ Queue-card behavior:
 - `action = "repeat"` schedules the card again after a growing delay: 10, 20, 40 minutes, capped at 24 hours.
 - `action = "memorize"` marks the card as memorized and removes it from future `/tips` results.
 - `action = "dismiss"` marks the card as dismissed and removes it from future `/tips` results.
-- After `acknowledge`, `repeat`, `memorize`, or `dismiss`, the next `/tips` request for that class/topic can immediately return another due card or generate a new one.
+- After `acknowledge`, `repeat`, `memorize`, or `dismiss`, the next `/tips` request for that class/topic can immediately return another due card or generate a new one. Repeated cards remain active but are not due again until their scheduled delay passes.
 
 Response body: empty
 

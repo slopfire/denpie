@@ -6,10 +6,12 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 
 - **Spaced Repetition System (SRS)**: SM-2 and FSRS algorithms optimize tip delivery based on user review grades.
 - **Casual Cards**: Queue-style tips can be dismissed or acknowledged so clients can pull the next card immediately.
-- **Repeatable Cards**: Re:word-style cards can be dismissed, repeated, memorized, or acknowledged so clients can keep pulling the next card.
-- **Topic Classes**: Topics belong to a class that defines the card behavior type, such as standard SRS tips or repeatable practice cards.
+- **Repeatable Cards**: Re:word-style cards can be dismissed, repeated, memorized, or acknowledged; the browser app advances to the next card after repeatable review actions while repeated cards return when due.
+- **Topic Classes**: Topics belong to a card behavior class: casual or repeatable. SRS remains the scheduling algorithm, not a card class.
 - **Any OpenAI-Compatible LLM**: Configure the API key, base URL, and model through the admin dashboard — no hardcoded vendor lock-in.
 - **Admin Dashboard**: Web UI for managing LLM settings, prompt templates, and client API keys. All settings persist to `settings.yaml`.
+- **Markdown Tipcards**: Browser UIs render generated tip content as sanitized markdown while API responses keep the original raw text.
+- **Browser Client App**: The server root (`/`) opens a session-backed MindLift SRS application for dashboard stats, unified flow over active cards, compact/expandable and copyable card text, drag-and-drop card ordering, grid/column layout switching, card deletion, API key management, settings, archive browsing, and configurable color schemes.
 - **Token-Based Admin Auth**: On first startup the server generates and prints a one-time admin token. Use it to log in at `/admin`.
 - **Protobuf API**: Tips and reviews are exchanged as Protocol Buffers for compact, typed serialization.
 - **Single-User, Multi-Client**: One user's SRS state is shared across all clients (desktop widget, Telegram bot, etc.) via per-client API keys.
@@ -38,6 +40,9 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 │   ├── dashboard.rs   # Admin HTML page + settings/key management REST endpoints
 │   ├── llm.rs         # LLM wrappers (generate_new_card, compress_card)
 │   └── srs.rs         # SM-2 and FSRS algorithm implementations
+├── templates/
+│   ├── app.html       # Root browser client application
+│   └── admin.html     # Legacy admin dashboard
 ├── schema.sql         # SQLite table definitions (applied automatically on startup)
 ├── proto/
 │   └── dailytip.proto # Protobuf schema for TipsQuery, TipsResponse, ReviewPayload
@@ -70,7 +75,9 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    - Create `dailytip.db` and apply `schema.sql` automatically.
    - Generate and print a one-time admin token to the console.
 
-4. **Access the admin dashboard** at `http://127.0.0.1:3001/admin` and log in with the printed token.
+4. **Open the browser client app** at `http://127.0.0.1:3001/` and log in with the printed token. The app includes the dashboard, unified flow over due active cards, compact/expandable and copyable card text, drag-and-drop card ordering, card deletion, grid/column layout switching, settings, API keys, archive, and a color scheme selector with Default, Ayu, Solarized, Dracula, and Slate themes. Adding, dismissing, repeatable memorizing/repeating, and daily casual-card refreshes show skeleton loading cards while the server generates replacements.
+
+   The legacy admin dashboard remains available at `http://127.0.0.1:3001/admin`.
 
 5. **Configure your LLM** in the Configuration panel:
    - **LLM Model** — e.g. `google/gemini-2.5-pro` or `openai/gpt-4o`
@@ -91,13 +98,14 @@ All runtime configuration lives in `settings.yaml` and is managed exclusively th
 | `prompt_template` | Tip generation prompt (`{topic}` placeholder) | `Give a smart tip about {topic}.` |
 | `llm_api_key` | API key for the LLM provider | *(empty — set via dashboard)* |
 | `llm_base_url` | Base URL for the OpenAI-compatible API | `https://openrouter.ai/api/v1` |
+| `color_scheme` | Browser client color scheme | `default` |
 
 ## API Documentation
 
 The API reference is split by audience:
 
 - [Client API](docs/client-api.md): protobuf routes for `/tips`, `/topics`, and `/review`.
-- [Admin API](docs/admin-api.md): JSON/session routes for settings, key management, topics, and tipcards.
+- [Admin API](docs/admin-api.md): JSON/session routes for settings, key management, topics, tipcards, and the root browser app JSON routes.
 - [Agent Server Talk Guide](docs/agent-server-guide.md): operational playbook for agents that need to talk with a running server.
 
 ## Database Schema
@@ -110,6 +118,8 @@ The API reference is split by audience:
 | `tipcards` | Generated tips (full + compressed content) with card type |
 | `review_states` | Per-card review state, status, and next review timestamp |
 
+Tip content can include markdown such as headings, lists, emphasis, links, blockquotes, inline code, and fenced code blocks. The root app and legacy admin dashboard render that markdown client-side after escaping unsafe HTML. Protobuf and JSON API routes still return raw `full_content` and `compressed_content` strings so external clients can choose their own renderer.
+
 ## Running Tests
 
 ```bash
@@ -117,5 +127,6 @@ cargo test
 ```
 
 The test suite spawns a real server on an ephemeral port for each test group and exercises auth, settings CRUD, key management, the full tips→review flow, and error handling.
+Tests use isolated temporary settings files, so running them does not overwrite your local `settings.yaml`.
 
-> **Note:** The `test_full_api_flow` test calls the real LLM endpoint. Set `llm_api_key` in `settings.yaml` before running it, or expect the tip content to contain `API KEY MISSING`.
+> **Note:** The `test_full_api_flow` test uses the missing-key fallback and does not call a real LLM endpoint by default.

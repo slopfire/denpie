@@ -4,13 +4,17 @@ use axum::{
     http::{header, StatusCode},
     response::{IntoResponse, Response},
 };
-use prost::Message;
-use std::sync::Arc;
-use std::fs;
 use chrono::{Duration, Utc};
+use prost::Message;
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::sync::Arc;
 
-use crate::{AppState, llm, srs::{self, SrsState, Algorithm}};
+use crate::{
+    llm,
+    srs::{self, Algorithm, SrsState},
+    AppState,
+};
 
 pub mod pb {
     include!(concat!(env!("OUT_DIR"), "/dailytip.rs"));
@@ -38,14 +42,37 @@ struct TopicClassInfo {
     tipcard_type: String,
 }
 
+#[derive(Deserialize)]
+pub struct TipsJsonRequest {
+    pub count: Option<u32>,
+    pub topics: String,
+    pub topic_class: Option<String>,
+    pub tipcard_type: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct TipCardJson {
+    pub id: i64,
+    pub topic: String,
+    pub full_content: String,
+    pub compressed_content: String,
+    pub topic_class: String,
+    pub tipcard_type: String,
+}
+
+#[derive(Deserialize)]
+pub struct ReviewJsonRequest {
+    pub card_id: i64,
+    pub grade: Option<u8>,
+    pub action: Option<String>,
+}
+
 fn normalize_tipcard_type(value: &str, class_name: &str) -> String {
     match value.trim() {
         "casual" | "casual_tip" => "casual_tip".to_string(),
         "repeatable" | "repeatable_tip" | "reword" | "re:word" => "repeatable_tip".to_string(),
         "srs" | "srs_tip" => "srs_tip".to_string(),
-        "" if matches!(class_name.trim(), "casual" | "casual_tip") => {
-            "casual_tip".to_string()
-        }
+        "" if matches!(class_name.trim(), "casual" | "casual_tip") => "casual_tip".to_string(),
         "" if matches!(class_name.trim(), "repeatable" | "reword" | "re:word") => {
             "repeatable_tip".to_string()
         }
@@ -100,14 +127,13 @@ async fn get_or_create_topic(
     topic_name: &str,
     class_id: i64,
 ) -> Result<i64, (StatusCode, String)> {
-    if let Some(id) = sqlx::query_scalar::<_, i64>(
-        "SELECT id FROM topics WHERE name = ? AND class_id = ?",
-    )
-    .bind(topic_name)
-    .bind(class_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    if let Some(id) =
+        sqlx::query_scalar::<_, i64>("SELECT id FROM topics WHERE name = ? AND class_id = ?")
+            .bind(topic_name)
+            .bind(class_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     {
         return Ok(id);
     }
@@ -134,14 +160,14 @@ async fn get_or_create_topic(
     }
 }
 
-fn tip_response(
+fn tip_response_json(
     id: i64,
     topic: &str,
     full_content: String,
     compressed_content: String,
     class_info: &TopicClassInfo,
-) -> pb::TipCardResponse {
-    pb::TipCardResponse {
+) -> TipCardJson {
+    TipCardJson {
         id,
         topic: topic.to_string(),
         full_content,
@@ -151,28 +177,47 @@ fn tip_response(
     }
 }
 
-pub async fn get_tips(
-    State(state): State<Arc<AppState>>,
-    body: Bytes,
-) -> Result<Response, (StatusCode, String)> {
-    let query = pb::TipsQuery::decode(body).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    
+pub async fn build_tips(
+    state: &AppState,
+    query: TipsJsonRequest,
+) -> Result<Vec<TipCardJson>, (StatusCode, String)> {
+    let count = query.count.unwrap_or(1).max(1);
     let topics: Vec<&str> = query.topics.split(',').collect();
     let mut responses = Vec::new();
-    let class_info = get_or_create_topic_class(&state, &query.topic_class, &query.tipcard_type).await?;
+    let topic_class = query.topic_class.unwrap_or_default();
+    let tipcard_type = query.tipcard_type.unwrap_or_default();
+    let class_info = get_or_create_topic_class(state, &topic_class, &tipcard_type).await?;
 
-    let settings_str = fs::read_to_string("settings.yaml").unwrap_or_default();
+    let settings_str = fs::read_to_string(&state.settings_path).unwrap_or_default();
     let settings: serde_yaml::Value = serde_yaml::from_str(&settings_str).unwrap_or_default();
-    let llm_model = settings.get("llm_model").and_then(|v| v.as_str()).unwrap_or("google/gemini-3.1-flash").to_string();
-    let template = settings.get("prompt_template").and_then(|v| v.as_str()).unwrap_or("Give a smart tip about {topic}.").to_string();
-    let llm_api_key = settings.get("llm_api_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let llm_base_url = settings.get("llm_base_url").and_then(|v| v.as_str()).unwrap_or("https://openrouter.ai/api/v1").to_string();
+    let llm_model = settings
+        .get("llm_model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("google/gemini-3.1-flash")
+        .to_string();
+    let template = settings
+        .get("prompt_template")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Give a smart tip about {topic}.")
+        .to_string();
+    let llm_api_key = settings
+        .get("llm_api_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let llm_base_url = settings
+        .get("llm_base_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("https://openrouter.ai/api/v1")
+        .to_string();
 
-    for topic_name in topics.into_iter().take(query.count as usize) {
+    for topic_name in topics.into_iter().take(count as usize) {
         let topic_name = topic_name.trim();
-        if topic_name.is_empty() { continue; }
+        if topic_name.is_empty() {
+            continue;
+        }
 
-        let topic_id = get_or_create_topic(&state, topic_name, class_info.id).await?;
+        let topic_id = get_or_create_topic(state, topic_name, class_info.id).await?;
 
         let now = Utc::now();
         let due_card = sqlx::query_as::<_, (i64, String, String)>(
@@ -190,12 +235,27 @@ pub async fn get_tips(
         .bind(topic_id)
         .bind(&class_info.tipcard_type)
         .bind(now)
-        .fetch_optional(&state.db).await.map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
         if let Some(card) = due_card {
-            responses.push(tip_response(card.0, topic_name, card.1, card.2, &class_info));
+            responses.push(tip_response_json(
+                card.0,
+                topic_name,
+                card.1,
+                card.2,
+                &class_info,
+            ));
         } else {
-            let full_tip = llm::generate_new_card(topic_name, &llm_model, &template, &llm_api_key, &llm_base_url).await;
+            let full_tip = llm::generate_new_card(
+                topic_name,
+                &llm_model,
+                &template,
+                &llm_api_key,
+                &llm_base_url,
+            )
+            .await;
             let compressed_tip = llm::compress_card(&full_tip, &llm_api_key, &llm_base_url).await;
 
             let card_id = sqlx::query(
@@ -214,13 +274,19 @@ pub async fn get_tips(
                 } else {
                     "repeatable"
                 };
-                (serde_json::to_string(&RepeatableState::default()).unwrap(), algo)
+                (
+                    serde_json::to_string(&RepeatableState::default()).unwrap(),
+                    algo,
+                )
             } else {
                 let init_state = SrsState::default();
-                let algo = match init_state.algorithm { Algorithm::SM2 => "sm2", Algorithm::FSRS => "fsrs" };
+                let algo = match init_state.algorithm {
+                    Algorithm::SM2 => "sm2",
+                    Algorithm::FSRS => "fsrs",
+                };
                 (serde_json::to_string(&init_state).unwrap(), algo)
             };
-            
+
             let now = Utc::now();
             sqlx::query(
                 "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, ?, ?, 'active', ?)",
@@ -231,44 +297,98 @@ pub async fn get_tips(
             .bind(now)
             .execute(&state.db).await.map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-            responses.push(tip_response(card_id, topic_name, full_tip, compressed_tip, &class_info));
+            responses.push(tip_response_json(
+                card_id,
+                topic_name,
+                full_tip,
+                compressed_tip,
+                &class_info,
+            ));
         }
     }
 
+    Ok(responses)
+}
+
+pub async fn get_tips(
+    State(state): State<Arc<AppState>>,
+    body: Bytes,
+) -> Result<Response, (StatusCode, String)> {
+    let query =
+        pb::TipsQuery::decode(body).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let responses = build_tips(
+        &state,
+        TipsJsonRequest {
+            count: Some(query.count as u32),
+            topics: query.topics,
+            topic_class: Some(query.topic_class),
+            tipcard_type: Some(query.tipcard_type),
+        },
+    )
+    .await?
+    .into_iter()
+    .map(|card| pb::TipCardResponse {
+        id: card.id,
+        topic: card.topic,
+        full_content: card.full_content,
+        compressed_content: card.compressed_content,
+        topic_class: card.topic_class,
+        tipcard_type: card.tipcard_type,
+    })
+    .collect();
     let tips_response = pb::TipsResponse { tips: responses };
     Ok(protobuf_response(&tips_response))
 }
 
-pub async fn review_card(
-    State(state): State<Arc<AppState>>,
-    body: Bytes,
-) -> Result<StatusCode, (StatusCode, String)> {
-    let payload = pb::ReviewPayload::decode(body).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-
+pub async fn apply_review(
+    state: &AppState,
+    card_id: i64,
+    grade: u8,
+    action: &str,
+) -> Result<(), (StatusCode, String)> {
     let row = sqlx::query_as::<_, (String, String)>(
         "SELECT r.state_data, t.tipcard_type
          FROM review_states r
          JOIN tipcards t ON t.id = r.card_id
          WHERE r.card_id = ?",
     )
-    .bind(payload.card_id)
-    .fetch_optional(&state.db).await.map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .bind(card_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     if let Some(row) = row {
         if is_queue_tipcard(&row.1) {
-            let action = payload.action.trim();
+            let action = action.trim();
             let (new_state_json, status, next_review) = match action {
-                "acknowledge" | "acknowledged" => {
-                    (row.0, "acknowledged".to_string(), Utc::now() + Duration::days(36500))
-                }
-                "memorize" => (row.0, "memorized".to_string(), Utc::now() + Duration::days(36500)),
-                "dismiss" => (row.0, "dismissed".to_string(), Utc::now() + Duration::days(36500)),
+                "acknowledge" | "acknowledged" => (
+                    row.0,
+                    "acknowledged".to_string(),
+                    Utc::now() + Duration::days(36500),
+                ),
+                "memorize" => (
+                    row.0,
+                    "memorized".to_string(),
+                    Utc::now() + Duration::days(36500),
+                ),
+                "dismiss" => (
+                    row.0,
+                    "dismissed".to_string(),
+                    Utc::now() + Duration::days(36500),
+                ),
                 _ => {
-                    let mut repeat_state: RepeatableState = serde_json::from_str(&row.0)
-                        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Invalid repeatable state data".into()))?;
+                    let mut repeat_state: RepeatableState =
+                        serde_json::from_str(&row.0).map_err(|_| {
+                            (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                "Invalid repeatable state data".into(),
+                            )
+                        })?;
                     repeat_state.repeats += 1;
                     let delay_minutes = 10_i64
-                        .saturating_mul(2_i64.saturating_pow(repeat_state.repeats.saturating_sub(1)))
+                        .saturating_mul(
+                            2_i64.saturating_pow(repeat_state.repeats.saturating_sub(1)),
+                        )
                         .min(24 * 60);
                     (
                         serde_json::to_string(&repeat_state).unwrap(),
@@ -284,11 +404,16 @@ pub async fn review_card(
             .bind(new_state_json)
             .bind(status)
             .bind(next_review)
-            .bind(payload.card_id)
+            .bind(card_id)
             .execute(&state.db).await.map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         } else {
-            let mut srs_state: SrsState = serde_json::from_str(&row.0).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Invalid state data".into()))?;
-            let next_review = srs::calculate_next_review(&mut srs_state, payload.grade as u8);
+            let mut srs_state: SrsState = serde_json::from_str(&row.0).map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Invalid state data".into(),
+                )
+            })?;
+            let next_review = srs::calculate_next_review(&mut srs_state, grade);
             let new_state_json = serde_json::to_string(&srs_state).unwrap();
 
             sqlx::query(
@@ -296,13 +421,34 @@ pub async fn review_card(
             )
             .bind(new_state_json)
             .bind(next_review)
-            .bind(payload.card_id)
-            .execute(&state.db).await.map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .bind(card_id)
+            .execute(&state.db)
+            .await
+            .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         }
-        Ok(StatusCode::OK)
+        Ok(())
     } else {
-        Err((StatusCode::NOT_FOUND, "Card not found in user reviews".to_string()))
+        Err((
+            StatusCode::NOT_FOUND,
+            "Card not found in user reviews".to_string(),
+        ))
     }
+}
+
+pub async fn review_card(
+    State(state): State<Arc<AppState>>,
+    body: Bytes,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let payload =
+        pb::ReviewPayload::decode(body).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    apply_review(
+        &state,
+        payload.card_id,
+        payload.grade as u8,
+        &payload.action,
+    )
+    .await?;
+    Ok(StatusCode::OK)
 }
 
 fn is_queue_tipcard(tipcard_type: &str) -> bool {
@@ -312,10 +458,12 @@ fn is_queue_tipcard(tipcard_type: &str) -> bool {
 pub async fn get_topics(
     State(state): State<Arc<AppState>>,
 ) -> Result<Response, (StatusCode, String)> {
-    let rows = sqlx::query!("SELECT name FROM topics ORDER BY name ASC")
-        .fetch_all(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    
-    let topics = rows.into_iter().map(|r| r.name).collect();
+    let rows = sqlx::query_scalar::<_, String>("SELECT name FROM topics ORDER BY name ASC")
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let topics = rows;
     let response = pb::GetTopicsResponse { topics };
     Ok(protobuf_response(&response))
 }
@@ -326,13 +474,18 @@ pub async fn get_topic_classes(
     let rows = sqlx::query_as::<_, (i64, String, String)>(
         "SELECT id, name, tipcard_type FROM topic_classes ORDER BY name ASC",
     )
-    .fetch_all(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let classes = rows.into_iter().map(|r| pb::TopicClass {
-        id: r.0,
-        name: r.1,
-        tipcard_type: r.2,
-    }).collect();
+    let classes = rows
+        .into_iter()
+        .map(|r| pb::TopicClass {
+            id: r.0,
+            name: r.1,
+            tipcard_type: r.2,
+        })
+        .collect();
     let response = pb::GetTopicClassesResponse { classes };
     Ok(protobuf_response(&response))
 }

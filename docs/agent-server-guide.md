@@ -337,4 +337,4 @@ PY
 - `action="repeat"`: card stay active, next due after growing minute delay.
 - `action="memorize"`: card marked memorized, no future `/tips`.
 - `action="dismiss"`: card marked dismissed, no future `/tips`.
-- Next `/tips` for same casual/repeatable class/topic returns another due card or generate new one.
+- Next `/tips` for same casual/repeatable class/topic returns another due card or generate new one. Browser flow uses that after repeatable `repeat`, `memorize`, and `dismiss` actions so the reviewed slot advances instead of going empty.
