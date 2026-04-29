@@ -1,8 +1,17 @@
-use async_openai::{
-    config::OpenAIConfig,
-    types::{ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs},
-    Client,
-};
+use serde_json::{json, Value};
+
+#[derive(Clone, Debug)]
+pub struct ReasoningConfig {
+    pub effort: String,
+}
+
+impl ReasoningConfig {
+    pub fn new(effort: impl Into<String>) -> Self {
+        Self {
+            effort: effort.into(),
+        }
+    }
+}
 
 pub async fn generate_new_card(
     topic: &str,
@@ -10,69 +19,93 @@ pub async fn generate_new_card(
     template: &str,
     api_key: &str,
     api_base: &str,
+    reasoning: &ReasoningConfig,
 ) -> String {
     if api_key.is_empty() {
         return format!("Generated tip for {} (API KEY MISSING)", topic);
     }
 
-    let config = OpenAIConfig::new()
-        .with_api_key(api_key)
-        .with_api_base(api_base);
-    let client = Client::with_config(config);
-
     let prompt = template.replace("{topic}", topic);
-
-    let req = CreateChatCompletionRequestArgs::default()
-        .model(model)
-        .messages([ChatCompletionRequestUserMessageArgs::default()
-            .content(prompt)
-            .build()
-            .unwrap()
-            .into()])
-        .build()
-        .unwrap();
-
-    match client.chat().create(req).await {
-        Ok(res) => res
-            .choices
-            .into_iter()
-            .next()
-            .and_then(|c| c.message.content)
-            .unwrap_or("Failed parsing text".to_string()),
-        Err(e) => format!("LLM Error: {}", e),
-    }
+    create_chat_completion(model, &prompt, api_key, api_base, reasoning).await
 }
 
-pub async fn compress_card(full_content: &str, api_key: &str, api_base: &str) -> String {
+pub async fn compress_card(
+    full_content: &str,
+    model: &str,
+    api_key: &str,
+    api_base: &str,
+    reasoning: &ReasoningConfig,
+) -> String {
     if api_key.is_empty() {
         return format!("Compressed: {}", full_content);
     }
 
-    let config = OpenAIConfig::new()
-        .with_api_key(api_key)
-        .with_api_base(api_base);
-    let client = Client::with_config(config);
+    let prompt = format!(
+        "Compress this tip into a very short summary:\n\n{}",
+        full_content
+    );
+    create_chat_completion(model, &prompt, api_key, api_base, reasoning).await
+}
 
-    let req = CreateChatCompletionRequestArgs::default()
-        .model("google/gemini-3.1-flash-lite-preview")
-        .messages([ChatCompletionRequestUserMessageArgs::default()
-            .content(format!(
-                "Compress this tip into a very short summary:\n\n{}",
-                full_content
-            ))
-            .build()
-            .unwrap()
-            .into()])
-        .build()
-        .unwrap();
+async fn create_chat_completion(
+    model: &str,
+    prompt: &str,
+    api_key: &str,
+    api_base: &str,
+    reasoning: &ReasoningConfig,
+) -> String {
+    let effort = normalize_reasoning_effort(&reasoning.effort);
+    let req = json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        "reasoning": {
+            "effort": effort
+        }
+    });
 
-    match client.chat().create(req).await {
-        Ok(res) => res
-            .choices
-            .into_iter()
-            .next()
-            .and_then(|c| c.message.content)
-            .unwrap_or("Failed parsing text".to_string()),
+    let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
+    let client = reqwest::Client::new();
+
+    match client
+        .post(url)
+        .bearer_auth(api_key)
+        .json(&req)
+        .send()
+        .await
+    {
+        Ok(res) => {
+            if !res.status().is_success() {
+                let status = res.status();
+                let body = res.text().await.unwrap_or_default();
+                return format!("LLM Error: HTTP {} {}", status, body);
+            }
+
+            match res.json::<Value>().await {
+                Ok(body) => body["choices"]
+                    .as_array()
+                    .and_then(|choices| choices.first())
+                    .and_then(|choice| choice["message"]["content"].as_str())
+                    .map(str::to_string)
+                    .unwrap_or("Failed parsing text".to_string()),
+                Err(e) => format!("LLM Error: {}", e),
+            }
+        }
         Err(e) => format!("LLM Error: {}", e),
+    }
+}
+
+fn normalize_reasoning_effort(effort: &str) -> &'static str {
+    match effort.trim().to_ascii_lowercase().as_str() {
+        "xhigh" => "xhigh",
+        "high" => "high",
+        "medium" => "medium",
+        "low" => "low",
+        "minimal" => "minimal",
+        _ => "none",
     }
 }

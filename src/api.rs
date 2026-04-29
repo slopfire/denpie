@@ -210,6 +210,28 @@ pub async fn build_tips(
         .and_then(|v| v.as_str())
         .unwrap_or("https://openrouter.ai/api/v1")
         .to_string();
+    let llm_compress_model = settings
+        .get("llm_compress_model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("google/gemini-3.1-flash-lite-preview")
+        .to_string();
+    let llm_compress_base_url = settings
+        .get("llm_compress_base_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&llm_base_url)
+        .to_string();
+    let llm_reasoning_effort = settings
+        .get("llm_reasoning_effort")
+        .and_then(|v| v.as_str())
+        .unwrap_or("none")
+        .to_string();
+    let llm_compress_reasoning_effort = settings
+        .get("llm_compress_reasoning_effort")
+        .and_then(|v| v.as_str())
+        .unwrap_or("none")
+        .to_string();
+    let llm_reasoning = llm::ReasoningConfig::new(llm_reasoning_effort);
+    let llm_compress_reasoning = llm::ReasoningConfig::new(llm_compress_reasoning_effort);
 
     for topic_name in topics.into_iter().take(count as usize) {
         let topic_name = topic_name.trim();
@@ -254,9 +276,17 @@ pub async fn build_tips(
                 &template,
                 &llm_api_key,
                 &llm_base_url,
+                &llm_reasoning,
             )
             .await;
-            let compressed_tip = llm::compress_card(&full_tip, &llm_api_key, &llm_base_url).await;
+            let compressed_tip = llm::compress_card(
+                &full_tip,
+                &llm_compress_model,
+                &llm_api_key,
+                &llm_compress_base_url,
+                &llm_compress_reasoning,
+            )
+            .await;
 
             let card_id = sqlx::query(
                 "INSERT INTO tipcards (topic_id, tipcard_type, full_content, compressed_content) VALUES (?, ?, ?, ?)",

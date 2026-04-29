@@ -214,6 +214,34 @@
           <input type="text" id="modelInput" class="premium-input w-full rounded-xl p-4" value="google/gemini-3.1-flash" />
         </div>
         <div>
+          <label class="block text-xs uppercase tracking-widest text-text-dim mb-2">Compression Model</label>
+          <input type="text" id="compressModelInput" class="premium-input w-full rounded-xl p-4" value="google/gemini-3.1-flash-lite-preview" />
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs uppercase tracking-widest text-text-dim mb-2">LLM Reasoning</label>
+            <select id="reasoningEffortInput" class="premium-input w-full rounded-xl p-4">
+              <option value="none">None</option>
+              <option value="minimal">Minimal</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="xhigh">XHigh</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs uppercase tracking-widest text-text-dim mb-2">Compression Reasoning</label>
+            <select id="compressReasoningEffortInput" class="premium-input w-full rounded-xl p-4">
+              <option value="none">None</option>
+              <option value="minimal">Minimal</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="xhigh">XHigh</option>
+            </select>
+          </div>
+        </div>
+        <div>
           <label class="block text-xs uppercase tracking-widest text-text-dim mb-2">Prompt Template</label>
           <textarea id="templateInput" class="premium-input w-full rounded-xl p-4 h-40 resize-none"></textarea>
         </div>
@@ -224,6 +252,10 @@
         <div>
           <label class="block text-xs uppercase tracking-widest text-text-dim mb-2">LLM Base URL</label>
           <input type="text" id="baseUrlInput" class="premium-input w-full rounded-xl p-4" value="https://openrouter.ai/api/v1" />
+        </div>
+        <div>
+          <label class="block text-xs uppercase tracking-widest text-text-dim mb-2">Compression Base URL</label>
+          <input type="text" id="compressBaseUrlInput" class="premium-input w-full rounded-xl p-4" value="https://openrouter.ai/api/v1" />
         </div>
         <button type="submit" class="premium-btn w-full py-4 rounded-xl shadow-lg">Save Configuration</button>
       </form>
@@ -580,9 +612,13 @@
       if (res.ok) {
         const data = await res.json();
         document.getElementById('modelInput').value = data.model || 'google/gemini-3.1-flash';
+        document.getElementById('compressModelInput').value = data.compress_model || 'google/gemini-3.1-flash-lite-preview';
         document.getElementById('templateInput').value = data.template || 'Give a smart tip about {topic}.';
         document.getElementById('apiKeyInput').value = data.api_key || '';
         document.getElementById('baseUrlInput').value = data.base_url || 'https://openrouter.ai/api/v1';
+        document.getElementById('compressBaseUrlInput').value = data.compress_base_url || data.base_url || 'https://openrouter.ai/api/v1';
+        document.getElementById('reasoningEffortInput').value = data.reasoning_effort || 'none';
+        document.getElementById('compressReasoningEffortInput').value = data.compress_reasoning_effort || 'none';
         dashboardPanel.classList.remove('hidden');
         await loadKeys();
         await loadKnowledgeBase();
@@ -599,13 +635,17 @@
     document.getElementById('settingsForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const model = document.getElementById('modelInput').value;
+      const compress_model = document.getElementById('compressModelInput').value;
       const template = document.getElementById('templateInput').value;
       const api_key = document.getElementById('apiKeyInput').value;
       const base_url = document.getElementById('baseUrlInput').value;
+      const compress_base_url = document.getElementById('compressBaseUrlInput').value;
+      const reasoning_effort = document.getElementById('reasoningEffortInput').value;
+      const compress_reasoning_effort = document.getElementById('compressReasoningEffortInput').value;
       const res = await fetch('/admin/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, template, api_key, base_url })
+        body: JSON.stringify({ model, compress_model, template, api_key, base_url, compress_base_url, reasoning_effort, compress_reasoning_effort })
       });
       if (res.ok) {
         showToast('Configuration saved', '✓');

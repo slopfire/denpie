@@ -45,7 +45,11 @@ mod tests {
         .unwrap();
 
         let db = setup_db().await;
-        let state = Arc::new(AppState { db, settings_path });
+        let state = Arc::new(AppState {
+            db,
+            settings_path,
+            template_dir: PathBuf::from("templates"),
+        });
         let session_store = MemoryStore::default();
         let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
         let app = build_app(state, session_layer);
@@ -230,7 +234,10 @@ mod tests {
         assert_eq!(res.status(), reqwest::StatusCode::OK);
         let data: serde_json::Value = res.json().await.unwrap();
         assert!(data["model"].as_str().is_some());
+        assert!(data["compress_model"].as_str().is_some());
         assert!(data["template"].as_str().is_some());
+        assert_eq!(data["reasoning_effort"], "none");
+        assert_eq!(data["compress_reasoning_effort"], "none");
         assert_eq!(data["color_scheme"], "default");
 
         // POST update
@@ -238,9 +245,13 @@ mod tests {
             .post(format!("{url}/admin/settings"))
             .json(&serde_json::json!({
                 "model": "google/gemini-2.5-pro",
+                "compress_model": "google/gemini-3.1-flash-lite-preview",
                 "template": "Tell me a fun fact about {topic}.",
                 "api_key": "test-api-key-123",
-                "base_url": "https://openrouter.ai/api/v1"
+                "base_url": "https://openrouter.ai/api/v1",
+                "compress_base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+                "reasoning_effort": "low",
+                "compress_reasoning_effort": "none"
             }))
             .send()
             .await
@@ -262,7 +273,17 @@ mod tests {
             .unwrap();
         let data: serde_json::Value = res.json().await.unwrap();
         assert_eq!(data["model"], "google/gemini-2.5-pro");
+        assert_eq!(
+            data["compress_model"],
+            "google/gemini-3.1-flash-lite-preview"
+        );
         assert_eq!(data["template"], "Tell me a fun fact about {topic}.");
+        assert_eq!(
+            data["compress_base_url"],
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+        );
+        assert_eq!(data["reasoning_effort"], "low");
+        assert_eq!(data["compress_reasoning_effort"], "none");
 
         let theme_update_res = client
             .post(format!("{url}/admin/settings"))

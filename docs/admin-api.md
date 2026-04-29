@@ -75,9 +75,13 @@ Response:
 ```json
 {
   "model": "google/gemini-3.1-flash",
+  "compress_model": "google/gemini-3.1-flash-lite-preview",
+  "reasoning_effort": "none",
+  "compress_reasoning_effort": "none",
   "template": "Give a smart tip about {topic}.",
   "api_key": "",
   "base_url": "https://openrouter.ai/api/v1",
+  "compress_base_url": "https://openrouter.ai/api/v1",
   "color_scheme": "default"
 }
 ```
@@ -93,9 +97,13 @@ Request:
 ```json
 {
   "model": "google/gemini-2.5-pro",
+  "compress_model": "google/gemini-3.1-flash-lite-preview",
+  "reasoning_effort": "low",
+  "compress_reasoning_effort": "none",
   "template": "Give a smart tip about {topic}.",
   "api_key": "provider-api-key",
   "base_url": "https://openrouter.ai/api/v1",
+  "compress_base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
   "color_scheme": "dracula"
 }
 ```
@@ -227,10 +235,13 @@ Response:
     "tipcard_type": "repeatable_tip",
     "topic_class": "repeatable",
     "status": "active",
-    "next_review_at": "2026-04-25 10:30:00"
+    "next_review_at": "2026-04-25 10:30:00",
+    "repeat_count": 1
   }
 ]
 ```
+
+`repeat_count` is non-zero for repeatable cards that have been sent through the repeat action at least once. The root browser app labels repeatable active cards as `New Repeatable` when this value is `0` and `Known Repeatable` when it is greater than `0`.
 
 Status: `200 OK` on success.
 

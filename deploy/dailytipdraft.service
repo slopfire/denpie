@@ -1,0 +1,25 @@
+[Unit]
+Description=Daily Tip Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dailytipdraft
+Group=dailytipdraft
+WorkingDirectory=/var/lib/dailytipdraft
+Environment=DAILYTIP_BIND_ADDR=127.0.0.1:3001
+Environment=DAILYTIP_DATA_DIR=/var/lib/dailytipdraft
+Environment=DAILYTIP_SCHEMA_PATH=/usr/local/share/dailytipdraft/schema.sql
+Environment=DAILYTIP_TEMPLATE_DIR=/usr/local/share/dailytipdraft/templates
+ExecStart=/usr/local/bin/dailytipdraft
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/dailytipdraft
+
+[Install]
+WantedBy=multi-user.target

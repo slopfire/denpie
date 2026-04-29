@@ -3,9 +3,13 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    SqlitePool,
+};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::fs;
 use tower_sessions::{Expiry, SessionManagerLayer};
@@ -22,6 +26,7 @@ mod tests;
 pub struct AppState {
     pub db: SqlitePool,
     pub settings_path: PathBuf,
+    pub template_dir: PathBuf,
 }
 
 #[tokio::main]
@@ -29,7 +34,14 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     // Setup Admin Token
-    let settings_path = PathBuf::from("settings.yaml");
+    let data_dir = std::env::var_os("DAILYTIP_DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    fs::create_dir_all(&data_dir)
+        .await
+        .expect("Failed to create data directory");
+
+    let settings_path = data_dir.join("settings.yaml");
     let settings_str = fs::read_to_string(&settings_path).await.unwrap_or_default();
     let mut settings: serde_yaml::Value = serde_yaml::from_str(&settings_str)
         .unwrap_or(serde_yaml::Value::Mapping(Default::default()));
@@ -58,15 +70,21 @@ async fn main() {
     println!(">>> ADMIN SETUP TOKEN: {} <<<", admin_token);
 
     // Setup DB
-    let db_url = "sqlite://dailytip.db?mode=rwc";
+    let db_path = data_dir.join("dailytip.db");
+    let db_options = SqliteConnectOptions::new()
+        .filename(&db_path)
+        .create_if_missing(true);
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
-        .connect(db_url)
+        .connect_with(db_options)
         .await
         .expect("Failed to create pool");
 
     // Init schema
-    let schema = fs::read_to_string("schema.sql")
+    let schema_path = std::env::var_os("DAILYTIP_SCHEMA_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("schema.sql"));
+    let schema = fs::read_to_string(&schema_path)
         .await
         .expect("Failed to read schema.sql");
     for query in schema.split(';') {
@@ -90,6 +108,9 @@ async fn main() {
     let shared_state = Arc::new(AppState {
         db: pool,
         settings_path,
+        template_dir: std::env::var_os("DAILYTIP_TEMPLATE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("templates")),
     });
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(false) // Set to true in prod with HTTPS
@@ -97,7 +118,10 @@ async fn main() {
 
     let app = build_app(shared_state, session_layer);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3001));
+    let addr = std::env::var("DAILYTIP_BIND_ADDR")
+        .ok()
+        .map(|value| SocketAddr::from_str(&value).expect("Invalid DAILYTIP_BIND_ADDR"))
+        .unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 3001)));
     println!("listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

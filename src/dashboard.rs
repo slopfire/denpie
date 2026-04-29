@@ -11,15 +11,15 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::sync::Arc;
 
-pub async fn index() -> Response {
-    match fs::read_to_string("templates/admin.html") {
+pub async fn index(State(state): State<Arc<AppState>>) -> Response {
+    match fs::read_to_string(state.template_dir.join("admin.html")) {
         Ok(html) => Html(html).into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Admin template missing").into_response(),
     }
 }
 
-pub async fn app_index() -> Response {
-    match fs::read_to_string("templates/app.html") {
+pub async fn app_index(State(state): State<Arc<AppState>>) -> Response {
+    match fs::read_to_string(state.template_dir.join("app.html")) {
         Ok(html) => Html(html).into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Client template missing").into_response(),
     }
@@ -28,9 +28,13 @@ pub async fn app_index() -> Response {
 #[derive(Serialize)]
 pub struct SettingsRes {
     model: String,
+    compress_model: String,
     template: String,
     api_key: String,
     base_url: String,
+    compress_base_url: String,
+    reasoning_effort: String,
+    compress_reasoning_effort: String,
     color_scheme: String,
 }
 
@@ -58,6 +62,26 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         .and_then(|v| v.as_str())
         .unwrap_or("https://openrouter.ai/api/v1")
         .to_string();
+    let compress_model = settings
+        .get("llm_compress_model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("google/gemini-3.1-flash-lite-preview")
+        .to_string();
+    let compress_base_url = settings
+        .get("llm_compress_base_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&base_url)
+        .to_string();
+    let reasoning_effort = settings
+        .get("llm_reasoning_effort")
+        .and_then(|v| v.as_str())
+        .unwrap_or("none")
+        .to_string();
+    let compress_reasoning_effort = settings
+        .get("llm_compress_reasoning_effort")
+        .and_then(|v| v.as_str())
+        .unwrap_or("none")
+        .to_string();
     let color_scheme = settings
         .get("color_scheme")
         .and_then(|v| v.as_str())
@@ -66,9 +90,13 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
 
     Json(SettingsRes {
         model,
+        compress_model,
         template,
         api_key,
         base_url,
+        compress_base_url,
+        reasoning_effort,
+        compress_reasoning_effort,
         color_scheme,
     })
 }
@@ -76,9 +104,13 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
 #[derive(Deserialize)]
 pub struct UpdateSettingsReq {
     model: Option<String>,
+    compress_model: Option<String>,
     template: Option<String>,
     api_key: Option<String>,
     base_url: Option<String>,
+    compress_base_url: Option<String>,
+    reasoning_effort: Option<String>,
+    compress_reasoning_effort: Option<String>,
     color_scheme: Option<String>,
 }
 
@@ -100,6 +132,12 @@ pub async fn update_settings(
                 serde_yaml::Value::String(model),
             );
         }
+        if let Some(compress_model) = req.compress_model {
+            map.insert(
+                serde_yaml::Value::String("llm_compress_model".to_string()),
+                serde_yaml::Value::String(compress_model),
+            );
+        }
         if let Some(template) = req.template {
             map.insert(
                 serde_yaml::Value::String("prompt_template".to_string()),
@@ -116,6 +154,24 @@ pub async fn update_settings(
             map.insert(
                 serde_yaml::Value::String("llm_base_url".to_string()),
                 serde_yaml::Value::String(base_url),
+            );
+        }
+        if let Some(compress_base_url) = req.compress_base_url {
+            map.insert(
+                serde_yaml::Value::String("llm_compress_base_url".to_string()),
+                serde_yaml::Value::String(compress_base_url),
+            );
+        }
+        if let Some(reasoning_effort) = req.reasoning_effort {
+            map.insert(
+                serde_yaml::Value::String("llm_reasoning_effort".to_string()),
+                serde_yaml::Value::String(reasoning_effort),
+            );
+        }
+        if let Some(compress_reasoning_effort) = req.compress_reasoning_effort {
+            map.insert(
+                serde_yaml::Value::String("llm_compress_reasoning_effort".to_string()),
+                serde_yaml::Value::String(compress_reasoning_effort),
             );
         }
         if let Some(color_scheme) = req.color_scheme {
@@ -396,6 +452,7 @@ pub struct TipcardInfo {
     pub topic_class: String,
     pub status: String,
     pub next_review_at: String,
+    pub repeat_count: u32,
 }
 
 pub async fn list_tipcards(State(state): State<Arc<AppState>>) -> Json<Vec<TipcardInfo>> {
@@ -403,6 +460,7 @@ pub async fn list_tipcards(State(state): State<Arc<AppState>>) -> Json<Vec<Tipca
         _,
         (
             i64,
+            String,
             String,
             String,
             String,
@@ -421,7 +479,8 @@ pub async fn list_tipcards(State(state): State<Arc<AppState>>) -> Json<Vec<Tipca
                 t.tipcard_type,
                 COALESCE(tc.name, 'default') AS topic_class,
                 COALESCE(r.status, 'active') AS status,
-                COALESCE(CAST(r.next_review_at AS TEXT), '') AS next_review_at
+                COALESCE(CAST(r.next_review_at AS TEXT), '') AS next_review_at,
+                COALESCE(r.state_data, '') AS state_data
          FROM tipcards t
          JOIN topics top ON t.topic_id = top.id
          LEFT JOIN topic_classes tc ON top.class_id = tc.id
@@ -444,6 +503,10 @@ pub async fn list_tipcards(State(state): State<Arc<AppState>>) -> Json<Vec<Tipca
             topic_class: r.6,
             status: r.7,
             next_review_at: r.8,
+            repeat_count: serde_json::from_str::<serde_json::Value>(&r.9)
+                .ok()
+                .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
+                .unwrap_or(0) as u32,
         })
         .collect();
 

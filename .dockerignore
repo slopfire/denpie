@@ -1,0 +1,9 @@
+target
+.git
+.env
+*.db
+*.sqlite
+*.sqlite3
+settings.yaml
+__pycache__
+dailytip_pb2.py
