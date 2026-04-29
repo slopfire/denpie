@@ -82,7 +82,13 @@ Response:
   "api_key": "",
   "base_url": "https://openrouter.ai/api/v1",
   "compress_base_url": "https://openrouter.ai/api/v1",
-  "color_scheme": "default"
+  "color_scheme": "default",
+  "autoupdate_enabled": false,
+  "autoupdate_repo": "",
+  "autoupdate_branch": "main",
+  "autoupdate_check_interval_secs": 3600,
+  "autoupdate_command": "",
+  "autoupdate_last_seen_sha": ""
 }
 ```
 
@@ -104,7 +110,12 @@ Request:
   "api_key": "provider-api-key",
   "base_url": "https://openrouter.ai/api/v1",
   "compress_base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-  "color_scheme": "dracula"
+  "color_scheme": "dracula",
+  "autoupdate_enabled": true,
+  "autoupdate_repo": "yourname/dailytipdraft",
+  "autoupdate_branch": "main",
+  "autoupdate_check_interval_secs": 1800,
+  "autoupdate_command": "/usr/local/bin/dailytipdraft-update"
 }
 ```
 
@@ -115,6 +126,8 @@ null
 ```
 
 Status: `200 OK` on success.
+
+Autoupdate is disabled unless `autoupdate_enabled` is `true`. The first successful GitHub check records `autoupdate_last_seen_sha` as a baseline. Later checks run `autoupdate_command` when the configured repository branch changes, then exit the server process with a non-zero code after a successful command so a supervisor can restart it.
 
 ## API Key Management
 

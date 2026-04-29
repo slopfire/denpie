@@ -17,6 +17,7 @@ use tower_sessions_sqlx_store::SqliteStore;
 
 mod api;
 mod auth;
+mod autoupdate;
 mod dashboard;
 mod llm;
 mod srs;
@@ -112,6 +113,7 @@ async fn main() {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("templates")),
     });
+    autoupdate::spawn(shared_state.settings_path.clone());
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(false) // Set to true in prod with HTTPS
         .with_expiry(Expiry::OnInactivity(time::Duration::days(1)));

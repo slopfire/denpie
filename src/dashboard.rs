@@ -36,6 +36,12 @@ pub struct SettingsRes {
     reasoning_effort: String,
     compress_reasoning_effort: String,
     color_scheme: String,
+    autoupdate_enabled: bool,
+    autoupdate_repo: String,
+    autoupdate_branch: String,
+    autoupdate_check_interval_secs: u64,
+    autoupdate_command: String,
+    autoupdate_last_seen_sha: String,
 }
 
 pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRes> {
@@ -87,6 +93,34 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         .and_then(|v| v.as_str())
         .unwrap_or("default")
         .to_string();
+    let autoupdate_enabled = settings
+        .get("autoupdate_enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let autoupdate_repo = settings
+        .get("autoupdate_repo")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let autoupdate_branch = settings
+        .get("autoupdate_branch")
+        .and_then(|v| v.as_str())
+        .unwrap_or("main")
+        .to_string();
+    let autoupdate_check_interval_secs = settings
+        .get("autoupdate_check_interval_secs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(3600);
+    let autoupdate_command = settings
+        .get("autoupdate_command")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let autoupdate_last_seen_sha = settings
+        .get("autoupdate_last_seen_sha")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
 
     Json(SettingsRes {
         model,
@@ -98,6 +132,12 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         reasoning_effort,
         compress_reasoning_effort,
         color_scheme,
+        autoupdate_enabled,
+        autoupdate_repo,
+        autoupdate_branch,
+        autoupdate_check_interval_secs,
+        autoupdate_command,
+        autoupdate_last_seen_sha,
     })
 }
 
@@ -112,6 +152,11 @@ pub struct UpdateSettingsReq {
     reasoning_effort: Option<String>,
     compress_reasoning_effort: Option<String>,
     color_scheme: Option<String>,
+    autoupdate_enabled: Option<bool>,
+    autoupdate_repo: Option<String>,
+    autoupdate_branch: Option<String>,
+    autoupdate_check_interval_secs: Option<u64>,
+    autoupdate_command: Option<String>,
 }
 
 pub async fn update_settings(
@@ -178,6 +223,36 @@ pub async fn update_settings(
             map.insert(
                 serde_yaml::Value::String("color_scheme".to_string()),
                 serde_yaml::Value::String(color_scheme),
+            );
+        }
+        if let Some(autoupdate_enabled) = req.autoupdate_enabled {
+            map.insert(
+                serde_yaml::Value::String("autoupdate_enabled".to_string()),
+                serde_yaml::Value::Bool(autoupdate_enabled),
+            );
+        }
+        if let Some(autoupdate_repo) = req.autoupdate_repo {
+            map.insert(
+                serde_yaml::Value::String("autoupdate_repo".to_string()),
+                serde_yaml::Value::String(autoupdate_repo),
+            );
+        }
+        if let Some(autoupdate_branch) = req.autoupdate_branch {
+            map.insert(
+                serde_yaml::Value::String("autoupdate_branch".to_string()),
+                serde_yaml::Value::String(autoupdate_branch),
+            );
+        }
+        if let Some(autoupdate_check_interval_secs) = req.autoupdate_check_interval_secs {
+            map.insert(
+                serde_yaml::Value::String("autoupdate_check_interval_secs".to_string()),
+                serde_yaml::Value::Number(autoupdate_check_interval_secs.into()),
+            );
+        }
+        if let Some(autoupdate_command) = req.autoupdate_command {
+            map.insert(
+                serde_yaml::Value::String("autoupdate_command".to_string()),
+                serde_yaml::Value::String(autoupdate_command),
             );
         }
     }

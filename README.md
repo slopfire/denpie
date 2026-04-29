@@ -12,6 +12,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Admin Dashboard**: Web UI for managing LLM settings, prompt templates, and client API keys. All settings persist to `settings.yaml`.
 - **Markdown Tipcards**: Browser UIs render generated tip content as sanitized markdown while API responses keep the original raw text.
 - **Browser Client App**: The server root (`/`) opens a session-backed MindLift SRS application for dashboard stats, unified flow over active cards, compact/expandable and copyable card text, drag-and-drop card ordering, grid/column layout switching, card deletion, API key management, settings, archive browsing, and configurable color schemes.
+- **Optional GitHub Autoupdate**: Disabled by default. When enabled, the server polls a configured GitHub repository branch for new commits and runs a configured local update command.
 - **Token-Based Admin Auth**: On first startup the server generates and prints a one-time admin token. Use it to log in at `/admin`.
 - **Protobuf API**: Tips and reviews are exchanged as Protocol Buffers for compact, typed serialization.
 - **Single-User, Multi-Client**: One user's SRS state is shared across all clients (desktop widget, Telegram bot, etc.) via per-client API keys.
@@ -103,6 +104,28 @@ All runtime configuration lives in `settings.yaml` and is managed exclusively th
 | `llm_base_url` | Base URL for the OpenAI-compatible API | `https://openrouter.ai/api/v1` |
 | `llm_compress_base_url` | Base URL for compression requests; defaults to `llm_base_url` when missing | `https://openrouter.ai/api/v1` |
 | `color_scheme` | Browser client color scheme | `default` |
+| `autoupdate_enabled` | Enable GitHub commit polling and command-based updates | `false` |
+| `autoupdate_repo` | GitHub repository in `owner/repo` form | *(empty)* |
+| `autoupdate_branch` | Branch or ref checked through the GitHub commits API | `main` |
+| `autoupdate_check_interval_secs` | Poll interval in seconds; values below 60 are clamped to 60 | `3600` |
+| `autoupdate_command` | Local shell command executed after a new commit is detected | *(empty)* |
+| `autoupdate_last_seen_sha` | Last GitHub commit SHA recorded by the updater | *(empty)* |
+
+### GitHub Autoupdate
+
+Autoupdate is intentionally off by default and only runs when `autoupdate_enabled` is `true`, `autoupdate_repo` is set, and `autoupdate_command` is non-empty. On the first successful GitHub check the server records the current commit SHA as a baseline and does not update. On later checks, a changed SHA runs the configured command. If the command exits successfully, the server exits with a non-zero code so a supervisor such as systemd can restart it.
+
+The update command runs with the same user, permissions, working directory, and sandboxing as the server process. For the systemd install, that is the `dailytipdraft` user with `WorkingDirectory=/var/lib/dailytipdraft`; make sure the command has permission to update whatever it needs. Example:
+
+```yaml
+autoupdate_enabled: true
+autoupdate_repo: yourname/dailytipdraft
+autoupdate_branch: main
+autoupdate_check_interval_secs: 1800
+autoupdate_command: /usr/local/bin/dailytipdraft-update
+```
+
+Keep the command in a root-owned script when using systemd, and avoid putting secrets directly in `settings.yaml`.
 
 ## Runtime Environment
 

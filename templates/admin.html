@@ -257,6 +257,31 @@
           <label class="block text-xs uppercase tracking-widest text-text-dim mb-2">Compression Base URL</label>
           <input type="text" id="compressBaseUrlInput" class="premium-input w-full rounded-xl p-4" value="https://openrouter.ai/api/v1" />
         </div>
+        <div class="premium-input rounded-xl p-4 space-y-4">
+          <label class="flex items-center gap-3 text-sm font-semibold">
+            <input type="checkbox" id="autoupdateEnabledInput" class="h-4 w-4" />
+            <span>Enable GitHub autoupdate</span>
+          </label>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs uppercase tracking-widest text-text-dim mb-2">GitHub Repo</label>
+              <input type="text" id="autoupdateRepoInput" class="premium-input w-full rounded-xl p-4" placeholder="owner/repo" />
+            </div>
+            <div>
+              <label class="block text-xs uppercase tracking-widest text-text-dim mb-2">Branch</label>
+              <input type="text" id="autoupdateBranchInput" class="premium-input w-full rounded-xl p-4" value="main" />
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs uppercase tracking-widest text-text-dim mb-2">Check Interval Seconds</label>
+            <input type="number" min="60" id="autoupdateIntervalInput" class="premium-input w-full rounded-xl p-4" value="3600" />
+          </div>
+          <div>
+            <label class="block text-xs uppercase tracking-widest text-text-dim mb-2">Update Command</label>
+            <textarea id="autoupdateCommandInput" class="premium-input w-full rounded-xl p-4 h-24 resize-none" placeholder="Command run after a new GitHub commit is detected"></textarea>
+          </div>
+          <p class="text-xs text-text-dim">Last seen: <span id="autoupdateLastSha">not recorded</span></p>
+        </div>
         <button type="submit" class="premium-btn w-full py-4 rounded-xl shadow-lg">Save Configuration</button>
       </form>
     </section>
@@ -619,6 +644,12 @@
         document.getElementById('compressBaseUrlInput').value = data.compress_base_url || data.base_url || 'https://openrouter.ai/api/v1';
         document.getElementById('reasoningEffortInput').value = data.reasoning_effort || 'none';
         document.getElementById('compressReasoningEffortInput').value = data.compress_reasoning_effort || 'none';
+        document.getElementById('autoupdateEnabledInput').checked = Boolean(data.autoupdate_enabled);
+        document.getElementById('autoupdateRepoInput').value = data.autoupdate_repo || '';
+        document.getElementById('autoupdateBranchInput').value = data.autoupdate_branch || 'main';
+        document.getElementById('autoupdateIntervalInput').value = data.autoupdate_check_interval_secs || 3600;
+        document.getElementById('autoupdateCommandInput').value = data.autoupdate_command || '';
+        document.getElementById('autoupdateLastSha').textContent = data.autoupdate_last_seen_sha || 'not recorded';
         dashboardPanel.classList.remove('hidden');
         await loadKeys();
         await loadKnowledgeBase();
@@ -642,10 +673,15 @@
       const compress_base_url = document.getElementById('compressBaseUrlInput').value;
       const reasoning_effort = document.getElementById('reasoningEffortInput').value;
       const compress_reasoning_effort = document.getElementById('compressReasoningEffortInput').value;
+      const autoupdate_enabled = document.getElementById('autoupdateEnabledInput').checked;
+      const autoupdate_repo = document.getElementById('autoupdateRepoInput').value;
+      const autoupdate_branch = document.getElementById('autoupdateBranchInput').value;
+      const autoupdate_check_interval_secs = Number(document.getElementById('autoupdateIntervalInput').value) || 3600;
+      const autoupdate_command = document.getElementById('autoupdateCommandInput').value;
       const res = await fetch('/admin/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, compress_model, template, api_key, base_url, compress_base_url, reasoning_effort, compress_reasoning_effort })
+        body: JSON.stringify({ model, compress_model, template, api_key, base_url, compress_base_url, reasoning_effort, compress_reasoning_effort, autoupdate_enabled, autoupdate_repo, autoupdate_branch, autoupdate_check_interval_secs, autoupdate_command })
       });
       if (res.ok) {
         showToast('Configuration saved', '✓');

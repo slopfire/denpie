@@ -239,6 +239,11 @@ mod tests {
         assert_eq!(data["reasoning_effort"], "none");
         assert_eq!(data["compress_reasoning_effort"], "none");
         assert_eq!(data["color_scheme"], "default");
+        assert_eq!(data["autoupdate_enabled"], false);
+        assert_eq!(data["autoupdate_repo"], "");
+        assert_eq!(data["autoupdate_branch"], "main");
+        assert_eq!(data["autoupdate_check_interval_secs"], 3600);
+        assert_eq!(data["autoupdate_command"], "");
 
         // POST update
         let update_res = client
@@ -251,7 +256,12 @@ mod tests {
                 "base_url": "https://openrouter.ai/api/v1",
                 "compress_base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
                 "reasoning_effort": "low",
-                "compress_reasoning_effort": "none"
+                "compress_reasoning_effort": "none",
+                "autoupdate_enabled": true,
+                "autoupdate_repo": "owner/repo",
+                "autoupdate_branch": "main",
+                "autoupdate_check_interval_secs": 600,
+                "autoupdate_command": "/usr/local/bin/dailytipdraft-update"
             }))
             .send()
             .await
@@ -284,6 +294,14 @@ mod tests {
         );
         assert_eq!(data["reasoning_effort"], "low");
         assert_eq!(data["compress_reasoning_effort"], "none");
+        assert_eq!(data["autoupdate_enabled"], true);
+        assert_eq!(data["autoupdate_repo"], "owner/repo");
+        assert_eq!(data["autoupdate_branch"], "main");
+        assert_eq!(data["autoupdate_check_interval_secs"], 600);
+        assert_eq!(
+            data["autoupdate_command"],
+            "/usr/local/bin/dailytipdraft-update"
+        );
 
         let theme_update_res = client
             .post(format!("{url}/admin/settings"))
