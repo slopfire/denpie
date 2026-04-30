@@ -36,7 +36,7 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 | Operation | Result | Purpose |
 |---|---|---|
 | `bootstrap_api_key` | `api_key_created` | Create the first/full-access API key using `admin_token`. |
-| `tips` | `tips` | Get due cards or generate new cards. |
+| `tips` | `tips` | Get due cards, reuse the current daily topic card, or generate a new card after the configured daily update time. |
 | `review` | `ok` | Review, dismiss, acknowledge, repeat, or memorize a card. |
 | `get_topics` | `topics` | List known topic names. |
 | `get_topic_classes` | `topic_classes` | List topic classes and card behavior types. |
@@ -51,6 +51,12 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 | `get_summary` | `summary` | Read card/topic counts. |
 | `list_app_topics` | `app_topics` | Read topic rows with due/completed counts. |
 | `update_topic` | `ok` | Set or clear a topic prompt override. |
+
+## Daily Topic Retrieval
+
+`tips` is topic-aware. For each requested SRS topic/type, the server first returns due active cards. If none are due, it returns existing cards created in the current daily window up to that topic's daily card count. New cards are generated only until that per-topic daily count is satisfied.
+
+Daily windows use `settings.daily_time_zone` (IANA name such as `UTC`, `Asia/Vladivostok`, or `America/New_York`) and `settings.daily_update_time` (`HH:MM`, default `00:00`). Each topic can override count/time with `update_topic.daily_card_count`, `update_topic.daily_time_zone`, and `update_topic.daily_update_time`. Invalid values fall back to `UTC`, midnight, and one card.
 
 ## Removed Routes
 

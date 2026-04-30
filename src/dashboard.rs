@@ -42,6 +42,8 @@ pub struct SettingsRes {
     autoupdate_check_interval_secs: u64,
     autoupdate_command: String,
     autoupdate_last_seen_sha: String,
+    daily_time_zone: String,
+    daily_update_time: String,
 }
 
 pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRes> {
@@ -121,6 +123,16 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    let daily_time_zone = settings
+        .get("daily_time_zone")
+        .and_then(|v| v.as_str())
+        .unwrap_or("UTC")
+        .to_string();
+    let daily_update_time = settings
+        .get("daily_update_time")
+        .and_then(|v| v.as_str())
+        .unwrap_or("00:00")
+        .to_string();
 
     Json(SettingsRes {
         model,
@@ -138,6 +150,8 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         autoupdate_check_interval_secs,
         autoupdate_command,
         autoupdate_last_seen_sha,
+        daily_time_zone,
+        daily_update_time,
     })
 }
 
@@ -157,6 +171,8 @@ pub struct UpdateSettingsReq {
     autoupdate_branch: Option<String>,
     autoupdate_check_interval_secs: Option<u64>,
     autoupdate_command: Option<String>,
+    daily_time_zone: Option<String>,
+    daily_update_time: Option<String>,
 }
 
 pub async fn update_settings(
@@ -253,6 +269,18 @@ pub async fn update_settings(
             map.insert(
                 serde_yaml::Value::String("autoupdate_command".to_string()),
                 serde_yaml::Value::String(autoupdate_command),
+            );
+        }
+        if let Some(daily_time_zone) = req.daily_time_zone {
+            map.insert(
+                serde_yaml::Value::String("daily_time_zone".to_string()),
+                serde_yaml::Value::String(daily_time_zone),
+            );
+        }
+        if let Some(daily_update_time) = req.daily_update_time {
+            map.insert(
+                serde_yaml::Value::String("daily_update_time".to_string()),
+                serde_yaml::Value::String(daily_update_time),
             );
         }
     }
@@ -387,11 +415,26 @@ pub struct TopicInfo {
     pub id: i64,
     pub name: String,
     pub prompt_template: String,
+    pub daily_card_count: u32,
+    pub daily_time_zone: String,
+    pub daily_update_time: String,
 }
 
 pub async fn list_topics(State(state): State<Arc<AppState>>) -> Json<Vec<TopicInfo>> {
-    let rows = sqlx::query_as::<_, (i64, String, Option<String>)>(
-        "SELECT id, name, prompt_template FROM topics ORDER BY name ASC",
+    let rows = sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
+        "SELECT id, name, prompt_template, daily_card_count, daily_time_zone, daily_update_time
+         FROM topics
+         ORDER BY name ASC",
     )
     .fetch_all(&state.db)
     .await
@@ -403,6 +446,9 @@ pub async fn list_topics(State(state): State<Arc<AppState>>) -> Json<Vec<TopicIn
             id: r.0,
             name: r.1,
             prompt_template: r.2.unwrap_or_default(),
+            daily_card_count: r.3.unwrap_or(1).max(1) as u32,
+            daily_time_zone: r.4.unwrap_or_default(),
+            daily_update_time: r.5.unwrap_or_default(),
         })
         .collect();
     Json(topics)
@@ -485,6 +531,9 @@ pub struct AppTopicInfo {
     pub total_cards: i64,
     pub due_cards: i64,
     pub completed_cards: i64,
+    pub daily_card_count: u32,
+    pub daily_time_zone: String,
+    pub daily_update_time: String,
 }
 
 pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopicInfo>> {
@@ -497,6 +546,9 @@ pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopic
             Option<String>,
             Option<String>,
             Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
             i64,
             i64,
             i64,
@@ -507,6 +559,9 @@ pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopic
                 tc.name AS class_name,
                 tc.tipcard_type,
                 top.prompt_template,
+                top.daily_card_count,
+                top.daily_time_zone,
+                top.daily_update_time,
                 COUNT(t.id) AS total_cards,
                 SUM(CASE WHEN r.status = 'active' AND r.next_review_at <= ? THEN 1 ELSE 0 END) AS due_cards,
                 SUM(CASE WHEN r.status != 'active' THEN 1 ELSE 0 END) AS completed_cards
@@ -514,7 +569,7 @@ pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopic
          LEFT JOIN topic_classes tc ON top.class_id = tc.id
          LEFT JOIN tipcards t ON t.topic_id = top.id
          LEFT JOIN review_states r ON r.card_id = t.id
-         GROUP BY top.id, top.name, top.prompt_template, tc.name, tc.tipcard_type
+         GROUP BY top.id, top.name, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, tc.name, tc.tipcard_type
          ORDER BY due_cards DESC, top.name ASC",
     )
     .bind(now)
@@ -530,9 +585,12 @@ pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopic
                 class_name: r.2.unwrap_or_else(|| "default".to_string()),
                 tipcard_type: r.3.unwrap_or_else(|| "srs_tip".to_string()),
                 prompt_template: r.4.unwrap_or_default(),
-                total_cards: r.5,
-                due_cards: r.6,
-                completed_cards: r.7,
+                daily_card_count: r.5.unwrap_or(1).max(1) as u32,
+                daily_time_zone: r.6.unwrap_or_default(),
+                daily_update_time: r.7.unwrap_or_default(),
+                total_cards: r.8,
+                due_cards: r.9,
+                completed_cards: r.10,
             })
             .collect(),
     )
@@ -542,27 +600,84 @@ pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopic
 pub struct UpdateTopicReq {
     pub id: i64,
     pub prompt_template: Option<String>,
+    pub daily_card_count: Option<u32>,
+    pub daily_time_zone: Option<String>,
+    pub daily_update_time: Option<String>,
 }
 
 pub async fn update_topic(
     State(state): State<Arc<AppState>>,
     Json(req): Json<UpdateTopicReq>,
 ) -> Result<Json<()>, (StatusCode, String)> {
+    let current =
+        sqlx::query_as::<_, (Option<String>, Option<i64>, Option<String>, Option<String>)>(
+            "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time
+         FROM topics
+         WHERE id = ?",
+        )
+        .bind(req.id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Topic not found".to_string()))?;
+
     let prompt_template = req
         .prompt_template
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
+        .map(|value| {
+            let value = value.trim().to_string();
+            if value.is_empty() {
+                None
+            } else {
+                Some(value)
+            }
+        })
+        .unwrap_or(current.0);
+    let daily_card_count = req
+        .daily_card_count
+        .map(|value| {
+            if value == 0 {
+                None
+            } else {
+                Some(i64::from(value))
+            }
+        })
+        .unwrap_or(current.1);
+    let daily_time_zone = req
+        .daily_time_zone
+        .map(|value| {
+            let value = value.trim().to_string();
+            if value.is_empty() {
+                None
+            } else {
+                Some(value)
+            }
+        })
+        .unwrap_or(current.2);
+    let daily_update_time = req
+        .daily_update_time
+        .map(|value| {
+            let value = value.trim().to_string();
+            if value.is_empty() {
+                None
+            } else {
+                Some(value)
+            }
+        })
+        .unwrap_or(current.3);
 
-    let result = sqlx::query("UPDATE topics SET prompt_template = ? WHERE id = ?")
-        .bind(prompt_template)
-        .bind(req.id)
-        .execute(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    if result.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, "Topic not found".to_string()));
-    }
+    sqlx::query(
+        "UPDATE topics
+         SET prompt_template = ?, daily_card_count = ?, daily_time_zone = ?, daily_update_time = ?
+         WHERE id = ?",
+    )
+    .bind(prompt_template)
+    .bind(daily_card_count)
+    .bind(daily_time_zone)
+    .bind(daily_update_time)
+    .bind(req.id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(()))
 }

@@ -407,6 +407,16 @@
             <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Compression Base URL</label>
             <input id="compress-base-url-input" class="w-full rounded-lg border px-4 py-3">
           </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Daily Time Zone</label>
+              <input id="daily-time-zone-input" class="w-full rounded-lg border px-4 py-3" placeholder="UTC">
+            </div>
+            <div>
+              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Daily Update Time</label>
+              <input id="daily-update-time-input" type="time" class="w-full rounded-lg border px-4 py-3">
+            </div>
+          </div>
           <div class="border border-token rounded-xl p-4 space-y-4">
             <label class="flex items-center gap-3 text-sm font-bold">
               <input id="autoupdate-enabled-input" type="checkbox" class="h-4 w-4">
@@ -810,6 +820,9 @@
         const percent = total ? Math.round((done / total) * 100) : 0;
         const line = topic.tipcard_type === 'casual_tip' ? 'var(--tertiary)' : 'var(--secondary)';
         const promptId = `topic-prompt-${topic.id}`;
+        const dailyCountId = `topic-daily-count-${topic.id}`;
+        const dailyZoneId = `topic-daily-zone-${topic.id}`;
+        const dailyTimeId = `topic-daily-time-${topic.id}`;
         return `<article class="surface border rounded-xl p-5 relative overflow-hidden">
           <div class="absolute left-0 top-0 bottom-0 w-1" style="background:${line}"></div>
           <div class="flex items-start justify-between gap-3 mb-4">
@@ -829,7 +842,21 @@
           <div class="mt-4 border-t border-token pt-4">
             <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2" for="${promptId}">Topic Prompt</label>
             <textarea id="${promptId}" class="w-full rounded-lg border px-3 py-2 h-24 resize-y text-sm" placeholder="Uses global prompt when empty">${escapeHtml(topic.prompt_template || '')}</textarea>
-            <button type="button" class="mt-2 rounded-lg border border-token px-3 py-2 text-sm font-bold" onclick="saveTopicPrompt(${topic.id}, '${promptId}')">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+              <div>
+                <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyCountId}">Daily Cards</label>
+                <input id="${dailyCountId}" type="number" min="1" max="20" class="w-full rounded-lg border px-3 py-2 text-sm" value="${Number(topic.daily_card_count || 1)}">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyZoneId}">Time Zone</label>
+                <input id="${dailyZoneId}" class="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Global" value="${escapeHtml(topic.daily_time_zone || '')}">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyTimeId}">Update Time</label>
+                <input id="${dailyTimeId}" type="time" class="w-full rounded-lg border px-3 py-2 text-sm" value="${escapeHtml(topic.daily_update_time || '')}">
+              </div>
+            </div>
+            <button type="button" class="mt-2 rounded-lg border border-token px-3 py-2 text-sm font-bold" onclick="saveTopicSettings(${topic.id}, '${promptId}', '${dailyCountId}', '${dailyZoneId}', '${dailyTimeId}')">
               <span class="material-symbols-outlined align-middle text-base">save</span>
               <span class="align-middle">Save</span>
             </button>
@@ -838,16 +865,19 @@
       }).join('') || `<div class="surface border rounded-xl p-8 text-muted">No topics yet.</div>`;
     }
 
-    async function saveTopicPrompt(topicId, promptId) {
+    async function saveTopicSettings(topicId, promptId, dailyCountId, dailyZoneId, dailyTimeId) {
       await api('/app/topics', {
         method: 'PATCH',
         body: JSON.stringify({
           id: topicId,
-          prompt_template: $(promptId).value
+          prompt_template: $(promptId).value,
+          daily_card_count: Number($(dailyCountId).value) || 0,
+          daily_time_zone: $(dailyZoneId).value,
+          daily_update_time: $(dailyTimeId).value
         })
       });
       await refreshAll();
-      toast('Topic prompt saved');
+      toast('Topic settings saved');
     }
 
     function cardActions(card) {
@@ -1072,6 +1102,8 @@
       $('autoupdate-interval-input').value = settings.autoupdate_check_interval_secs || 3600;
       $('autoupdate-command-input').value = settings.autoupdate_command || '';
       $('autoupdate-last-sha').textContent = settings.autoupdate_last_seen_sha || 'not recorded';
+      $('daily-time-zone-input').value = settings.daily_time_zone || 'UTC';
+      $('daily-update-time-input').value = settings.daily_update_time || '00:00';
       applyTheme(settings.color_scheme || localStorage.getItem('mindlift-theme') || 'default');
     }
 
@@ -1254,6 +1286,8 @@
             autoupdate_branch: $('autoupdate-branch-input').value,
             autoupdate_check_interval_secs: Number($('autoupdate-interval-input').value) || 3600,
             autoupdate_command: $('autoupdate-command-input').value,
+            daily_time_zone: $('daily-time-zone-input').value,
+            daily_update_time: $('daily-update-time-input').value,
             color_scheme: document.documentElement.dataset.theme
           })
         });

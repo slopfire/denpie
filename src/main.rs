@@ -169,6 +169,9 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
 pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     ensure_column(pool, "topics", "class_id", "INTEGER").await?;
     ensure_column(pool, "topics", "prompt_template", "TEXT").await?;
+    ensure_column(pool, "topics", "daily_card_count", "INTEGER").await?;
+    ensure_column(pool, "topics", "daily_time_zone", "TEXT").await?;
+    ensure_column(pool, "topics", "daily_update_time", "TEXT").await?;
     ensure_column(
         pool,
         "tipcards",

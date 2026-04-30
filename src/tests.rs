@@ -181,6 +181,8 @@ mod tests {
                 crate::api::pb::UpdateSettingsRequest {
                     model: Some("google/gemini-2.5-pro".into()),
                     color_scheme: Some("solarized".into()),
+                    daily_time_zone: Some("Asia/Vladivostok".into()),
+                    daily_update_time: Some("06:30".into()),
                     ..Default::default()
                 },
             )),
@@ -211,6 +213,8 @@ mod tests {
             crate::api::pb::api_response::Result::Settings(settings) => {
                 assert_eq!(settings.model, "google/gemini-2.5-pro");
                 assert_eq!(settings.color_scheme, "solarized");
+                assert_eq!(settings.daily_time_zone, "Asia/Vladivostok");
+                assert_eq!(settings.daily_update_time, "06:30");
             }
             other => panic!("unexpected response: {:?}", other),
         }
@@ -313,6 +317,154 @@ mod tests {
             }
             other => panic!("unexpected response: {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn test_topic_daily_card_is_reused_after_review() {
+        let (url, client) = spawn_test_server().await;
+        let api_key = bootstrap_api_key(&url, &client, "daily_topic").await;
+
+        let first_response = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Tips(
+                    crate::api::pb::TipsQuery {
+                        count: 1,
+                        topics: "rust".into(),
+                        topic_class: "default".into(),
+                        tipcard_type: "srs_tip".into(),
+                        exclude_card_ids: vec![],
+                    },
+                )),
+            },
+        )
+        .await;
+        assert_eq!(first_response.status(), reqwest::StatusCode::OK);
+        let first = crate::api::pb::ApiResponse::decode(first_response.bytes().await.unwrap())
+            .unwrap()
+            .result
+            .and_then(|result| match result {
+                crate::api::pb::api_response::Result::Tips(tips) => tips.tips.first().cloned(),
+                _ => None,
+            })
+            .expect("first tip");
+
+        let review = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Review(
+                    crate::api::pb::ReviewPayload {
+                        card_id: first.id,
+                        grade: 4,
+                        action: "".into(),
+                    },
+                )),
+            },
+        )
+        .await;
+        assert_eq!(review.status(), reqwest::StatusCode::OK);
+
+        let topics_response = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::ListAppTopics(
+                    crate::api::pb::Empty {},
+                )),
+            },
+        )
+        .await;
+        assert_eq!(topics_response.status(), reqwest::StatusCode::OK);
+        let topics = crate::api::pb::ApiResponse::decode(topics_response.bytes().await.unwrap())
+            .unwrap()
+            .result
+            .and_then(|result| match result {
+                crate::api::pb::api_response::Result::AppTopics(topics) => {
+                    topics.topics.into_iter().find(|topic| topic.name == "rust")
+                }
+                _ => None,
+            })
+            .expect("rust topic");
+
+        let update_topic = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::UpdateTopic(
+                    crate::api::pb::UpdateTopicRequest {
+                        id: topics.id,
+                        prompt_template: Some("Give a smart tip about {topic}.".into()),
+                        daily_card_count: Some(2),
+                        daily_time_zone: Some("Asia/Vladivostok".into()),
+                        daily_update_time: Some("06:30".into()),
+                    },
+                )),
+            },
+        )
+        .await;
+        assert_eq!(update_topic.status(), reqwest::StatusCode::OK);
+
+        let second_response = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Tips(
+                    crate::api::pb::TipsQuery {
+                        count: 1,
+                        topics: "rust".into(),
+                        topic_class: "default".into(),
+                        tipcard_type: "srs_tip".into(),
+                        exclude_card_ids: vec![],
+                    },
+                )),
+            },
+        )
+        .await;
+        assert_eq!(second_response.status(), reqwest::StatusCode::OK);
+        let second_tips =
+            match crate::api::pb::ApiResponse::decode(second_response.bytes().await.unwrap())
+                .unwrap()
+                .result
+                .unwrap()
+            {
+                crate::api::pb::api_response::Result::Tips(tips) => tips.tips,
+                other => panic!("unexpected response: {:?}", other),
+            };
+
+        assert_eq!(second_tips.len(), 2);
+        assert_eq!(second_tips[0].id, first.id);
+
+        let topics_response = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key,
+                op: Some(crate::api::pb::api_request::Op::ListAppTopics(
+                    crate::api::pb::Empty {},
+                )),
+            },
+        )
+        .await;
+        let topics = crate::api::pb::ApiResponse::decode(topics_response.bytes().await.unwrap())
+            .unwrap()
+            .result
+            .and_then(|result| match result {
+                crate::api::pb::api_response::Result::AppTopics(topics) => {
+                    topics.topics.into_iter().find(|topic| topic.name == "rust")
+                }
+                _ => None,
+            })
+            .expect("updated rust topic");
+        assert_eq!(topics.daily_card_count, 2);
+        assert_eq!(topics.daily_time_zone, "Asia/Vladivostok");
+        assert_eq!(topics.daily_update_time, "06:30");
     }
 
     #[tokio::test]

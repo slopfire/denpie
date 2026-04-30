@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS topics (
     name TEXT NOT NULL,
     class_id INTEGER,
     prompt_template TEXT,
+    daily_card_count INTEGER,
+    daily_time_zone TEXT,
+    daily_update_time TEXT,
     UNIQUE(name, class_id),
     FOREIGN KEY(class_id) REFERENCES topic_classes(id)
 );

@@ -8,6 +8,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Casual Cards**: Queue-style tips can be dismissed or acknowledged so clients can pull the next card immediately.
 - **Repeatable Cards**: Re:word-style cards can be dismissed, repeated, memorized, or acknowledged; clients can advance after repeatable review actions, and repeated cards come back when due.
 - **Topic Classes**: Topics belong to a card behavior class: casual or repeatable. SRS remains the scheduling algorithm, not a card class.
+- **Daily Topic Cards**: Each topic/type returns a configurable number of stable SRS cards per local day, with per-topic overrides for count, time zone, and update time.
 - **Any OpenAI-Compatible LLM**: Configure the API key, base URL, and model through the protobuf API — no hardcoded vendor lock-in.
 - **Unified Protobuf API**: `POST /api` manages tips, reviews, settings, keys, topics, cards, and summary counts with one full-access API key.
 - **Root Control Page**: `/` serves a browser control panel that talks to the same protobuf API.
@@ -83,7 +84,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    - **LLM Base URL** — e.g. `https://openrouter.ai/api/v1` or `https://generativelanguage.googleapis.com/v1beta/openai`
    - **Prompt Template** — use `{topic}` as the placeholder; `{context}`, `{existing_cards}`, and `{dismissed_cards}` can place prior card titles explicitly
 
-   Each topic can also define its own prompt with `update_topic`. Empty topic prompts fall back to the global prompt template. When a new card is generated, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
+   Each topic can also define its own prompt, daily card count, time zone, and update time with `update_topic`. Empty topic prompts and time fields fall back to the global settings. When a new card is generated, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
 
 6. **Use the API key** in `ApiRequest.auth` for every operation except `bootstrap_api_key`.
 
@@ -103,6 +104,8 @@ All runtime configuration lives in `settings.yaml` and is managed through the pr
 | `llm_base_url` | Base URL for the OpenAI-compatible API | `https://openrouter.ai/api/v1` |
 | `llm_compress_base_url` | Base URL for compression requests; defaults to `llm_base_url` when missing | `https://openrouter.ai/api/v1` |
 | `color_scheme` | Client color scheme preference for external clients | `default` |
+| `daily_time_zone` | Default IANA time zone used for daily topic-card windows | `UTC` |
+| `daily_update_time` | Default local `HH:MM` time when each topic can receive new daily cards | `00:00` |
 | `autoupdate_enabled` | Enable GitHub commit polling and command-based updates | `false` |
 | `autoupdate_repo` | GitHub repository in `owner/repo` form, or a GitHub URL | `slopfire/dailytipdraft` |
 | `autoupdate_branch` | Branch or ref checked through the GitHub commits API | `main` |
@@ -217,6 +220,8 @@ The unified protobuf API is the only public API:
 | `topics` | Topic categories linked to topic classes, with optional per-topic prompt template |
 | `tipcards` | Generated tips with full content, compact compressed content, title, and card type |
 | `review_states` | Per-card review state, status, and next review timestamp |
+
+Topic rows can override the daily defaults with `daily_card_count`, `daily_time_zone`, and `daily_update_time`. Empty time fields inherit the global settings; empty or zero count falls back to one card.
 
 Tip content can include markdown such as headings, lists, emphasis, links, blockquotes, inline code, and fenced code blocks. The protobuf API returns raw `full_content` and `compressed_content` strings so clients can choose their own renderer.
 

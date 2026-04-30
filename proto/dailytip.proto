@@ -117,6 +117,8 @@ message Settings {
     uint64 autoupdate_check_interval_secs = 13;
     string autoupdate_command = 14;
     string autoupdate_last_seen_sha = 15;
+    string daily_time_zone = 16;
+    string daily_update_time = 17;
 }
 
 message UpdateSettingsRequest {
@@ -134,6 +136,8 @@ message UpdateSettingsRequest {
     optional string autoupdate_branch = 12;
     optional uint64 autoupdate_check_interval_secs = 13;
     optional string autoupdate_command = 14;
+    optional string daily_time_zone = 15;
+    optional string daily_update_time = 16;
 }
 
 message ApiKeyInfo {
@@ -150,6 +154,9 @@ message AdminTopic {
     int64 id = 1;
     string name = 2;
     string prompt_template = 3;
+    uint32 daily_card_count = 4;
+    string daily_time_zone = 5;
+    string daily_update_time = 6;
 }
 
 message AdminTopics {
@@ -189,6 +196,9 @@ message AppTopicInfo {
     int64 total_cards = 6;
     int64 due_cards = 7;
     int64 completed_cards = 8;
+    uint32 daily_card_count = 9;
+    string daily_time_zone = 10;
+    string daily_update_time = 11;
 }
 
 message AppTopics {
@@ -198,4 +208,7 @@ message AppTopics {
 message UpdateTopicRequest {
     int64 id = 1;
     optional string prompt_template = 2;
+    optional uint32 daily_card_count = 3;
+    optional string daily_time_zone = 4;
+    optional string daily_update_time = 5;
 }

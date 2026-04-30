@@ -4,7 +4,8 @@ use axum::{
     http::{header, StatusCode},
     response::{IntoResponse, Response},
 };
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, LocalResult, NaiveTime, TimeZone, Utc};
+use chrono_tz::Tz;
 use prost::Message;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -100,6 +101,79 @@ fn read_settings_value(state: &AppState) -> serde_yaml::Value {
     }
 }
 
+fn setting_string(settings: &serde_yaml::Value, key: &str, default: &str) -> String {
+    settings
+        .get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or(default)
+        .to_string()
+}
+
+fn parse_daily_update_time(value: &str) -> NaiveTime {
+    NaiveTime::parse_from_str(value.trim(), "%H:%M")
+        .or_else(|_| NaiveTime::parse_from_str(value.trim(), "%H:%M:%S"))
+        .unwrap_or(NaiveTime::MIN)
+}
+
+fn resolve_local_time(tz: Tz, local: chrono::NaiveDateTime) -> DateTime<Utc> {
+    for offset_minutes in 0..180 {
+        let candidate = local + Duration::minutes(offset_minutes);
+        match tz.from_local_datetime(&candidate) {
+            LocalResult::Single(dt) => return dt.with_timezone(&Utc),
+            LocalResult::Ambiguous(earliest, _) => return earliest.with_timezone(&Utc),
+            LocalResult::None => {}
+        }
+    }
+    Utc::now()
+}
+
+fn daily_window_start(time_zone: &str, update_time: &str) -> DateTime<Utc> {
+    let tz = time_zone.parse::<Tz>().unwrap_or(chrono_tz::UTC);
+    let update_time = parse_daily_update_time(update_time);
+    let local_now = Utc::now().with_timezone(&tz);
+    let mut start_date = local_now.date_naive();
+    if local_now.time() < update_time {
+        start_date = start_date
+            .checked_sub_signed(Duration::days(1))
+            .unwrap_or(start_date);
+    }
+    resolve_local_time(tz, start_date.and_time(update_time))
+}
+
+fn topic_daily_window_start(topic: &TopicInfo, settings: &serde_yaml::Value) -> DateTime<Utc> {
+    let default_tz = settings
+        .get("daily_time_zone")
+        .and_then(|v| v.as_str())
+        .unwrap_or("UTC");
+    let default_time = settings
+        .get("daily_update_time")
+        .and_then(|v| v.as_str())
+        .unwrap_or("00:00");
+    daily_window_start(
+        topic
+            .daily_time_zone
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(default_tz),
+        topic
+            .daily_update_time
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(default_time),
+    )
+}
+
+fn topic_daily_card_count(topic: &TopicInfo) -> usize {
+    topic
+        .daily_card_count
+        .and_then(|value| usize::try_from(value).ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(1)
+        .min(20)
+}
+
 fn current_settings(state: &AppState) -> pb::Settings {
     let settings = read_settings_value(state);
     let base_url = settings
@@ -178,6 +252,8 @@ fn current_settings(state: &AppState) -> pb::Settings {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
+        daily_time_zone: setting_string(&settings, "daily_time_zone", "UTC"),
+        daily_update_time: setting_string(&settings, "daily_update_time", "00:00"),
     }
 }
 
@@ -236,6 +312,8 @@ fn update_settings_file(
             req.autoupdate_check_interval_secs,
         );
         put_string_setting(map, "autoupdate_command", req.autoupdate_command);
+        put_string_setting(map, "daily_time_zone", req.daily_time_zone);
+        put_string_setting(map, "daily_update_time", req.daily_update_time);
     }
 
     let out_str = serde_yaml::to_string(&settings)
@@ -261,6 +339,9 @@ struct TopicClassInfo {
 struct TopicInfo {
     id: i64,
     prompt_template: Option<String>,
+    daily_card_count: Option<i64>,
+    daily_time_zone: Option<String>,
+    daily_update_time: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -319,8 +400,20 @@ async fn delete_api_key_by_id(state: &AppState, id: i64) -> Result<(), (StatusCo
 }
 
 async fn list_admin_topics_pb(state: &AppState) -> Result<pb::AdminTopics, (StatusCode, String)> {
-    let rows = sqlx::query_as::<_, (i64, String, Option<String>)>(
-        "SELECT id, name, prompt_template FROM topics ORDER BY name ASC",
+    let rows = sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
+        "SELECT id, name, prompt_template, daily_card_count, daily_time_zone, daily_update_time
+         FROM topics
+         ORDER BY name ASC",
     )
     .fetch_all(&state.db)
     .await
@@ -333,6 +426,9 @@ async fn list_admin_topics_pb(state: &AppState) -> Result<pb::AdminTopics, (Stat
                 id: row.0,
                 name: row.1,
                 prompt_template: row.2.unwrap_or_default(),
+                daily_card_count: row.3.unwrap_or(1).max(1) as u32,
+                daily_time_zone: row.4.unwrap_or_default(),
+                daily_update_time: row.5.unwrap_or_default(),
             })
             .collect(),
     })
@@ -460,6 +556,9 @@ async fn app_topics_pb(state: &AppState) -> Result<pb::AppTopics, (StatusCode, S
             Option<String>,
             Option<String>,
             Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
             i64,
             i64,
             i64,
@@ -470,6 +569,9 @@ async fn app_topics_pb(state: &AppState) -> Result<pb::AppTopics, (StatusCode, S
                 tc.name AS class_name,
                 tc.tipcard_type,
                 top.prompt_template,
+                top.daily_card_count,
+                top.daily_time_zone,
+                top.daily_update_time,
                 COUNT(t.id) AS total_cards,
                 SUM(CASE WHEN r.status = 'active' AND r.next_review_at <= ? THEN 1 ELSE 0 END) AS due_cards,
                 SUM(CASE WHEN r.status != 'active' THEN 1 ELSE 0 END) AS completed_cards
@@ -477,7 +579,7 @@ async fn app_topics_pb(state: &AppState) -> Result<pb::AppTopics, (StatusCode, S
          LEFT JOIN topic_classes tc ON top.class_id = tc.id
          LEFT JOIN tipcards t ON t.topic_id = top.id
          LEFT JOIN review_states r ON r.card_id = t.id
-         GROUP BY top.id, top.name, top.prompt_template, tc.name, tc.tipcard_type
+         GROUP BY top.id, top.name, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, tc.name, tc.tipcard_type
          ORDER BY due_cards DESC, top.name ASC",
     )
     .bind(now)
@@ -494,9 +596,12 @@ async fn app_topics_pb(state: &AppState) -> Result<pb::AppTopics, (StatusCode, S
                 class_name: row.2.unwrap_or_else(|| "default".to_string()),
                 tipcard_type: row.3.unwrap_or_else(|| "srs_tip".to_string()),
                 prompt_template: row.4.unwrap_or_default(),
-                total_cards: row.5,
-                due_cards: row.6,
-                completed_cards: row.7,
+                daily_card_count: row.5.unwrap_or(1).max(1) as u32,
+                daily_time_zone: row.6.unwrap_or_default(),
+                daily_update_time: row.7.unwrap_or_default(),
+                total_cards: row.8,
+                due_cards: row.9,
+                completed_cards: row.10,
             })
             .collect(),
     })
@@ -506,21 +611,75 @@ async fn update_topic_prompt(
     state: &AppState,
     req: pb::UpdateTopicRequest,
 ) -> Result<(), (StatusCode, String)> {
+    let current =
+        sqlx::query_as::<_, (Option<String>, Option<i64>, Option<String>, Option<String>)>(
+            "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time
+         FROM topics
+         WHERE id = ?",
+        )
+        .bind(req.id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Topic not found".to_string()))?;
+
     let prompt_template = req
         .prompt_template
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
+        .map(|value| {
+            let value = value.trim().to_string();
+            if value.is_empty() {
+                None
+            } else {
+                Some(value)
+            }
+        })
+        .unwrap_or(current.0);
+    let daily_card_count = req
+        .daily_card_count
+        .map(|value| {
+            if value == 0 {
+                None
+            } else {
+                Some(i64::from(value))
+            }
+        })
+        .unwrap_or(current.1);
+    let daily_time_zone = req
+        .daily_time_zone
+        .map(|value| {
+            let value = value.trim().to_string();
+            if value.is_empty() {
+                None
+            } else {
+                Some(value)
+            }
+        })
+        .unwrap_or(current.2);
+    let daily_update_time = req
+        .daily_update_time
+        .map(|value| {
+            let value = value.trim().to_string();
+            if value.is_empty() {
+                None
+            } else {
+                Some(value)
+            }
+        })
+        .unwrap_or(current.3);
 
-    let result = sqlx::query("UPDATE topics SET prompt_template = ? WHERE id = ?")
-        .bind(prompt_template)
-        .bind(req.id)
-        .execute(&state.db)
-        .await
-        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    if result.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, "Topic not found".to_string()));
-    }
+    sqlx::query(
+        "UPDATE topics
+         SET prompt_template = ?, daily_card_count = ?, daily_time_zone = ?, daily_update_time = ?
+         WHERE id = ?",
+    )
+    .bind(prompt_template)
+    .bind(daily_card_count)
+    .bind(daily_time_zone)
+    .bind(daily_update_time)
+    .bind(req.id)
+    .execute(&state.db)
+    .await
+    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(())
 }
@@ -585,8 +744,19 @@ async fn get_or_create_topic(
     topic_name: &str,
     class_id: i64,
 ) -> Result<TopicInfo, (StatusCode, String)> {
-    if let Some(row) = sqlx::query_as::<_, (i64, Option<String>)>(
-        "SELECT id, prompt_template FROM topics WHERE name = ? AND class_id = ?",
+    if let Some(row) = sqlx::query_as::<
+        _,
+        (
+            i64,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
+        "SELECT id, prompt_template, daily_card_count, daily_time_zone, daily_update_time
+         FROM topics
+         WHERE name = ? AND class_id = ?",
     )
     .bind(topic_name)
     .bind(class_id)
@@ -597,6 +767,9 @@ async fn get_or_create_topic(
         return Ok(TopicInfo {
             id: row.0,
             prompt_template: row.1,
+            daily_card_count: row.2,
+            daily_time_zone: row.3,
+            daily_update_time: row.4,
         });
     }
 
@@ -609,10 +782,24 @@ async fn get_or_create_topic(
         Ok(result) => Ok(TopicInfo {
             id: result.last_insert_rowid(),
             prompt_template: None,
+            daily_card_count: None,
+            daily_time_zone: None,
+            daily_update_time: None,
         }),
         Err(insert_error) => {
-            if let Some(row) = sqlx::query_as::<_, (i64, Option<String>)>(
-                "SELECT id, prompt_template FROM topics WHERE name = ? AND class_id = ?",
+            if let Some(row) = sqlx::query_as::<
+                _,
+                (
+                    i64,
+                    Option<String>,
+                    Option<i64>,
+                    Option<String>,
+                    Option<String>,
+                ),
+            >(
+                "SELECT id, prompt_template, daily_card_count, daily_time_zone, daily_update_time
+                 FROM topics
+                 WHERE name = ? AND class_id = ?",
             )
             .bind(topic_name)
             .bind(class_id)
@@ -623,6 +810,9 @@ async fn get_or_create_topic(
                 Ok(TopicInfo {
                     id: row.0,
                     prompt_template: row.1,
+                    daily_card_count: row.2,
+                    daily_time_zone: row.3,
+                    daily_update_time: row.4,
                 })
             } else {
                 Err((StatusCode::INTERNAL_SERVER_ERROR, insert_error.to_string()))
@@ -646,6 +836,97 @@ fn tip_response_json(
         topic_class: class_info.name.clone(),
         tipcard_type: class_info.tipcard_type.clone(),
     }
+}
+
+async fn find_daily_topic_cards(
+    state: &AppState,
+    topic_id: i64,
+    tipcard_type: &str,
+    daily_window_start: DateTime<Utc>,
+    exclude_card_ids: &[i64],
+    limit: usize,
+) -> Result<Vec<(i64, String, String)>, (StatusCode, String)> {
+    let mut daily_query = QueryBuilder::<Sqlite>::new(
+        "
+        SELECT t.id, t.full_content, t.compressed_content
+        FROM tipcards t
+        WHERE t.topic_id = ",
+    );
+    daily_query.push_bind(topic_id);
+    daily_query.push(" AND t.tipcard_type = ");
+    daily_query.push_bind(tipcard_type);
+    daily_query.push(" AND t.created_at >= ");
+    daily_query.push_bind(
+        daily_window_start
+            .naive_utc()
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string(),
+    );
+    if !exclude_card_ids.is_empty() {
+        daily_query.push(" AND t.id NOT IN (");
+        let mut separated = daily_query.separated(", ");
+        for id in exclude_card_ids {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(")");
+    }
+    daily_query.push(" ORDER BY t.created_at ASC LIMIT ");
+    daily_query.push_bind(limit as i64);
+
+    daily_query
+        .build_query_as::<(i64, String, String)>()
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+async fn find_due_topic_cards(
+    state: &AppState,
+    topic_id: i64,
+    tipcard_type: &str,
+    exclude_card_ids: &[i64],
+    limit: usize,
+) -> Result<Vec<(i64, String, String)>, (StatusCode, String)> {
+    let now = Utc::now();
+    let mut due_query = QueryBuilder::<Sqlite>::new(
+        "
+        SELECT t.id, t.full_content, t.compressed_content
+        FROM tipcards t
+        JOIN review_states r ON t.id = r.card_id
+        WHERE t.topic_id = ",
+    );
+    due_query.push_bind(topic_id);
+    due_query.push(" AND t.tipcard_type = ");
+    due_query.push_bind(tipcard_type);
+    due_query.push(" AND r.status = 'active' AND r.next_review_at <= ");
+    due_query.push_bind(now);
+    if !exclude_card_ids.is_empty() {
+        due_query.push(" AND t.id NOT IN (");
+        let mut separated = due_query.separated(", ");
+        for id in exclude_card_ids {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(")");
+    }
+    due_query.push(
+        "
+        ORDER BY
+            CASE
+                WHEN t.tipcard_type = 'repeatable_tip'
+                     AND COALESCE(CAST(json_extract(r.state_data, '$.repeats') AS INTEGER), 0) > 0
+                THEN 0
+                ELSE 1
+            END ASC,
+            r.next_review_at ASC
+        LIMIT ",
+    );
+    due_query.push_bind(limit as i64);
+
+    due_query
+        .build_query_as::<(i64, String, String)>()
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 pub async fn build_tips(
@@ -717,149 +998,184 @@ pub async fn build_tips(
         }
 
         let topic = get_or_create_topic(state, topic_name, class_info.id).await?;
+        let daily_card_count = if is_queue_tipcard(&class_info.tipcard_type) {
+            1
+        } else {
+            topic_daily_card_count(&topic)
+        };
 
-        let now = Utc::now();
-        let mut due_query = QueryBuilder::<Sqlite>::new(
-            "
-            SELECT t.id, t.full_content, t.compressed_content
-            FROM tipcards t
-            JOIN review_states r ON t.id = r.card_id
-            WHERE t.topic_id = ",
-        );
-        due_query.push_bind(topic.id);
-        due_query.push(
-            "
-              AND t.tipcard_type = ",
-        );
-        due_query.push_bind(&class_info.tipcard_type);
-        due_query.push(
-            "
-              AND r.status = 'active'
-              AND r.next_review_at <= ",
-        );
-        due_query.push_bind(now);
-        if !exclude_card_ids.is_empty() {
-            due_query.push(" AND t.id NOT IN (");
-            let mut separated = due_query.separated(", ");
-            for id in &exclude_card_ids {
-                separated.push_bind(id);
-            }
-            separated.push_unseparated(")");
-        }
-        due_query.push(
-            "
-            ORDER BY
-                CASE
-                    WHEN t.tipcard_type = 'repeatable_tip'
-                         AND COALESCE(CAST(json_extract(r.state_data, '$.repeats') AS INTEGER), 0) > 0
-                    THEN 0
-                    ELSE 1
-                END ASC,
-                r.next_review_at ASC
-            LIMIT 1
-            ",
-        );
-
-        let due_card = due_query
-            .build_query_as::<(i64, String, String)>()
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-        if let Some(card) = due_card {
+        let due_cards = find_due_topic_cards(
+            state,
+            topic.id,
+            &class_info.tipcard_type,
+            &exclude_card_ids,
+            daily_card_count,
+        )
+        .await?;
+        for card in &due_cards {
             responses.push(tip_response_json(
                 card.0,
                 topic_name,
-                card.1,
-                card.2,
+                card.1.clone(),
+                card.2.clone(),
                 &class_info,
             ));
+        }
+        if !due_cards.is_empty() {
+            continue;
+        } else if !is_queue_tipcard(&class_info.tipcard_type) {
+            let daily_window_start = topic_daily_window_start(&topic, &settings);
+            let daily_cards = find_daily_topic_cards(
+                state,
+                topic.id,
+                &class_info.tipcard_type,
+                daily_window_start,
+                &exclude_card_ids,
+                daily_card_count,
+            )
+            .await?;
+            for card in &daily_cards {
+                responses.push(tip_response_json(
+                    card.0,
+                    topic_name,
+                    card.1.clone(),
+                    card.2.clone(),
+                    &class_info,
+                ));
+            }
+            for _ in daily_cards.len()..daily_card_count {
+                generate_tipcard(
+                    state,
+                    topic_name,
+                    &topic,
+                    &class_info,
+                    &template,
+                    &llm_model,
+                    &llm_api_key,
+                    &llm_base_url,
+                    &llm_reasoning,
+                    &llm_compress_model,
+                    &llm_compress_base_url,
+                    &llm_compress_reasoning,
+                    &mut responses,
+                )
+                .await?;
+            }
         } else {
-            let template = topic
-                .prompt_template
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .unwrap_or(&template);
-            let card_context =
-                context::load_card_context(state, topic.id, &class_info.tipcard_type).await?;
-            let prompt = context::render_generation_prompt(topic_name, template, &card_context);
-            let full_tip = llm::generate_new_card(
+            generate_tipcard(
+                state,
+                topic_name,
+                &topic,
+                &class_info,
+                &template,
                 &llm_model,
-                &prompt,
                 &llm_api_key,
                 &llm_base_url,
                 &llm_reasoning,
-            )
-            .await;
-            let compressed_tip = llm::compress_card(
-                &full_tip,
                 &llm_compress_model,
-                &llm_api_key,
                 &llm_compress_base_url,
                 &llm_compress_reasoning,
+                &mut responses,
             )
-            .await;
-            let card_title = llm::generate_card_title(
-                &full_tip,
-                &llm_compress_model,
-                &llm_api_key,
-                &llm_compress_base_url,
-                &llm_compress_reasoning,
-            )
-            .await;
-
-            let card_id = sqlx::query(
-                "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
-            )
-            .bind(topic.id)
-            .bind(&class_info.tipcard_type)
-            .bind(&card_title)
-            .bind(&full_tip)
-            .bind(&compressed_tip)
-            .execute(&state.db).await.map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-             .last_insert_rowid();
-
-            let (state_json, algo) = if is_queue_tipcard(&class_info.tipcard_type) {
-                let algo = if class_info.tipcard_type == "casual_tip" {
-                    "casual"
-                } else {
-                    "repeatable"
-                };
-                (
-                    serde_json::to_string(&RepeatableState::default()).unwrap(),
-                    algo,
-                )
-            } else {
-                let init_state = SrsState::default();
-                let algo = match init_state.algorithm {
-                    Algorithm::SM2 => "sm2",
-                    Algorithm::FSRS => "fsrs",
-                };
-                (serde_json::to_string(&init_state).unwrap(), algo)
-            };
-
-            let now = Utc::now();
-            sqlx::query(
-                "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, ?, ?, 'active', ?)",
-            )
-            .bind(card_id)
-            .bind(algo)
-            .bind(state_json)
-            .bind(now)
-            .execute(&state.db).await.map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-            responses.push(tip_response_json(
-                card_id,
-                topic_name,
-                full_tip,
-                compressed_tip,
-                &class_info,
-            ));
+            .await?;
         }
     }
 
     Ok(responses)
+}
+
+async fn generate_tipcard(
+    state: &AppState,
+    topic_name: &str,
+    topic: &TopicInfo,
+    class_info: &TopicClassInfo,
+    template: &str,
+    llm_model: &str,
+    llm_api_key: &str,
+    llm_base_url: &str,
+    llm_reasoning: &llm::ReasoningConfig,
+    llm_compress_model: &str,
+    llm_compress_base_url: &str,
+    llm_compress_reasoning: &llm::ReasoningConfig,
+    responses: &mut Vec<TipCardJson>,
+) -> Result<(), (StatusCode, String)> {
+    let template = topic
+        .prompt_template
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(template);
+    let card_context =
+        context::load_card_context(state, topic.id, &class_info.tipcard_type).await?;
+    let prompt = context::render_generation_prompt(topic_name, template, &card_context);
+    let full_tip =
+        llm::generate_new_card(llm_model, &prompt, llm_api_key, llm_base_url, llm_reasoning).await;
+    let compressed_tip = llm::compress_card(
+        &full_tip,
+        llm_compress_model,
+        llm_api_key,
+        llm_compress_base_url,
+        llm_compress_reasoning,
+    )
+    .await;
+    let card_title = llm::generate_card_title(
+        &full_tip,
+        llm_compress_model,
+        llm_api_key,
+        llm_compress_base_url,
+        llm_compress_reasoning,
+    )
+    .await;
+
+    let card_id = sqlx::query(
+        "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(topic.id)
+    .bind(&class_info.tipcard_type)
+    .bind(&card_title)
+    .bind(&full_tip)
+    .bind(&compressed_tip)
+    .execute(&state.db).await.map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+     .last_insert_rowid();
+
+    let (state_json, algo) = if is_queue_tipcard(&class_info.tipcard_type) {
+        let algo = if class_info.tipcard_type == "casual_tip" {
+            "casual"
+        } else {
+            "repeatable"
+        };
+        (
+            serde_json::to_string(&RepeatableState::default()).unwrap(),
+            algo,
+        )
+    } else {
+        let init_state = SrsState::default();
+        let algo = match init_state.algorithm {
+            Algorithm::SM2 => "sm2",
+            Algorithm::FSRS => "fsrs",
+        };
+        (serde_json::to_string(&init_state).unwrap(), algo)
+    };
+
+    let now = Utc::now();
+    sqlx::query(
+        "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, ?, ?, 'active', ?)",
+    )
+    .bind(card_id)
+    .bind(algo)
+    .bind(state_json)
+    .bind(now)
+    .execute(&state.db).await.map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    responses.push(tip_response_json(
+        card_id,
+        topic_name,
+        full_tip,
+        compressed_tip,
+        class_info,
+    ));
+
+    Ok(())
 }
 
 pub async fn unified_api(
