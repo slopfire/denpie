@@ -84,7 +84,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    - **LLM Base URL** — e.g. `https://openrouter.ai/api/v1` or `https://generativelanguage.googleapis.com/v1beta/openai`
    - **Prompt Template** — use `{topic}` as the placeholder; `{context}`, `{existing_cards}`, and `{dismissed_cards}` can place prior card titles explicitly
 
-   Each topic can also define its own prompt, daily card count, time zone, and update time with `update_topic`. Empty topic prompts and time fields fall back to the global settings. When a new card is generated, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
+   Each topic can also define its own prompt, daily card count, time zone, and update time with `update_topic`. The browser control panel provides timezone pickers for global and topic settings. Empty topic prompts and time fields fall back to the global settings. When a new card is generated, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
 
 6. **Use the API key** in `ApiRequest.auth` for every operation except `bootstrap_api_key`.
 
@@ -104,7 +104,7 @@ All runtime configuration lives in `settings.yaml` and is managed through the pr
 | `llm_base_url` | Base URL for the OpenAI-compatible API | `https://openrouter.ai/api/v1` |
 | `llm_compress_base_url` | Base URL for compression requests; defaults to `llm_base_url` when missing | `https://openrouter.ai/api/v1` |
 | `color_scheme` | Client color scheme preference for external clients | `default` |
-| `daily_time_zone` | Default IANA time zone used for daily topic-card windows | `UTC` |
+| `daily_time_zone` | Default IANA time zone or fixed `UTC+n` offset used for daily topic-card windows | `UTC` |
 | `daily_update_time` | Default local `HH:MM` time when each topic can receive new daily cards | `00:00` |
 | `autoupdate_enabled` | Enable GitHub commit polling and command-based updates | `false` |
 | `autoupdate_repo` | GitHub repository in `owner/repo` form, or a GitHub URL | `slopfire/dailytipdraft` |

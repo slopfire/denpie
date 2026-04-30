@@ -56,7 +56,7 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 
 `tips` is topic-aware. For each requested SRS topic/type, the server first returns due active cards. If none are due, it returns existing cards created in the current daily window up to that topic's daily card count. New cards are generated only until that per-topic daily count is satisfied.
 
-Daily windows use `settings.daily_time_zone` (IANA name such as `UTC`, `Asia/Vladivostok`, or `America/New_York`) and `settings.daily_update_time` (`HH:MM`, default `00:00`). Each topic can override count/time with `update_topic.daily_card_count`, `update_topic.daily_time_zone`, and `update_topic.daily_update_time`. Invalid values fall back to `UTC`, midnight, and one card.
+Daily windows use `settings.daily_time_zone` (IANA name such as `UTC`, `Asia/Vladivostok`, or `America/New_York`; fixed offsets such as `UTC+10` are also accepted) and `settings.daily_update_time` (`HH:MM`, default `00:00`). Each topic can override count/time with `update_topic.daily_card_count`, `update_topic.daily_time_zone`, and `update_topic.daily_update_time`. Invalid values fall back to `UTC`, midnight, and one card.
 
 ## Removed Routes
 

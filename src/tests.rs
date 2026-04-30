@@ -181,7 +181,7 @@ mod tests {
                 crate::api::pb::UpdateSettingsRequest {
                     model: Some("google/gemini-2.5-pro".into()),
                     color_scheme: Some("solarized".into()),
-                    daily_time_zone: Some("Asia/Vladivostok".into()),
+                    daily_time_zone: Some("UTC+10".into()),
                     daily_update_time: Some("06:30".into()),
                     ..Default::default()
                 },
@@ -213,7 +213,7 @@ mod tests {
             crate::api::pb::api_response::Result::Settings(settings) => {
                 assert_eq!(settings.model, "google/gemini-2.5-pro");
                 assert_eq!(settings.color_scheme, "solarized");
-                assert_eq!(settings.daily_time_zone, "Asia/Vladivostok");
+                assert_eq!(settings.daily_time_zone, "UTC+10");
                 assert_eq!(settings.daily_update_time, "06:30");
             }
             other => panic!("unexpected response: {:?}", other),

@@ -410,7 +410,7 @@
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Daily Time Zone</label>
-              <input id="daily-time-zone-input" class="w-full rounded-lg border px-4 py-3" placeholder="UTC">
+              <input id="daily-time-zone-input" list="time-zone-options" class="w-full rounded-lg border px-4 py-3" placeholder="UTC">
             </div>
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Daily Update Time</label>
@@ -473,6 +473,7 @@
       <button data-view="settings" class="nav-item flex flex-col items-center rounded-lg px-3 py-2 text-xs font-bold"><span class="material-symbols-outlined">settings</span>Config</button>
       <button data-view="keys" class="nav-item flex flex-col items-center rounded-lg px-3 py-2 text-xs font-bold"><span class="material-symbols-outlined">key</span>Keys</button>
     </nav>
+    <datalist id="time-zone-options"></datalist>
   </div>
 
   <script>
@@ -507,6 +508,57 @@
       return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
       }[ch]));
+    }
+
+    function initTimeZoneOptions() {
+      const fixedZones = Array.from({ length: 27 }, (_, index) => {
+        const offset = index - 12;
+        if (offset === 0) return 'UTC';
+        return `UTC${offset > 0 ? '+' : ''}${offset}`;
+      });
+      const fallbackZones = [
+        'UTC',
+        'Asia/Vladivostok',
+        'Asia/Tokyo',
+        'Asia/Seoul',
+        'Asia/Shanghai',
+        'Asia/Singapore',
+        'Asia/Dubai',
+        'Europe/Moscow',
+        'Europe/Berlin',
+        'Europe/London',
+        'America/New_York',
+        'America/Chicago',
+        'America/Denver',
+        'America/Los_Angeles',
+        'America/Sao_Paulo',
+        'Australia/Sydney',
+        'Pacific/Auckland'
+      ];
+      const supported = typeof Intl.supportedValuesOf === 'function'
+        ? Intl.supportedValuesOf('timeZone')
+        : [];
+      const zones = [...new Set([...fallbackZones, ...supported])].sort((a, b) => a.localeCompare(b));
+      const zoneOffset = (zone) => {
+        try {
+          const part = new Intl.DateTimeFormat('en-US', {
+            timeZone: zone,
+            timeZoneName: 'shortOffset'
+          }).formatToParts(new Date()).find((item) => item.type === 'timeZoneName');
+          return (part?.value || '').replace('GMT', 'UTC') || '';
+        } catch (_) {
+          return '';
+        }
+      };
+      const fixedOptions = fixedZones.map((zone) => `<option value="${escapeHtml(zone)}" label="${escapeHtml(zone)}"></option>`);
+      const namedOptions = zones
+        .filter((zone) => !fixedZones.includes(zone))
+        .map((zone) => {
+          const offset = zoneOffset(zone);
+          const label = offset ? `${offset} ${zone}` : zone;
+          return `<option value="${escapeHtml(zone)}" label="${escapeHtml(label)}"></option>`;
+        });
+      $('time-zone-options').innerHTML = [...fixedOptions, ...namedOptions].join('');
     }
 
     function safeMarkdownUrl(value) {
@@ -849,7 +901,7 @@
               </div>
               <div>
                 <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyZoneId}">Time Zone</label>
-                <input id="${dailyZoneId}" class="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Global" value="${escapeHtml(topic.daily_time_zone || '')}">
+                <input id="${dailyZoneId}" list="time-zone-options" class="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Global" value="${escapeHtml(topic.daily_time_zone || '')}">
               </div>
               <div>
                 <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyTimeId}">Update Time</label>
@@ -1251,6 +1303,7 @@
     window.toggleCardExpanded = toggleCardExpanded;
 
     document.addEventListener('DOMContentLoaded', async () => {
+      initTimeZoneOptions();
       initThemes();
       document.querySelectorAll('[data-view]').forEach((btn) => btn.addEventListener('click', () => setView(btn.dataset.view)));
       document.querySelectorAll('.nav-shortcut').forEach((btn) => btn.addEventListener('click', () => setView(btn.dataset.view)));
