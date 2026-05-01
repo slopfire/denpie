@@ -263,3 +263,7 @@ The test suite spawns a real server on an ephemeral port for each test group and
 Tests use isolated temporary settings files, so running them does not overwrite your local `settings.yaml`.
 
 > **Note:** The `test_full_api_flow` test uses the missing-key fallback and does not call a real LLM endpoint by default.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
