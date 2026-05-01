@@ -194,13 +194,7 @@
     .flow-card {
       animation: card-enter 130ms cubic-bezier(.2, 0, 0, 1);
       transform-origin: top center;
-      transition: transform 130ms cubic-bezier(.2, 0, 0, 1), box-shadow 130ms ease, border-color 130ms ease;
       will-change: transform;
-    }
-    .flow-card:hover:not(.is-fullscreen):not(.dragging) {
-      transform: translateY(-2px);
-      border-color: var(--primary);
-      box-shadow: 0 16px 34px -28px rgba(15, 23, 42, .75);
     }
     .card-drag-handle { cursor: grab; color: var(--muted); }
     .flow-card.dragging { opacity: .45; transform: scale(.985); }
