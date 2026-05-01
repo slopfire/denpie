@@ -178,6 +178,30 @@
       z-index: 80;
     }
     .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .update-popup {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: color-mix(in srgb, var(--bg) 70%, transparent);
+      z-index: 90;
+    }
+    .update-popup.show { display: flex; }
+    .update-progress-track {
+      height: 8px;
+      overflow: hidden;
+      background: var(--surface-muted);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+    }
+    .update-progress-bar {
+      height: 100%;
+      width: 0%;
+      background: var(--primary);
+      transition: width .35s ease;
+    }
     input, textarea, select {
       background: var(--surface);
       border-color: var(--border);
@@ -322,6 +346,21 @@
 </head>
 <body class="min-h-screen">
   <div id="toast" class="toast surface border rounded-lg px-4 py-3 text-sm font-medium"></div>
+  <div id="update-popup" class="update-popup">
+    <div class="surface border rounded-xl w-full max-w-md p-6">
+      <div class="flex items-start gap-3">
+        <span class="material-symbols-outlined text-primary text-3xl">system_update_alt</span>
+        <div class="min-w-0">
+          <h2 class="text-xl font-black tracking-tight">Update found</h2>
+          <p id="update-popup-message" class="mt-2 text-sm text-muted">Initiating update.</p>
+        </div>
+      </div>
+      <div class="mt-5 update-progress-track">
+        <div id="update-popup-progress" class="update-progress-bar"></div>
+      </div>
+      <div id="update-popup-stage" class="mt-3 text-xs font-bold uppercase tracking-wider text-muted">Starting updater</div>
+    </div>
+  </div>
 
   <section id="login-panel" class="min-h-screen flex items-center justify-center p-6">
     <div class="surface border rounded-xl w-full max-w-md p-8">
@@ -525,6 +564,16 @@
                 <span class="material-symbols-outlined">system_update_alt</span>
                 <span>Check Now</span>
               </button>
+            </div>
+            <div id="autoupdate-progress" class="hidden muted-surface rounded-lg p-3 space-y-2">
+              <div class="flex items-center justify-between gap-3 text-xs font-bold uppercase tracking-wider text-muted">
+                <span id="autoupdate-progress-label">Preparing check</span>
+                <span id="autoupdate-progress-percent">0%</span>
+              </div>
+              <div class="update-progress-track">
+                <div id="autoupdate-progress-bar" class="update-progress-bar"></div>
+              </div>
+              <div id="autoupdate-progress-detail" class="text-xs text-muted">Saving settings before checking GitHub.</div>
             </div>
           </div>
           <button class="rounded-lg bg-primary-solid px-5 py-3 font-bold">Save Settings</button>
@@ -779,6 +828,55 @@
       node.classList.add('show');
       window.clearTimeout(window.__toastTimer);
       window.__toastTimer = window.setTimeout(() => node.classList.remove('show'), 2400);
+    }
+
+    function setAutoupdateProgress(percent, label, detail = '') {
+      $('autoupdate-progress').classList.remove('hidden');
+      $('autoupdate-progress-label').textContent = label;
+      $('autoupdate-progress-percent').textContent = `${percent}%`;
+      $('autoupdate-progress-bar').style.width = `${percent}%`;
+      $('autoupdate-progress-detail').textContent = detail;
+    }
+
+    function showUpdatePopup(message, percent, stage) {
+      $('update-popup-message').textContent = message;
+      $('update-popup-progress').style.width = `${percent}%`;
+      $('update-popup-stage').textContent = stage;
+      $('update-popup').classList.add('show');
+    }
+
+    function hideUpdatePopup() {
+      $('update-popup').classList.remove('show');
+    }
+
+    function finishAutoupdateProgress(message) {
+      setAutoupdateProgress(100, 'Done', message);
+      window.clearTimeout(window.__autoupdateProgressTimer);
+      window.__autoupdateProgressTimer = window.setTimeout(() => {
+        $('autoupdate-progress').classList.add('hidden');
+        hideUpdatePopup();
+      }, 3200);
+    }
+
+    function runUpdateProgressSimulation(startPercent = 50) {
+      const steps = [
+        [startPercent, 'Update found', 'Initiating updater service.'],
+        [62, 'Fetching source', 'Pulling the configured branch.'],
+        [74, 'Compiling', 'Building release binary.'],
+        [88, 'Installing', 'Installing binary, schema, and templates.'],
+        [96, 'Restarting', 'Restarting service with the new build.']
+      ];
+      window.clearInterval(window.__autoupdateStageTimer);
+      let index = 0;
+      const applyStep = () => {
+        const [percent, label, detail] = steps[Math.min(index, steps.length - 1)];
+        setAutoupdateProgress(percent, label, detail);
+        showUpdatePopup('Update found. Initiating update.', percent, label);
+        index += 1;
+        if (index >= steps.length) window.clearInterval(window.__autoupdateStageTimer);
+      };
+      applyStep();
+      window.__autoupdateStageTimer = window.setInterval(applyStep, 5000);
     }
 
     async function api(path, options = {}) {
@@ -1617,13 +1715,29 @@
       $('autoupdate-trigger-btn').addEventListener('click', async () => {
         const button = $('autoupdate-trigger-btn');
         button.disabled = true;
+        hideUpdatePopup();
+        window.clearInterval(window.__autoupdateStageTimer);
         try {
+          setAutoupdateProgress(8, 'Saving settings', 'Saving autoupdate settings before checking GitHub.');
           await saveSettings();
+          setAutoupdateProgress(28, 'Checking GitHub', 'Reading the latest commit for the configured branch.');
           const result = await api('/admin/autoupdate', { method: 'POST' });
-          toast(result?.message || 'Autoupdate checked');
-          if (!result?.restarting) await refreshAll();
+          const message = result?.message || 'Autoupdate checked';
+          if (result?.restarting) {
+            toast(message);
+            runUpdateProgressSimulation(52);
+            return;
+          }
+          setAutoupdateProgress(82, 'Refreshing', 'Reloading settings after the check.');
+          await refreshAll();
+          finishAutoupdateProgress(message);
+          toast(message);
+        } catch (err) {
+          window.clearInterval(window.__autoupdateStageTimer);
+          setAutoupdateProgress(100, 'Check failed', err.message);
+          toast(err.message);
         } finally {
-          button.disabled = false;
+          if (!$('update-popup').classList.contains('show')) button.disabled = false;
         }
       });
       $('key-form').addEventListener('submit', async (event) => {
