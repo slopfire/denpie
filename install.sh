@@ -4,7 +4,7 @@ set -eu
 APP_NAME="dailytipdraft"
 SERVICE_USER="${SERVICE_USER:-dailytipdraft}"
 SERVICE_GROUP="${SERVICE_GROUP:-$SERVICE_USER}"
-BIND_ADDR="${BIND_ADDR:-127.0.0.1:3001}"
+BIND_ADDR="${BIND_ADDR:-127.0.0.1:3017}"
 BIN_DIR="${BIN_DIR:-/usr/local/bin}"
 SHARE_DIR="${SHARE_DIR:-/usr/local/share/$APP_NAME}"
 DATA_DIR="${DATA_DIR:-/var/lib/$APP_NAME}"
@@ -18,7 +18,7 @@ usage() {
 Usage: ./install.sh [install|uninstall|print-service]
 
 Environment overrides:
-  BIND_ADDR       listen address for systemd service (default: 127.0.0.1:3001)
+  BIND_ADDR       listen address for systemd service (default: 127.0.0.1:3017)
   BIN_DIR         binary install directory (default: /usr/local/bin)
   SHARE_DIR       schema install directory (default: /usr/local/share/dailytipdraft)
   DATA_DIR        runtime data directory (default: /var/lib/dailytipdraft)
@@ -211,7 +211,7 @@ case "$ACTION" in
         uninstall_app
         ;;
     print-service)
-        sed "s|127.0.0.1:3001|$BIND_ADDR|g" deploy/dailytipdraft.service
+        sed "s|127.0.0.1:3017|$BIND_ADDR|g" deploy/dailytipdraft.service
         ;;
     -h|--help|help)
         usage

@@ -3,7 +3,7 @@
 Base URL for local development:
 
 ```text
-http://127.0.0.1:3001
+http://127.0.0.1:3017
 ```
 
 `POST /api` is the canonical API for both card clients and administration. The server is single-user, so an API key has full access to tips, reviews, settings, API-key management, topic metadata, card deletion, card pinning, and summary counts.

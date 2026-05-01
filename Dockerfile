@@ -23,13 +23,13 @@ COPY --from=builder /app/target/release/dailytipdraft /usr/local/bin/dailytipdra
 COPY schema.sql /app/schema.sql
 COPY templates /app/templates
 
-ENV DAILYTIP_BIND_ADDR=127.0.0.1:3001 \
+ENV DAILYTIP_BIND_ADDR=127.0.0.1:3017 \
     DAILYTIP_DATA_DIR=/var/lib/dailytipdraft \
     DAILYTIP_SCHEMA_PATH=/app/schema.sql \
     DAILYTIP_TEMPLATE_DIR=/app/templates
 
 VOLUME ["/var/lib/dailytipdraft"]
-EXPOSE 3001
+EXPOSE 3017
 USER dailytipdraft
 
 CMD ["dailytipdraft"]

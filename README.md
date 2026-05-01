@@ -92,11 +92,11 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    ```bash
    cargo run
    ```
-   The server starts on `http://127.0.0.1:3001` by default. On the first run it will:
+   The server starts on `http://127.0.0.1:3017` by default. On the first run it will:
    - Create `dailytip.db` and apply `schema.sql` automatically.
    - Generate and print a one-time admin token to the console.
 
-4. **Open the root page** at `http://127.0.0.1:3001/`, or call `POST /api` directly. Use `bootstrap_api_key` with the printed `admin_token` to create the first `sk_live_*` full-access key.
+4. **Open the root page** at `http://127.0.0.1:3017/`, or call `POST /api` directly. Use `bootstrap_api_key` with the printed `admin_token` to create the first `sk_live_*` full-access key.
 
 5. **Configure your LLM** through `POST /api` with `update_settings`:
    - **LLM Model** — e.g. `google/gemini-2.5-pro` or `openai/gpt-4o`
@@ -162,14 +162,14 @@ The server can run from the project directory with defaults, or from an installe
 
 | Variable | Description | Default |
 |---|---|---|
-| `DAILYTIP_BIND_ADDR` | Listen address and port | `127.0.0.1:3001` |
+| `DAILYTIP_BIND_ADDR` | Listen address and port | `127.0.0.1:3017` |
 | `DAILYTIP_DATA_DIR` | Directory for `settings.yaml` and `dailytip.db` | current directory |
 | `DAILYTIP_SCHEMA_PATH` | Path to `schema.sql` | `schema.sql` in the current directory |
 
 Example:
 
 ```bash
-DAILYTIP_BIND_ADDR=127.0.0.1:3001 \
+DAILYTIP_BIND_ADDR=127.0.0.1:3017 \
 DAILYTIP_DATA_DIR=/var/lib/dailytipdraft \
 DAILYTIP_SCHEMA_PATH=/usr/local/share/dailytipdraft/schema.sql \
 dailytipdraft
@@ -230,7 +230,7 @@ Read the first-start admin token:
 docker logs dailytipdraft
 ```
 
-The Docker image listens on `127.0.0.1:3001` by default and stores `settings.yaml` plus `dailytip.db` in `/var/lib/dailytipdraft`.
+The Docker image listens on `127.0.0.1:3017` by default and stores `settings.yaml` plus `dailytip.db` in `/var/lib/dailytipdraft`.
 
 ## API Documentation
 

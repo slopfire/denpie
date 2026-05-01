@@ -123,7 +123,7 @@ async fn main() {
     let addr = std::env::var("DAILYTIP_BIND_ADDR")
         .ok()
         .map(|value| SocketAddr::from_str(&value).expect("Invalid DAILYTIP_BIND_ADDR"))
-        .unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 3001)));
+        .unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 3017)));
     println!("listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

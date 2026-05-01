@@ -633,9 +633,9 @@
       <section id="view-keys" class="hidden-view">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <h1 class="text-3xl font-bold tracking-tight">API Keys</h1>
-          <form id="key-form" class="flex gap-2">
-            <input id="key-name" class="rounded-lg border px-4 py-2" placeholder="desktop_widget">
-            <button class="rounded-lg bg-primary-solid px-4 py-2 font-bold flex items-center gap-2"><span class="material-symbols-outlined">add</span>Generate</button>
+          <form id="key-form" class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <input id="key-name" class="min-w-0 rounded-lg border px-4 py-2 sm:w-56" placeholder="desktop_widget">
+            <button class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary-solid px-4 py-2 font-bold sm:w-auto"><span class="material-symbols-outlined">add</span>Generate</button>
           </form>
         </div>
         <div id="new-key-box" class="hidden surface border rounded-xl p-4 mb-5">

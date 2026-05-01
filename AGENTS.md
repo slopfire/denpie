@@ -34,7 +34,7 @@ Backend service for daily tip cards using SRS (FSRS, SM-2). Admin dashboard, API
 ## Development Workflow
 ```bash
 cargo check  # verify compilation without running
-cargo run    # start the server on 127.0.0.1:3001
+cargo run    # start server on 127.0.0.1:3017
 ```
 Use chrome dev tools if you want to check something on website
 Remember to close cargo run to allow me to test everything by myself
