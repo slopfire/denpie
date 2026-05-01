@@ -38,6 +38,7 @@ pub struct SettingsRes {
     autoupdate_last_seen_sha: String,
     daily_time_zone: String,
     daily_update_time: String,
+    max_active_cards: u64,
 }
 
 pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRes> {
@@ -127,6 +128,10 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         .and_then(|v| v.as_str())
         .unwrap_or("00:00")
         .to_string();
+    let max_active_cards = settings
+        .get("max_active_cards")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
 
     Json(SettingsRes {
         model,
@@ -146,6 +151,7 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         autoupdate_last_seen_sha,
         daily_time_zone,
         daily_update_time,
+        max_active_cards,
     })
 }
 
@@ -167,6 +173,7 @@ pub struct UpdateSettingsReq {
     autoupdate_command: Option<String>,
     daily_time_zone: Option<String>,
     daily_update_time: Option<String>,
+    max_active_cards: Option<u64>,
 }
 
 pub async fn update_settings(
@@ -275,6 +282,12 @@ pub async fn update_settings(
             map.insert(
                 serde_yaml::Value::String("daily_update_time".to_string()),
                 serde_yaml::Value::String(daily_update_time),
+            );
+        }
+        if let Some(max_active_cards) = req.max_active_cards {
+            map.insert(
+                serde_yaml::Value::String("max_active_cards".to_string()),
+                serde_yaml::Value::Number(max_active_cards.into()),
             );
         }
     }
@@ -394,6 +407,20 @@ pub async fn delete_api_key(
 #[derive(Deserialize)]
 pub struct DeleteTipcardReq {
     pub id: i64,
+}
+
+#[derive(Deserialize)]
+pub struct PinTipcardReq {
+    pub id: i64,
+    pub pinned: bool,
+}
+
+pub async fn pin_tipcard(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PinTipcardReq>,
+) -> Result<Json<()>, (StatusCode, String)> {
+    api::set_tipcard_pinned(&state, req.id, req.pinned).await?;
+    Ok(Json(()))
 }
 
 pub async fn delete_tipcard(
@@ -558,8 +585,9 @@ pub async fn app_summary(State(state): State<Arc<AppState>>) -> Json<AppSummary>
         .unwrap_or(0);
     let due_cards = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*)
-         FROM review_states
-         WHERE status = 'active' AND next_review_at <= ?",
+         FROM review_states r
+         JOIN tipcards t ON t.id = r.card_id
+         WHERE r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1)",
     )
     .bind(now)
     .fetch_one(&state.db)
@@ -621,7 +649,7 @@ pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopic
                 top.daily_time_zone,
                 top.daily_update_time,
                 COUNT(t.id) AS total_cards,
-                SUM(CASE WHEN r.status = 'active' AND r.next_review_at <= ? THEN 1 ELSE 0 END) AS due_cards,
+                SUM(CASE WHEN r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1) THEN 1 ELSE 0 END) AS due_cards,
                 SUM(CASE WHEN r.status != 'active' THEN 1 ELSE 0 END) AS completed_cards
          FROM topics top
          LEFT JOIN topic_classes tc ON top.class_id = tc.id
@@ -765,6 +793,7 @@ pub struct TipcardInfo {
     pub status: String,
     pub next_review_at: String,
     pub repeat_count: u32,
+    pub pinned: bool,
 }
 
 pub async fn list_tipcards(State(state): State<Arc<AppState>>) -> Json<Vec<TipcardInfo>> {
@@ -781,6 +810,7 @@ pub async fn list_tipcards(State(state): State<Arc<AppState>>) -> Json<Vec<Tipca
             String,
             String,
             String,
+            i64,
         ),
     >(
         "SELECT t.id,
@@ -792,12 +822,13 @@ pub async fn list_tipcards(State(state): State<Arc<AppState>>) -> Json<Vec<Tipca
                 COALESCE(tc.name, 'default') AS topic_class,
                 COALESCE(r.status, 'active') AS status,
                 COALESCE(CAST(r.next_review_at AS TEXT), '') AS next_review_at,
-                COALESCE(r.state_data, '') AS state_data
+                COALESCE(r.state_data, '') AS state_data,
+                COALESCE(t.pinned, 0) AS pinned
          FROM tipcards t
          JOIN topics top ON t.topic_id = top.id
          LEFT JOIN topic_classes tc ON top.class_id = tc.id
          LEFT JOIN review_states r ON r.card_id = t.id
-         ORDER BY t.created_at DESC",
+         ORDER BY pinned DESC, t.created_at DESC",
     )
     .fetch_all(&state.db)
     .await
@@ -819,6 +850,7 @@ pub async fn list_tipcards(State(state): State<Arc<AppState>>) -> Json<Vec<Tipca
                 .ok()
                 .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
                 .unwrap_or(0) as u32,
+            pinned: r.10 != 0,
         })
         .collect();
 

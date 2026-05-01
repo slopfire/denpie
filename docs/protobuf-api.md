@@ -6,7 +6,7 @@ Base URL for local development:
 http://127.0.0.1:3001
 ```
 
-`POST /api` is the canonical API for both card clients and administration. The server is single-user, so an API key has full access to tips, reviews, settings, API-key management, topic metadata, card deletion, and summary counts.
+`POST /api` is the canonical API for both card clients and administration. The server is single-user, so an API key has full access to tips, reviews, settings, API-key management, topic metadata, card deletion, card pinning, and summary counts.
 
 Requests and responses use `application/x-protobuf` with the canonical schema in [`proto/dailytip.proto`](../proto/dailytip.proto).
 
@@ -46,8 +46,9 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 | `list_api_keys` | `api_keys` | List key metadata. Raw keys are never returned. |
 | `delete_api_key` | `ok` | Delete a key by database ID. |
 | `list_admin_topics` | `admin_topics` | List topics with prompt overrides. |
-| `list_tipcards` | `tipcards` | List stored cards with status, repeat count, and next scheduled review time. |
+| `list_tipcards` | `tipcards` | List stored cards with status, repeat count, pin state, and next scheduled review time. |
 | `delete_tipcard` | `ok` | Delete a card and its review state. |
+| `pin_tipcard` | `ok` | Pin or unpin a card by database ID. Pinned active cards are treated as due until unpinned. |
 | `delete_topic` | `ok` | Delete a topic and all of its cards and review states. |
 | `get_summary` | `summary` | Read card/topic counts. |
 | `list_app_topics` | `app_topics` | Read topic rows with due/completed counts. |
@@ -60,6 +61,24 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 Daily windows use `settings.daily_time_zone` (IANA name such as `UTC`, `Asia/Vladivostok`, or `America/New_York`; fixed offsets such as `UTC+10` are also accepted) and `settings.daily_update_time` (`HH:MM`, default `00:00`). Each topic can override count/time with `update_topic.daily_card_count`, `update_topic.daily_time_zone`, and `update_topic.daily_update_time`. Invalid values fall back to `UTC`, midnight, and one card.
 
 For user-authored cards, set `TipsQuery.tipcard_type` to `manual_tip` and provide `manual_content`. The server stores that text directly as the full card content, uses `manual_compressed_content` when provided, and otherwise uses the full text as compact content. Manual cards do not call the LLM.
+
+## Active Card Limit
+
+Set `Settings.max_active_cards` with `update_settings.max_active_cards` to cap cards whose review state is `active`. `0` means unlimited. When the cap is reached, `tips` still returns existing due or pinned cards, but it does not create new generated cards; manual card creation returns `409 Conflict`.
+
+## Pinning Cards
+
+Pinning is a scheduling override for active cards. A pinned card remains visible in the control panel's separate top section and is returned ahead of normal scheduled cards even when `next_review_at` is in the future. Reviews still update the card's SRS state and next scheduled review time; unpinning restores normal due-date behavior.
+
+```proto
+ApiRequest {
+  auth: "sk_live_..."
+  pin_tipcard: {
+    id: 123
+    pinned: true
+  }
+}
+```
 
 ## Removed Routes
 

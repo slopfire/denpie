@@ -109,6 +109,13 @@ fn setting_string(settings: &serde_yaml::Value, key: &str, default: &str) -> Str
         .to_string()
 }
 
+fn setting_u64(settings: &serde_yaml::Value, key: &str, default: u64) -> u64 {
+    settings
+        .get(key)
+        .and_then(|v| v.as_u64())
+        .unwrap_or(default)
+}
+
 fn parse_daily_update_time(value: &str) -> NaiveTime {
     NaiveTime::parse_from_str(value.trim(), "%H:%M")
         .or_else(|_| NaiveTime::parse_from_str(value.trim(), "%H:%M:%S"))
@@ -291,6 +298,7 @@ fn current_settings(state: &AppState) -> pb::Settings {
             .to_string(),
         daily_time_zone: setting_string(&settings, "daily_time_zone", "UTC"),
         daily_update_time: setting_string(&settings, "daily_update_time", "00:00"),
+        max_active_cards: setting_u64(&settings, "max_active_cards", 0),
     }
 }
 
@@ -351,6 +359,7 @@ fn update_settings_file(
         put_string_setting(map, "autoupdate_command", req.autoupdate_command);
         put_string_setting(map, "daily_time_zone", req.daily_time_zone);
         put_string_setting(map, "daily_update_time", req.daily_update_time);
+        put_u64_setting(map, "max_active_cards", req.max_active_cards);
     }
 
     let out_str = serde_yaml::to_string(&settings)
@@ -402,6 +411,7 @@ pub struct TipCardJson {
     pub compressed_content: String,
     pub topic_class: String,
     pub tipcard_type: String,
+    pub pinned: bool,
 }
 
 #[derive(Deserialize)]
@@ -498,6 +508,23 @@ async fn delete_tipcard_by_id(state: &AppState, id: i64) -> Result<(), (StatusCo
     Ok(())
 }
 
+pub async fn set_tipcard_pinned(
+    state: &AppState,
+    id: i64,
+    pinned: bool,
+) -> Result<(), (StatusCode, String)> {
+    let result = sqlx::query("UPDATE tipcards SET pinned = ? WHERE id = ?")
+        .bind(if pinned { 1 } else { 0 })
+        .bind(id)
+        .execute(&state.db)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if result.rows_affected() == 0 {
+        return Err((StatusCode::NOT_FOUND, "Tipcard not found".to_string()));
+    }
+    Ok(())
+}
+
 pub async fn delete_topic_by_id(state: &AppState, id: i64) -> Result<(), (StatusCode, String)> {
     let mut tx = state
         .db
@@ -576,6 +603,7 @@ async fn list_tipcards_pb(state: &AppState) -> Result<pb::Tipcards, (StatusCode,
             String,
             String,
             String,
+            i64,
         ),
     >(
         "SELECT t.id,
@@ -587,12 +615,13 @@ async fn list_tipcards_pb(state: &AppState) -> Result<pb::Tipcards, (StatusCode,
                 COALESCE(tc.name, 'default') AS topic_class,
                 COALESCE(r.status, 'active') AS status,
                 COALESCE(CAST(r.next_review_at AS TEXT), '') AS next_review_at,
-                COALESCE(r.state_data, '') AS state_data
+                COALESCE(r.state_data, '') AS state_data,
+                COALESCE(t.pinned, 0) AS pinned
          FROM tipcards t
          JOIN topics top ON t.topic_id = top.id
          LEFT JOIN topic_classes tc ON top.class_id = tc.id
          LEFT JOIN review_states r ON r.card_id = t.id
-         ORDER BY t.created_at DESC",
+         ORDER BY pinned DESC, t.created_at DESC",
     )
     .fetch_all(&state.db)
     .await
@@ -615,6 +644,7 @@ async fn list_tipcards_pb(state: &AppState) -> Result<pb::Tipcards, (StatusCode,
                     .ok()
                     .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
                     .unwrap_or(0) as u32,
+                pinned: row.10 != 0,
             })
             .collect(),
     })
@@ -631,7 +661,10 @@ async fn app_summary_pb(state: &AppState) -> Result<pb::AppSummary, (StatusCode,
         .await
         .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let due_cards = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM review_states WHERE status = 'active' AND next_review_at <= ?",
+        "SELECT COUNT(*)
+         FROM review_states r
+         JOIN tipcards t ON t.id = r.card_id
+         WHERE r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1)",
     )
     .bind(now)
     .fetch_one(&state.db)
@@ -678,7 +711,7 @@ async fn app_topics_pb(state: &AppState) -> Result<pb::AppTopics, (StatusCode, S
                 top.daily_time_zone,
                 top.daily_update_time,
                 COUNT(t.id) AS total_cards,
-                SUM(CASE WHEN r.status = 'active' AND r.next_review_at <= ? THEN 1 ELSE 0 END) AS due_cards,
+                SUM(CASE WHEN r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1) THEN 1 ELSE 0 END) AS due_cards,
                 SUM(CASE WHEN r.status != 'active' THEN 1 ELSE 0 END) AS completed_cards
          FROM topics top
          LEFT JOIN topic_classes tc ON top.class_id = tc.id
@@ -934,6 +967,7 @@ fn tip_response_json(
     full_content: String,
     compressed_content: String,
     class_info: &TopicClassInfo,
+    pinned: bool,
 ) -> TipCardJson {
     TipCardJson {
         id,
@@ -942,6 +976,7 @@ fn tip_response_json(
         compressed_content,
         topic_class: class_info.name.clone(),
         tipcard_type: class_info.tipcard_type.clone(),
+        pinned,
     }
 }
 
@@ -952,10 +987,10 @@ async fn find_daily_topic_cards(
     daily_window_start: DateTime<Utc>,
     exclude_card_ids: &[i64],
     limit: usize,
-) -> Result<Vec<(i64, String, String)>, (StatusCode, String)> {
+) -> Result<Vec<(i64, String, String, i64)>, (StatusCode, String)> {
     let mut daily_query = QueryBuilder::<Sqlite>::new(
         "
-        SELECT t.id, t.full_content, t.compressed_content
+        SELECT t.id, t.full_content, t.compressed_content, COALESCE(t.pinned, 0)
         FROM tipcards t
         WHERE t.topic_id = ",
     );
@@ -977,11 +1012,11 @@ async fn find_daily_topic_cards(
         }
         separated.push_unseparated(")");
     }
-    daily_query.push(" ORDER BY t.created_at ASC LIMIT ");
+    daily_query.push(" ORDER BY t.pinned DESC, t.created_at ASC LIMIT ");
     daily_query.push_bind(limit as i64);
 
     daily_query
-        .build_query_as::<(i64, String, String)>()
+        .build_query_as::<(i64, String, String, i64)>()
         .fetch_all(&state.db)
         .await
         .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -993,11 +1028,11 @@ async fn find_due_topic_cards(
     tipcard_type: &str,
     exclude_card_ids: &[i64],
     limit: usize,
-) -> Result<Vec<(i64, String, String)>, (StatusCode, String)> {
+) -> Result<Vec<(i64, String, String, i64)>, (StatusCode, String)> {
     let now = Utc::now();
     let mut due_query = QueryBuilder::<Sqlite>::new(
         "
-        SELECT t.id, t.full_content, t.compressed_content
+        SELECT t.id, t.full_content, t.compressed_content, COALESCE(t.pinned, 0)
         FROM tipcards t
         JOIN review_states r ON t.id = r.card_id
         WHERE t.topic_id = ",
@@ -1005,8 +1040,9 @@ async fn find_due_topic_cards(
     due_query.push_bind(topic_id);
     due_query.push(" AND t.tipcard_type = ");
     due_query.push_bind(tipcard_type);
-    due_query.push(" AND r.status = 'active' AND r.next_review_at <= ");
+    due_query.push(" AND r.status = 'active' AND (r.next_review_at <= ");
     due_query.push_bind(now);
+    due_query.push(" OR t.pinned = 1)");
     if !exclude_card_ids.is_empty() {
         due_query.push(" AND t.id NOT IN (");
         let mut separated = due_query.separated(", ");
@@ -1018,6 +1054,7 @@ async fn find_due_topic_cards(
     due_query.push(
         "
         ORDER BY
+            t.pinned DESC,
             CASE
                 WHEN t.tipcard_type = 'repeatable_tip'
                      AND COALESCE(CAST(json_extract(r.state_data, '$.repeats') AS INTEGER), 0) > 0
@@ -1030,10 +1067,28 @@ async fn find_due_topic_cards(
     due_query.push_bind(limit as i64);
 
     due_query
-        .build_query_as::<(i64, String, String)>()
+        .build_query_as::<(i64, String, String, i64)>()
         .fetch_all(&state.db)
         .await
         .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+async fn active_card_count(state: &AppState) -> Result<i64, (StatusCode, String)> {
+    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM review_states WHERE status = 'active'")
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+async fn active_card_room(
+    state: &AppState,
+    max_active_cards: u64,
+) -> Result<Option<usize>, (StatusCode, String)> {
+    if max_active_cards == 0 {
+        return Ok(None);
+    }
+    let active = active_card_count(state).await?.max(0) as u64;
+    Ok(Some(max_active_cards.saturating_sub(active) as usize))
 }
 
 pub async fn build_tips(
@@ -1101,6 +1156,8 @@ pub async fn build_tips(
         .and_then(|v| v.as_str())
         .unwrap_or("none")
         .to_string();
+    let max_active_cards = setting_u64(&settings, "max_active_cards", 0);
+    let mut active_room = active_card_room(state, max_active_cards).await?;
     let llm_reasoning = llm::ReasoningConfig::new(llm_reasoning_effort);
     let llm_compress_reasoning = llm::ReasoningConfig::new(llm_compress_reasoning_effort);
 
@@ -1118,6 +1175,12 @@ pub async fn build_tips(
                     "manual_content is required for manual_tip".to_string(),
                 ));
             }
+            if matches!(active_room, Some(0)) {
+                return Err((
+                    StatusCode::CONFLICT,
+                    "Max active cards reached".to_string(),
+                ));
+            }
             let compact = if manual_compressed_content.is_empty() {
                 manual_content.clone()
             } else {
@@ -1133,6 +1196,9 @@ pub async fn build_tips(
                 &mut responses,
             )
             .await?;
+            if let Some(room) = active_room.as_mut() {
+                *room = room.saturating_sub(1);
+            }
             continue;
         }
 
@@ -1157,6 +1223,7 @@ pub async fn build_tips(
                 card.1.clone(),
                 card.2.clone(),
                 &class_info,
+                card.3 != 0,
             ));
         }
         if !due_cards.is_empty() {
@@ -1179,9 +1246,14 @@ pub async fn build_tips(
                     card.1.clone(),
                     card.2.clone(),
                     &class_info,
+                    card.3 != 0,
                 ));
             }
-            for _ in daily_cards.len()..daily_card_count {
+            let remaining_daily_cards = daily_card_count.saturating_sub(daily_cards.len());
+            let cards_to_generate = active_room.map_or(remaining_daily_cards, |room| {
+                remaining_daily_cards.min(room)
+            });
+            for _ in 0..cards_to_generate {
                 generate_tipcard(
                     state,
                     topic_name,
@@ -1198,8 +1270,11 @@ pub async fn build_tips(
                     &mut responses,
                 )
                 .await?;
+                if let Some(room) = active_room.as_mut() {
+                    *room = room.saturating_sub(1);
+                }
             }
-        } else {
+        } else if active_room.map_or(true, |room| room > 0) {
             generate_tipcard(
                 state,
                 topic_name,
@@ -1216,6 +1291,9 @@ pub async fn build_tips(
                 &mut responses,
             )
             .await?;
+            if let Some(room) = active_room.as_mut() {
+                *room = room.saturating_sub(1);
+            }
         }
     }
 
@@ -1326,6 +1404,7 @@ async fn generate_tipcard(
         full_tip,
         compressed_tip,
         class_info,
+        false,
     ));
 
     Ok(())
@@ -1378,6 +1457,7 @@ async fn create_manual_tipcard(
         full_tip,
         compressed_tip,
         class_info,
+        false,
     ));
 
     Ok(())
@@ -1435,6 +1515,7 @@ pub async fn unified_api(
                         compressed_content: card.compressed_content,
                         topic_class: card.topic_class,
                         tipcard_type: card.tipcard_type,
+                        pinned: card.pinned,
                     })
                     .collect();
                     pb::ApiResponse {
@@ -1524,6 +1605,10 @@ pub async fn unified_api(
                 },
                 pb::api_request::Op::DeleteTipcard(req) => {
                     delete_tipcard_by_id(&state, req.id).await?;
+                    empty_response()
+                }
+                pb::api_request::Op::PinTipcard(req) => {
+                    set_tipcard_pinned(&state, req.id, req.pinned).await?;
                     empty_response()
                 }
                 pb::api_request::Op::DeleteTopic(req) => {

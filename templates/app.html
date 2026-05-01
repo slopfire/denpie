@@ -470,6 +470,13 @@
             </button>
           </div>
         </div>
+        <div id="pinned-flow-section" class="hidden mb-8">
+          <div class="flex items-center gap-2 mb-3 text-sm font-bold text-primary">
+            <span class="material-symbols-outlined icon-fill">push_pin</span>
+            <span>Pinned</span>
+          </div>
+          <div id="pinned-flow-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start"></div>
+        </div>
         <div id="flow-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"></div>
         <div id="empty-flow" class="surface border rounded-xl p-10 text-center text-muted">No cards yet.</div>
       </section>
@@ -534,6 +541,11 @@
               <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Daily Update Time</label>
               <input id="daily-update-time-input" type="time" class="w-full rounded-lg border px-4 py-3">
             </div>
+          </div>
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Max Active Cards</label>
+            <input id="max-active-cards-input" type="number" min="0" step="1" class="w-full rounded-lg border px-4 py-3" placeholder="0">
+            <div class="mt-2 text-xs text-muted">0 means unlimited. When full, existing due cards still show but new cards are not created.</div>
           </div>
           <div class="border border-token rounded-xl p-4 space-y-4">
             <label class="flex items-center gap-3 text-sm font-bold">
@@ -994,6 +1006,7 @@
     function orderedCards() {
       const order = new Map(state.cardOrder.map((id, index) => [Number(id), index]));
       return [...state.archiveCards].sort((a, b) => {
+        if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
         const aOrder = order.has(a.id) ? order.get(a.id) : Number.MAX_SAFE_INTEGER;
         const bOrder = order.has(b.id) ? order.get(b.id) : Number.MAX_SAFE_INTEGER;
         if (aOrder !== bOrder) return aOrder - bOrder;
@@ -1002,7 +1015,7 @@
     }
 
     function orderedFlowCards() {
-      return orderedCards().filter((card) => (card.status || 'active') === 'active' && isCardDue(card));
+      return orderedCards().filter((card) => (card.status || 'active') === 'active' && (card.pinned || isCardDue(card)));
     }
 
     function isCardDue(card) {
@@ -1279,11 +1292,15 @@
     }
 
     function cardContentControls(card) {
-      return `<button onclick="copyCardText(${card.id})" data-copy-card-id="${card.id}" class="card-copy-btn rounded-lg border border-token p-2" title="Copy text"><span class="material-symbols-outlined">content_copy</span></button>`;
+      const pinned = Boolean(card.pinned);
+      return `<button onclick="togglePinCard(${card.id}, ${pinned ? 'false' : 'true'})" class="rounded-lg border border-token p-2 ${pinned ? 'bg-primary-soft text-primary' : ''}" title="${pinned ? 'Unpin card' : 'Pin card'}"><span class="material-symbols-outlined ${pinned ? 'icon-fill' : ''}">push_pin</span></button>
+        <button onclick="copyCardText(${card.id})" data-copy-card-id="${card.id}" class="card-copy-btn rounded-lg border border-token p-2" title="Copy text"><span class="material-symbols-outlined">content_copy</span></button>`;
     }
 
     function renderFlow() {
       const cards = orderedFlowCards();
+      const pinnedCards = cards.filter((card) => Boolean(card.pinned));
+      const pinnedIds = new Set(pinnedCards.map((card) => Number(card.id)));
       const listMode = state.flowLayout === 'list';
       const cardsById = new Map(cards.map((card) => [Number(card.id), card]));
       const renderedCardIds = new Set();
@@ -1293,7 +1310,7 @@
         if (slot.cardIds.length) {
           slot.cardIds.forEach((id) => {
             const card = cardsById.get(Number(id));
-            if (card) {
+            if (card && !pinnedIds.has(Number(id))) {
               renderedCardIds.add(Number(id));
               flowItems.push({ type: 'card', card });
             }
@@ -1304,6 +1321,9 @@
       });
       state.cardOrder.map(Number).forEach((id) => {
         if (renderedCardIds.has(id)) {
+          return;
+        }
+        if (pinnedIds.has(id)) {
           return;
         }
         if (state.loadingCardIds.has(id)) {
@@ -1318,6 +1338,9 @@
         }
       });
       cards.forEach((card) => {
+        if (pinnedIds.has(Number(card.id))) {
+          return;
+        }
         if (!renderedCardIds.has(Number(card.id)) && !renderedLoadingIds.has(Number(card.id))) {
           flowItems.push({ type: 'card', card });
         }
@@ -1331,14 +1354,17 @@
         state.fullscreenCardId = null;
       }
       $('flow-count').textContent = cards.length;
-      $('empty-flow').classList.toggle('hidden', flowItems.length > 0 || state.loadingSlots.length > 0 || state.refreshingFlow);
+      const hasPinned = pinnedCards.length > 0;
+      $('pinned-flow-section').classList.toggle('hidden', !hasPinned);
+      $('pinned-flow-grid').className = listMode ? 'grid grid-cols-1 gap-4 items-start' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start';
+      $('empty-flow').classList.toggle('hidden', hasPinned || flowItems.length > 0 || state.loadingSlots.length > 0 || state.refreshingFlow);
       document.body.classList.toggle('has-fullscreen-card', state.fullscreenCardId !== null);
       $('flow-grid').className = listMode ? 'grid grid-cols-1 gap-4 items-start' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start';
       $('flow-grid-btn').classList.toggle('bg-primary-soft', !listMode);
       $('flow-grid-btn').classList.toggle('text-primary', !listMode);
       $('flow-list-btn').classList.toggle('bg-primary-soft', listMode);
       $('flow-list-btn').classList.toggle('text-primary', listMode);
-      const cardHtml = flowItems.map((item) => {
+      const renderFlowItem = (item) => {
         if (item.type === 'loading') return skeletonCard(listMode);
         const card = item.card;
         const typeLabel = cardBadgeLabel(card);
@@ -1367,6 +1393,7 @@
             <div class="flex justify-between items-start gap-3 border-b border-token pb-3 mb-4">
               <div class="flex items-center gap-2 font-bold">
                 <button type="button" class="card-drag-handle rounded border border-token p-1" title="Drag to reorder" draggable="true"><span class="material-symbols-outlined">drag_indicator</span></button>
+                ${card.pinned ? '<span class="material-symbols-outlined text-primary icon-fill" title="Pinned">push_pin</span>' : ''}
                 <span class="material-symbols-outlined text-primary">code</span>${escapeHtml(topic)}
               </div>
               <div class="card-title-controls flex items-center gap-2">
@@ -1380,8 +1407,11 @@
             <div class="mt-5 pt-4 border-t border-token flex gap-2">${cardActions(card)}${cardContentControls(card)}</div>
           </div>
         </article>`;
-      });
+      };
+      const pinnedHtml = pinnedCards.map((card) => renderFlowItem({ type: 'card', card }));
+      const cardHtml = flowItems.map(renderFlowItem);
       const skeletons = Array.from({ length: state.refreshingFlow ? 1 : 0 }, () => skeletonCard(listMode));
+      $('pinned-flow-grid').innerHTML = pinnedHtml.join('');
       $('flow-grid').innerHTML = [...skeletons, ...cardHtml].join('');
       bindFlowDrag();
     }
@@ -1444,6 +1474,7 @@
           <div class="font-bold">${escapeHtml(card.topic_name || card.topic)}</div>
           <div class="flex items-center gap-2">
             <span class="text-xs text-muted">${escapeHtml(card.status && card.status !== 'active' ? card.status : cardBadgeLabel(card))}</span>
+            <button onclick="togglePinCard(${card.id}, ${card.pinned ? 'false' : 'true'})" class="rounded-lg border border-token p-1 ${card.pinned ? 'bg-primary-soft text-primary' : ''}" title="${card.pinned ? 'Unpin card' : 'Pin card'}"><span class="material-symbols-outlined ${card.pinned ? 'icon-fill' : ''}">push_pin</span></button>
             <button onclick="deleteCard(${card.id})" class="rounded-lg border border-token p-1" title="Delete card"><span class="material-symbols-outlined" style="color:var(--danger)">delete</span></button>
           </div>
         </div>
@@ -1493,6 +1524,7 @@
       $('autoupdate-last-sha').textContent = settings.autoupdate_last_seen_sha || 'not recorded';
       $('daily-time-zone-input').value = settings.daily_time_zone || 'UTC';
       $('daily-update-time-input').value = settings.daily_update_time || '00:00';
+      $('max-active-cards-input').value = settings.max_active_cards || 0;
       applyTheme(settings.color_scheme || localStorage.getItem('mindlift-theme') || 'default');
     }
 
@@ -1520,7 +1552,8 @@
           ...existing,
           ...card,
           status: card.status || existing.status || 'active',
-          next_review_at: card.next_review_at || existing.next_review_at || ''
+          next_review_at: card.next_review_at || existing.next_review_at || '',
+          pinned: Boolean(card.pinned ?? existing.pinned)
         });
       });
       state.archiveCards = Array.from(byId.values());
@@ -1629,6 +1662,18 @@
       toast('Card deleted');
     }
 
+    async function togglePinCard(id, pinned) {
+      await api('/admin/tipcards', {
+        method: 'PATCH',
+        body: JSON.stringify({ id, pinned })
+      });
+      state.archiveCards = state.archiveCards.map((card) =>
+        Number(card.id) === Number(id) ? { ...card, pinned } : card
+      );
+      await refreshAll();
+      toast(pinned ? 'Card pinned' : 'Card unpinned');
+    }
+
     async function refreshDailyCasualCards() {
       const today = new Date().toISOString().slice(0, 10);
       const staleCasualCards = state.archiveCards.filter((card) =>
@@ -1681,6 +1726,7 @@
         autoupdate_command: $('autoupdate-command-input').value,
         daily_time_zone: $('daily-time-zone-input').value,
         daily_update_time: $('daily-update-time-input').value,
+        max_active_cards: Number($('max-active-cards-input').value) || 0,
         color_scheme: document.documentElement.dataset.theme
       };
     }
@@ -1697,6 +1743,7 @@
     window.deleteCard = deleteCard;
     window.deleteTopic = deleteTopic;
     window.deleteKey = deleteKey;
+    window.togglePinCard = togglePinCard;
     window.copyCardText = copyCardText;
     window.toggleCardExpanded = toggleCardExpanded;
     window.toggleCardFullscreen = toggleCardFullscreen;

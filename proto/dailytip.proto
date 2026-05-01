@@ -19,6 +19,7 @@ message TipCardResponse {
     string compressed_content = 4;
     string topic_class = 5;
     string tipcard_type = 6;
+    bool pinned = 7;
 }
 
 message TipsResponse {
@@ -68,6 +69,7 @@ message ApiRequest {
         Empty list_app_topics = 16;
         UpdateTopicRequest update_topic = 17;
         DeleteByIdRequest delete_topic = 18;
+        PinTipcardRequest pin_tipcard = 19;
     }
 }
 
@@ -122,6 +124,7 @@ message Settings {
     string autoupdate_last_seen_sha = 15;
     string daily_time_zone = 16;
     string daily_update_time = 17;
+    uint64 max_active_cards = 18;
 }
 
 message UpdateSettingsRequest {
@@ -141,6 +144,7 @@ message UpdateSettingsRequest {
     optional string autoupdate_command = 14;
     optional string daily_time_zone = 15;
     optional string daily_update_time = 16;
+    optional uint64 max_active_cards = 17;
 }
 
 message ApiKeyInfo {
@@ -177,6 +181,7 @@ message TipcardInfo {
     string status = 8;
     string next_review_at = 9;
     uint32 repeat_count = 10;
+    bool pinned = 11;
 }
 
 message Tipcards {
@@ -214,4 +219,9 @@ message UpdateTopicRequest {
     optional uint32 daily_card_count = 3;
     optional string daily_time_zone = 4;
     optional string daily_update_time = 5;
+}
+
+message PinTipcardRequest {
+    int64 id = 1;
+    bool pinned = 2;
 }

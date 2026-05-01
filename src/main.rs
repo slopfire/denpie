@@ -150,7 +150,9 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .route("/admin/token-spend", get(dashboard::token_spend))
         .route(
             "/admin/tipcards",
-            get(dashboard::list_tipcards).delete(dashboard::delete_tipcard),
+            get(dashboard::list_tipcards)
+                .patch(dashboard::pin_tipcard)
+                .delete(dashboard::delete_tipcard),
         )
         .route("/app/summary", get(dashboard::app_summary))
         .route(
@@ -197,6 +199,7 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
     )
     .await?;
     ensure_column(pool, "tipcards", "title", "TEXT").await?;
+    ensure_column(pool, "tipcards", "pinned", "INTEGER NOT NULL DEFAULT 0").await?;
     ensure_column(
         pool,
         "review_states",

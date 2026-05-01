@@ -184,6 +184,7 @@ mod tests {
                     color_scheme: Some("solarized".into()),
                     daily_time_zone: Some("UTC+10".into()),
                     daily_update_time: Some("06:30".into()),
+                    max_active_cards: Some(7),
                     ..Default::default()
                 },
             )),
@@ -216,6 +217,7 @@ mod tests {
                 assert_eq!(settings.color_scheme, "solarized");
                 assert_eq!(settings.daily_time_zone, "UTC+10");
                 assert_eq!(settings.daily_update_time, "06:30");
+                assert_eq!(settings.max_active_cards, 7);
             }
             other => panic!("unexpected response: {:?}", other),
         }
@@ -995,6 +997,168 @@ mod tests {
             !visible_ids.contains(&replacement[0].id),
             "replacement should not reuse a card already visible in the flow"
         );
+    }
+
+    #[tokio::test]
+    async fn test_pinned_tipcard_is_returned_before_schedule() {
+        let settings_path = unique_settings_path();
+        fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+            .await
+            .unwrap();
+        let db = setup_db().await;
+        let state = AppState {
+            db,
+            settings_path,
+            template_dir: PathBuf::from("templates"),
+        };
+
+        let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
+            .bind("repeatable")
+            .bind("repeatable_tip")
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        let topic_id = sqlx::query("INSERT INTO topics (name, class_id) VALUES (?, ?)")
+            .bind("spanish")
+            .bind(class_id)
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        let card_id = sqlx::query(
+            "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(topic_id)
+        .bind("repeatable_tip")
+        .bind("Pinned")
+        .bind("Pinned full")
+        .bind("Pinned compact")
+        .execute(&state.db)
+        .await
+        .unwrap()
+        .last_insert_rowid();
+        sqlx::query(
+            "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, ?, ?, 'active', ?)",
+        )
+        .bind(card_id)
+        .bind("repeatable")
+        .bind(r#"{"repeats":0}"#)
+        .bind(chrono::Utc::now() + chrono::Duration::days(30))
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+        crate::api::set_tipcard_pinned(&state, card_id, true)
+            .await
+            .unwrap();
+
+        let cards = crate::api::build_tips(
+            &state,
+            crate::api::TipsJsonRequest {
+                count: Some(1),
+                topics: "spanish".into(),
+                topic_class: Some("repeatable".into()),
+                tipcard_type: Some("repeatable_tip".into()),
+                exclude_card_ids: None,
+                manual_content: None,
+                manual_compressed_content: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].id, card_id);
+        assert!(cards[0].pinned);
+    }
+
+    #[tokio::test]
+    async fn test_max_active_cards_blocks_new_manual_card_but_keeps_due_cards_available() {
+        let settings_path = unique_settings_path();
+        fs::write(&settings_path, "admin_token: test_admin_token_xyz\nmax_active_cards: 1\n")
+            .await
+            .unwrap();
+        let db = setup_db().await;
+        let state = AppState {
+            db,
+            settings_path,
+            template_dir: PathBuf::from("templates"),
+        };
+
+        let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
+            .bind("repeatable")
+            .bind("repeatable_tip")
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        let topic_id = sqlx::query("INSERT INTO topics (name, class_id) VALUES (?, ?)")
+            .bind("spanish")
+            .bind(class_id)
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        let card_id = sqlx::query(
+            "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(topic_id)
+        .bind("repeatable_tip")
+        .bind("Due")
+        .bind("Due full")
+        .bind("Due compact")
+        .execute(&state.db)
+        .await
+        .unwrap()
+        .last_insert_rowid();
+        sqlx::query(
+            "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, ?, ?, 'active', ?)",
+        )
+        .bind(card_id)
+        .bind("repeatable")
+        .bind(r#"{"repeats":0}"#)
+        .bind(chrono::Utc::now())
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+        let due_cards = crate::api::build_tips(
+            &state,
+            crate::api::TipsJsonRequest {
+                count: Some(1),
+                topics: "spanish".into(),
+                topic_class: Some("repeatable".into()),
+                tipcard_type: Some("repeatable_tip".into()),
+                exclude_card_ids: None,
+                manual_content: None,
+                manual_compressed_content: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(due_cards.len(), 1);
+        assert_eq!(due_cards[0].id, card_id);
+
+        let err = match crate::api::build_tips(
+            &state,
+            crate::api::TipsJsonRequest {
+                count: Some(1),
+                topics: "manual".into(),
+                topic_class: Some("manual".into()),
+                tipcard_type: Some("manual_tip".into()),
+                exclude_card_ids: None,
+                manual_content: Some("new manual".into()),
+                manual_compressed_content: None,
+            },
+        )
+        .await
+        {
+            Ok(_) => panic!("manual card was created past max_active_cards"),
+            Err(err) => err,
+        };
+        assert_eq!(err.0, axum::http::StatusCode::CONFLICT);
+        assert_eq!(err.1, "Max active cards reached");
     }
 
     #[tokio::test]
