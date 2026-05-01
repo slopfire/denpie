@@ -11,7 +11,8 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Daily Topic Cards**: Each topic/type returns a configurable number of stable SRS cards per local day, with per-topic overrides for count, time zone, and update time.
 - **Any OpenAI-Compatible LLM**: Configure the API key, base URL, and model through the protobuf API — no hardcoded vendor lock-in.
 - **Unified Protobuf API**: `POST /api` manages tips, reviews, settings, keys, topics, cards, and summary counts with one full-access API key.
-- **Root Control Page**: `/` serves a browser control panel that talks to the same protobuf API.
+- **Root Control Page**: `/` serves a browser control panel that talks to the same protobuf API, with compact/full card text controls and fullscreen card viewing.
+- **CSS-Only Motion**: The control page uses fast page-entry, card-entry, hover, and compact-to-full tipcard animations with reduced-motion support.
 - **Markdown Tipcards**: API responses keep the original raw markdown-capable text so clients can render it however they need.
 - **Optional GitHub Autoupdate**: Disabled by default. The systemd install includes a root-owned updater timer; enabling it through the API polls GitHub, rebuilds from the configured repository branch, installs the new binary/schema, and restarts the service.
 - **Bootstrap Admin Token**: On first startup the server generates and prints an admin token. Use it only with `bootstrap_api_key` to create a full-access API key.
