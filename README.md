@@ -8,7 +8,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Casual Cards**: Queue-style tips can be dismissed or acknowledged so clients can pull the next card immediately; acknowledged cards are scheduled with SRS.
 - **Repeatable Cards**: Re:word-style cards can be dismissed, repeated, memorized, or acknowledged; clients can advance after repeatable review actions, and repeated cards come back when due through SRS scheduling.
 - **Topic Classes**: Topics belong to a card behavior class: casual, repeatable, or manual. SRS remains the scheduling algorithm, not a card class.
-- **Daily Topic Cards**: Each topic/type returns a configurable number of stable SRS cards per local day, with per-topic overrides for count, time zone, and update time.
+- **Daily Topic Cards**: Each topic/type returns a configurable number of stable SRS cards per local day, with per-topic overrides for count, time zone, and card refresh time.
 - **Pinned Tipcards**: Any active card can be pinned from the control panel or API so it stays visible in a separate top section until unpinned.
 - **Tipcard Images**: Manual cards can be saved with attached images, and existing cards can receive or clear image attachments from the browser control panel.
 - **Custom Tipcards**: External workflows can submit grey `custom_tip` cards for summaries or reminders without adding SRS review state.
@@ -20,7 +20,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Single Dashboard Surface**: The browser dashboard is served only at `/`;
 - **CSS-Only Motion**: The control page uses fast page-entry, card-entry, and compact-to-full tipcard animations with reduced-motion support.
 - **Markdown Tipcards**: API responses keep the original raw markdown-capable text so clients can render it however they need.
-- **Optional GitHub Autoupdate**: Disabled by default. The systemd install includes a root-owned updater timer; enabling it through the API polls GitHub, rebuilds from the configured repository branch, installs the new binary/schema, and restarts the service.
+- **Optional Server Self-Updates**: Disabled by default. The systemd install includes a root-owned updater timer; enabling it through the API polls GitHub, rebuilds from the configured repository branch, installs the new binary/schema, and restarts the service.
 - **Bootstrap Admin Token**: On first startup the server generates and prints an admin token. Use it only with `bootstrap_api_key` to create a full-access API key.
 - **Protobuf API**: The only public API is a single protobuf request/response envelope for both client and admin operations.
 - **Single-User, Multi-Client**: One user's SRS state is shared across all clients (desktop widget, Telegram bot, etc.) via per-client API keys.
@@ -105,7 +105,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    - **LLM Base URL** — e.g. `https://openrouter.ai/api/v1` or `https://generativelanguage.googleapis.com/v1beta/openai`
    - **Prompt Template** — use `{topic}` as the placeholder; `{context}`, `{existing_cards}`, and `{dismissed_cards}` can place prior card titles explicitly
 
-   Each topic can also define its own prompt, daily card count, time zone, and update time with `update_topic`. Topics can be deleted from the browser control panel or with `delete_topic`; deleting a topic also deletes its cards and review state. The browser control panel has a class switcher for Casual, Repeatable, and Manual cards; Manual cards are saved from user-entered text and do not call the LLM. In Manual mode, Tab or Enter moves from the title field straight to the card text; in the card text, Enter saves the card and Shift+Enter inserts a newline. External systems can use `submit_custom_tipcard` to store `custom_tip` cards for summaries and reminders; these cards return `topic_class = "custom"` and do not create SRS review state. Active cards can be pinned so they remain in a separate top section even before their next review time; unpinning returns them to normal scheduling. Set **Max Active Cards** to stop creating new cards once active review state reaches that number; `0` means unlimited, and existing due/pinned cards remain available. Empty topic prompts and time fields fall back to the global settings. When a new generated card is created, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
+   Each topic can also define its own prompt, daily card count, time zone, and card refresh time with `update_topic`. Topics can be deleted from the browser control panel or with `delete_topic`; deleting a topic also deletes its cards and review state. The browser control panel has a class switcher for Casual, Repeatable, and Manual cards; Manual cards are saved from user-entered text and do not call the LLM. In Manual mode, Tab or Enter moves from the title field straight to the card text; in the card text, Enter saves the card and Shift+Enter inserts a newline. External systems can use `submit_custom_tipcard` to store `custom_tip` cards for summaries and reminders; these cards return `topic_class = "custom"` and do not create SRS review state. Active cards can be pinned so they remain in a separate top section even before their next review time; unpinning returns them to normal scheduling. Set **Max Active Cards** to stop creating new cards once active review state reaches that number; `0` means unlimited, and existing due/pinned cards remain available. Empty topic prompts and time fields fall back to the global settings. When a new generated card is created, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
 
 6. **Use the API key** in `ApiRequest.auth` for every operation except `bootstrap_api_key`.
 
@@ -125,20 +125,20 @@ All runtime configuration lives in `settings.yaml` and is managed through the pr
 | `llm_base_url` | Base URL for the OpenAI-compatible API | `https://openrouter.ai/api/v1` |
 | `llm_compress_base_url` | Base URL for compression requests; defaults to `llm_base_url` when missing | `https://openrouter.ai/api/v1` |
 | `color_scheme` | Client color scheme preference for external clients. Browser themes include `default`, `ayu`, `solarized-light`, `solarized-dark`, `dracula`, `carbonfox`, `amoled`, and `slate`. | `default` |
-| `daily_time_zone` | Default IANA time zone or fixed `UTC+n` offset used for daily topic-card windows | `UTC` |
-| `daily_update_time` | Default local `HH:MM` time when each topic can receive new daily cards | `00:00` |
-| `autoupdate_enabled` | Enable GitHub commit polling and command-based updates | `false` |
+| `daily_time_zone` | Default IANA time zone or fixed `UTC+n` offset used for daily topic-card refresh windows | `UTC` |
+| `daily_update_time` | Default local `HH:MM` card refresh time when each topic can receive new daily cards | `00:00` |
+| `autoupdate_enabled` | Enable GitHub commit polling and server self-updates | `false` |
 | `autoupdate_repo` | GitHub repository in `owner/repo` form, or a GitHub URL | `slopfire/dailytipdraft` |
 | `autoupdate_branch` | Branch or ref checked through the GitHub commits API | `master` |
 | `autoupdate_check_interval_secs` | Poll interval in seconds; values below 60 are clamped to 60 | `3600` |
-| `autoupdate_command` | Optional local shell command for non-systemd installs after a new commit is detected | *(empty)* |
+| `autoupdate_command` | Optional local shell command for non-systemd server updates after a new commit is detected | *(empty)* |
 | `autoupdate_last_seen_sha` | Last GitHub commit SHA recorded by the updater | *(empty)* |
 
-### GitHub Autoupdate
+### Server Self-Updates
 
-Autoupdate is intentionally off by default. For the systemd installation, the installer enables a `dailytipdraft-autoupdate.timer` that reads `settings.yaml`; checking **Enable GitHub autoupdate** in the app is enough. On the first successful check the updater records the current commit SHA as a baseline and does not update. On later checks, a changed SHA triggers a root-owned update helper that fetches the configured branch, runs `cargo build --release`, installs the new binary plus shared files, records the new SHA, and restarts `dailytipdraft.service`. The host must keep the build tools available after installation (`git`, `cargo` from the installer-managed rustup toolchain or another Rust installation, and `protoc`/`protobuf-compiler`).
+Server self-updates are intentionally off by default. For the systemd installation, the installer enables a `dailytipdraft-autoupdate.timer` that reads `settings.yaml`; checking **Enable Server Self-Updates** in the app is enough. On the first successful check the updater records the current commit SHA as a baseline and does not update. On later checks, a changed SHA triggers a root-owned update helper that fetches the configured branch, runs `cargo build --release`, installs the new binary plus shared files, records the new SHA, and restarts `dailytipdraft.service`. The host must keep the build tools available after installation (`git`, `cargo` from the installer-managed rustup toolchain or another Rust installation, and `protoc`/`protobuf-compiler`).
 
-The settings screen also has a **Check Now** button. It now shows staged progress while saving settings, checking GitHub, and, when a new commit is found, starting the update flow. If `autoupdate_command` is empty, it starts the default systemd updater service (`dailytipdraft-autoupdate.service`) with `systemctl start --no-block`; set `DAILYTIP_AUTOUPDATE_SERVICE` to use a different unit name. The installer also installs a narrow polkit rule allowing the `dailytipdraft` service user to start only that updater unit. If the unit or permission rule is missing, the check fails with a configuration message instead of a raw systemctl failure. For non-systemd or custom deployments it runs the configured `autoupdate_command` immediately after checking GitHub. When an update is found, the browser shows the target commit, polls `/admin/autoupdate/status` for real updater phases, and polls the server build SHA after restart, so it only reports completion when the deployed server changes. The updater records `autoupdate_last_seen_sha` only after a successful service restart, allowing failed restarts to be retried. You can also manually trigger the root-owned updater with:
+The settings screen also has a **Check Server Now** button. It shows staged progress while saving server update settings, checking GitHub, and, when a new commit is found, starting the server update flow. If `autoupdate_command` is empty, it starts the default systemd updater service (`dailytipdraft-autoupdate.service`) with `systemctl start --no-block`; set `DAILYTIP_AUTOUPDATE_SERVICE` to use a different unit name. The installer also installs a narrow polkit rule allowing the `dailytipdraft` service user to start only that updater unit. If the unit or permission rule is missing, the check fails with a configuration message instead of a raw systemctl failure. For non-systemd or custom deployments it runs the configured `autoupdate_command` immediately after checking GitHub. When a server update is found, the browser shows the target commit, polls `/admin/autoupdate/status` for real updater phases, and polls the server build SHA after restart, so it only reports completion when the deployed server changes. The updater records `autoupdate_last_seen_sha` only after a successful service restart, allowing failed restarts to be retried. You can also manually trigger the root-owned updater with:
 
 ```bash
 sudo systemctl start dailytipdraft-autoupdate.service
@@ -155,7 +155,7 @@ autoupdate_branch: master
 autoupdate_check_interval_secs: 1800
 ```
 
-For non-systemd or custom deployments, set `autoupdate_command` to a local command that performs the update. In that mode, scheduled checks and the **Check Now** button run the command with the same user, permissions, and working directory as the server process; if it succeeds, the server exits with code `75` so an external supervisor can restart it.
+For non-systemd or custom deployments, set `autoupdate_command` to a local command that performs the server update. In that mode, scheduled checks and the **Check Server Now** button run the command with the same user, permissions, and working directory as the server process; if it succeeds, the server exits with code `75` so an external supervisor can restart it.
 
 ## Runtime Environment
 
@@ -251,7 +251,7 @@ The unified protobuf API is the only public API:
 | `review_states` | Per-card review state, status, and next review timestamp |
 | `llm_token_usage` | Token usage returned by LLM calls, used for daily, monthly, and total dashboard counters |
 
-Topic rows can override the daily defaults with `daily_card_count`, `daily_time_zone`, and `daily_update_time`. Empty time fields inherit the global settings; empty or zero count falls back to one card.
+Topic rows can override the daily refresh defaults with `daily_card_count`, `daily_time_zone`, and `daily_update_time`. Empty time fields inherit the global settings; empty or zero count falls back to one card.
 
 The token counters use `usage.total_tokens` from each OpenAI-compatible chat completion response. Providers that omit usage metadata contribute zero tokens for that call.
 

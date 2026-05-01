@@ -402,8 +402,8 @@
       <div class="flex items-start gap-3">
         <span class="material-symbols-outlined text-primary text-3xl">system_update_alt</span>
         <div class="min-w-0">
-          <h2 class="text-xl font-black tracking-tight">Update found</h2>
-          <p id="update-popup-message" class="mt-2 text-sm text-muted">Initiating update.</p>
+          <h2 class="text-xl font-black tracking-tight">Server update found</h2>
+          <p id="update-popup-message" class="mt-2 text-sm text-muted">Initiating server update.</p>
         </div>
       </div>
       <div class="mt-5 update-progress-track">
@@ -593,11 +593,11 @@
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Daily Time Zone</label>
+              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Card Refresh Time Zone</label>
               <input id="daily-time-zone-input" list="time-zone-options" class="w-full rounded-lg border px-4 py-3" placeholder="UTC">
             </div>
             <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Daily Update Time</label>
+              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Card Refresh Time</label>
               <input id="daily-update-time-input" type="time" class="w-full rounded-lg border px-4 py-3">
             </div>
           </div>
@@ -609,7 +609,7 @@
           <div class="border border-token rounded-xl p-4 space-y-4">
             <label class="flex items-center gap-3 text-sm font-bold">
               <input id="autoupdate-enabled-input" type="checkbox" class="h-4 w-4">
-              <span>Enable GitHub autoupdate</span>
+              <span>Enable Server Self-Updates</span>
             </label>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -622,19 +622,19 @@
               </div>
             </div>
             <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Check Interval Seconds</label>
+              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Server Update Check Interval Seconds</label>
               <input id="autoupdate-interval-input" type="number" min="60" class="w-full rounded-lg border px-4 py-3">
             </div>
             <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Update Command</label>
+              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Server Update Command</label>
               <textarea id="autoupdate-command-input" class="w-full rounded-lg border px-4 py-3 h-24 resize-y" placeholder="Optional command for non-systemd installs"></textarea>
-              <div class="mt-2 text-xs text-muted">Leave empty to use the installed systemd updater service.</div>
+              <div class="mt-2 text-xs text-muted">Leave empty to use the installed systemd server updater service.</div>
             </div>
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div class="text-xs text-muted">Last seen: <span id="autoupdate-last-sha">not recorded</span></div>
+              <div class="text-xs text-muted">Last server build seen: <span id="autoupdate-last-sha">not recorded</span></div>
               <button id="autoupdate-trigger-btn" type="button" class="rounded-lg border border-token px-4 py-2 font-bold flex items-center justify-center gap-2">
                 <span class="material-symbols-outlined">system_update_alt</span>
-                <span>Check Now</span>
+                <span>Check Server Now</span>
               </button>
             </div>
             <div id="autoupdate-progress" class="hidden muted-surface rounded-lg p-3 space-y-2">
@@ -645,7 +645,7 @@
               <div class="update-progress-track">
                 <div id="autoupdate-progress-bar" class="update-progress-bar"></div>
               </div>
-              <div id="autoupdate-progress-detail" class="text-xs text-muted">Saving settings before checking GitHub.</div>
+              <div id="autoupdate-progress-detail" class="text-xs text-muted">Saving server update settings before checking GitHub.</div>
             </div>
           </div>
           <button class="rounded-lg bg-primary-solid px-5 py-3 font-bold">Save Settings</button>
@@ -1024,8 +1024,8 @@
       const target = String(targetSha || '');
       const current = String(currentSha || state.buildSha || '');
       if (!target || target === 'unknown') {
-        setAutoupdateProgress(70, 'Updater running', 'Waiting for the service restart.');
-        showUpdatePopup('Updater started. Waiting for service restart.', 70, 'Waiting');
+        setAutoupdateProgress(70, 'Server updater running', 'Waiting for the service restart.');
+        showUpdatePopup('Server updater started. Waiting for service restart.', 70, 'Waiting');
         return;
       }
 
@@ -1036,10 +1036,10 @@
           const updateStatus = await api('/admin/autoupdate/status');
           const phase = updateStatus.phase || 'running';
           const statusTarget = updateStatus.target_sha || target;
-          const statusMessage = updateStatus.message || 'Updater running.';
+          const statusMessage = updateStatus.message || 'Server updater running.';
           if (phase === 'failed') {
-            setAutoupdateProgress(100, 'Update failed', statusMessage);
-            showUpdatePopup(statusMessage, 100, 'Update failed');
+            setAutoupdateProgress(100, 'Server update failed', statusMessage);
+            showUpdatePopup(statusMessage, 100, 'Server update failed');
             return;
           }
           const progress = autoupdatePhaseProgress(phase);
@@ -1051,8 +1051,8 @@
           state.buildSha = nextSha;
           const matchesTarget = nextSha === target || target.startsWith(nextSha.slice(0, 12));
           if (nextSha && nextSha !== current && matchesTarget) {
-            finishAutoupdateProgress(`Updated to ${shortSha(nextSha)}`);
-            toast(`Updated to ${shortSha(nextSha)}`);
+            finishAutoupdateProgress(`Server updated to ${shortSha(nextSha)}`);
+            toast(`Server updated to ${shortSha(nextSha)}`);
             return;
           }
         } catch (_) {
@@ -1060,13 +1060,13 @@
           showUpdatePopup('Service is restarting.', 88, 'Restarting');
         }
       }
-      setAutoupdateProgress(100, 'Verify manually', `Updater was started, but server build did not change to ${shortSha(target)} in time.`);
-      showUpdatePopup(`Updater started, but this page still sees ${shortSha(current)}. Check systemd logs.`, 100, 'Verify manually');
+      setAutoupdateProgress(100, 'Verify manually', `Server updater was started, but server build did not change to ${shortSha(target)} in time.`);
+      showUpdatePopup(`Server updater started, but this page still sees ${shortSha(current)}. Check systemd logs.`, 100, 'Verify manually');
     }
 
     function runUpdateProgressSimulation(startPercent = 50) {
       const steps = [
-        [startPercent, 'Update found', 'Initiating updater service.'],
+        [startPercent, 'Server update found', 'Initiating server updater service.'],
         [62, 'Fetching source', 'Pulling the configured branch.'],
         [74, 'Compiling', 'Building release binary.'],
         [88, 'Installing', 'Installing binary, schema, and templates.'],
@@ -1077,7 +1077,7 @@
       const applyStep = () => {
         const [percent, label, detail] = steps[Math.min(index, steps.length - 1)];
         setAutoupdateProgress(percent, label, detail);
-        showUpdatePopup('Update found. Initiating update.', percent, label);
+        showUpdatePopup('Server update found. Initiating server update.', percent, label);
         index += 1;
         if (index >= steps.length) window.clearInterval(window.__autoupdateStageTimer);
       };
@@ -1376,15 +1376,15 @@
             <textarea id="${promptId}" class="w-full rounded-lg border px-3 py-2 h-24 resize-y text-sm" placeholder="Uses global prompt when empty">${escapeHtml(topic.prompt_template || '')}</textarea>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
               <div>
-                <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyCountId}">Daily Cards</label>
+                <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyCountId}">Cards Per Day</label>
                 <input id="${dailyCountId}" type="number" min="1" max="20" class="w-full rounded-lg border px-3 py-2 text-sm" value="${Number(topic.daily_card_count || 1)}">
               </div>
               <div>
-                <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyZoneId}">Time Zone</label>
+                <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyZoneId}">Refresh Zone</label>
                 <input id="${dailyZoneId}" list="time-zone-options" class="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Global" value="${escapeHtml(topic.daily_time_zone || '')}">
               </div>
               <div>
-                <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyTimeId}">Update Time</label>
+                <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyTimeId}">Refresh Time</label>
                 <input id="${dailyTimeId}" type="time" class="w-full rounded-lg border px-3 py-2 text-sm" value="${escapeHtml(topic.daily_update_time || '')}">
               </div>
             </div>
@@ -2122,15 +2122,15 @@
         hideUpdatePopup();
         window.clearInterval(window.__autoupdateStageTimer);
         try {
-          setAutoupdateProgress(8, 'Saving settings', 'Saving autoupdate settings before checking GitHub.');
+          setAutoupdateProgress(8, 'Saving settings', 'Saving server update settings before checking GitHub.');
           await saveSettings();
           setAutoupdateProgress(28, 'Checking GitHub', 'Reading the latest commit for the configured branch.');
           const result = await api('/admin/autoupdate', { method: 'POST' });
-          const message = result?.message || 'Autoupdate checked';
+          const message = result?.message || 'Server update checked';
           if (result?.updating) {
             toast(message);
-            setAutoupdateProgress(52, 'Updater started', `Target ${shortSha(result.target_sha)}. Waiting for deployed build to change.`);
-            showUpdatePopup(`Updater started for ${shortSha(result.target_sha)}.`, 52, 'Updater started');
+            setAutoupdateProgress(52, 'Server updater started', `Target ${shortSha(result.target_sha)}. Waiting for deployed build to change.`);
+            showUpdatePopup(`Server updater started for ${shortSha(result.target_sha)}.`, 52, 'Server updater started');
             waitForUpdatedBuild(result.target_sha, result.build_sha);
             return;
           }

@@ -1,5 +1,5 @@
 [Unit]
-Description=Check Daily Tip Server GitHub updates
+Description=Check Daily Tip Server self-updates
 
 [Timer]
 OnBootSec=2min

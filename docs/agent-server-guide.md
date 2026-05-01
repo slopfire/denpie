@@ -25,9 +25,9 @@ Then put returned `sk_live_*` into `ApiRequest.auth` for every request.
 
 - `get_settings` / `update_settings`: LLM and runtime config.
 - `create_api_key` / `list_api_keys` / `delete_api_key`: key management.
-- `tips`: due cards, current daily topic cards, or generated cards after topic's daily window rolls over.
+- `tips`: due cards, current daily topic cards, or generated cards after topic refresh window rolls over.
 - `submit_custom_tipcard`: external card. Stored as grey `custom` / `custom_tip`. No SRS review row.
-- Daily rollover uses global `daily_time_zone` / `daily_update_time`, unless topic overrides `daily_card_count`, `daily_time_zone`, or `daily_update_time`.
+- Daily card refresh uses global `daily_time_zone` / `daily_update_time`, unless topic overrides `daily_card_count`, `daily_time_zone`, or `daily_update_time`.
 - `review`: SRS grade or queue action.
 - `get_topics` / `get_topic_classes` / `list_app_topics`: topic metadata.
 - `list_tipcards` / `delete_tipcard`: card inventory.

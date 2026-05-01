@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily Tip Server Autoupdate
+Description=Daily Tip Server Self-Update
 After=network-online.target
 Wants=network-online.target
 

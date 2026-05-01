@@ -35,7 +35,7 @@ write_status() {
 }
 
 completed=0
-trap 'code=$?; if [ "$completed" != "1" ] && [ "$code" -ne 0 ]; then write_status failed "Updater failed; check journalctl -u ${APP_NAME}-autoupdate.service" "${latest_sha:-}"; fi' EXIT
+trap 'code=$?; if [ "$completed" != "1" ] && [ "$code" -ne 0 ]; then write_status failed "Server updater failed; check journalctl -u ${APP_NAME}-autoupdate.service" "${latest_sha:-}"; fi' EXIT
 
 get_yaml_value() {
     key="$1"
@@ -89,8 +89,8 @@ normalize_repo() {
 now="$(date +%s)"
 enabled="$(get_yaml_value autoupdate_enabled || true)"
 if [ "$enabled" != "true" ]; then
-    write_status idle "Autoupdate disabled"
-    log "autoupdate disabled"
+    write_status idle "Server self-updates disabled"
+    log "server self-updates disabled"
     exit 0
 fi
 
@@ -116,8 +116,8 @@ if [ "${1:-}" != "force" ] && [ -f "$last_check_file" ]; then
     esac
     elapsed=$((now - last_check))
     if [ "$elapsed" -lt "$interval" ]; then
-        write_status idle "Autoupdate interval not reached"
-        log "autoupdate interval not reached"
+        write_status idle "Server update interval not reached"
+        log "server update interval not reached"
         exit 0
     fi
 fi
@@ -141,8 +141,8 @@ fi
 last_seen="$(get_yaml_value autoupdate_last_seen_sha || true)"
 if [ -z "$last_seen" ]; then
     set_yaml_value autoupdate_last_seen_sha "$latest_sha"
-    write_status baseline "Recorded autoupdate baseline" "$latest_sha"
-    log "recorded autoupdate baseline ${latest_sha}"
+    write_status baseline "Recorded server update baseline" "$latest_sha"
+    log "recorded server update baseline ${latest_sha}"
     completed=1
     exit 0
 fi

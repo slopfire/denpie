@@ -148,7 +148,7 @@ write_autoupdate_units() {
 
 write_autoupdate_policy() {
     if [ ! -d "$POLKIT_DIR" ]; then
-        echo "Polkit rules directory not found; Check Now may require autoupdate_command for manual updates." >&2
+        echo "Polkit rules directory not found; Check Server Now may require autoupdate_command for manual server updates." >&2
         return
     fi
 

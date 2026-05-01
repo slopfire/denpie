@@ -73,11 +73,11 @@ pub fn spawn(settings_path: std::path::PathBuf) {
                 Ok(CheckResult::Disabled) => time::sleep(Duration::from_secs(300)).await,
                 Ok(CheckResult::NoChange(interval)) => time::sleep(interval).await,
                 Ok(CheckResult::Updated) => {
-                    warn!("autoupdate command succeeded; exiting for supervisor restart");
+                    warn!("server update command succeeded; exiting for supervisor restart");
                     std::process::exit(75);
                 }
                 Err(err) => {
-                    warn!("autoupdate check failed: {err}");
+                    warn!("server update check failed: {err}");
                     time::sleep(Duration::from_secs(300)).await;
                 }
             }
@@ -165,7 +165,7 @@ async fn run_once(client: &reqwest::Client, settings_path: &Path) -> Result<Chec
             repo = %config.repo,
             branch = %config.branch,
             sha = %short_sha(&latest_sha),
-            "autoupdate baseline recorded"
+            "server update baseline recorded"
         );
         return Ok(CheckResult::NoChange(Duration::from_secs(
             config.check_interval_secs,
@@ -184,7 +184,7 @@ async fn run_once(client: &reqwest::Client, settings_path: &Path) -> Result<Chec
             branch = %config.branch,
             old_sha = %short_sha(&config.last_seen_sha),
             new_sha = %short_sha(&latest_sha),
-            "autoupdate change detected, but command is empty"
+            "server update detected, but command is empty"
         );
         return Ok(CheckResult::NoChange(Duration::from_secs(
             config.check_interval_secs,
@@ -196,7 +196,7 @@ async fn run_once(client: &reqwest::Client, settings_path: &Path) -> Result<Chec
         branch = %config.branch,
         old_sha = %short_sha(&config.last_seen_sha),
         new_sha = %short_sha(&latest_sha),
-        "autoupdate change detected; running command"
+        "server update detected; running command"
     );
 
     let status = Command::new("sh")
@@ -207,7 +207,7 @@ async fn run_once(client: &reqwest::Client, settings_path: &Path) -> Result<Chec
         .map_err(|err| format!("failed to spawn update command: {err}"))?;
 
     if !status.success() {
-        error!(?status, "autoupdate command failed");
+        error!(?status, "server update command failed");
         return Ok(CheckResult::NoChange(Duration::from_secs(
             config.check_interval_secs,
         )));
@@ -224,7 +224,7 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
 
     if !config.enabled {
         return Ok(ManualCheckResult {
-            message: "Autoupdate disabled".to_string(),
+            message: "Server self-updates disabled".to_string(),
             should_exit_for_restart: false,
             update_started: false,
             target_sha: None,
@@ -232,7 +232,7 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
     }
     if config.repo.is_empty() {
         return Ok(ManualCheckResult {
-            message: "Autoupdate repo empty".to_string(),
+            message: "Server update repo empty".to_string(),
             should_exit_for_restart: false,
             update_started: false,
             target_sha: None,
@@ -279,7 +279,7 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
             old_sha = %short_sha(&config.last_seen_sha),
             new_sha = %short_sha(&latest_sha),
             service = %service,
-            "manual autoupdate triggered; starting default systemd updater"
+            "manual server update triggered; starting default systemd updater"
         );
 
         let load_state = Command::new("systemctl")
@@ -291,7 +291,7 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
             .await
             .map_err(|err| {
                 format!(
-                    "failed to inspect default updater {service}: {err}; set autoupdate_command for custom installs"
+                    "failed to inspect default server updater {service}: {err}; set autoupdate_command for custom installs"
                 )
             })?;
         let load_state_text = String::from_utf8_lossy(&load_state.stdout)
@@ -299,7 +299,7 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
             .to_string();
         if !load_state.status.success() || load_state_text != "loaded" {
             return Err(format!(
-                "no update runner configured: default updater {service} is not installed; set autoupdate_command for this install or install the systemd updater"
+                "no server update runner configured: default updater {service} is not installed; set autoupdate_command for this install or install the systemd updater"
             ));
         }
 
@@ -311,7 +311,7 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
             .await
             .map_err(|err| {
                 format!(
-                    "failed to start default updater {service}: {err}; set autoupdate_command for custom installs"
+                    "failed to start default server updater {service}: {err}; set autoupdate_command for custom installs"
                 )
             })?;
 
@@ -331,11 +331,11 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
             };
             if detail.contains("Interactive authentication required") {
                 return Err(format!(
-                    "default updater {service} needs permission for the web service user; rerun ./install.sh to install the polkit rule, or set autoupdate_command for custom installs"
+                    "default server updater {service} needs permission for the web service user; rerun ./install.sh to install the polkit rule, or set autoupdate_command for custom installs"
                 ));
             }
             return Err(format!(
-                "default updater {service} failed: {detail}; set autoupdate_command for custom installs"
+                "default server updater {service} failed: {detail}; set autoupdate_command for custom installs"
             ));
         }
 
@@ -356,7 +356,7 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
         branch = %config.branch,
         old_sha = %short_sha(&config.last_seen_sha),
         new_sha = %short_sha(&latest_sha),
-        "manual autoupdate triggered; running command"
+        "manual server update triggered; running command"
     );
 
     let status = Command::new("sh")
@@ -367,7 +367,7 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
         .map_err(|err| format!("failed to spawn update command: {err}"))?;
 
     if !status.success() {
-        return Err(format!("autoupdate command failed with {status}"));
+        return Err(format!("server update command failed with {status}"));
     }
 
     write_last_seen_sha(settings_path, &latest_sha).await?;
