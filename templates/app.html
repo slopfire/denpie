@@ -250,7 +250,7 @@
       transition: transform 110ms cubic-bezier(.2, 0, 0, 1), background-color 110ms ease, border-color 110ms ease;
     }
     .card-inline-expand:hover { transform: translateY(-1px) scale(1.06); background: var(--primary-soft); border-color: var(--primary); }
-    .card-text-controls button { flex-shrink: 0; }
+    .card-title-controls button { flex-shrink: 0; }
     .markdown-content {
       overflow-wrap: anywhere;
     }
@@ -513,7 +513,13 @@
               <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Update Command</label>
               <textarea id="autoupdate-command-input" class="w-full rounded-lg border px-4 py-3 h-24 resize-y" placeholder="Optional command for non-systemd installs"></textarea>
             </div>
-            <div class="text-xs text-muted">Last seen: <span id="autoupdate-last-sha">not recorded</span></div>
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div class="text-xs text-muted">Last seen: <span id="autoupdate-last-sha">not recorded</span></div>
+              <button id="autoupdate-trigger-btn" type="button" class="rounded-lg border border-token px-4 py-2 font-bold flex items-center justify-center gap-2">
+                <span class="material-symbols-outlined">system_update_alt</span>
+                <span>Check Now</span>
+              </button>
+            </div>
           </div>
           <button class="rounded-lg bg-primary-solid px-5 py-3 font-bold">Save Settings</button>
         </form>
@@ -1112,8 +1118,8 @@
       renderFlow();
     }
 
-    function cardTextControls(card, fullscreen) {
-      return `<div class="card-text-controls mt-2 flex justify-end gap-2"><button onclick="toggleCardFullscreen(${card.id})" class="rounded-lg border border-token p-2" title="${fullscreen ? 'Exit fullscreen' : 'Fullscreen'}"><span class="material-symbols-outlined">${fullscreen ? 'close_fullscreen' : 'open_in_full'}</span></button></div>`;
+    function cardTitleFullscreenButton(card, fullscreen) {
+      return `<button onclick="toggleCardFullscreen(${card.id})" class="rounded-lg border border-token p-2" title="${fullscreen ? 'Exit fullscreen' : 'Fullscreen'}"><span class="material-symbols-outlined">${fullscreen ? 'close_fullscreen' : 'open_in_full'}</span></button>`;
     }
 
     function renderCardTextHtml(markdownHtml, card, expanded, hasCompact, fullscreen) {
@@ -1218,11 +1224,13 @@
                 <button type="button" class="card-drag-handle rounded border border-token p-1" title="Drag to reorder" draggable="true"><span class="material-symbols-outlined">drag_indicator</span></button>
                 <span class="material-symbols-outlined text-primary">code</span>${escapeHtml(topic)}
               </div>
-              <span class="bg-primary-soft rounded px-2 py-1 text-[11px] font-bold uppercase tracking-wider">${escapeHtml(typeLabel)}</span>
+              <div class="card-title-controls flex items-center gap-2">
+                <span class="bg-primary-soft rounded px-2 py-1 text-[11px] font-bold uppercase tracking-wider">${escapeHtml(typeLabel)}</span>
+                ${cardTitleFullscreenButton(card, fullscreen)}
+              </div>
             </div>
             <div class="${contentClass} card-text ${expanded && hasCompact ? 'is-expanded' : 'is-compact'}">
               <div class="card-text-body markdown-content">${textHtml}</div>
-              ${cardTextControls(card, fullscreen)}
             </div>
             <div class="mt-5 pt-4 border-t border-token flex gap-2">${cardActions(card)}${cardContentControls(card)}</div>
           </div>
@@ -1554,6 +1562,17 @@
           })
         });
         toast('Settings saved');
+      });
+      $('autoupdate-trigger-btn').addEventListener('click', async () => {
+        const button = $('autoupdate-trigger-btn');
+        button.disabled = true;
+        try {
+          const result = await api('/admin/autoupdate', { method: 'POST' });
+          toast(result?.message || 'Autoupdate checked');
+          if (!result?.restarting) await refreshAll();
+        } finally {
+          button.disabled = false;
+        }
       });
       $('key-form').addEventListener('submit', async (event) => {
         event.preventDefault();

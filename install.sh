@@ -136,7 +136,7 @@ write_autoupdate_units() {
     tmp_file="$(mktemp)"
     sed \
         -e "s|^EnvironmentFile=.*|EnvironmentFile=-$DEFAULTS_DIR/$APP_NAME-autoupdate|" \
-        -e "s|^ExecStart=.*|ExecStart=$LIBEXEC_DIR/$APP_NAME-autoupdate|" \
+        -e "s|^ExecStart=.*|ExecStart=$LIBEXEC_DIR/$APP_NAME-autoupdate force|" \
         deploy/dailytipdraft-autoupdate.service > "$tmp_file"
     run_as_root install -m 0644 "$tmp_file" "$SYSTEMD_DIR/$APP_NAME-autoupdate.service"
     rm -f "$tmp_file"

@@ -90,6 +90,12 @@ enum CheckResult {
     Updated,
 }
 
+#[derive(Debug)]
+pub struct ManualCheckResult {
+    pub message: String,
+    pub should_exit_for_restart: bool,
+}
+
 async fn run_once(client: &reqwest::Client, settings_path: &Path) -> Result<CheckResult, String> {
     let settings = read_settings(settings_path).await?;
     let config = AutoupdateConfig::from_settings(&settings);
@@ -161,6 +167,84 @@ async fn run_once(client: &reqwest::Client, settings_path: &Path) -> Result<Chec
 
     write_last_seen_sha(settings_path, &latest_sha).await?;
     Ok(CheckResult::Updated)
+}
+
+pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, String> {
+    let client = reqwest::Client::new();
+    let settings = read_settings(settings_path).await?;
+    let config = AutoupdateConfig::from_settings(&settings);
+
+    if !config.enabled {
+        return Ok(ManualCheckResult {
+            message: "Autoupdate disabled".to_string(),
+            should_exit_for_restart: false,
+        });
+    }
+    if config.repo.is_empty() {
+        return Ok(ManualCheckResult {
+            message: "Autoupdate repo empty".to_string(),
+            should_exit_for_restart: false,
+        });
+    }
+
+    let latest_sha = latest_github_sha(&client, &config.repo, &config.branch).await?;
+    if latest_sha.is_empty() {
+        return Ok(ManualCheckResult {
+            message: "No commit SHA found".to_string(),
+            should_exit_for_restart: false,
+        });
+    }
+
+    if config.last_seen_sha.is_empty() {
+        write_last_seen_sha(settings_path, &latest_sha).await?;
+        return Ok(ManualCheckResult {
+            message: format!("Recorded baseline {}", short_sha(&latest_sha)),
+            should_exit_for_restart: false,
+        });
+    }
+
+    if config.last_seen_sha == latest_sha {
+        return Ok(ManualCheckResult {
+            message: format!("Already up to date at {}", short_sha(&latest_sha)),
+            should_exit_for_restart: false,
+        });
+    }
+
+    if config.command.is_empty() {
+        return Ok(ManualCheckResult {
+            message: format!(
+                "Update available {} -> {}, but update command is empty",
+                short_sha(&config.last_seen_sha),
+                short_sha(&latest_sha)
+            ),
+            should_exit_for_restart: false,
+        });
+    }
+
+    info!(
+        repo = %config.repo,
+        branch = %config.branch,
+        old_sha = %short_sha(&config.last_seen_sha),
+        new_sha = %short_sha(&latest_sha),
+        "manual autoupdate triggered; running command"
+    );
+
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg(&config.command)
+        .status()
+        .await
+        .map_err(|err| format!("failed to spawn update command: {err}"))?;
+
+    if !status.success() {
+        return Err(format!("autoupdate command failed with {status}"));
+    }
+
+    write_last_seen_sha(settings_path, &latest_sha).await?;
+    Ok(ManualCheckResult {
+        message: format!("Installed update {}", short_sha(&latest_sha)),
+        should_exit_for_restart: true,
+    })
 }
 
 async fn latest_github_sha(

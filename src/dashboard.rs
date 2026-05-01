@@ -1,4 +1,4 @@
-use crate::{api, AppState};
+use crate::{api, autoupdate, AppState};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::sync::Arc;
+use std::time::Duration;
 
 pub async fn app_index(State(state): State<Arc<AppState>>) -> Response {
     match fs::read_to_string(state.template_dir.join("app.html")) {
@@ -282,6 +283,31 @@ pub async fn update_settings(
     fs::write(&state.settings_path, out_str).unwrap();
 
     Json(())
+}
+
+#[derive(Serialize)]
+pub struct TriggerAutoupdateRes {
+    message: String,
+    restarting: bool,
+}
+
+pub async fn trigger_autoupdate(State(state): State<Arc<AppState>>) -> Response {
+    match autoupdate::trigger_manual(&state.settings_path).await {
+        Ok(result) => {
+            if result.should_exit_for_restart {
+                tokio::spawn(async {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    std::process::exit(75);
+                });
+            }
+            Json(TriggerAutoupdateRes {
+                message: result.message,
+                restarting: result.should_exit_for_restart,
+            })
+            .into_response()
+        }
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err).into_response(),
+    }
 }
 
 #[derive(Deserialize)]

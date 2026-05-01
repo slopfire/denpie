@@ -12,7 +12,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Any OpenAI-Compatible LLM**: Configure the API key, base URL, and model through the protobuf API — no hardcoded vendor lock-in.
 - **Token Spend Counters**: The browser dashboard tracks OpenAI-compatible `usage.total_tokens` for daily, monthly, and lifetime LLM calls.
 - **Unified Protobuf API**: `POST /api` manages tips, reviews, settings, keys, topics, topic deletion, cards, and summary counts with one full-access API key.
-- **Root Control Page**: `/` serves a browser control panel that talks to the same protobuf API, with stable per-card loading skeletons, compact/full card text controls, and fullscreen card viewing.
+- **Root Control Page**: `/` serves a browser control panel that talks to the same protobuf API, with stable per-card loading skeletons, compact/full card text controls, and title-row fullscreen card viewing.
 - **Single Dashboard Surface**: The browser dashboard is served only at `/`;
 - **CSS-Only Motion**: The control page uses fast page-entry, card-entry, and compact-to-full tipcard animations with reduced-motion support.
 - **Markdown Tipcards**: API responses keep the original raw markdown-capable text so clients can render it however they need.
@@ -120,6 +120,14 @@ All runtime configuration lives in `settings.yaml` and is managed through the pr
 
 Autoupdate is intentionally off by default. For the systemd installation, the installer enables a `dailytipdraft-autoupdate.timer` that reads `settings.yaml`; checking **Enable GitHub autoupdate** in the app is enough. On the first successful check the updater records the current commit SHA as a baseline and does not update. On later checks, a changed SHA triggers a root-owned update helper that fetches the configured branch, runs `cargo build --release`, installs the new binary plus shared files, records the new SHA, and restarts `dailytipdraft.service`. The host must keep the build tools available after installation (`git`, `cargo` from the installer-managed rustup toolchain or another Rust installation, and `protoc`/`protobuf-compiler`).
 
+The settings screen also has a **Check Now** button. For non-systemd or custom deployments it runs the configured `autoupdate_command` immediately after checking GitHub. For systemd installs, manually trigger the root-owned updater with:
+
+```bash
+sudo systemctl start dailytipdraft-autoupdate.service
+```
+
+Manual systemd starts bypass the saved check interval; the helper still exits without changes when the recorded SHA already matches the remote branch.
+
 Default repository comes from this repo's `origin` remote: `slopfire/dailytipdraft`. You can override it with another `owner/repo`, `https://github.com/owner/repo`, or `git@github.com:owner/repo.git` value. Example:
 
 ```yaml
@@ -129,7 +137,7 @@ autoupdate_branch: main
 autoupdate_check_interval_secs: 1800
 ```
 
-For non-systemd or custom deployments, set `autoupdate_command` to a local command that performs the update. In that mode, the command runs with the same user, permissions, and working directory as the server process; if it succeeds, the server exits with code `75` so an external supervisor can restart it.
+For non-systemd or custom deployments, set `autoupdate_command` to a local command that performs the update. In that mode, scheduled checks and the **Check Now** button run the command with the same user, permissions, and working directory as the server process; if it succeeds, the server exits with code `75` so an external supervisor can restart it.
 
 ## Runtime Environment
 

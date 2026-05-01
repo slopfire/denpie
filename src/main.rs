@@ -138,6 +138,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
             "/admin/settings",
             get(dashboard::get_settings).post(dashboard::update_settings),
         )
+        .route("/admin/autoupdate", post(dashboard::trigger_autoupdate))
         .route(
             "/admin/keys",
             get(dashboard::list_api_keys)
