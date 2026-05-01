@@ -1865,7 +1865,10 @@
         renderFlow();
       });
       $('tips-topics').addEventListener('keydown', (event) => {
-        if (event.key === 'Tab' && !event.shiftKey && $('tips-type').value === 'manual_tip') {
+        const shouldFocusManualContent =
+          $('tips-type').value === 'manual_tip' &&
+          ((event.key === 'Tab' && !event.shiftKey) || (event.key === 'Enter' && !event.shiftKey));
+        if (shouldFocusManualContent) {
           event.preventDefault();
           $('manual-card-content').focus();
         }
