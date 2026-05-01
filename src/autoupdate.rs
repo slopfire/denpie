@@ -17,6 +17,7 @@ pub struct AutoupdateConfig {
 }
 
 const DEFAULT_REPO: &str = "slopfire/dailytipdraft";
+const DEFAULT_SYSTEMD_UPDATE_SERVICE: &str = "dailytipdraft-autoupdate.service";
 
 impl AutoupdateConfig {
     pub fn from_settings(settings: &Value) -> Self {
@@ -211,13 +212,44 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
     }
 
     if config.command.is_empty() {
+        let service = std::env::var("DAILYTIP_AUTOUPDATE_SERVICE")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_SYSTEMD_UPDATE_SERVICE.to_string());
+        info!(
+            repo = %config.repo,
+            branch = %config.branch,
+            old_sha = %short_sha(&config.last_seen_sha),
+            new_sha = %short_sha(&latest_sha),
+            service = %service,
+            "manual autoupdate triggered; starting default systemd updater"
+        );
+
+        let status = Command::new("systemctl")
+            .arg("start")
+            .arg("--no-block")
+            .arg(&service)
+            .status()
+            .await
+            .map_err(|err| {
+                format!(
+                    "failed to start default updater {service}: {err}; set autoupdate_command for custom installs"
+                )
+            })?;
+
+        if !status.success() {
+            return Err(format!(
+                "default updater {service} failed with {status}; set autoupdate_command for custom installs"
+            ));
+        }
+
         return Ok(ManualCheckResult {
             message: format!(
-                "Update available {} -> {}, but update command is empty",
+                "Started default updater for {} -> {}",
                 short_sha(&config.last_seen_sha),
                 short_sha(&latest_sha)
             ),
-            should_exit_for_restart: false,
+            should_exit_for_restart: true,
         });
     }
 

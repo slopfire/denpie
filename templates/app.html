@@ -1546,6 +1546,34 @@
       toast('Key deleted');
     }
 
+    function currentSettingsPayload() {
+      return {
+        model: $('model-input').value,
+        compress_model: $('compress-model-input').value,
+        template: $('template-input').value,
+        api_key: $('api-key-input').value,
+        base_url: $('base-url-input').value,
+        compress_base_url: $('compress-base-url-input').value,
+        reasoning_effort: $('reasoning-effort-input').value,
+        compress_reasoning_effort: $('compress-reasoning-effort-input').value,
+        autoupdate_enabled: $('autoupdate-enabled-input').checked,
+        autoupdate_repo: $('autoupdate-repo-input').value,
+        autoupdate_branch: $('autoupdate-branch-input').value,
+        autoupdate_check_interval_secs: Number($('autoupdate-interval-input').value) || 3600,
+        autoupdate_command: $('autoupdate-command-input').value,
+        daily_time_zone: $('daily-time-zone-input').value,
+        daily_update_time: $('daily-update-time-input').value,
+        color_scheme: document.documentElement.dataset.theme
+      };
+    }
+
+    async function saveSettings() {
+      await api('/admin/settings', {
+        method: 'POST',
+        body: JSON.stringify(currentSettingsPayload())
+      });
+    }
+
     window.loadTopic = loadTopic;
     window.reviewCard = reviewCard;
     window.deleteCard = deleteCard;
@@ -1583,33 +1611,14 @@
       });
       $('settings-form').addEventListener('submit', async (event) => {
         event.preventDefault();
-        await api('/admin/settings', {
-          method: 'POST',
-          body: JSON.stringify({
-            model: $('model-input').value,
-            compress_model: $('compress-model-input').value,
-            template: $('template-input').value,
-            api_key: $('api-key-input').value,
-            base_url: $('base-url-input').value,
-            compress_base_url: $('compress-base-url-input').value,
-            reasoning_effort: $('reasoning-effort-input').value,
-            compress_reasoning_effort: $('compress-reasoning-effort-input').value,
-            autoupdate_enabled: $('autoupdate-enabled-input').checked,
-            autoupdate_repo: $('autoupdate-repo-input').value,
-            autoupdate_branch: $('autoupdate-branch-input').value,
-            autoupdate_check_interval_secs: Number($('autoupdate-interval-input').value) || 3600,
-            autoupdate_command: $('autoupdate-command-input').value,
-            daily_time_zone: $('daily-time-zone-input').value,
-            daily_update_time: $('daily-update-time-input').value,
-            color_scheme: document.documentElement.dataset.theme
-          })
-        });
+        await saveSettings();
         toast('Settings saved');
       });
       $('autoupdate-trigger-btn').addEventListener('click', async () => {
         const button = $('autoupdate-trigger-btn');
         button.disabled = true;
         try {
+          await saveSettings();
           const result = await api('/admin/autoupdate', { method: 'POST' });
           toast(result?.message || 'Autoupdate checked');
           if (!result?.restarting) await refreshAll();
