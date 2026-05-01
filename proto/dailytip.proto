@@ -6,8 +6,10 @@ message TipsQuery {
     uint64 count = 1;
     string topics = 2; // comma separated
     string topic_class = 3; // optional, defaults to "default"
-    string tipcard_type = 4; // optional class type: "srs_tip", "casual_tip", or "repeatable_tip"
+    string tipcard_type = 4; // optional class type: "srs_tip", "casual_tip", "repeatable_tip", or "manual_tip"
     repeated int64 exclude_card_ids = 5; // optional: suppress cards already visible in a client flow
+    string manual_content = 6; // required when tipcard_type is "manual_tip"
+    string manual_compressed_content = 7; // optional compact text for manual cards
 }
 
 message TipCardResponse {

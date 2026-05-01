@@ -229,6 +229,8 @@ mod tests {
                     topic_class: "default".into(),
                     tipcard_type: "srs_tip".into(),
                     exclude_card_ids: vec![],
+                    manual_content: "".into(),
+                    manual_compressed_content: "".into(),
                 },
             )),
         };
@@ -266,6 +268,8 @@ mod tests {
                         topic_class: "casual".into(),
                         tipcard_type: "casual_tip".into(),
                         exclude_card_ids: vec![],
+                        manual_content: "".into(),
+                        manual_compressed_content: "".into(),
                     },
                 )),
             },
@@ -337,6 +341,8 @@ mod tests {
                         topic_class: "default".into(),
                         tipcard_type: "srs_tip".into(),
                         exclude_card_ids: vec![],
+                        manual_content: "".into(),
+                        manual_compressed_content: "".into(),
                     },
                 )),
             },
@@ -423,6 +429,8 @@ mod tests {
                         topic_class: "default".into(),
                         tipcard_type: "srs_tip".into(),
                         exclude_card_ids: vec![],
+                        manual_content: "".into(),
+                        manual_compressed_content: "".into(),
                     },
                 )),
             },
@@ -485,6 +493,8 @@ mod tests {
                         topic_class: "repeatable".into(),
                         tipcard_type: "repeatable_tip".into(),
                         exclude_card_ids: vec![],
+                        manual_content: "".into(),
+                        manual_compressed_content: "".into(),
                     },
                 )),
             },
@@ -563,6 +573,8 @@ mod tests {
                         topic_class: "repeatable".into(),
                         tipcard_type: "repeatable_tip".into(),
                         exclude_card_ids: vec![],
+                        manual_content: "".into(),
+                        manual_compressed_content: "".into(),
                     },
                 )),
             },
@@ -660,6 +672,8 @@ mod tests {
                         topic_class: "".into(),
                         tipcard_type: "".into(),
                         exclude_card_ids: vec![],
+                        manual_content: "".into(),
+                        manual_compressed_content: "".into(),
                     },
                 )),
             },
@@ -683,6 +697,8 @@ mod tests {
                         topic_class: "".into(),
                         tipcard_type: "".into(),
                         exclude_card_ids: vec![],
+                        manual_content: "".into(),
+                        manual_compressed_content: "".into(),
                     },
                 )),
             },
@@ -707,6 +723,8 @@ mod tests {
             topic_class: "".into(),
             tipcard_type: "".into(),
             exclude_card_ids: vec![],
+            manual_content: "".into(),
+            manual_compressed_content: "".into(),
         };
         let res = post_api(
             &url,
@@ -802,6 +820,8 @@ mod tests {
             topic_class: "".into(),
             tipcard_type: "".into(),
             exclude_card_ids: vec![],
+            manual_content: "".into(),
+            manual_compressed_content: "".into(),
         };
         let res = post_api(
             &url,
@@ -838,6 +858,8 @@ mod tests {
             topic_class: "re:word".into(),
             tipcard_type: "repeatable_tip".into(),
             exclude_card_ids: vec![],
+            manual_content: "".into(),
+            manual_compressed_content: "".into(),
         };
         let res = post_api(
             &url,
@@ -961,6 +983,8 @@ mod tests {
                 topic_class: Some("repeatable".into()),
                 tipcard_type: Some("repeatable_tip".into()),
                 exclude_card_ids: Some(visible_ids.clone()),
+                manual_content: None,
+                manual_compressed_content: None,
             },
         )
         .await
@@ -1040,6 +1064,8 @@ mod tests {
                 topic_class: Some("repeatable".into()),
                 tipcard_type: Some("repeatable_tip".into()),
                 exclude_card_ids: None,
+                manual_content: None,
+                manual_compressed_content: None,
             },
         )
         .await
@@ -1060,6 +1086,8 @@ mod tests {
             topic_class: "casual".into(),
             tipcard_type: "casual_tip".into(),
             exclude_card_ids: vec![],
+            manual_content: "".into(),
+            manual_compressed_content: "".into(),
         };
         let res = post_api(
             &url,
@@ -1149,5 +1177,60 @@ mod tests {
         };
         assert_eq!(third_resp.tips.len(), 1);
         assert_ne!(third_resp.tips[0].id, second_id);
+    }
+
+    #[tokio::test]
+    async fn test_manual_tipcards_are_created_from_user_text() {
+        let (url, client) = spawn_test_server().await;
+        let api_key = bootstrap_api_key(&url, &client, "manual_flow").await;
+
+        let tips_query = crate::api::pb::TipsQuery {
+            count: 1,
+            topics: "rust".into(),
+            topic_class: "manual".into(),
+            tipcard_type: "manual_tip".into(),
+            exclude_card_ids: vec![],
+            manual_content: "Borrow checker: one mutable borrow or many immutable borrows.".into(),
+            manual_compressed_content: "".into(),
+        };
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Tips(tips_query)),
+            },
+        )
+        .await;
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        let api_resp = crate::api::pb::ApiResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let tips_resp = match api_resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Tips(tips) => tips,
+            other => panic!("unexpected response: {:?}", other),
+        };
+        assert_eq!(tips_resp.tips.len(), 1);
+        assert_eq!(tips_resp.tips[0].topic_class, "manual");
+        assert_eq!(tips_resp.tips[0].tipcard_type, "manual_tip");
+        assert_eq!(
+            tips_resp.tips[0].full_content,
+            "Borrow checker: one mutable borrow or many immutable borrows."
+        );
+
+        let ack = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key,
+                op: Some(crate::api::pb::api_request::Op::Review(
+                    crate::api::pb::ReviewPayload {
+                        card_id: tips_resp.tips[0].id,
+                        grade: 3,
+                        action: "acknowledge".into(),
+                    },
+                )),
+            },
+        )
+        .await;
+        assert_eq!(ack.status(), reqwest::StatusCode::OK);
     }
 }

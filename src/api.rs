@@ -388,6 +388,8 @@ pub struct TipsJsonRequest {
     pub topic_class: Option<String>,
     pub tipcard_type: Option<String>,
     pub exclude_card_ids: Option<Vec<i64>>,
+    pub manual_content: Option<String>,
+    pub manual_compressed_content: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -789,11 +791,13 @@ fn normalize_tipcard_type(value: &str, class_name: &str) -> String {
     match value.trim() {
         "casual" | "casual_tip" => "casual_tip".to_string(),
         "repeatable" | "repeatable_tip" | "reword" | "re:word" => "repeatable_tip".to_string(),
+        "manual" | "manual_tip" => "manual_tip".to_string(),
         "srs" | "srs_tip" => "srs_tip".to_string(),
         "" if matches!(class_name.trim(), "casual" | "casual_tip") => "casual_tip".to_string(),
         "" if matches!(class_name.trim(), "repeatable" | "reword" | "re:word") => {
             "repeatable_tip".to_string()
         }
+        "" if matches!(class_name.trim(), "manual" | "manual_tip") => "manual_tip".to_string(),
         _ => "srs_tip".to_string(),
     }
 }
@@ -1039,6 +1043,12 @@ pub async fn build_tips(
     let mut responses = Vec::new();
     let topic_class = query.topic_class.unwrap_or_default();
     let tipcard_type = query.tipcard_type.unwrap_or_default();
+    let manual_content = query.manual_content.unwrap_or_default().trim().to_string();
+    let manual_compressed_content = query
+        .manual_compressed_content
+        .unwrap_or_default()
+        .trim()
+        .to_string();
     let exclude_card_ids: Vec<i64> = query
         .exclude_card_ids
         .unwrap_or_default()
@@ -1099,6 +1109,31 @@ pub async fn build_tips(
         }
 
         let topic = get_or_create_topic(state, topic_name, class_info.id).await?;
+        if class_info.tipcard_type == "manual_tip" {
+            if manual_content.is_empty() {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "manual_content is required for manual_tip".to_string(),
+                ));
+            }
+            let compact = if manual_compressed_content.is_empty() {
+                manual_content.clone()
+            } else {
+                manual_compressed_content.clone()
+            };
+            create_manual_tipcard(
+                state,
+                topic_name,
+                &topic,
+                &class_info,
+                manual_content.clone(),
+                compact,
+                &mut responses,
+            )
+            .await?;
+            continue;
+        }
+
         let daily_card_count = if is_queue_tipcard(&class_info.tipcard_type) {
             1
         } else {
@@ -1299,6 +1334,58 @@ async fn generate_tipcard(
     Ok(())
 }
 
+async fn create_manual_tipcard(
+    state: &AppState,
+    topic_name: &str,
+    topic: &TopicInfo,
+    class_info: &TopicClassInfo,
+    full_tip: String,
+    compressed_tip: String,
+    responses: &mut Vec<TipCardJson>,
+) -> Result<(), (StatusCode, String)> {
+    let title = full_tip
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("Manual card")
+        .chars()
+        .take(96)
+        .collect::<String>();
+
+    let card_id = sqlx::query(
+        "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(topic.id)
+    .bind(&class_info.tipcard_type)
+    .bind(&title)
+    .bind(&full_tip)
+    .bind(&compressed_tip)
+    .execute(&state.db)
+    .await
+    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .last_insert_rowid();
+
+    sqlx::query(
+        "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, 'manual', ?, 'active', ?)",
+    )
+    .bind(card_id)
+    .bind(serde_json::to_string(&RepeatableState::default()).unwrap())
+    .bind(Utc::now())
+    .execute(&state.db)
+    .await
+    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    responses.push(tip_response_json(
+        card_id,
+        topic_name,
+        full_tip,
+        compressed_tip,
+        class_info,
+    ));
+
+    Ok(())
+}
+
 pub async fn unified_api(
     State(state): State<Arc<AppState>>,
     body: Bytes,
@@ -1338,6 +1425,8 @@ pub async fn unified_api(
                             topic_class: Some(query.topic_class),
                             tipcard_type: Some(query.tipcard_type),
                             exclude_card_ids: Some(query.exclude_card_ids),
+                            manual_content: Some(query.manual_content),
+                            manual_compressed_content: Some(query.manual_compressed_content),
                         },
                     )
                     .await?
@@ -1562,5 +1651,5 @@ pub async fn apply_review(
 }
 
 fn is_queue_tipcard(tipcard_type: &str) -> bool {
-    matches!(tipcard_type, "casual_tip" | "repeatable_tip")
+    matches!(tipcard_type, "casual_tip" | "repeatable_tip" | "manual_tip")
 }
