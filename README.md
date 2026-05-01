@@ -223,7 +223,7 @@ The unified protobuf API is the only public API:
 
 Topic rows can override the daily defaults with `daily_card_count`, `daily_time_zone`, and `daily_update_time`. Empty time fields inherit the global settings; empty or zero count falls back to one card.
 
-Tip content can include markdown such as headings, lists, emphasis, links, blockquotes, inline code, and fenced code blocks. The protobuf API returns raw `full_content` and `compressed_content` strings so clients can choose their own renderer.
+Tip content can include markdown such as headings, lists, emphasis, links, blockquotes, inline code, and fenced code blocks. The built-in browser UI supports common inline combinations such as bold text containing inline code. The protobuf API returns raw `full_content` and `compressed_content` strings so clients can choose their own renderer.
 
 ## Running Tests
 

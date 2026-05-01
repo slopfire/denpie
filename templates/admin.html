@@ -441,32 +441,29 @@
     }
 
     function renderInlineMarkdown(value) {
-      const renderBasic = (text) => escapeHtml(text)
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        .replace(/__([^_]+)__/g, '<strong>$1</strong>')
-        .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+      let text = String(value ?? '');
+      const tokens = [];
+      const stash = (html) => `\u0000${tokens.push(html) - 1}\u0000`;
+      const restoreTokens = (html) => {
+        while (/\u0000\d+\u0000/.test(html)) {
+          html = html.replace(/\u0000(\d+)\u0000/g, (_, index) => tokens[Number(index)] ?? '');
+        }
+        return html;
+      };
+      const renderBasic = (raw) => escapeHtml(raw)
+        .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/__([\s\S]+?)__/g, '<strong>$1</strong>')
+        .replace(/~~([\s\S]+?)~~/g, '<del>$1</del>')
         .replace(/(^|[^\*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
         .replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>');
 
-      const renderLinks = (text) => {
-        const pattern = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
-        let html = '';
-        let lastIndex = 0;
-        let match;
-        while ((match = pattern.exec(text)) !== null) {
-          html += renderBasic(text.slice(lastIndex, match.index));
-          html += `<a href="${escapeHtml(safeMarkdownUrl(match[2]))}" target="_blank" rel="noopener noreferrer">${renderBasic(match[1])}</a>`;
-          lastIndex = pattern.lastIndex;
-        }
-        return html + renderBasic(text.slice(lastIndex));
-      };
+      text = text.replace(/`([^`\n]+)`/g, (_, code) => stash(`<code>${escapeHtml(code)}</code>`));
+      text = text.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_, label, url) => {
+        const safeUrl = escapeHtml(safeMarkdownUrl(url));
+        return stash(`<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${renderBasic(label)}</a>`);
+      });
 
-      return String(value ?? '').split(/(`[^`\n]+`)/g).map((part) => {
-        if (part.startsWith('`') && part.endsWith('`')) {
-          return `<code>${escapeHtml(part.slice(1, -1))}</code>`;
-        }
-        return renderLinks(part);
-      }).join('');
+      return restoreTokens(renderBasic(text));
     }
 
     function renderMarkdown(value) {
