@@ -166,6 +166,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
                 .delete(dashboard::delete_topic),
         )
         .route("/app/tips", post(dashboard::app_tips))
+        .route("/app/daily-refresh", post(dashboard::force_daily_refresh))
         .route("/app/review", post(dashboard::app_review))
         .route_layer(axum::middleware::from_fn(auth::require_session))
         .route("/", get(dashboard::app_index))

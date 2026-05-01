@@ -36,7 +36,7 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 | Operation | Result | Purpose |
 |---|---|---|
 | `bootstrap_api_key` | `api_key_created` | Create the first/full-access API key using `admin_token`. |
-| `tips` | `tips` | Get due cards, reuse the current daily topic card, generate a new card after the configured daily update time, or create a manual card from user text. |
+| `tips` | `tips` | Get due cards, reuse the current daily topic card, generate a new card after the configured daily card refresh time, or create a manual card from user text. |
 | `submit_custom_tipcard` | `tips` | Store an externally supplied custom card without creating SRS review state. |
 | `review` | `ok` | Review, dismiss, acknowledge, repeat, or memorize a card. |
 | `get_topics` | `topics` | List known topic names. |
@@ -50,6 +50,7 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 | `list_tipcards` | `tipcards` | List stored cards with status, repeat count, pin state, and next scheduled review time. |
 | `delete_tipcard` | `ok` | Delete a card and its review state. |
 | `pin_tipcard` | `ok` | Pin or unpin a card by database ID. Pinned active cards are treated as due until unpinned. |
+| `force_daily_refresh` | `force_daily_refresh` | Dismiss current unpinned generated cards for selected topics so the next `tips` call creates fresh daily cards. |
 | `delete_topic` | `ok` | Delete a topic and all of its cards and review states. |
 | `get_summary` | `summary` | Read card/topic counts. |
 | `list_app_topics` | `app_topics` | Read topic rows with due/completed counts. |
@@ -60,6 +61,8 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 `tips` is topic-aware. For each requested SRS topic/type, the server first returns due active cards. If none are due, it returns existing cards created in the current daily refresh window up to that topic's daily card count. New cards are generated only until that per-topic daily count is satisfied.
 
 Daily card refresh windows use `settings.daily_time_zone` (IANA name such as `UTC`, `Asia/Vladivostok`, or `America/New_York`; fixed offsets such as `UTC+10` are also accepted) and `settings.daily_update_time` (`HH:MM`, default `00:00`). Each topic can override count/time with `update_topic.daily_card_count`, `update_topic.daily_time_zone`, and `update_topic.daily_update_time`. Invalid values fall back to `UTC`, midnight, and one card.
+
+Use `force_daily_refresh` with comma-separated topics plus the desired `topic_class` and `tipcard_type` to force replacements before the normal refresh time. The operation dismisses active, unpinned generated cards for those topics and returns `refreshed_cards`; pinned cards stay active.
 
 For user-authored cards, set `TipsQuery.tipcard_type` to `manual_tip` and provide `manual_content`. The server stores that text directly as the full card content, uses `manual_compressed_content` when provided, and otherwise uses the full text as compact content. Manual cards do not call the LLM.
 

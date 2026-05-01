@@ -78,6 +78,7 @@ message ApiRequest {
         DeleteByIdRequest delete_topic = 18;
         PinTipcardRequest pin_tipcard = 19;
         CustomTipcardRequest submit_custom_tipcard = 20;
+        ForceDailyRefreshRequest force_daily_refresh = 21;
     }
 }
 
@@ -94,6 +95,7 @@ message ApiResponse {
         Tipcards tipcards = 9;
         AppSummary summary = 10;
         AppTopics app_topics = 11;
+        ForceDailyRefreshResponse force_daily_refresh = 12;
     }
 }
 
@@ -232,4 +234,14 @@ message UpdateTopicRequest {
 message PinTipcardRequest {
     int64 id = 1;
     bool pinned = 2;
+}
+
+message ForceDailyRefreshRequest {
+    string topics = 1; // comma separated
+    string topic_class = 2; // optional, defaults to "default"
+    string tipcard_type = 3; // optional class type: "srs_tip", "casual_tip", or "repeatable_tip"
+}
+
+message ForceDailyRefreshResponse {
+    uint64 refreshed_cards = 1;
 }

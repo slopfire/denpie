@@ -903,3 +903,10 @@ pub async fn app_review(
     api::apply_review(&state, req.card_id, grade, &action).await?;
     Ok(Json(()))
 }
+
+pub async fn force_daily_refresh(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<api::ForceDailyRefreshRequest>,
+) -> Result<Json<api::ForceDailyRefreshResponse>, (StatusCode, String)> {
+    api::force_daily_refresh(&state, req).await.map(Json)
+}

@@ -496,7 +496,7 @@
             <h1 class="text-3xl font-bold tracking-tight">Unified Flow</h1>
             <p class="text-muted mt-2">All cards in one review surface.</p>
           </div>
-          <form id="tips-form" class="surface border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 w-full xl:w-auto">
+          <form id="tips-form" class="surface border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-3 w-full xl:w-auto">
             <input id="tips-topics" class="rounded-lg border px-3 py-2 xl:col-span-2" placeholder="Rust, Python, System Design" required>
             <input id="tips-type" type="hidden" value="casual_tip">
             <div class="tip-type-switch muted-surface border border-token rounded-lg p-1 grid grid-cols-3 sm:col-span-2" role="group" aria-label="Card class">
@@ -507,8 +507,11 @@
             <button class="rounded-lg bg-primary-solid px-4 py-2 font-bold flex items-center justify-center gap-2">
               <span id="tips-submit-icon" class="material-symbols-outlined">auto_awesome</span><span id="tips-submit-label">Add</span>
             </button>
-            <textarea id="manual-card-content" class="hidden rounded-lg border px-3 py-2 sm:col-span-2 xl:col-span-5 h-28 resize-y" placeholder="Write manual card text"></textarea>
-            <div id="manual-card-images-row" class="hidden sm:col-span-2 xl:col-span-5 flex flex-wrap items-center gap-3">
+            <button id="force-daily-refresh-btn" type="button" class="rounded-lg border border-token px-4 py-2 font-bold flex items-center justify-center gap-2" title="Force daily card refresh">
+              <span class="material-symbols-outlined">sync</span><span>Force Refresh</span>
+            </button>
+            <textarea id="manual-card-content" class="hidden rounded-lg border px-3 py-2 sm:col-span-2 xl:col-span-6 h-28 resize-y" placeholder="Write manual card text"></textarea>
+            <div id="manual-card-images-row" class="hidden sm:col-span-2 xl:col-span-6 flex flex-wrap items-center gap-3">
               <label class="inline-flex items-center gap-2 rounded-lg border border-token px-3 py-2 text-sm font-bold cursor-pointer">
                 <span class="material-symbols-outlined">add_photo_alternate</span>
                 <span>Attach images</span>
@@ -1170,6 +1173,7 @@
       $('manual-card-images-row').classList.toggle('hidden', tipcardType !== 'manual_tip');
       $('tips-submit-icon').textContent = tipcardType === 'manual_tip' ? 'add_notes' : 'auto_awesome';
       $('tips-submit-label').textContent = tipcardType === 'manual_tip' ? 'Save' : 'Add';
+      $('force-daily-refresh-btn').classList.toggle('hidden', tipcardType === 'manual_tip');
     }
 
     function saveCardOrder() {
@@ -2021,6 +2025,48 @@
       }
     }
 
+    async function forceDailyRefresh() {
+      const tipcardType = $('tips-type').value;
+      if (tipcardType === 'manual_tip') {
+        toast('Manual cards do not use daily refresh');
+        return;
+      }
+      const topics = requestedTopics().slice(0, 6);
+      const loadTopics = topics.length ? topics : [$('tips-topics').value.trim() || 'Tip'];
+      const topicSet = new Set(loadTopics.map((topic) => topic.toLowerCase()));
+      const button = $('force-daily-refresh-btn');
+      button.disabled = true;
+      state.refreshingFlow = true;
+      renderFlow();
+      try {
+        const result = await api('/app/daily-refresh', {
+          method: 'POST',
+          body: JSON.stringify({
+            topics: loadTopics.join(','),
+            topic_class: cardKindFromType(tipcardType),
+            tipcard_type: tipcardType
+          })
+        });
+        const dismissed = Number(result.refreshed_cards || 0);
+        state.cardOrder = state.cardOrder.filter((cardId) => {
+          const card = state.archiveCards.find((item) => Number(item.id) === Number(cardId));
+          if (!card) return true;
+          return !(
+            topicSet.has(String(card.topic_name || card.topic || '').toLowerCase()) &&
+            card.tipcard_type === tipcardType &&
+            !card.pinned
+          );
+        });
+        saveCardOrder();
+        await pullTips();
+        toast(dismissed ? 'Daily cards refreshed' : 'Fresh daily cards loaded');
+      } finally {
+        button.disabled = false;
+        state.refreshingFlow = false;
+        renderFlow();
+      }
+    }
+
     async function deleteKey(id) {
       await api('/admin/keys', { method: 'DELETE', body: JSON.stringify({ id }) });
       state.keys = await api('/admin/keys');
@@ -2106,6 +2152,7 @@
         }
       });
       $('refresh-btn').addEventListener('click', () => refreshAll().then(refreshDailyCasualCards).then(() => toast('Refreshed')).catch((err) => toast(err.message)));
+      $('force-daily-refresh-btn').addEventListener('click', () => forceDailyRefresh().catch((err) => toast(err.message)));
       $('topic-search').addEventListener('input', renderTopics);
       $('tips-form').addEventListener('submit', (event) => {
         event.preventDefault();

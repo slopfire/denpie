@@ -423,6 +423,18 @@ pub struct ReviewJsonRequest {
     pub action: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct ForceDailyRefreshRequest {
+    pub topics: String,
+    pub topic_class: Option<String>,
+    pub tipcard_type: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ForceDailyRefreshResponse {
+    pub refreshed_cards: u64,
+}
+
 async fn list_api_keys_pb(state: &AppState) -> Result<pb::ApiKeys, (StatusCode, String)> {
     let rows = sqlx::query_as::<_, (i64, String, String)>(
         "SELECT id, client_name, COALESCE(CAST(created_at AS TEXT), '') FROM api_keys ORDER BY created_at DESC",
@@ -1012,8 +1024,7 @@ fn parse_image_data(raw: &str) -> Vec<String> {
 }
 
 fn image_data_json(images: &[String]) -> Result<String, (StatusCode, String)> {
-    serde_json::to_string(images)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    serde_json::to_string(images).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 pub fn validate_image_data(images: Vec<String>) -> Result<Vec<String>, (StatusCode, String)> {
@@ -1069,11 +1080,13 @@ async fn find_daily_topic_cards(
         "
         SELECT t.id, t.full_content, t.compressed_content, COALESCE(t.pinned, 0), COALESCE(t.image_data, '[]')
         FROM tipcards t
+        JOIN review_states r ON t.id = r.card_id
         WHERE t.topic_id = ",
     );
     daily_query.push_bind(topic_id);
     daily_query.push(" AND t.tipcard_type = ");
     daily_query.push_bind(tipcard_type);
+    daily_query.push(" AND r.status = 'active'");
     daily_query.push(" AND t.created_at >= ");
     daily_query.push_bind(
         daily_window_start
@@ -1384,6 +1397,88 @@ pub async fn build_tips(
     Ok(responses)
 }
 
+pub async fn force_daily_refresh(
+    state: &AppState,
+    req: ForceDailyRefreshRequest,
+) -> Result<ForceDailyRefreshResponse, (StatusCode, String)> {
+    let topic_class = req.topic_class.unwrap_or_default();
+    let tipcard_type = req.tipcard_type.unwrap_or_default();
+    let class_info = get_or_create_topic_class(state, &topic_class, &tipcard_type).await?;
+    if matches!(
+        class_info.tipcard_type.as_str(),
+        "manual_tip" | "custom_tip"
+    ) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Only generated daily cards can be force-refreshed".to_string(),
+        ));
+    }
+
+    let settings_str = fs::read_to_string(&state.settings_path).unwrap_or_default();
+    let settings: serde_yaml::Value = serde_yaml::from_str(&settings_str).unwrap_or_default();
+    let dismissed_until = Utc::now() + Duration::days(36500);
+    let mut refreshed_cards = 0u64;
+
+    for topic_name in req.topics.split(',') {
+        let topic_name = topic_name.trim();
+        if topic_name.is_empty() {
+            continue;
+        }
+
+        let topic = get_or_create_topic(state, topic_name, class_info.id).await?;
+        let result = if is_queue_tipcard(&class_info.tipcard_type) {
+            sqlx::query(
+                "UPDATE review_states
+                 SET status = 'dismissed', next_review_at = ?
+                 WHERE card_id IN (
+                     SELECT t.id
+                     FROM tipcards t
+                     WHERE t.topic_id = ?
+                       AND t.tipcard_type = ?
+                       AND COALESCE(t.pinned, 0) = 0
+                 )
+                 AND status = 'active'",
+            )
+            .bind(dismissed_until)
+            .bind(topic.id)
+            .bind(&class_info.tipcard_type)
+            .execute(&state.db)
+            .await
+        } else {
+            let daily_window_start = topic_daily_window_start(&topic, &settings);
+            sqlx::query(
+                "UPDATE review_states
+                 SET status = 'dismissed', next_review_at = ?
+                 WHERE card_id IN (
+                     SELECT t.id
+                     FROM tipcards t
+                     WHERE t.topic_id = ?
+                       AND t.tipcard_type = ?
+                       AND COALESCE(t.pinned, 0) = 0
+                       AND t.created_at >= ?
+                 )
+                 AND status = 'active'",
+            )
+            .bind(dismissed_until)
+            .bind(topic.id)
+            .bind(&class_info.tipcard_type)
+            .bind(
+                daily_window_start
+                    .naive_utc()
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string(),
+            )
+            .execute(&state.db)
+            .await
+        }
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+        refreshed_cards = refreshed_cards.saturating_add(result.rows_affected());
+    }
+
+    Ok(ForceDailyRefreshResponse { refreshed_cards })
+}
+
 async fn generate_tipcard(
     state: &AppState,
     topic_name: &str,
@@ -1690,6 +1785,24 @@ pub async fn unified_api(
                                 pinned: card.pinned,
                             }],
                         })),
+                    }
+                }
+                pb::api_request::Op::ForceDailyRefresh(req) => {
+                    let result = force_daily_refresh(
+                        &state,
+                        ForceDailyRefreshRequest {
+                            topics: req.topics,
+                            topic_class: Some(req.topic_class),
+                            tipcard_type: Some(req.tipcard_type),
+                        },
+                    )
+                    .await?;
+                    pb::ApiResponse {
+                        result: Some(pb::api_response::Result::ForceDailyRefresh(
+                            pb::ForceDailyRefreshResponse {
+                                refreshed_cards: result.refreshed_cards,
+                            },
+                        )),
                     }
                 }
                 pb::api_request::Op::Review(payload) => {

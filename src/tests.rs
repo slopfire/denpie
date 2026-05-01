@@ -479,6 +479,91 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_force_daily_refresh_replaces_current_daily_card() {
+        let (url, client) = spawn_test_server().await;
+        let api_key = bootstrap_api_key(&url, &client, "force_daily_refresh").await;
+
+        let tips_query = crate::api::pb::TipsQuery {
+            count: 1,
+            topics: "rust".into(),
+            topic_class: "default".into(),
+            tipcard_type: "srs_tip".into(),
+            exclude_card_ids: vec![],
+            manual_content: "".into(),
+            manual_compressed_content: "".into(),
+        };
+        let first_response = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Tips(tips_query.clone())),
+            },
+        )
+        .await;
+        assert_eq!(first_response.status(), reqwest::StatusCode::OK);
+        let first_id =
+            match crate::api::pb::ApiResponse::decode(first_response.bytes().await.unwrap())
+                .unwrap()
+                .result
+                .unwrap()
+            {
+                crate::api::pb::api_response::Result::Tips(tips) => tips.tips[0].id,
+                other => panic!("unexpected response: {:?}", other),
+            };
+
+        let refresh_response = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::ForceDailyRefresh(
+                    crate::api::pb::ForceDailyRefreshRequest {
+                        topics: "rust".into(),
+                        topic_class: "default".into(),
+                        tipcard_type: "srs_tip".into(),
+                    },
+                )),
+            },
+        )
+        .await;
+        assert_eq!(refresh_response.status(), reqwest::StatusCode::OK);
+        let refreshed_cards =
+            match crate::api::pb::ApiResponse::decode(refresh_response.bytes().await.unwrap())
+                .unwrap()
+                .result
+                .unwrap()
+            {
+                crate::api::pb::api_response::Result::ForceDailyRefresh(result) => {
+                    result.refreshed_cards
+                }
+                other => panic!("unexpected response: {:?}", other),
+            };
+        assert_eq!(refreshed_cards, 1);
+
+        let second_response = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key,
+                op: Some(crate::api::pb::api_request::Op::Tips(tips_query)),
+            },
+        )
+        .await;
+        assert_eq!(second_response.status(), reqwest::StatusCode::OK);
+        let second_id =
+            match crate::api::pb::ApiResponse::decode(second_response.bytes().await.unwrap())
+                .unwrap()
+                .result
+                .unwrap()
+            {
+                crate::api::pb::api_response::Result::Tips(tips) => tips.tips[0].id,
+                other => panic!("unexpected response: {:?}", other),
+            };
+        assert_ne!(second_id, first_id);
+    }
+
+    #[tokio::test]
     async fn test_unified_api_can_delete_tipcard() {
         let (url, client) = spawn_test_server().await;
         let api_key = bootstrap_api_key(&url, &client, "delete_flow").await;
@@ -1585,7 +1670,10 @@ mod tests {
             .fetch_one(&state.db)
             .await
             .unwrap();
-        assert_eq!(serde_json::from_str::<Vec<String>>(&stored).unwrap(), vec![image]);
+        assert_eq!(
+            serde_json::from_str::<Vec<String>>(&stored).unwrap(),
+            vec![image]
+        );
 
         let replacement = "data:image/webp;base64,UklGRg==".to_string();
         crate::api::set_tipcard_images(&state, tips[0].id, vec![replacement.clone()])
