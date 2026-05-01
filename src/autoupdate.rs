@@ -246,11 +246,11 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
             ));
         }
 
-        let status = Command::new("systemctl")
+        let start_output = Command::new("systemctl")
             .arg("start")
             .arg("--no-block")
             .arg(&service)
-            .status()
+            .output()
             .await
             .map_err(|err| {
                 format!(
@@ -258,9 +258,18 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
                 )
             })?;
 
-        if !status.success() {
+        if !start_output.status.success() {
+            let stderr = String::from_utf8_lossy(&start_output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&start_output.stdout).trim().to_string();
+            let detail = if !stderr.is_empty() {
+                stderr
+            } else if !stdout.is_empty() {
+                stdout
+            } else {
+                start_output.status.to_string()
+            };
             return Err(format!(
-                "default updater {service} failed with {status}; set autoupdate_command for custom installs"
+                "default updater {service} failed: {detail}; set autoupdate_command for custom installs"
             ));
         }
 
