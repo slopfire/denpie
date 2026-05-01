@@ -123,6 +123,7 @@ mod tests {
             ("GET", "/topics"),
             ("GET", "/topic-classes"),
             ("POST", "/review"),
+            ("GET", "/admin"),
         ];
 
         for (method, path) in routes {

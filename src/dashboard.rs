@@ -11,13 +11,6 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::sync::Arc;
 
-pub async fn index(State(state): State<Arc<AppState>>) -> Response {
-    match fs::read_to_string(state.template_dir.join("admin.html")) {
-        Ok(html) => Html(html).into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Admin template missing").into_response(),
-    }
-}
-
 pub async fn app_index(State(state): State<Arc<AppState>>) -> Response {
     match fs::read_to_string(state.template_dir.join("app.html")) {
         Ok(html) => Html(html).into_response(),

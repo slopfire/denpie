@@ -162,7 +162,6 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .route("/app/review", post(dashboard::app_review))
         .route_layer(axum::middleware::from_fn(auth::require_session))
         .route("/", get(dashboard::app_index))
-        .route("/admin", get(dashboard::index))
         .route("/auth/login", post(auth::login))
         .route("/api", post(api::unified_api))
         .layer(session_layer)
