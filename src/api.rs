@@ -273,7 +273,7 @@ fn current_settings(state: &AppState) -> pb::Settings {
         autoupdate_branch: settings
             .get("autoupdate_branch")
             .and_then(|v| v.as_str())
-            .unwrap_or("main")
+            .unwrap_or("master")
             .to_string(),
         autoupdate_check_interval_secs: settings
             .get("autoupdate_check_interval_secs")

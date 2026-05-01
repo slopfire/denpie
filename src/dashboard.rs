@@ -101,7 +101,7 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
     let autoupdate_branch = settings
         .get("autoupdate_branch")
         .and_then(|v| v.as_str())
-        .unwrap_or("main")
+        .unwrap_or("master")
         .to_string();
     let autoupdate_check_interval_secs = settings
         .get("autoupdate_check_interval_secs")

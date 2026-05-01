@@ -35,7 +35,7 @@ impl AutoupdateConfig {
             branch: settings
                 .get("autoupdate_branch")
                 .and_then(Value::as_str)
-                .unwrap_or("main")
+                .unwrap_or("master")
                 .trim()
                 .to_string(),
             check_interval_secs: settings
@@ -255,7 +255,7 @@ async fn latest_github_sha(
     let repo = normalize_repo(repo);
     let repo = repo.trim_matches('/');
     let branch = if branch.trim().is_empty() {
-        "main"
+        "master"
     } else {
         branch.trim()
     };

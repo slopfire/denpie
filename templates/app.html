@@ -502,7 +502,7 @@
               </div>
               <div>
                 <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Branch</label>
-                <input id="autoupdate-branch-input" class="w-full rounded-lg border px-4 py-3" placeholder="main">
+                <input id="autoupdate-branch-input" class="w-full rounded-lg border px-4 py-3" placeholder="master">
               </div>
             </div>
             <div>
@@ -1339,7 +1339,7 @@
       $('compress-reasoning-effort-input').value = settings.compress_reasoning_effort || 'none';
       $('autoupdate-enabled-input').checked = Boolean(settings.autoupdate_enabled);
       $('autoupdate-repo-input').value = settings.autoupdate_repo || 'slopfire/dailytipdraft';
-      $('autoupdate-branch-input').value = settings.autoupdate_branch || 'main';
+      $('autoupdate-branch-input').value = settings.autoupdate_branch || 'master';
       $('autoupdate-interval-input').value = settings.autoupdate_check_interval_secs || 3600;
       $('autoupdate-command-input').value = settings.autoupdate_command || '';
       $('autoupdate-last-sha').textContent = settings.autoupdate_last_seen_sha || 'not recorded';

@@ -124,7 +124,7 @@ PATH=$rust_path
 CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}
 RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}
 DEFAULT_REPO=slopfire/dailytipdraft
-DEFAULT_BRANCH=main
+DEFAULT_BRANCH=master
 EOF
     run_as_root install -m 0644 "$tmp_file" "$DEFAULTS_DIR/$APP_NAME-autoupdate"
     rm -f "$tmp_file"

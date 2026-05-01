@@ -125,7 +125,7 @@ All runtime configuration lives in `settings.yaml` and is managed through the pr
 | `daily_update_time` | Default local `HH:MM` time when each topic can receive new daily cards | `00:00` |
 | `autoupdate_enabled` | Enable GitHub commit polling and command-based updates | `false` |
 | `autoupdate_repo` | GitHub repository in `owner/repo` form, or a GitHub URL | `slopfire/dailytipdraft` |
-| `autoupdate_branch` | Branch or ref checked through the GitHub commits API | `main` |
+| `autoupdate_branch` | Branch or ref checked through the GitHub commits API | `master` |
 | `autoupdate_check_interval_secs` | Poll interval in seconds; values below 60 are clamped to 60 | `3600` |
 | `autoupdate_command` | Optional local shell command for non-systemd installs after a new commit is detected | *(empty)* |
 | `autoupdate_last_seen_sha` | Last GitHub commit SHA recorded by the updater | *(empty)* |
@@ -147,7 +147,7 @@ Default repository comes from this repo's `origin` remote: `slopfire/dailytipdra
 ```yaml
 autoupdate_enabled: true
 autoupdate_repo: slopfire/dailytipdraft
-autoupdate_branch: main
+autoupdate_branch: master
 autoupdate_check_interval_secs: 1800
 ```
 
