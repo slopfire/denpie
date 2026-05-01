@@ -262,7 +262,7 @@ pub async fn update_settings(
         if let Some(autoupdate_command) = req.autoupdate_command {
             map.insert(
                 serde_yaml::Value::String("autoupdate_command".to_string()),
-                serde_yaml::Value::String(autoupdate_command),
+                serde_yaml::Value::String(autoupdate_command.trim().to_string()),
             );
         }
         if let Some(daily_time_zone) = req.daily_time_zone {
