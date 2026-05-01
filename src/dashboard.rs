@@ -21,6 +21,8 @@ pub async fn app_index(State(state): State<Arc<AppState>>) -> Response {
 
 #[derive(Serialize)]
 pub struct SettingsRes {
+    server_version: String,
+    build_sha: String,
     model: String,
     compress_model: String,
     template: String,
@@ -134,6 +136,10 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         .unwrap_or(0);
 
     Json(SettingsRes {
+        server_version: env!("CARGO_PKG_VERSION").to_string(),
+        build_sha: option_env!("DAILYTIP_BUILD_SHA")
+            .unwrap_or("unknown")
+            .to_string(),
         model,
         compress_model,
         template,
@@ -302,6 +308,9 @@ pub async fn update_settings(
 pub struct TriggerAutoupdateRes {
     message: String,
     restarting: bool,
+    updating: bool,
+    target_sha: Option<String>,
+    build_sha: String,
 }
 
 pub async fn trigger_autoupdate(State(state): State<Arc<AppState>>) -> Response {
@@ -316,11 +325,22 @@ pub async fn trigger_autoupdate(State(state): State<Arc<AppState>>) -> Response 
             Json(TriggerAutoupdateRes {
                 message: result.message,
                 restarting: result.should_exit_for_restart,
+                updating: result.update_started,
+                target_sha: result.target_sha,
+                build_sha: option_env!("DAILYTIP_BUILD_SHA")
+                    .unwrap_or("unknown")
+                    .to_string(),
             })
             .into_response()
         }
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err).into_response(),
     }
+}
+
+pub async fn autoupdate_status(
+    State(state): State<Arc<AppState>>,
+) -> Json<autoupdate::UpdateStatus> {
+    Json(autoupdate::read_status(&state.settings_path))
 }
 
 #[derive(Deserialize)]

@@ -677,6 +677,7 @@
       draggingCardId: null,
       expandedCardIds: new Set(),
       fullscreenCardId: null,
+      buildSha: '',
       now: new Date()
     };
     const themes = [
@@ -907,6 +908,68 @@
         $('autoupdate-progress').classList.add('hidden');
         hideUpdatePopup();
       }, 3200);
+    }
+
+    function shortSha(value) {
+      return value ? String(value).slice(0, 7) : 'unknown';
+    }
+
+    function autoupdatePhaseProgress(phase) {
+      return {
+        checking: 34,
+        cloning: 48,
+        compiling: 68,
+        installing: 82,
+        restarting: 92,
+        active: 100,
+        failed: 100,
+        current: 100,
+        baseline: 100
+      }[phase] || 58;
+    }
+
+    async function waitForUpdatedBuild(targetSha, currentSha) {
+      const target = String(targetSha || '');
+      const current = String(currentSha || state.buildSha || '');
+      if (!target || target === 'unknown') {
+        setAutoupdateProgress(70, 'Updater running', 'Waiting for the service restart.');
+        showUpdatePopup('Updater started. Waiting for service restart.', 70, 'Waiting');
+        return;
+      }
+
+      const deadline = Date.now() + 10 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 5000));
+        try {
+          const updateStatus = await api('/admin/autoupdate/status');
+          const phase = updateStatus.phase || 'running';
+          const statusTarget = updateStatus.target_sha || target;
+          const statusMessage = updateStatus.message || 'Updater running.';
+          if (phase === 'failed') {
+            setAutoupdateProgress(100, 'Update failed', statusMessage);
+            showUpdatePopup(statusMessage, 100, 'Update failed');
+            return;
+          }
+          const progress = autoupdatePhaseProgress(phase);
+          setAutoupdateProgress(progress, phase.charAt(0).toUpperCase() + phase.slice(1), statusMessage);
+          showUpdatePopup(`${statusMessage} Target ${shortSha(statusTarget)}.`, progress, phase);
+
+          const settings = await api('/admin/settings');
+          const nextSha = String(settings.build_sha || '');
+          state.buildSha = nextSha;
+          const matchesTarget = nextSha === target || target.startsWith(nextSha.slice(0, 12));
+          if (nextSha && nextSha !== current && matchesTarget) {
+            finishAutoupdateProgress(`Updated to ${shortSha(nextSha)}`);
+            toast(`Updated to ${shortSha(nextSha)}`);
+            return;
+          }
+        } catch (_) {
+          setAutoupdateProgress(88, 'Restarting', 'Service is restarting; waiting for it to come back.');
+          showUpdatePopup('Service is restarting.', 88, 'Restarting');
+        }
+      }
+      setAutoupdateProgress(100, 'Verify manually', `Updater was started, but server build did not change to ${shortSha(target)} in time.`);
+      showUpdatePopup(`Updater started, but this page still sees ${shortSha(current)}. Check systemd logs.`, 100, 'Verify manually');
     }
 
     function runUpdateProgressSimulation(startPercent = 50) {
@@ -1538,6 +1601,7 @@
       state.tokenSpend = tokenSpend;
       state.archiveCards = cards;
       state.keys = keys;
+      state.buildSha = settings.build_sha || '';
       state.now = new Date();
       syncCardOrder();
       renderStats();
@@ -1840,9 +1904,17 @@
           setAutoupdateProgress(28, 'Checking GitHub', 'Reading the latest commit for the configured branch.');
           const result = await api('/admin/autoupdate', { method: 'POST' });
           const message = result?.message || 'Autoupdate checked';
+          if (result?.updating) {
+            toast(message);
+            setAutoupdateProgress(52, 'Updater started', `Target ${shortSha(result.target_sha)}. Waiting for deployed build to change.`);
+            showUpdatePopup(`Updater started for ${shortSha(result.target_sha)}.`, 52, 'Updater started');
+            waitForUpdatedBuild(result.target_sha, result.build_sha);
+            return;
+          }
           if (result?.restarting) {
             toast(message);
             runUpdateProgressSimulation(52);
+            waitForUpdatedBuild(result.target_sha, result.build_sha);
             return;
           }
           setAutoupdateProgress(82, 'Refreshing', 'Reloading settings after the check.');

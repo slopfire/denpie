@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping, Value};
 use std::path::Path;
 use std::time::Duration;
@@ -95,6 +95,53 @@ enum CheckResult {
 pub struct ManualCheckResult {
     pub message: String,
     pub should_exit_for_restart: bool,
+    pub update_started: bool,
+    pub target_sha: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdateStatus {
+    pub phase: String,
+    pub message: String,
+    pub target_sha: String,
+    pub updated_at: String,
+}
+
+pub fn read_status(settings_path: &Path) -> UpdateStatus {
+    let status_path = settings_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("autoupdate")
+        .join("status");
+    let status = std::fs::read_to_string(status_path).unwrap_or_default();
+    let mut phase = String::new();
+    let mut message = String::new();
+    let mut target_sha = String::new();
+    let mut updated_at = String::new();
+
+    for line in status.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match key {
+            "phase" => phase = value.to_string(),
+            "message" => message = value.to_string(),
+            "target_sha" => target_sha = value.to_string(),
+            "updated_at" => updated_at = value.to_string(),
+            _ => {}
+        }
+    }
+
+    UpdateStatus {
+        phase: if phase.is_empty() {
+            "unknown".to_string()
+        } else {
+            phase
+        },
+        message,
+        target_sha,
+        updated_at,
+    }
 }
 
 async fn run_once(client: &reqwest::Client, settings_path: &Path) -> Result<CheckResult, String> {
@@ -179,12 +226,16 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
         return Ok(ManualCheckResult {
             message: "Autoupdate disabled".to_string(),
             should_exit_for_restart: false,
+            update_started: false,
+            target_sha: None,
         });
     }
     if config.repo.is_empty() {
         return Ok(ManualCheckResult {
             message: "Autoupdate repo empty".to_string(),
             should_exit_for_restart: false,
+            update_started: false,
+            target_sha: None,
         });
     }
 
@@ -193,6 +244,8 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
         return Ok(ManualCheckResult {
             message: "No commit SHA found".to_string(),
             should_exit_for_restart: false,
+            update_started: false,
+            target_sha: None,
         });
     }
 
@@ -201,6 +254,8 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
         return Ok(ManualCheckResult {
             message: format!("Recorded baseline {}", short_sha(&latest_sha)),
             should_exit_for_restart: false,
+            update_started: false,
+            target_sha: Some(latest_sha),
         });
     }
 
@@ -208,6 +263,8 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
         return Ok(ManualCheckResult {
             message: format!("Already up to date at {}", short_sha(&latest_sha)),
             should_exit_for_restart: false,
+            update_started: false,
+            target_sha: Some(latest_sha),
         });
     }
 
@@ -259,8 +316,12 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
             })?;
 
         if !start_output.status.success() {
-            let stderr = String::from_utf8_lossy(&start_output.stderr).trim().to_string();
-            let stdout = String::from_utf8_lossy(&start_output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&start_output.stderr)
+                .trim()
+                .to_string();
+            let stdout = String::from_utf8_lossy(&start_output.stdout)
+                .trim()
+                .to_string();
             let detail = if !stderr.is_empty() {
                 stderr
             } else if !stdout.is_empty() {
@@ -280,11 +341,13 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
 
         return Ok(ManualCheckResult {
             message: format!(
-                "Started default updater for {} -> {}",
+                "Started updater for {} -> {}",
                 short_sha(&config.last_seen_sha),
                 short_sha(&latest_sha)
             ),
-            should_exit_for_restart: true,
+            should_exit_for_restart: false,
+            update_started: true,
+            target_sha: Some(latest_sha),
         });
     }
 
@@ -311,6 +374,8 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
     Ok(ManualCheckResult {
         message: format!("Installed update {}", short_sha(&latest_sha)),
         should_exit_for_restart: true,
+        update_started: false,
+        target_sha: Some(latest_sha),
     })
 }
 

@@ -17,6 +17,26 @@ log() {
     printf '%s %s\n' "$(date -Is)" "$*"
 }
 
+write_status() {
+    phase="$1"
+    message="$2"
+    target_sha="${3:-}"
+    mkdir -p "$STATE_DIR"
+    chmod 0755 "$STATE_DIR"
+    tmp="$STATE_DIR/status.tmp.$$"
+    {
+        printf 'phase=%s\n' "$phase"
+        printf 'message=%s\n' "$message"
+        printf 'target_sha=%s\n' "$target_sha"
+        printf 'updated_at=%s\n' "$(date -Is)"
+    } > "$tmp"
+    chmod 0644 "$tmp"
+    mv "$tmp" "$STATE_DIR/status"
+}
+
+completed=0
+trap 'code=$?; if [ "$completed" != "1" ] && [ "$code" -ne 0 ]; then write_status failed "Updater failed; check journalctl -u ${APP_NAME}-autoupdate.service" "${latest_sha:-}"; fi' EXIT
+
 get_yaml_value() {
     key="$1"
     if [ ! -f "$SETTINGS_PATH" ]; then
@@ -69,6 +89,7 @@ normalize_repo() {
 now="$(date +%s)"
 enabled="$(get_yaml_value autoupdate_enabled || true)"
 if [ "$enabled" != "true" ]; then
+    write_status idle "Autoupdate disabled"
     log "autoupdate disabled"
     exit 0
 fi
@@ -95,20 +116,24 @@ if [ "${1:-}" != "force" ] && [ -f "$last_check_file" ]; then
     esac
     elapsed=$((now - last_check))
     if [ "$elapsed" -lt "$interval" ]; then
+        write_status idle "Autoupdate interval not reached"
         log "autoupdate interval not reached"
         exit 0
     fi
 fi
 printf '%s\n' "$now" > "$last_check_file"
 
+write_status checking "Checking updater prerequisites"
 need_command git
 need_command cargo
 need_command install
 need_command systemctl
 
 remote_url="https://github.com/$repo.git"
+write_status checking "Checking GitHub branch $repo:$branch"
 latest_sha="$(git ls-remote "$remote_url" "refs/heads/$branch" | awk '{print $1}' | head -n 1)"
 if [ -z "$latest_sha" ]; then
+    write_status failed "No SHA found for $repo $branch"
     log "no SHA found for $repo $branch"
     exit 1
 fi
@@ -116,30 +141,41 @@ fi
 last_seen="$(get_yaml_value autoupdate_last_seen_sha || true)"
 if [ -z "$last_seen" ]; then
     set_yaml_value autoupdate_last_seen_sha "$latest_sha"
+    write_status baseline "Recorded autoupdate baseline" "$latest_sha"
     log "recorded autoupdate baseline ${latest_sha}"
+    completed=1
     exit 0
 fi
 
 if [ "$last_seen" = "$latest_sha" ]; then
+    write_status current "Already up to date" "$latest_sha"
     log "already up to date at ${latest_sha}"
+    completed=1
     exit 0
 fi
 
 log "updating $APP_NAME from ${last_seen} to ${latest_sha}"
+write_status cloning "Cloning $repo:$branch" "$latest_sha"
 rm -rf "$SOURCE_DIR.tmp"
 git clone --depth 1 --branch "$branch" "$remote_url" "$SOURCE_DIR.tmp"
 (
     cd "$SOURCE_DIR.tmp"
+    write_status compiling "Running cargo build --release" "$latest_sha"
     cargo build --release
 )
 
+write_status installing "Installing binary, schema, and templates" "$latest_sha"
 install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/templates"
 install -m 0755 "$SOURCE_DIR.tmp/target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
 install -m 0644 "$SOURCE_DIR.tmp/schema.sql" "$SHARE_DIR/schema.sql"
 install -m 0644 "$SOURCE_DIR.tmp/templates/"*.html "$SHARE_DIR/templates/"
 rm -rf "$SOURCE_DIR"
 mv "$SOURCE_DIR.tmp" "$SOURCE_DIR"
-set_yaml_value autoupdate_last_seen_sha "$latest_sha"
 
 log "installed update; restarting $SERVICE_NAME"
+write_status restarting "Restarting $SERVICE_NAME" "$latest_sha"
 systemctl restart "$SERVICE_NAME"
+set_yaml_value autoupdate_last_seen_sha "$latest_sha"
+log "update active at ${latest_sha}"
+write_status active "Update active" "$latest_sha"
+completed=1

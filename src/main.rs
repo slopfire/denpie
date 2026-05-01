@@ -140,6 +140,10 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         )
         .route("/admin/autoupdate", post(dashboard::trigger_autoupdate))
         .route(
+            "/admin/autoupdate/status",
+            get(dashboard::autoupdate_status),
+        )
+        .route(
             "/admin/keys",
             get(dashboard::list_api_keys)
                 .post(dashboard::create_api_key)
