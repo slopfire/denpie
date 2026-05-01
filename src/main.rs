@@ -146,6 +146,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         )
         .route("/admin/topics", get(dashboard::list_topics))
         .route("/admin/topic-classes", get(dashboard::list_topic_classes))
+        .route("/admin/token-spend", get(dashboard::token_spend))
         .route(
             "/admin/tipcards",
             get(dashboard::list_tipcards).delete(dashboard::delete_tipcard),
@@ -153,7 +154,9 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .route("/app/summary", get(dashboard::app_summary))
         .route(
             "/app/topics",
-            get(dashboard::app_topics).patch(dashboard::update_topic),
+            get(dashboard::app_topics)
+                .patch(dashboard::update_topic)
+                .delete(dashboard::delete_topic),
         )
         .route("/app/tips", post(dashboard::app_tips))
         .route("/app/review", post(dashboard::app_review))
@@ -167,6 +170,20 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
 }
 
 pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS llm_token_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model TEXT NOT NULL,
+            purpose TEXT NOT NULL,
+            prompt_tokens INTEGER NOT NULL DEFAULT 0,
+            completion_tokens INTEGER NOT NULL DEFAULT 0,
+            total_tokens INTEGER NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     ensure_column(pool, "topics", "class_id", "INTEGER").await?;
     ensure_column(pool, "topics", "prompt_template", "TEXT").await?;
     ensure_column(pool, "topics", "daily_card_count", "INTEGER").await?;

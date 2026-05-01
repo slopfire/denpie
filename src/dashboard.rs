@@ -481,6 +481,45 @@ pub async fn list_topic_classes(State(state): State<Arc<AppState>>) -> Json<Vec<
 }
 
 #[derive(Serialize)]
+pub struct TokenSpend {
+    pub daily: i64,
+    pub monthly: i64,
+    pub total: i64,
+}
+
+pub async fn token_spend(State(state): State<Arc<AppState>>) -> Json<TokenSpend> {
+    let daily = sqlx::query_scalar::<_, i64>(
+        "SELECT COALESCE(SUM(total_tokens), 0)
+         FROM llm_token_usage
+         WHERE date(created_at) = date('now')",
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+    let monthly = sqlx::query_scalar::<_, i64>(
+        "SELECT COALESCE(SUM(total_tokens), 0)
+         FROM llm_token_usage
+         WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')",
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+    let total = sqlx::query_scalar::<_, i64>(
+        "SELECT COALESCE(SUM(total_tokens), 0)
+         FROM llm_token_usage",
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(0);
+
+    Json(TokenSpend {
+        daily,
+        monthly,
+        total,
+    })
+}
+
+#[derive(Serialize)]
 pub struct AppSummary {
     pub topics: i64,
     pub total_cards: i64,
@@ -679,6 +718,19 @@ pub async fn update_topic(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    Ok(Json(()))
+}
+
+#[derive(Deserialize)]
+pub struct DeleteTopicReq {
+    pub id: i64,
+}
+
+pub async fn delete_topic(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<DeleteTopicReq>,
+) -> Result<Json<()>, (StatusCode, String)> {
+    api::delete_topic_by_id(&state, req.id).await?;
     Ok(Json(()))
 }
 

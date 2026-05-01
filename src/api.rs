@@ -494,6 +494,70 @@ async fn delete_tipcard_by_id(state: &AppState, id: i64) -> Result<(), (StatusCo
     Ok(())
 }
 
+pub async fn delete_topic_by_id(state: &AppState, id: i64) -> Result<(), (StatusCode, String)> {
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    sqlx::query(
+        "DELETE FROM review_states
+         WHERE card_id IN (SELECT id FROM tipcards WHERE topic_id = ?)",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    sqlx::query("DELETE FROM tipcards WHERE topic_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let result = sqlx::query("DELETE FROM topics WHERE id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if result.rows_affected() == 0 {
+        return Err((StatusCode::NOT_FOUND, "Topic not found".to_string()));
+    }
+
+    tx.commit()
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(())
+}
+
+async fn record_llm_token_usage(
+    state: &AppState,
+    model: &str,
+    purpose: &str,
+    usage: &llm::TokenUsage,
+) -> Result<(), (StatusCode, String)> {
+    if usage.total_tokens <= 0 && usage.prompt_tokens <= 0 && usage.completion_tokens <= 0 {
+        return Ok(());
+    }
+
+    sqlx::query(
+        "INSERT INTO llm_token_usage (model, purpose, prompt_tokens, completion_tokens, total_tokens)
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(model)
+    .bind(purpose)
+    .bind(usage.prompt_tokens)
+    .bind(usage.completion_tokens)
+    .bind(usage.total_tokens)
+    .execute(&state.db)
+    .await
+    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(())
+}
+
 async fn list_tipcards_pb(state: &AppState) -> Result<pb::Tipcards, (StatusCode, String)> {
     let rows = sqlx::query_as::<
         _,
@@ -1145,9 +1209,12 @@ async fn generate_tipcard(
     let card_context =
         context::load_card_context(state, topic.id, &class_info.tipcard_type).await?;
     let prompt = context::render_generation_prompt(topic_name, template, &card_context);
-    let full_tip =
+    let full_res =
         llm::generate_new_card(llm_model, &prompt, llm_api_key, llm_base_url, llm_reasoning).await;
-    let compressed_tip = llm::compress_card(
+    record_llm_token_usage(state, llm_model, "generate_card", &full_res.usage).await?;
+    let full_tip = full_res.content;
+
+    let compressed_res = llm::compress_card(
         &full_tip,
         llm_compress_model,
         llm_api_key,
@@ -1155,7 +1222,16 @@ async fn generate_tipcard(
         llm_compress_reasoning,
     )
     .await;
-    let card_title = llm::generate_card_title(
+    record_llm_token_usage(
+        state,
+        llm_compress_model,
+        "compress_card",
+        &compressed_res.usage,
+    )
+    .await?;
+    let compressed_tip = compressed_res.content;
+
+    let title_res = llm::generate_card_title(
         &full_tip,
         llm_compress_model,
         llm_api_key,
@@ -1163,6 +1239,14 @@ async fn generate_tipcard(
         llm_compress_reasoning,
     )
     .await;
+    record_llm_token_usage(
+        state,
+        llm_compress_model,
+        "generate_title",
+        &title_res.usage,
+    )
+    .await?;
+    let card_title = title_res.content;
 
     let card_id = sqlx::query(
         "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
@@ -1354,6 +1438,10 @@ pub async fn unified_api(
                 },
                 pb::api_request::Op::DeleteTipcard(req) => {
                     delete_tipcard_by_id(&state, req.id).await?;
+                    empty_response()
+                }
+                pb::api_request::Op::DeleteTopic(req) => {
+                    delete_topic_by_id(&state, req.id).await?;
                     empty_response()
                 }
                 pb::api_request::Op::GetSummary(_) => pb::ApiResponse {

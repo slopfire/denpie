@@ -386,6 +386,7 @@
           <p class="text-muted mt-2">Cards, topics, and queue state from local server.</p>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8" id="stats-grid"></div>
+        <div id="token-spend-row" class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6"></div>
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
           <h2 class="text-2xl font-semibold flex items-center gap-2"><span class="material-symbols-outlined text-primary">folder_open</span>Active Topics</h2>
           <div class="flex gap-2">
@@ -405,8 +406,8 @@
           <form id="tips-form" class="surface border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 w-full xl:w-auto">
             <input id="tips-topics" class="rounded-lg border px-3 py-2 xl:col-span-2" placeholder="Rust, Python, System Design" required>
             <select id="tips-type" class="rounded-lg border px-3 py-2">
-              <option value="repeatable_tip">Repeatable</option>
               <option value="casual_tip">Casual</option>
+              <option value="repeatable_tip">Repeatable</option>
             </select>
             <button class="rounded-lg bg-primary-solid px-4 py-2 font-bold flex items-center justify-center gap-2">
               <span class="material-symbols-outlined">auto_awesome</span><span>Add</span>
@@ -552,12 +553,14 @@
     const state = {
       summary: null,
       topics: [],
+      tokenSpend: { daily: 0, monthly: 0, total: 0 },
       archiveCards: [],
       keys: [],
       currentView: 'dashboard',
       flowLayout: 'grid',
       authed: false,
-      addingSkeletons: 0,
+      loadingSlots: [],
+      loadingSlotSeq: 0,
       loadingCardIds: new Set(),
       refreshingFlow: false,
       cardOrder: JSON.parse(localStorage.getItem('mindlift-card-order') || '[]'),
@@ -850,6 +853,17 @@
       saveCardOrder();
     }
 
+    function insertCardOrderAt(position, newIds) {
+      const ids = newIds.map(Number).filter(Boolean);
+      if (!ids.length) return;
+      const cleaned = state.cardOrder
+        .map(Number)
+        .filter((id) => !ids.includes(id));
+      cleaned.splice(Math.max(0, Math.min(position, cleaned.length)), 0, ...ids);
+      state.cardOrder = cleaned;
+      saveCardOrder();
+    }
+
     function orderedCards() {
       const order = new Map(state.cardOrder.map((id, index) => [Number(id), index]));
       return [...state.archiveCards].sort((a, b) => {
@@ -886,8 +900,8 @@
       saveCardOrder();
     }
 
-    function countRequestedTopics() {
-      return $('tips-topics').value.split(',').map((topic) => topic.trim()).filter(Boolean).length || 1;
+    function requestedTopics() {
+      return $('tips-topics').value.split(',').map((topic) => topic.trim()).filter(Boolean);
     }
 
     function skeletonCard(listMode = false) {
@@ -933,6 +947,40 @@
       ].join('');
     }
 
+    function formatTokenCount(value) {
+      const n = Number(value || 0);
+      const units = [
+        [1_000_000_000, 'b'],
+        [1_000_000, 'm'],
+        [1_000, 'k']
+      ];
+      for (const [size, suffix] of units) {
+        if (Math.abs(n) >= size) {
+          return `${(n / size).toFixed(2).replace(/\.?0+$/, '')}${suffix}`;
+        }
+      }
+      return n.toLocaleString();
+    }
+
+    function tokenSpendCard(label, value) {
+      return `<div class="surface border rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2 text-sm font-bold text-muted">
+          <span class="material-symbols-outlined text-primary">token</span>
+          <span>${label}</span>
+        </div>
+        <div class="text-xl font-extrabold">${formatTokenCount(value)}</div>
+      </div>`;
+    }
+
+    function renderTokenSpend() {
+      const spend = state.tokenSpend || { daily: 0, monthly: 0, total: 0 };
+      $('token-spend-row').innerHTML = [
+        tokenSpendCard('Daily Tokens', spend.daily),
+        tokenSpendCard('Monthly Tokens', spend.monthly),
+        tokenSpendCard('Total Tokens', spend.total)
+      ].join('');
+    }
+
     function renderTopics() {
       const q = $('topic-search')?.value?.toLowerCase() || '';
       const filtered = state.topics.filter((topic) => topic.name.toLowerCase().includes(q));
@@ -955,9 +1003,14 @@
                 <span class="text-xs text-muted">${topic.due_cards} due</span>
               </div>
             </div>
-            <button class="rounded-lg border border-token p-1" title="Load topic" onclick="loadTopic(decodeURIComponent('${encodeURIComponent(topic.name)}'), decodeURIComponent('${encodeURIComponent(topic.class_name)}'), decodeURIComponent('${encodeURIComponent(topic.tipcard_type)}'))">
-              <span class="material-symbols-outlined">play_arrow</span>
-            </button>
+            <div class="flex items-center gap-2">
+              <button class="rounded-lg border border-token p-1" title="Load topic" onclick="loadTopic(decodeURIComponent('${encodeURIComponent(topic.name)}'), decodeURIComponent('${encodeURIComponent(topic.class_name)}'), decodeURIComponent('${encodeURIComponent(topic.tipcard_type)}'))">
+                <span class="material-symbols-outlined">play_arrow</span>
+              </button>
+              <button class="rounded-lg border border-token p-1" title="Delete topic" onclick="deleteTopic(${topic.id}, decodeURIComponent('${encodeURIComponent(topic.name)}'))">
+                <span class="material-symbols-outlined" style="color:var(--danger)">delete</span>
+              </button>
+            </div>
           </div>
           <div class="muted-surface rounded-full h-2 overflow-hidden"><div class="h-2" style="width:${percent}%;background:${line}"></div></div>
           <div class="flex justify-between text-xs text-muted mt-2"><span>${percent}% complete</span><span>${total} cards</span></div>
@@ -1000,6 +1053,13 @@
       });
       await refreshAll();
       toast('Topic settings saved');
+    }
+
+    async function deleteTopic(id, name) {
+      if (!window.confirm(`Delete topic "${name}" and all its cards?`)) return;
+      await api('/app/topics', { method: 'DELETE', body: JSON.stringify({ id }) });
+      await refreshAll();
+      toast('Topic deleted');
     }
 
     function cardActions(card) {
@@ -1079,17 +1139,34 @@
       const cardsById = new Map(cards.map((card) => [Number(card.id), card]));
       const renderedCardIds = new Set();
       const renderedLoadingIds = new Set();
-      const flowItems = state.cardOrder.map(Number).flatMap((id) => {
+      const flowItems = [];
+      state.loadingSlots.forEach((slot) => {
+        if (slot.cardIds.length) {
+          slot.cardIds.forEach((id) => {
+            const card = cardsById.get(Number(id));
+            if (card) {
+              renderedCardIds.add(Number(id));
+              flowItems.push({ type: 'card', card });
+            }
+          });
+        } else {
+          flowItems.push({ type: 'loading', id: slot.id });
+        }
+      });
+      state.cardOrder.map(Number).forEach((id) => {
+        if (renderedCardIds.has(id)) {
+          return;
+        }
         if (state.loadingCardIds.has(id)) {
           renderedLoadingIds.add(id);
-          return [{ type: 'loading', id }];
+          flowItems.push({ type: 'loading', id });
+          return;
         }
         const orderedCard = cardsById.get(id);
         if (orderedCard) {
           renderedCardIds.add(id);
-          return [{ type: 'card', card: orderedCard }];
+          flowItems.push({ type: 'card', card: orderedCard });
         }
-        return [];
       });
       cards.forEach((card) => {
         if (!renderedCardIds.has(Number(card.id)) && !renderedLoadingIds.has(Number(card.id))) {
@@ -1105,7 +1182,7 @@
         state.fullscreenCardId = null;
       }
       $('flow-count').textContent = cards.length;
-      $('empty-flow').classList.toggle('hidden', flowItems.length > 0 || state.addingSkeletons > 0 || state.refreshingFlow);
+      $('empty-flow').classList.toggle('hidden', flowItems.length > 0 || state.loadingSlots.length > 0 || state.refreshingFlow);
       document.body.classList.toggle('has-fullscreen-card', state.fullscreenCardId !== null);
       $('flow-grid').className = listMode ? 'grid grid-cols-1 gap-4 items-start' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start';
       $('flow-grid-btn').classList.toggle('bg-primary-soft', !listMode);
@@ -1151,7 +1228,7 @@
           </div>
         </article>`;
       });
-      const skeletons = Array.from({ length: state.addingSkeletons + (state.refreshingFlow ? 1 : 0) }, () => skeletonCard(listMode));
+      const skeletons = Array.from({ length: state.refreshingFlow ? 1 : 0 }, () => skeletonCard(listMode));
       $('flow-grid').innerHTML = [...skeletons, ...cardHtml].join('');
       bindFlowDrag();
     }
@@ -1223,20 +1300,23 @@
     }
 
     async function refreshAll() {
-      const [summary, topics, cards, keys, settings] = await Promise.all([
+      const [summary, topics, tokenSpend, cards, keys, settings] = await Promise.all([
         api('/app/summary'),
         api('/app/topics'),
+        api('/admin/token-spend'),
         api('/admin/tipcards'),
         api('/admin/keys'),
         api('/admin/settings')
       ]);
       state.summary = summary;
       state.topics = topics;
+      state.tokenSpend = tokenSpend;
       state.archiveCards = cards;
       state.keys = keys;
       state.now = new Date();
       syncCardOrder();
       renderStats();
+      renderTokenSpend();
       renderTopics();
       renderFlow();
       renderKeys();
@@ -1304,22 +1384,41 @@
 
     async function pullTips() {
       const tipcardType = $('tips-type').value;
-      state.addingSkeletons = Math.min(countRequestedTopics(), 6);
+      const topics = requestedTopics().slice(0, 6);
+      const loadTopics = topics.length ? topics : [$('tips-topics').value.trim() || 'Tip'];
+      const slots = loadTopics.map((topic, index) => ({
+        id: `new-${++state.loadingSlotSeq}`,
+        topic,
+        index,
+        cardIds: []
+      }));
+      state.loadingSlots.push(...slots);
       renderFlow();
-      try {
+      const loadTopic = async (slot) => {
         const tips = await api('/app/tips', {
           method: 'POST',
           body: JSON.stringify({
-            topics: $('tips-topics').value,
+            topics: slot.topic,
             topic_class: cardKindFromType(tipcardType),
             tipcard_type: tipcardType,
-            count: 6
+            count: 1
           })
         });
+        slot.cardIds = tips.map((card) => Number(card.id)).filter(Boolean);
+        mergeCardsIntoArchive(tips);
+        insertCardOrderAt(slot.index, slot.cardIds);
+        renderFlow();
+        return tips.length;
+      };
+      try {
+        const results = await Promise.allSettled(slots.map(loadTopic));
         await refreshAll();
-        toast(`${tips.length} card(s) loaded`);
+        const loadedCount = results.reduce((sum, result) => sum + (result.status === 'fulfilled' ? result.value : 0), 0);
+        const failedCount = results.filter((result) => result.status === 'rejected').length;
+        toast(failedCount ? `${loadedCount} card(s) loaded, ${failedCount} failed` : `${loadedCount} card(s) loaded`);
       } finally {
-        state.addingSkeletons = 0;
+        const finished = new Set(slots.map((slot) => slot.id));
+        state.loadingSlots = state.loadingSlots.filter((slot) => !finished.has(slot.id));
         renderFlow();
       }
     }
@@ -1400,6 +1499,7 @@
     window.loadTopic = loadTopic;
     window.reviewCard = reviewCard;
     window.deleteCard = deleteCard;
+    window.deleteTopic = deleteTopic;
     window.deleteKey = deleteKey;
     window.copyCardText = copyCardText;
     window.toggleCardExpanded = toggleCardExpanded;

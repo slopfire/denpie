@@ -1,5 +1,18 @@
 use serde_json::{json, Value};
 
+#[derive(Clone, Debug, Default)]
+pub struct TokenUsage {
+    pub prompt_tokens: i64,
+    pub completion_tokens: i64,
+    pub total_tokens: i64,
+}
+
+#[derive(Clone, Debug)]
+pub struct LlmResponse {
+    pub content: String,
+    pub usage: TokenUsage,
+}
+
 #[derive(Clone, Debug)]
 pub struct ReasoningConfig {
     pub effort: String,
@@ -19,9 +32,12 @@ pub async fn generate_new_card(
     api_key: &str,
     api_base: &str,
     reasoning: &ReasoningConfig,
-) -> String {
+) -> LlmResponse {
     if api_key.is_empty() {
-        return format!("Generated tip (API KEY MISSING)\n\nPrompt:\n{}", prompt);
+        return LlmResponse {
+            content: format!("Generated tip (API KEY MISSING)\n\nPrompt:\n{}", prompt),
+            usage: TokenUsage::default(),
+        };
     }
 
     create_chat_completion(model, prompt, api_key, api_base, reasoning).await
@@ -33,9 +49,12 @@ pub async fn generate_card_title(
     api_key: &str,
     api_base: &str,
     reasoning: &ReasoningConfig,
-) -> String {
+) -> LlmResponse {
     if api_key.is_empty() {
-        return fallback_title(full_content);
+        return LlmResponse {
+            content: fallback_title(full_content),
+            usage: TokenUsage::default(),
+        };
     }
 
     let prompt = format!(
@@ -56,9 +75,12 @@ pub async fn compress_card(
     api_key: &str,
     api_base: &str,
     reasoning: &ReasoningConfig,
-) -> String {
+) -> LlmResponse {
     if api_key.is_empty() {
-        return format!("Compressed: {}", full_content);
+        return LlmResponse {
+            content: format!("Compressed: {}", full_content),
+            usage: TokenUsage::default(),
+        };
     }
 
     let prompt = format!(
@@ -74,7 +96,7 @@ async fn create_chat_completion(
     api_key: &str,
     api_base: &str,
     reasoning: &ReasoningConfig,
-) -> String {
+) -> LlmResponse {
     let effort = normalize_reasoning_effort(&reasoning.effort);
     let req = json!({
         "model": model,
@@ -103,20 +125,44 @@ async fn create_chat_completion(
             if !res.status().is_success() {
                 let status = res.status();
                 let body = res.text().await.unwrap_or_default();
-                return format!("LLM Error: HTTP {} {}", status, body);
+                return LlmResponse {
+                    content: format!("LLM Error: HTTP {} {}", status, body),
+                    usage: TokenUsage::default(),
+                };
             }
 
             match res.json::<Value>().await {
-                Ok(body) => body["choices"]
-                    .as_array()
-                    .and_then(|choices| choices.first())
-                    .and_then(|choice| choice["message"]["content"].as_str())
-                    .map(str::to_string)
-                    .unwrap_or("Failed parsing text".to_string()),
-                Err(e) => format!("LLM Error: {}", e),
+                Ok(body) => {
+                    let content = body["choices"]
+                        .as_array()
+                        .and_then(|choices| choices.first())
+                        .and_then(|choice| choice["message"]["content"].as_str())
+                        .map(str::to_string)
+                        .unwrap_or("Failed parsing text".to_string());
+                    LlmResponse {
+                        content,
+                        usage: parse_token_usage(&body),
+                    }
+                }
+                Err(e) => LlmResponse {
+                    content: format!("LLM Error: {}", e),
+                    usage: TokenUsage::default(),
+                },
             }
         }
-        Err(e) => format!("LLM Error: {}", e),
+        Err(e) => LlmResponse {
+            content: format!("LLM Error: {}", e),
+            usage: TokenUsage::default(),
+        },
+    }
+}
+
+fn parse_token_usage(body: &Value) -> TokenUsage {
+    let usage = &body["usage"];
+    TokenUsage {
+        prompt_tokens: usage["prompt_tokens"].as_i64().unwrap_or(0),
+        completion_tokens: usage["completion_tokens"].as_i64().unwrap_or(0),
+        total_tokens: usage["total_tokens"].as_i64().unwrap_or(0),
     }
 }
 

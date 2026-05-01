@@ -65,6 +65,7 @@ message ApiRequest {
         Empty get_summary = 15;
         Empty list_app_topics = 16;
         UpdateTopicRequest update_topic = 17;
+        DeleteByIdRequest delete_topic = 18;
     }
 }
 

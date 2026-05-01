@@ -10,8 +10,9 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Topic Classes**: Topics belong to a card behavior class: casual or repeatable. SRS remains the scheduling algorithm, not a card class.
 - **Daily Topic Cards**: Each topic/type returns a configurable number of stable SRS cards per local day, with per-topic overrides for count, time zone, and update time.
 - **Any OpenAI-Compatible LLM**: Configure the API key, base URL, and model through the protobuf API — no hardcoded vendor lock-in.
-- **Unified Protobuf API**: `POST /api` manages tips, reviews, settings, keys, topics, cards, and summary counts with one full-access API key.
-- **Root Control Page**: `/` serves a browser control panel that talks to the same protobuf API, with compact/full card text controls and fullscreen card viewing.
+- **Token Spend Counters**: The browser dashboards track OpenAI-compatible `usage.total_tokens` for daily, monthly, and lifetime LLM calls.
+- **Unified Protobuf API**: `POST /api` manages tips, reviews, settings, keys, topics, topic deletion, cards, and summary counts with one full-access API key.
+- **Root Control Page**: `/` serves a browser control panel that talks to the same protobuf API, with stable per-card loading skeletons, compact/full card text controls, and fullscreen card viewing.
 - **CSS-Only Motion**: The control page uses fast page-entry, card-entry, and compact-to-full tipcard animations with reduced-motion support.
 - **Markdown Tipcards**: API responses keep the original raw markdown-capable text so clients can render it however they need.
 - **Optional GitHub Autoupdate**: Disabled by default. The systemd install includes a root-owned updater timer; enabling it through the API polls GitHub, rebuilds from the configured repository branch, installs the new binary/schema, and restarts the service.
@@ -85,7 +86,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    - **LLM Base URL** — e.g. `https://openrouter.ai/api/v1` or `https://generativelanguage.googleapis.com/v1beta/openai`
    - **Prompt Template** — use `{topic}` as the placeholder; `{context}`, `{existing_cards}`, and `{dismissed_cards}` can place prior card titles explicitly
 
-   Each topic can also define its own prompt, daily card count, time zone, and update time with `update_topic`. The browser control panel provides timezone pickers for global and topic settings. Empty topic prompts and time fields fall back to the global settings. When a new card is generated, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
+   Each topic can also define its own prompt, daily card count, time zone, and update time with `update_topic`. Topics can be deleted from the browser control panel or with `delete_topic`; deleting a topic also deletes its cards and review state. The browser control panel defaults new manual cards to Casual and provides timezone pickers for global and topic settings. Empty topic prompts and time fields fall back to the global settings. When a new card is generated, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
 
 6. **Use the API key** in `ApiRequest.auth` for every operation except `bootstrap_api_key`.
 
@@ -221,8 +222,11 @@ The unified protobuf API is the only public API:
 | `topics` | Topic categories linked to topic classes, with optional per-topic prompt template |
 | `tipcards` | Generated tips with full content, compact compressed content, title, and card type |
 | `review_states` | Per-card review state, status, and next review timestamp |
+| `llm_token_usage` | Token usage returned by LLM calls, used for daily, monthly, and total dashboard counters |
 
 Topic rows can override the daily defaults with `daily_card_count`, `daily_time_zone`, and `daily_update_time`. Empty time fields inherit the global settings; empty or zero count falls back to one card.
+
+The token counters use `usage.total_tokens` from each OpenAI-compatible chat completion response. Providers that omit usage metadata contribute zero tokens for that call.
 
 Tip content can include markdown such as headings, lists, emphasis, links, blockquotes, inline code, and fenced code blocks. The built-in browser UI supports common inline combinations such as bold text containing inline code. The protobuf API returns raw `full_content` and `compressed_content` strings so clients can choose their own renderer.
 

@@ -329,7 +329,10 @@
           <h2 class="text-2xl font-semibold tracking-tight">Knowledge Base</h2>
           <p class="text-sm text-text-dim mt-1" id="kbStats">Loading stats...</p>
         </div>
-        <div id="topicsFilter" class="flex flex-wrap gap-2"></div>
+        <div class="flex flex-col items-start sm:items-end gap-3">
+          <div id="tokenSpend" class="grid grid-cols-3 gap-2 text-right"></div>
+          <div id="topicsFilter" class="flex flex-wrap justify-start sm:justify-end gap-2"></div>
+        </div>
       </div>
       
       <div id="tipcardsList" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 relative z-10">
@@ -780,18 +783,21 @@
     let _allTipcards = [];
     let _allTopics = [];
     let _activeTopic = null;
+    let _tokenSpend = { daily: 0, monthly: 0, total: 0 };
 
     async function loadKnowledgeBase() {
       try {
-        const [topicsRes, cardsRes] = await Promise.all([
+        const [topicsRes, cardsRes, tokenSpendRes] = await Promise.all([
           fetch('/admin/topics'),
-          fetch('/admin/tipcards')
+          fetch('/admin/tipcards'),
+          fetch('/admin/token-spend')
         ]);
         
-        if (!topicsRes.ok || !cardsRes.ok) throw new Error('Failed to load KB data');
+        if (!topicsRes.ok || !cardsRes.ok || !tokenSpendRes.ok) throw new Error('Failed to load KB data');
         
         _allTopics = await topicsRes.json();
         _allTipcards = await cardsRes.json();
+        _tokenSpend = await tokenSpendRes.json();
         
         renderKnowledgeBase();
       } catch (err) {
@@ -802,6 +808,7 @@
     function renderKnowledgeBase() {
       // Stats
       document.getElementById('kbStats').textContent = `${_allTipcards.length} Tips across ${_allTopics.length} Topics`;
+      renderTokenSpend();
       
       // Topics Filter
       const filterContainer = document.getElementById('topicsFilter');
@@ -822,6 +829,36 @@
       });
 
       renderCards();
+    }
+
+    function formatTokenCount(value) {
+      const n = Number(value || 0);
+      const units = [
+        [1_000_000_000, 'b'],
+        [1_000_000, 'm'],
+        [1_000, 'k']
+      ];
+      for (const [size, suffix] of units) {
+        if (Math.abs(n) >= size) {
+          return `${(n / size).toFixed(2).replace(/\.?0+$/, '')}${suffix}`;
+        }
+      }
+      return n.toLocaleString();
+    }
+
+    function renderTokenSpend() {
+      const el = document.getElementById('tokenSpend');
+      const items = [
+        ['Daily', _tokenSpend.daily],
+        ['Monthly', _tokenSpend.monthly],
+        ['Total', _tokenSpend.total]
+      ];
+      el.innerHTML = items.map(([label, value]) => `
+        <div class="min-w-20 rounded-xl border border-white/10 bg-black/25 px-3 py-2">
+          <div class="text-[0.62rem] uppercase tracking-widest text-text-dim">${label}</div>
+          <div class="text-sm font-semibold">${formatTokenCount(value)}</div>
+        </div>
+      `).join('');
     }
 
     function renderCards() {

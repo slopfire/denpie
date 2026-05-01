@@ -546,6 +546,105 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_unified_api_can_delete_topic_with_cards() {
+        let (url, client) = spawn_test_server().await;
+        let api_key = bootstrap_api_key(&url, &client, "delete_topic_flow").await;
+
+        let tips = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Tips(
+                    crate::api::pb::TipsQuery {
+                        count: 1,
+                        topics: "rust".into(),
+                        topic_class: "repeatable".into(),
+                        tipcard_type: "repeatable_tip".into(),
+                        exclude_card_ids: vec![],
+                    },
+                )),
+            },
+        )
+        .await;
+        assert_eq!(tips.status(), reqwest::StatusCode::OK);
+
+        let topics = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::ListAppTopics(
+                    crate::api::pb::Empty {},
+                )),
+            },
+        )
+        .await;
+        let topic_id = crate::api::pb::ApiResponse::decode(topics.bytes().await.unwrap())
+            .unwrap()
+            .result
+            .and_then(|result| match result {
+                crate::api::pb::api_response::Result::AppTopics(topics) => {
+                    topics.topics.into_iter().find(|topic| topic.name == "rust")
+                }
+                _ => None,
+            })
+            .expect("rust topic")
+            .id;
+
+        let delete = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::DeleteTopic(
+                    crate::api::pb::DeleteByIdRequest { id: topic_id },
+                )),
+            },
+        )
+        .await;
+        assert_eq!(delete.status(), reqwest::StatusCode::OK);
+
+        let topics = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::ListAppTopics(
+                    crate::api::pb::Empty {},
+                )),
+            },
+        )
+        .await;
+        let topics = crate::api::pb::ApiResponse::decode(topics.bytes().await.unwrap()).unwrap();
+        match topics.result.unwrap() {
+            crate::api::pb::api_response::Result::AppTopics(topics) => {
+                assert!(topics.topics.iter().all(|topic| topic.id != topic_id));
+            }
+            other => panic!("unexpected response: {:?}", other),
+        }
+
+        let cards = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key,
+                op: Some(crate::api::pb::api_request::Op::ListTipcards(
+                    crate::api::pb::Empty {},
+                )),
+            },
+        )
+        .await;
+        let cards = crate::api::pb::ApiResponse::decode(cards.bytes().await.unwrap()).unwrap();
+        match cards.result.unwrap() {
+            crate::api::pb::api_response::Result::Tipcards(cards) => {
+                assert!(cards.cards.iter().all(|card| card.topic_name != "rust"));
+            }
+            other => panic!("unexpected response: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
     async fn test_unified_api_with_invalid_key() {
         let (url, client) = spawn_test_server().await;
         let res = post_api(

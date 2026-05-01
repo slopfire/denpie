@@ -30,6 +30,7 @@ Then put returned `sk_live_*` into `ApiRequest.auth` for every request.
 - `review`: SRS grade or queue action.
 - `get_topics` / `get_topic_classes` / `list_app_topics`: topic metadata.
 - `list_tipcards` / `delete_tipcard`: card inventory.
+- `delete_topic`: delete topic + all cards + review state.
 - `get_summary`: counts.
 
 Canonical schema: [`../proto/dailytip.proto`](../proto/dailytip.proto).
