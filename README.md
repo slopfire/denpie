@@ -22,6 +22,20 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Single-User, Multi-Client**: One user's SRS state is shared across all clients (desktop widget, Telegram bot, etc.) via per-client API keys.
 - **SQLite Database**: Lightweight persistence via `sqlx` with compile-time query validation.
 
+## Screenshots
+
+### Dashboard
+
+![Dashboard with SRS summary metrics, token counters, and active topic cards](docs/assets/dashboard.png)
+
+### Unified Flow
+
+![Unified flow view showing due cards and review actions](docs/assets/unified-flow.png)
+
+### Fullscreen Card
+
+![Fullscreen tip card reading view](docs/assets/fullscreen-card.png)
+
 ## Tech Stack
 
 | Layer | Technology |
