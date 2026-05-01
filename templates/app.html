@@ -1762,6 +1762,18 @@
         state.flowLayout = 'list';
         renderFlow();
       });
+      $('tips-topics').addEventListener('keydown', (event) => {
+        if (event.key === 'Tab' && !event.shiftKey && $('tips-type').value === 'manual_tip') {
+          event.preventDefault();
+          $('manual-card-content').focus();
+        }
+      });
+      $('manual-card-content').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey && $('tips-type').value === 'manual_tip') {
+          event.preventDefault();
+          $('tips-form').requestSubmit();
+        }
+      });
       document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape' && state.fullscreenCardId !== null) {
           state.fullscreenCardId = null;
