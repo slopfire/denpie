@@ -260,7 +260,7 @@
       transform-origin: top center;
       will-change: transform;
     }
-    .card-drag-handle { cursor: grab; color: var(--muted); }
+    .card-drag-handle { cursor: grab; color: var(--muted); touch-action: none; }
     .flow-card.dragging { opacity: .45; transform: scale(.985); }
     .flow-card.drag-over { outline: 2px solid var(--primary); outline-offset: 3px; transform: translateY(-2px) scale(1.01); }
     .card-copy-btn.copied { color: var(--ok); border-color: var(--ok); }
@@ -1525,8 +1525,78 @@
       bindFlowDrag();
     }
 
+    function clearFlowDragState() {
+      state.draggingCardId = null;
+      document.querySelectorAll('.flow-card').forEach((node) => {
+        node.classList.remove('dragging', 'drag-over');
+        node.style.pointerEvents = '';
+      });
+    }
+
+    function reorderFlowCard(sourceId, targetId) {
+      const source = Number(sourceId);
+      const target = Number(targetId);
+      if (!source || !target || source === target) return false;
+      const orderedIds = orderedFlowCards().map((card) => card.id);
+      const from = orderedIds.indexOf(source);
+      const to = orderedIds.indexOf(target);
+      if (from < 0 || to < 0) return false;
+      orderedIds.splice(to, 0, orderedIds.splice(from, 1)[0]);
+      state.cardOrder = orderedIds;
+      saveCardOrder();
+      return true;
+    }
+
+    function cardNodeFromPoint(x, y, excludedId) {
+      const excluded = Number(excludedId);
+      return document.elementsFromPoint(x, y)
+        .map((node) => node.closest?.('.flow-card[data-card-id]'))
+        .find((node) => node && Number(node.dataset.cardId) !== excluded) || null;
+    }
+
     function bindFlowDrag() {
       document.querySelectorAll('.flow-card').forEach((cardNode) => {
+        const dragHandle = cardNode.querySelector('.card-drag-handle');
+        if (dragHandle) {
+          dragHandle.addEventListener('pointerdown', (event) => {
+            if (event.pointerType === 'mouse') return;
+            event.preventDefault();
+            const sourceId = Number(cardNode.dataset.cardId);
+            state.draggingCardId = sourceId;
+            cardNode.classList.add('dragging');
+            cardNode.setPointerCapture?.(event.pointerId);
+            cardNode.style.pointerEvents = 'none';
+            let targetNode = null;
+            const setTarget = (nextTarget) => {
+              if (targetNode === nextTarget) return;
+              targetNode?.classList.remove('drag-over');
+              targetNode = nextTarget;
+              targetNode?.classList.add('drag-over');
+            };
+            const onMove = (moveEvent) => {
+              moveEvent.preventDefault();
+              setTarget(cardNodeFromPoint(moveEvent.clientX, moveEvent.clientY, sourceId));
+            };
+            const onEnd = (endEvent) => {
+              endEvent.preventDefault();
+              cardNode.releasePointerCapture?.(event.pointerId);
+              const droppedOn = targetNode || cardNodeFromPoint(endEvent.clientX, endEvent.clientY, sourceId);
+              const changed = droppedOn && reorderFlowCard(sourceId, droppedOn.dataset.cardId);
+              clearFlowDragState();
+              if (changed) renderFlow();
+            };
+            const onCancel = () => clearFlowDragState();
+            cardNode.addEventListener('pointermove', onMove);
+            cardNode.addEventListener('pointerup', onEnd, { once: true });
+            cardNode.addEventListener('pointercancel', onCancel, { once: true });
+            const cleanup = () => {
+              cardNode.removeEventListener('pointermove', onMove);
+              cardNode.removeEventListener('pointercancel', onCancel);
+            };
+            cardNode.addEventListener('pointerup', cleanup, { once: true });
+            cardNode.addEventListener('pointercancel', cleanup, { once: true });
+          });
+        }
         cardNode.addEventListener('dragstart', (event) => {
           if (event.target.closest('button:not(.card-drag-handle), input, textarea, select, a')) {
             event.preventDefault();
@@ -1538,8 +1608,7 @@
           event.dataTransfer.setData('text/plain', cardNode.dataset.cardId);
         });
         cardNode.addEventListener('dragend', () => {
-          state.draggingCardId = null;
-          document.querySelectorAll('.flow-card').forEach((node) => node.classList.remove('dragging', 'drag-over'));
+          clearFlowDragState();
         });
         cardNode.addEventListener('dragover', (event) => {
           if (!state.draggingCardId) return;
@@ -1552,15 +1621,7 @@
           cardNode.classList.remove('drag-over');
           const targetId = Number(cardNode.dataset.cardId);
           const sourceId = Number(event.dataTransfer.getData('text/plain') || state.draggingCardId);
-          if (!sourceId || sourceId === targetId) return;
-          const orderedIds = orderedFlowCards().map((card) => card.id);
-          const from = orderedIds.indexOf(sourceId);
-          const to = orderedIds.indexOf(targetId);
-          if (from < 0 || to < 0) return;
-          orderedIds.splice(to, 0, orderedIds.splice(from, 1)[0]);
-          state.cardOrder = orderedIds;
-          saveCardOrder();
-          renderFlow();
+          if (reorderFlowCard(sourceId, targetId)) renderFlow();
         });
       });
     }
