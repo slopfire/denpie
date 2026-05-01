@@ -5,8 +5,8 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 ## Features
 
 - **Spaced Repetition System (SRS)**: SM-2 and FSRS algorithms optimize tip delivery based on user review grades.
-- **Casual Cards**: Queue-style tips can be dismissed or acknowledged so clients can pull the next card immediately.
-- **Repeatable Cards**: Re:word-style cards can be dismissed, repeated, memorized, or acknowledged; clients can advance after repeatable review actions, and repeated cards come back when due.
+- **Casual Cards**: Queue-style tips can be dismissed or acknowledged so clients can pull the next card immediately; acknowledged cards are scheduled with SRS.
+- **Repeatable Cards**: Re:word-style cards can be dismissed, repeated, memorized, or acknowledged; clients can advance after repeatable review actions, and repeated cards come back when due through SRS scheduling.
 - **Topic Classes**: Topics belong to a card behavior class: casual, repeatable, or manual. SRS remains the scheduling algorithm, not a card class.
 - **Daily Topic Cards**: Each topic/type returns a configurable number of stable SRS cards per local day, with per-topic overrides for count, time zone, and update time.
 - **Any OpenAI-Compatible LLM**: Configure the API key, base URL, and model through the protobuf API — no hardcoded vendor lock-in.

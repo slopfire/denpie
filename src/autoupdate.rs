@@ -237,7 +237,9 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
                     "failed to inspect default updater {service}: {err}; set autoupdate_command for custom installs"
                 )
             })?;
-        let load_state_text = String::from_utf8_lossy(&load_state.stdout).trim().to_string();
+        let load_state_text = String::from_utf8_lossy(&load_state.stdout)
+            .trim()
+            .to_string();
         if !load_state.status.success() || load_state_text != "loaded" {
             return Err(format!(
                 "no update runner configured: default updater {service} is not installed; set autoupdate_command for this install or install the systemd updater"

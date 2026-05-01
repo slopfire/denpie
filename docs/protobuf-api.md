@@ -46,7 +46,7 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 | `list_api_keys` | `api_keys` | List key metadata. Raw keys are never returned. |
 | `delete_api_key` | `ok` | Delete a key by database ID. |
 | `list_admin_topics` | `admin_topics` | List topics with prompt overrides. |
-| `list_tipcards` | `tipcards` | List stored cards with status and repeat count. |
+| `list_tipcards` | `tipcards` | List stored cards with status, repeat count, and next scheduled review time. |
 | `delete_tipcard` | `ok` | Delete a card and its review state. |
 | `delete_topic` | `ok` | Delete a topic and all of its cards and review states. |
 | `get_summary` | `summary` | Read card/topic counts. |

@@ -1015,6 +1015,22 @@
       return parsed <= state.now;
     }
 
+    function formatNextRewind(card) {
+      const raw = String(card.next_review_at || '').trim();
+      if (!raw || (card.status && card.status !== 'active')) return 'No rewind scheduled';
+      const isoish = raw.includes('T') ? raw : raw.replace(' ', 'T');
+      const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/.test(isoish) ? isoish : `${isoish}Z`;
+      const parsed = new Date(normalized);
+      if (Number.isNaN(parsed.getTime())) return raw;
+      return parsed.toLocaleString([], {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
     function syncCardOrder() {
       const known = new Set(state.archiveCards.map((card) => card.id));
       const existing = state.cardOrder.filter((id) => known.has(Number(id))).map(Number);
@@ -1432,7 +1448,10 @@
           </div>
         </div>
         <div class="text-sm leading-6 markdown-content">${renderMarkdown(card.full_content)}</div>
-        <p class="mt-3 text-xs text-muted">${escapeHtml(card.created_at || card.topic_class || '')}</p>
+        <div class="mt-3 grid gap-1 text-xs text-muted">
+          <p>${escapeHtml(card.created_at || card.topic_class || '')}</p>
+          <p>Next rewind: ${escapeHtml(formatNextRewind(card))}</p>
+        </div>
       </article>`).join('') || `<div class="surface border rounded-xl p-8 text-muted">No cards yet.</div>`;
     }
 

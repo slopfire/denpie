@@ -998,6 +998,147 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_repeatable_review_uses_srs_schedule() {
+        let settings_path = unique_settings_path();
+        fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+            .await
+            .unwrap();
+        let db = setup_db().await;
+        let state = AppState {
+            db,
+            settings_path,
+            template_dir: PathBuf::from("templates"),
+        };
+
+        let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
+            .bind("repeatable")
+            .bind("repeatable_tip")
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        let topic_id = sqlx::query("INSERT INTO topics (name, class_id) VALUES (?, ?)")
+            .bind("spanish")
+            .bind(class_id)
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        let card_id = sqlx::query(
+            "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(topic_id)
+        .bind("repeatable_tip")
+        .bind("known")
+        .bind("Full known")
+        .bind("Compressed known")
+        .execute(&state.db)
+        .await
+        .unwrap()
+        .last_insert_rowid();
+        sqlx::query(
+            "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, ?, ?, 'active', ?)",
+        )
+        .bind(card_id)
+        .bind("sm2")
+        .bind(r#"{"repeats":0}"#)
+        .bind(chrono::Utc::now())
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+        let before = chrono::Utc::now();
+        crate::api::apply_review(&state, card_id, 1, "repeat")
+            .await
+            .unwrap();
+
+        let (status, state_data, next_review_at) =
+            sqlx::query_as::<_, (String, String, chrono::DateTime<chrono::Utc>)>(
+                "SELECT status, state_data, next_review_at FROM review_states WHERE card_id = ?",
+            )
+            .bind(card_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+        let state_json: serde_json::Value = serde_json::from_str(&state_data).unwrap();
+        assert_eq!(status, "active");
+        assert_eq!(state_json["repeats"], 1);
+        assert_eq!(state_json["srs_state"]["repetitions"], 0);
+        assert_eq!(state_json["srs_state"]["interval"], 1);
+        assert!(next_review_at > before);
+    }
+
+    #[tokio::test]
+    async fn test_casual_acknowledge_uses_srs_schedule() {
+        let settings_path = unique_settings_path();
+        fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+            .await
+            .unwrap();
+        let db = setup_db().await;
+        let state = AppState {
+            db,
+            settings_path,
+            template_dir: PathBuf::from("templates"),
+        };
+
+        let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
+            .bind("casual")
+            .bind("casual_tip")
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        let topic_id = sqlx::query("INSERT INTO topics (name, class_id) VALUES (?, ?)")
+            .bind("rust")
+            .bind(class_id)
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        let card_id = sqlx::query(
+            "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(topic_id)
+        .bind("casual_tip")
+        .bind("known")
+        .bind("Full known")
+        .bind("Compressed known")
+        .execute(&state.db)
+        .await
+        .unwrap()
+        .last_insert_rowid();
+        sqlx::query(
+            "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, ?, ?, 'active', ?)",
+        )
+        .bind(card_id)
+        .bind("sm2")
+        .bind(r#"{"repeats":0}"#)
+        .bind(chrono::Utc::now())
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+        let before = chrono::Utc::now();
+        crate::api::apply_review(&state, card_id, 3, "acknowledge")
+            .await
+            .unwrap();
+
+        let (status, state_data, next_review_at) =
+            sqlx::query_as::<_, (String, String, chrono::DateTime<chrono::Utc>)>(
+                "SELECT status, state_data, next_review_at FROM review_states WHERE card_id = ?",
+            )
+            .bind(card_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+        let state_json: serde_json::Value = serde_json::from_str(&state_data).unwrap();
+        assert_eq!(status, "active");
+        assert_eq!(state_json["srs_state"]["repetitions"], 1);
+        assert_eq!(state_json["srs_state"]["interval"], 1);
+        assert!(next_review_at > before);
+    }
+
+    #[tokio::test]
     async fn test_repeatable_due_selection_prefers_known_cards() {
         let settings_path = unique_settings_path();
         fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")

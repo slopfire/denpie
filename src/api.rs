@@ -363,6 +363,8 @@ fn update_settings_file(
 #[derive(Serialize, Deserialize, Default)]
 struct RepeatableState {
     repeats: u32,
+    #[serde(default)]
+    srs_state: SrsState,
 }
 
 #[derive(Clone)]
@@ -1295,14 +1297,9 @@ async fn generate_tipcard(
      .last_insert_rowid();
 
     let (state_json, algo) = if is_queue_tipcard(&class_info.tipcard_type) {
-        let algo = if class_info.tipcard_type == "casual_tip" {
-            "casual"
-        } else {
-            "repeatable"
-        };
         (
             serde_json::to_string(&RepeatableState::default()).unwrap(),
-            algo,
+            "sm2",
         )
     } else {
         let init_state = SrsState::default();
@@ -1576,16 +1573,38 @@ pub async fn apply_review(
         if is_queue_tipcard(&row.1) {
             let action = action.trim();
             let (new_state_json, status, next_review) = match action {
-                "acknowledge" | "acknowledged" => (
-                    row.0,
-                    "acknowledged".to_string(),
-                    Utc::now() + Duration::days(36500),
-                ),
-                "memorize" => (
-                    row.0,
-                    "memorized".to_string(),
-                    Utc::now() + Duration::days(36500),
-                ),
+                "acknowledge" | "acknowledged" => {
+                    let mut repeat_state: RepeatableState =
+                        serde_json::from_str(&row.0).map_err(|_| {
+                            (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                "Invalid repeatable state data".into(),
+                            )
+                        })?;
+                    let next_review =
+                        srs::calculate_next_review(&mut repeat_state.srs_state, grade.max(3));
+                    (
+                        serde_json::to_string(&repeat_state).unwrap(),
+                        "active".to_string(),
+                        next_review,
+                    )
+                }
+                "memorize" => {
+                    let mut repeat_state: RepeatableState =
+                        serde_json::from_str(&row.0).map_err(|_| {
+                            (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                "Invalid repeatable state data".into(),
+                            )
+                        })?;
+                    repeat_state.repeats += 1;
+                    let next_review = srs::calculate_next_review(&mut repeat_state.srs_state, 5);
+                    (
+                        serde_json::to_string(&repeat_state).unwrap(),
+                        "active".to_string(),
+                        next_review,
+                    )
+                }
                 "dismiss" => (
                     row.0,
                     "dismissed".to_string(),
@@ -1600,15 +1619,14 @@ pub async fn apply_review(
                             )
                         })?;
                     repeat_state.repeats += 1;
-                    let delay_minutes = 10_i64
-                        .saturating_mul(
-                            2_i64.saturating_pow(repeat_state.repeats.saturating_sub(1)),
-                        )
-                        .min(24 * 60);
+                    let next_review = srs::calculate_next_review(
+                        &mut repeat_state.srs_state,
+                        if grade == 0 { 1 } else { grade.min(2) },
+                    );
                     (
                         serde_json::to_string(&repeat_state).unwrap(),
                         "active".to_string(),
-                        Utc::now() + Duration::minutes(delay_minutes),
+                        next_review,
                     )
                 }
             };
