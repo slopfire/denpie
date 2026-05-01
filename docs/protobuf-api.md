@@ -37,6 +37,7 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 |---|---|---|
 | `bootstrap_api_key` | `api_key_created` | Create the first/full-access API key using `admin_token`. |
 | `tips` | `tips` | Get due cards, reuse the current daily topic card, generate a new card after the configured daily update time, or create a manual card from user text. |
+| `submit_custom_tipcard` | `tips` | Store an externally supplied custom card without creating SRS review state. |
 | `review` | `ok` | Review, dismiss, acknowledge, repeat, or memorize a card. |
 | `get_topics` | `topics` | List known topic names. |
 | `get_topic_classes` | `topic_classes` | List topic classes and card behavior types. |
@@ -61,6 +62,24 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 Daily windows use `settings.daily_time_zone` (IANA name such as `UTC`, `Asia/Vladivostok`, or `America/New_York`; fixed offsets such as `UTC+10` are also accepted) and `settings.daily_update_time` (`HH:MM`, default `00:00`). Each topic can override count/time with `update_topic.daily_card_count`, `update_topic.daily_time_zone`, and `update_topic.daily_update_time`. Invalid values fall back to `UTC`, midnight, and one card.
 
 For user-authored cards, set `TipsQuery.tipcard_type` to `manual_tip` and provide `manual_content`. The server stores that text directly as the full card content, uses `manual_compressed_content` when provided, and otherwise uses the full text as compact content. Manual cards do not call the LLM.
+
+## Custom Tipcards
+
+Use `submit_custom_tipcard` for cards that come from external workflows such as email summaries, reminders, or non-client automations. The server stores the card as `tipcard_type = "custom_tip"` under the `topic_class = "custom"` class and returns those names in the `tips.tips[0]` response. Custom cards do not create a `review_states` row, so SRS algorithms never schedule or update them. They still appear in card lists and total card counts.
+
+```proto
+ApiRequest {
+  auth: "sk_live_..."
+  submit_custom_tipcard: {
+    topic: "email summary"
+    full_content: "Ship digest at 09:00."
+    compressed_content: "Digest 09:00"
+    title: "Morning digest"
+  }
+}
+```
+
+The browser dashboard marks `custom_tip` cards with a grey class stripe.
 
 ## Active Card Limit
 

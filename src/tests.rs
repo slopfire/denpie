@@ -1076,9 +1076,12 @@ mod tests {
     #[tokio::test]
     async fn test_max_active_cards_blocks_new_manual_card_but_keeps_due_cards_available() {
         let settings_path = unique_settings_path();
-        fs::write(&settings_path, "admin_token: test_admin_token_xyz\nmax_active_cards: 1\n")
-            .await
-            .unwrap();
+        fs::write(
+            &settings_path,
+            "admin_token: test_admin_token_xyz\nmax_active_cards: 1\n",
+        )
+        .await
+        .unwrap();
         let db = setup_db().await;
         let state = AppState {
             db,
@@ -1537,5 +1540,121 @@ mod tests {
         )
         .await;
         assert_eq!(ack.status(), reqwest::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_custom_tipcards_do_not_create_review_state() {
+        let (url, client) = spawn_test_server().await;
+        let api_key = bootstrap_api_key(&url, &client, "custom_cards").await;
+
+        let res = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::SubmitCustomTipcard(
+                    crate::api::pb::CustomTipcardRequest {
+                        topic: "email summary".into(),
+                        full_content: "Ship digest at 09:00.".into(),
+                        compressed_content: "Digest 09:00".into(),
+                        title: "Morning digest".into(),
+                    },
+                )),
+            },
+        )
+        .await;
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        let api_resp = crate::api::pb::ApiResponse::decode(res.bytes().await.unwrap()).unwrap();
+        let tips_resp = match api_resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Tips(tips) => tips,
+            other => panic!("unexpected response: {:?}", other),
+        };
+        assert_eq!(tips_resp.tips.len(), 1);
+        let card = &tips_resp.tips[0];
+        assert_eq!(card.topic, "email summary");
+        assert_eq!(card.topic_class, "custom");
+        assert_eq!(card.tipcard_type, "custom_tip");
+        assert_eq!(card.compressed_content, "Digest 09:00");
+
+        let blocked_tips = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Tips(
+                    crate::api::pb::TipsQuery {
+                        count: 1,
+                        topics: "email summary".into(),
+                        topic_class: "custom".into(),
+                        tipcard_type: "custom_tip".into(),
+                        exclude_card_ids: vec![],
+                        manual_content: "".into(),
+                        manual_compressed_content: "".into(),
+                    },
+                )),
+            },
+        )
+        .await;
+        assert_eq!(blocked_tips.status(), reqwest::StatusCode::BAD_REQUEST);
+
+        let list = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::ListTipcards(
+                    crate::api::pb::Empty {},
+                )),
+            },
+        )
+        .await;
+        assert_eq!(list.status(), reqwest::StatusCode::OK);
+        let api_resp = crate::api::pb::ApiResponse::decode(list.bytes().await.unwrap()).unwrap();
+        match api_resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Tipcards(cards) => {
+                assert_eq!(cards.cards.len(), 1);
+                assert_eq!(cards.cards[0].status, "custom");
+            }
+            other => panic!("unexpected response: {:?}", other),
+        }
+
+        let review = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Review(
+                    crate::api::pb::ReviewPayload {
+                        card_id: card.id,
+                        grade: 3,
+                        action: "acknowledge".into(),
+                    },
+                )),
+            },
+        )
+        .await;
+        assert_eq!(review.status(), reqwest::StatusCode::NOT_FOUND);
+
+        let summary = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key,
+                op: Some(crate::api::pb::api_request::Op::GetSummary(
+                    crate::api::pb::Empty {},
+                )),
+            },
+        )
+        .await;
+        assert_eq!(summary.status(), reqwest::StatusCode::OK);
+        let api_resp = crate::api::pb::ApiResponse::decode(summary.bytes().await.unwrap()).unwrap();
+        match api_resp.result.unwrap() {
+            crate::api::pb::api_response::Result::Summary(summary) => {
+                assert_eq!(summary.total_cards, 1);
+                assert_eq!(summary.active_cards, 0);
+                assert_eq!(summary.due_cards, 0);
+            }
+            other => panic!("unexpected response: {:?}", other),
+        }
     }
 }

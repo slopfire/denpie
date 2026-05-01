@@ -613,7 +613,7 @@ async fn list_tipcards_pb(state: &AppState) -> Result<pb::Tipcards, (StatusCode,
                 COALESCE(CAST(t.created_at AS TEXT), '') AS created_at,
                 t.tipcard_type,
                 COALESCE(tc.name, 'default') AS topic_class,
-                COALESCE(r.status, 'active') AS status,
+                COALESCE(r.status, CASE WHEN t.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) AS status,
                 COALESCE(CAST(r.next_review_at AS TEXT), '') AS next_review_at,
                 COALESCE(r.state_data, '') AS state_data,
                 COALESCE(t.pinned, 0) AS pinned
@@ -827,12 +827,14 @@ fn normalize_tipcard_type(value: &str, class_name: &str) -> String {
         "casual" | "casual_tip" => "casual_tip".to_string(),
         "repeatable" | "repeatable_tip" | "reword" | "re:word" => "repeatable_tip".to_string(),
         "manual" | "manual_tip" => "manual_tip".to_string(),
+        "custom" | "custom_tip" => "custom_tip".to_string(),
         "srs" | "srs_tip" => "srs_tip".to_string(),
         "" if matches!(class_name.trim(), "casual" | "casual_tip") => "casual_tip".to_string(),
         "" if matches!(class_name.trim(), "repeatable" | "reword" | "re:word") => {
             "repeatable_tip".to_string()
         }
         "" if matches!(class_name.trim(), "manual" | "manual_tip") => "manual_tip".to_string(),
+        "" if matches!(class_name.trim(), "custom" | "custom_tip") => "custom_tip".to_string(),
         _ => "srs_tip".to_string(),
     }
 }
@@ -1113,6 +1115,12 @@ pub async fn build_tips(
         .filter(|id| *id > 0)
         .collect();
     let class_info = get_or_create_topic_class(state, &topic_class, &tipcard_type).await?;
+    if class_info.tipcard_type == "custom_tip" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "custom_tip cards must be submitted with submit_custom_tipcard".to_string(),
+        ));
+    }
 
     let settings_str = fs::read_to_string(&state.settings_path).unwrap_or_default();
     let settings: serde_yaml::Value = serde_yaml::from_str(&settings_str).unwrap_or_default();
@@ -1176,10 +1184,7 @@ pub async fn build_tips(
                 ));
             }
             if matches!(active_room, Some(0)) {
-                return Err((
-                    StatusCode::CONFLICT,
-                    "Max active cards reached".to_string(),
-                ));
+                return Err((StatusCode::CONFLICT, "Max active cards reached".to_string()));
             }
             let compact = if manual_compressed_content.is_empty() {
                 manual_content.clone()
@@ -1463,6 +1468,67 @@ async fn create_manual_tipcard(
     Ok(())
 }
 
+async fn create_custom_tipcard(
+    state: &AppState,
+    req: pb::CustomTipcardRequest,
+) -> Result<TipCardJson, (StatusCode, String)> {
+    let topic_name = req.topic.trim();
+    if topic_name.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "topic is required".to_string()));
+    }
+
+    let full_tip = req.full_content.trim().to_string();
+    if full_tip.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "full_content is required".to_string(),
+        ));
+    }
+
+    let compressed_tip = req.compressed_content.trim().to_string();
+    let compressed_tip = if compressed_tip.is_empty() {
+        full_tip.clone()
+    } else {
+        compressed_tip
+    };
+    let title = req.title.trim().to_string();
+    let title = if title.is_empty() {
+        full_tip
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .unwrap_or("Custom card")
+            .chars()
+            .take(96)
+            .collect::<String>()
+    } else {
+        title.chars().take(96).collect::<String>()
+    };
+
+    let class_info = get_or_create_topic_class(state, "custom", "custom_tip").await?;
+    let topic = get_or_create_topic(state, topic_name, class_info.id).await?;
+    let card_id = sqlx::query(
+        "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, 'custom_tip', ?, ?, ?)",
+    )
+    .bind(topic.id)
+    .bind(&title)
+    .bind(&full_tip)
+    .bind(&compressed_tip)
+    .execute(&state.db)
+    .await
+    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .last_insert_rowid();
+
+    Ok(tip_response_json(
+        card_id,
+        topic_name,
+        full_tip,
+        compressed_tip,
+        &class_info,
+        false,
+    ))
+}
+
 pub async fn unified_api(
     State(state): State<Arc<AppState>>,
     body: Bytes,
@@ -1521,6 +1587,22 @@ pub async fn unified_api(
                     pb::ApiResponse {
                         result: Some(pb::api_response::Result::Tips(pb::TipsResponse {
                             tips: responses,
+                        })),
+                    }
+                }
+                pb::api_request::Op::SubmitCustomTipcard(req) => {
+                    let card = create_custom_tipcard(&state, req).await?;
+                    pb::ApiResponse {
+                        result: Some(pb::api_response::Result::Tips(pb::TipsResponse {
+                            tips: vec![pb::TipCardResponse {
+                                id: card.id,
+                                topic: card.topic,
+                                full_content: card.full_content,
+                                compressed_content: card.compressed_content,
+                                topic_class: card.topic_class,
+                                tipcard_type: card.tipcard_type,
+                                pinned: card.pinned,
+                            }],
                         })),
                     }
                 }

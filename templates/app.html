@@ -178,6 +178,7 @@
     .card-line-repeatable { background: var(--secondary); }
     .card-line-casual { background: var(--tertiary); }
     .card-line-manual { background: var(--ok); }
+    .card-line-custom { background: var(--muted); }
     .card-line-srs { background: var(--primary); }
     .tip-type-switch button { color: var(--muted); }
     .tip-type-switch button.active { background: var(--primary-soft); color: var(--primary); }
@@ -1048,6 +1049,7 @@
     function cardKindFromType(tipcardType) {
       if (tipcardType === 'casual_tip') return 'casual';
       if (tipcardType === 'manual_tip') return 'manual';
+      if (tipcardType === 'custom_tip') return 'custom';
       return 'repeatable';
     }
 
@@ -1055,6 +1057,7 @@
       const kind = cardKindFromType(tipcardType);
       if (kind === 'casual') return 'Casual';
       if (kind === 'manual') return 'Manual';
+      if (kind === 'custom') return 'Custom';
       return 'Repeatable';
     }
 
@@ -1063,6 +1066,7 @@
         return Number(card.repeat_count || 0) > 0 ? 'Known Repeatable' : 'New Repeatable';
       }
       if (card.tipcard_type === 'manual_tip') return 'Manual';
+      if (card.tipcard_type === 'custom_tip') return 'Custom';
       return cardKindLabel(card.tipcard_type);
     }
 
@@ -1247,7 +1251,9 @@
         const percent = total ? Math.round((done / total) * 100) : 0;
         const line = topic.tipcard_type === 'casual_tip'
           ? 'var(--tertiary)'
-          : (topic.tipcard_type === 'manual_tip' ? 'var(--ok)' : 'var(--secondary)');
+          : (topic.tipcard_type === 'manual_tip'
+            ? 'var(--ok)'
+            : (topic.tipcard_type === 'custom_tip' ? 'var(--muted)' : 'var(--secondary)'));
         const promptId = `topic-prompt-${topic.id}`;
         const dailyCountId = `topic-daily-count-${topic.id}`;
         const dailyZoneId = `topic-daily-zone-${topic.id}`;
@@ -1471,7 +1477,9 @@
         const typeLabel = cardBadgeLabel(card);
         const lineClass = card.tipcard_type === 'casual_tip'
           ? 'card-line-casual'
-          : (card.tipcard_type === 'manual_tip' ? 'card-line-manual' : 'card-line-repeatable');
+          : (card.tipcard_type === 'manual_tip'
+            ? 'card-line-manual'
+            : (card.tipcard_type === 'custom_tip' ? 'card-line-custom' : 'card-line-repeatable'));
         const topic = card.topic_name || card.topic;
         const fullText = String(card.full_content || '');
         const compactText = String(card.compressed_content || '').trim();

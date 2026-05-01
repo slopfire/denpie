@@ -12,6 +12,7 @@ fn main() -> Result<()> {
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=proto/dailytip.proto");
     println!("cargo:rustc-env=DAILYTIP_BUILD_SHA={sha}");
     prost_build::compile_protos(&["proto/dailytip.proto"], &["proto/"])?;
     Ok(())

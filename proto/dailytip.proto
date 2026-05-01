@@ -12,6 +12,13 @@ message TipsQuery {
     string manual_compressed_content = 7; // optional compact text for manual cards
 }
 
+message CustomTipcardRequest {
+    string topic = 1;
+    string full_content = 2;
+    string compressed_content = 3; // optional compact text; defaults to full_content
+    string title = 4; // optional display/search title
+}
+
 message TipCardResponse {
     int64 id = 1;
     string topic = 2;
@@ -70,6 +77,7 @@ message ApiRequest {
         UpdateTopicRequest update_topic = 17;
         DeleteByIdRequest delete_topic = 18;
         PinTipcardRequest pin_tipcard = 19;
+        CustomTipcardRequest submit_custom_tipcard = 20;
     }
 }
 
