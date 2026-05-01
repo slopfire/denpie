@@ -987,6 +987,7 @@ mod tests {
                 exclude_card_ids: Some(visible_ids.clone()),
                 manual_content: None,
                 manual_compressed_content: None,
+                manual_image_data: None,
             },
         )
         .await
@@ -1063,6 +1064,7 @@ mod tests {
                 exclude_card_ids: None,
                 manual_content: None,
                 manual_compressed_content: None,
+                manual_image_data: None,
             },
         )
         .await
@@ -1136,6 +1138,7 @@ mod tests {
                 exclude_card_ids: None,
                 manual_content: None,
                 manual_compressed_content: None,
+                manual_image_data: None,
             },
         )
         .await
@@ -1153,6 +1156,7 @@ mod tests {
                 exclude_card_ids: None,
                 manual_content: Some("new manual".into()),
                 manual_compressed_content: None,
+                manual_image_data: None,
             },
         )
         .await
@@ -1374,6 +1378,7 @@ mod tests {
                 exclude_card_ids: None,
                 manual_content: None,
                 manual_compressed_content: None,
+                manual_image_data: None,
             },
         )
         .await
@@ -1540,6 +1545,61 @@ mod tests {
         )
         .await;
         assert_eq!(ack.status(), reqwest::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_manual_tipcards_store_and_update_images() {
+        let settings_path = unique_settings_path();
+        fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+            .await
+            .unwrap();
+        let db = setup_db().await;
+        let state = AppState {
+            db,
+            settings_path,
+            template_dir: PathBuf::from("templates"),
+        };
+        let image = "data:image/png;base64,iVBORw0KGgo=".to_string();
+
+        let tips = crate::api::build_tips(
+            &state,
+            crate::api::TipsJsonRequest {
+                count: Some(1),
+                topics: "rust".into(),
+                topic_class: Some("manual".into()),
+                tipcard_type: Some("manual_tip".into()),
+                exclude_card_ids: None,
+                manual_content: Some("Manual card with image".into()),
+                manual_compressed_content: None,
+                manual_image_data: Some(vec![image.clone()]),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(tips.len(), 1);
+        assert_eq!(tips[0].image_data, vec![image.clone()]);
+
+        let stored: String = sqlx::query_scalar("SELECT image_data FROM tipcards WHERE id = ?")
+            .bind(tips[0].id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+        assert_eq!(serde_json::from_str::<Vec<String>>(&stored).unwrap(), vec![image]);
+
+        let replacement = "data:image/webp;base64,UklGRg==".to_string();
+        crate::api::set_tipcard_images(&state, tips[0].id, vec![replacement.clone()])
+            .await
+            .unwrap();
+        let updated: String = sqlx::query_scalar("SELECT image_data FROM tipcards WHERE id = ?")
+            .bind(tips[0].id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Vec<String>>(&updated).unwrap(),
+            vec![replacement]
+        );
     }
 
     #[tokio::test]

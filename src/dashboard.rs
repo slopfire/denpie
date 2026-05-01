@@ -432,14 +432,20 @@ pub struct DeleteTipcardReq {
 #[derive(Deserialize)]
 pub struct PinTipcardReq {
     pub id: i64,
-    pub pinned: bool,
+    pub pinned: Option<bool>,
+    pub image_data: Option<Vec<String>>,
 }
 
 pub async fn pin_tipcard(
     State(state): State<Arc<AppState>>,
     Json(req): Json<PinTipcardReq>,
 ) -> Result<Json<()>, (StatusCode, String)> {
-    api::set_tipcard_pinned(&state, req.id, req.pinned).await?;
+    if let Some(pinned) = req.pinned {
+        api::set_tipcard_pinned(&state, req.id, pinned).await?;
+    }
+    if let Some(image_data) = req.image_data {
+        api::set_tipcard_images(&state, req.id, image_data).await?;
+    }
     Ok(Json(()))
 }
 
@@ -807,6 +813,7 @@ pub struct TipcardInfo {
     pub topic_name: String,
     pub full_content: String,
     pub compressed_content: String,
+    pub image_data: Vec<String>,
     pub created_at: String,
     pub tipcard_type: String,
     pub topic_class: String,
@@ -830,6 +837,7 @@ pub async fn list_tipcards(State(state): State<Arc<AppState>>) -> Json<Vec<Tipca
             String,
             String,
             String,
+            String,
             i64,
         ),
     >(
@@ -837,6 +845,7 @@ pub async fn list_tipcards(State(state): State<Arc<AppState>>) -> Json<Vec<Tipca
                 top.name AS topic_name,
                 t.full_content,
                 t.compressed_content,
+                COALESCE(t.image_data, '[]') AS image_data,
                 COALESCE(CAST(t.created_at AS TEXT), '') AS created_at,
                 t.tipcard_type,
                 COALESCE(tc.name, 'default') AS topic_class,
@@ -861,16 +870,17 @@ pub async fn list_tipcards(State(state): State<Arc<AppState>>) -> Json<Vec<Tipca
             topic_name: r.1,
             full_content: r.2,
             compressed_content: r.3,
-            created_at: r.4,
-            tipcard_type: r.5,
-            topic_class: r.6,
-            status: r.7,
-            next_review_at: r.8,
-            repeat_count: serde_json::from_str::<serde_json::Value>(&r.9)
+            image_data: serde_json::from_str::<Vec<String>>(&r.4).unwrap_or_default(),
+            created_at: r.5,
+            tipcard_type: r.6,
+            topic_class: r.7,
+            status: r.8,
+            next_review_at: r.9,
+            repeat_count: serde_json::from_str::<serde_json::Value>(&r.10)
                 .ok()
                 .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
                 .unwrap_or(0) as u32,
-            pinned: r.10 != 0,
+            pinned: r.11 != 0,
         })
         .collect();
 

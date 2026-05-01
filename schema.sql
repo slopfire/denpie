@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS tipcards (
     title TEXT,
     full_content TEXT NOT NULL,
     compressed_content TEXT NOT NULL,
+    image_data TEXT NOT NULL DEFAULT '[]',
     pinned INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(topic_id) REFERENCES topics(id)

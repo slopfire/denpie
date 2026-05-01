@@ -369,6 +369,20 @@
       text-decoration: underline;
       text-underline-offset: 3px;
     }
+    .card-images {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+      gap: 0.65rem;
+    }
+    .card-images img {
+      width: 100%;
+      max-height: 220px;
+      object-fit: contain;
+      background: var(--surface-muted);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .flow-card.is-fullscreen .card-images img { max-height: 42vh; }
     @media (prefers-reduced-motion: reduce) {
       *,
       *::before,
@@ -494,6 +508,14 @@
               <span id="tips-submit-icon" class="material-symbols-outlined">auto_awesome</span><span id="tips-submit-label">Add</span>
             </button>
             <textarea id="manual-card-content" class="hidden rounded-lg border px-3 py-2 sm:col-span-2 xl:col-span-5 h-28 resize-y" placeholder="Write manual card text"></textarea>
+            <div id="manual-card-images-row" class="hidden sm:col-span-2 xl:col-span-5 flex flex-wrap items-center gap-3">
+              <label class="inline-flex items-center gap-2 rounded-lg border border-token px-3 py-2 text-sm font-bold cursor-pointer">
+                <span class="material-symbols-outlined">add_photo_alternate</span>
+                <span>Attach images</span>
+                <input id="manual-card-images" type="file" accept="image/*" multiple class="hidden">
+              </label>
+              <span id="manual-card-images-count" class="text-sm text-muted">No images</span>
+            </div>
           </form>
         </div>
         <div class="flex justify-between items-center gap-4 mb-5">
@@ -693,11 +715,80 @@
     ];
 
     const $ = (id) => document.getElementById(id);
+    const MAX_CARD_IMAGES = 4;
+    const MAX_CARD_IMAGE_BYTES = 2_500_000;
+    const CARD_IMAGE_MAX_EDGE = 1600;
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
       }[ch]));
+    }
+
+    function readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('Image read failed'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function resizeImageDataUrl(dataUrl, mimeType) {
+      return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+          const scale = Math.min(1, CARD_IMAGE_MAX_EDGE / Math.max(image.width, image.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(image.width * scale));
+          canvas.height = Math.max(1, Math.round(image.height * scale));
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Image resize failed'));
+            return;
+          }
+          ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+          const outputType = mimeType === 'image/png' ? 'image/png' : 'image/jpeg';
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              reject(new Error('Image resize failed'));
+              return;
+            }
+            readFileAsDataUrl(blob).then(resolve).catch(reject);
+          }, outputType, 0.86);
+        };
+        image.onerror = () => reject(new Error('Unsupported image'));
+        image.src = dataUrl;
+      });
+    }
+
+    async function fileToCardImage(file) {
+      if (!file || !String(file.type || '').startsWith('image/')) {
+        throw new Error('Only image files can be attached');
+      }
+      const original = await readFileAsDataUrl(file);
+      if (file.type === 'image/gif') {
+        if (original.length > MAX_CARD_IMAGE_BYTES) throw new Error('GIF image is too large');
+        return original;
+      }
+      const imageData = original.length <= MAX_CARD_IMAGE_BYTES
+        ? original
+        : await resizeImageDataUrl(original, file.type);
+      if (imageData.length > MAX_CARD_IMAGE_BYTES) throw new Error('Image is too large');
+      return imageData;
+    }
+
+    async function readCardImages(files) {
+      const selected = Array.from(files || []);
+      if (selected.length > MAX_CARD_IMAGES) {
+        throw new Error(`Attach up to ${MAX_CARD_IMAGES} images`);
+      }
+      return Promise.all(selected.map(fileToCardImage));
+    }
+
+    function updateManualImageCount() {
+      const count = $('manual-card-images')?.files?.length || 0;
+      $('manual-card-images-count').textContent = count ? `${count} image(s) selected` : 'No images';
     }
 
     function initTimeZoneOptions() {
@@ -1076,6 +1167,7 @@
         button.classList.toggle('active', button.dataset.tipType === tipcardType);
       });
       $('manual-card-content').classList.toggle('hidden', tipcardType !== 'manual_tip');
+      $('manual-card-images-row').classList.toggle('hidden', tipcardType !== 'manual_tip');
       $('tips-submit-icon').textContent = tipcardType === 'manual_tip' ? 'add_notes' : 'auto_awesome';
       $('tips-submit-label').textContent = tipcardType === 'manual_tip' ? 'Save' : 'Add';
     }
@@ -1385,6 +1477,14 @@
       return `<button onclick="toggleCardFullscreen(${card.id})" class="rounded-lg border border-token p-2" title="${fullscreen ? 'Exit fullscreen' : 'Fullscreen'}"><span class="material-symbols-outlined">${fullscreen ? 'close_fullscreen' : 'open_in_full'}</span></button>`;
     }
 
+    function renderCardImages(card) {
+      const images = Array.isArray(card.image_data) ? card.image_data.filter(Boolean) : [];
+      if (!images.length) return '';
+      return `<div class="card-images mb-4">${images.map((src, index) =>
+        `<img src="${escapeHtml(src)}" alt="Attached image ${index + 1}" loading="lazy">`
+      ).join('')}</div>`;
+    }
+
     function renderCardTextHtml(markdownHtml, card, expanded, hasCompact, fullscreen) {
       if (!hasCompact || fullscreen) return markdownHtml;
       const button = `<button onclick="toggleCardExpanded(${card.id})" class="card-inline-expand rounded-md border border-token" title="${expanded ? 'Show compact text' : 'Expand text'}"><span class="material-symbols-outlined">${expanded ? 'unfold_less' : 'unfold_more'}</span></button>`;
@@ -1400,7 +1500,10 @@
 
     function cardContentControls(card) {
       const pinned = Boolean(card.pinned);
+      const hasImages = Array.isArray(card.image_data) && card.image_data.length > 0;
       return `<button onclick="togglePinCard(${card.id}, ${pinned ? 'false' : 'true'})" class="rounded-lg border border-token p-2 ${pinned ? 'bg-primary-soft text-primary' : ''}" title="${pinned ? 'Unpin card' : 'Pin card'}"><span class="material-symbols-outlined ${pinned ? 'icon-fill' : ''}">push_pin</span></button>
+        <label class="rounded-lg border border-token p-2 cursor-pointer" title="Attach images"><span class="material-symbols-outlined">add_photo_alternate</span><input type="file" accept="image/*" multiple class="hidden" onchange="attachCardImages(${card.id}, this.files).finally(() => { this.value = ''; })"></label>
+        ${hasImages ? `<button onclick="clearCardImages(${card.id})" class="rounded-lg border border-token p-2" title="Clear images"><span class="material-symbols-outlined">hide_image</span></button>` : ''}
         <button onclick="copyCardText(${card.id})" data-copy-card-id="${card.id}" class="card-copy-btn rounded-lg border border-token p-2" title="Copy text"><span class="material-symbols-outlined">content_copy</span></button>`;
     }
 
@@ -1510,6 +1613,7 @@
                 ${cardTitleFullscreenButton(card, fullscreen)}
               </div>
             </div>
+            ${renderCardImages(card)}
             <div class="${contentClass} card-text ${expanded && hasCompact ? 'is-expanded' : 'is-compact'}">
               <div class="card-text-body markdown-content">${textHtml}</div>
             </div>
@@ -1648,6 +1752,7 @@
             <button onclick="deleteCard(${card.id})" class="rounded-lg border border-token p-1" title="Delete card"><span class="material-symbols-outlined" style="color:var(--danger)">delete</span></button>
           </div>
         </div>
+        ${renderCardImages(card)}
         <div class="text-sm leading-6 markdown-content">${renderMarkdown(card.full_content)}</div>
         <div class="mt-3 grid gap-1 text-xs text-muted">
           <p>${escapeHtml(card.created_at || card.topic_class || '')}</p>
@@ -1763,6 +1868,9 @@
       state.loadingSlots.push(...slots);
       renderFlow();
       const loadTopic = async (slot) => {
+        const manualImages = tipcardType === 'manual_tip'
+          ? await readCardImages($('manual-card-images').files)
+          : [];
         const tips = await api('/app/tips', {
           method: 'POST',
           body: JSON.stringify({
@@ -1770,7 +1878,8 @@
             topic_class: cardKindFromType(tipcardType),
             tipcard_type: tipcardType,
             count: 1,
-            manual_content: tipcardType === 'manual_tip' ? manualContent : ''
+            manual_content: tipcardType === 'manual_tip' ? manualContent : '',
+            manual_image_data: manualImages
           })
         });
         slot.cardIds = tips.map((card) => Number(card.id)).filter(Boolean);
@@ -1783,6 +1892,8 @@
         const results = await Promise.allSettled(slots.map(loadTopic));
         if (tipcardType === 'manual_tip' && results.some((result) => result.status === 'fulfilled')) {
           $('manual-card-content').value = '';
+          $('manual-card-images').value = '';
+          updateManualImageCount();
         }
         await refreshAll();
         const loadedCount = results.reduce((sum, result) => sum + (result.status === 'fulfilled' ? result.value : 0), 0);
@@ -1793,6 +1904,43 @@
         state.loadingSlots = state.loadingSlots.filter((slot) => !finished.has(slot.id));
         renderFlow();
       }
+    }
+
+    async function attachCardImages(cardId, files) {
+      const card = state.archiveCards.find((item) => Number(item.id) === Number(cardId));
+      if (!card) return;
+      try {
+        const newImages = await readCardImages(files);
+        const imageData = [...(Array.isArray(card.image_data) ? card.image_data : []), ...newImages];
+        if (imageData.length > MAX_CARD_IMAGES) {
+          throw new Error(`Attach up to ${MAX_CARD_IMAGES} images`);
+        }
+        await api('/admin/tipcards', {
+          method: 'PATCH',
+          body: JSON.stringify({ id: cardId, image_data: imageData })
+        });
+        state.archiveCards = state.archiveCards.map((item) =>
+          Number(item.id) === Number(cardId) ? { ...item, image_data: imageData } : item
+        );
+        renderFlow();
+        renderArchive();
+        toast('Images attached');
+      } catch (err) {
+        toast(err.message);
+      }
+    }
+
+    async function clearCardImages(cardId) {
+      await api('/admin/tipcards', {
+        method: 'PATCH',
+        body: JSON.stringify({ id: cardId, image_data: [] })
+      });
+      state.archiveCards = state.archiveCards.map((item) =>
+        Number(item.id) === Number(cardId) ? { ...item, image_data: [] } : item
+      );
+      renderFlow();
+      renderArchive();
+      toast('Images cleared');
     }
 
     async function reviewCard(cardId, action = '', grade = 3) {
@@ -1918,6 +2066,8 @@
     window.copyCardText = copyCardText;
     window.toggleCardExpanded = toggleCardExpanded;
     window.toggleCardFullscreen = toggleCardFullscreen;
+    window.attachCardImages = attachCardImages;
+    window.clearCardImages = clearCardImages;
 
     document.addEventListener('DOMContentLoaded', async () => {
       initTimeZoneOptions();
@@ -1948,6 +2098,7 @@
           $('tips-form').requestSubmit();
         }
       });
+      $('manual-card-images').addEventListener('change', updateManualImageCount);
       document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape' && state.fullscreenCardId !== null) {
           state.fullscreenCardId = null;

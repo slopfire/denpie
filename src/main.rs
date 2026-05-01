@@ -203,6 +203,7 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
     )
     .await?;
     ensure_column(pool, "tipcards", "title", "TEXT").await?;
+    ensure_column(pool, "tipcards", "image_data", "TEXT NOT NULL DEFAULT '[]'").await?;
     ensure_column(pool, "tipcards", "pinned", "INTEGER NOT NULL DEFAULT 0").await?;
     ensure_column(
         pool,

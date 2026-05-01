@@ -401,6 +401,7 @@ pub struct TipsJsonRequest {
     pub exclude_card_ids: Option<Vec<i64>>,
     pub manual_content: Option<String>,
     pub manual_compressed_content: Option<String>,
+    pub manual_image_data: Option<Vec<String>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -409,6 +410,7 @@ pub struct TipCardJson {
     pub topic: String,
     pub full_content: String,
     pub compressed_content: String,
+    pub image_data: Vec<String>,
     pub topic_class: String,
     pub tipcard_type: String,
     pub pinned: bool,
@@ -585,6 +587,27 @@ async fn record_llm_token_usage(
     .execute(&state.db)
     .await
     .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(())
+}
+
+pub async fn set_tipcard_images(
+    state: &AppState,
+    id: i64,
+    image_data: Vec<String>,
+) -> Result<(), (StatusCode, String)> {
+    let image_data = validate_image_data(image_data)?;
+    let image_data_json = image_data_json(&image_data)?;
+    let result = sqlx::query("UPDATE tipcards SET image_data = ? WHERE id = ?")
+        .bind(image_data_json)
+        .bind(id)
+        .execute(&state.db)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if result.rows_affected() == 0 {
+        return Err((StatusCode::NOT_FOUND, "Card not found".to_string()));
+    }
 
     Ok(())
 }
@@ -968,6 +991,7 @@ fn tip_response_json(
     topic: &str,
     full_content: String,
     compressed_content: String,
+    image_data: Vec<String>,
     class_info: &TopicClassInfo,
     pinned: bool,
 ) -> TipCardJson {
@@ -976,10 +1000,61 @@ fn tip_response_json(
         topic: topic.to_string(),
         full_content,
         compressed_content,
+        image_data,
         topic_class: class_info.name.clone(),
         tipcard_type: class_info.tipcard_type.clone(),
         pinned,
     }
+}
+
+fn parse_image_data(raw: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(raw).unwrap_or_default()
+}
+
+fn image_data_json(images: &[String]) -> Result<String, (StatusCode, String)> {
+    serde_json::to_string(images)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub fn validate_image_data(images: Vec<String>) -> Result<Vec<String>, (StatusCode, String)> {
+    const MAX_IMAGES: usize = 4;
+    const MAX_TOTAL_CHARS: usize = 12 * 1024 * 1024;
+    let mut normalized = Vec::new();
+    let mut total_chars = 0usize;
+
+    for image in images {
+        let image = image.trim().to_string();
+        if image.is_empty() {
+            continue;
+        }
+        if normalized.len() >= MAX_IMAGES {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("A tipcard can have at most {MAX_IMAGES} images"),
+            ));
+        }
+        let allowed = image.starts_with("data:image/png;base64,")
+            || image.starts_with("data:image/jpeg;base64,")
+            || image.starts_with("data:image/jpg;base64,")
+            || image.starts_with("data:image/webp;base64,")
+            || image.starts_with("data:image/gif;base64,");
+        if !allowed {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Only PNG, JPEG, WebP, or GIF data URLs are supported".to_string(),
+            ));
+        }
+        total_chars = total_chars.saturating_add(image.len());
+        if total_chars > MAX_TOTAL_CHARS {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Attached images are too large".to_string(),
+            ));
+        }
+        normalized.push(image);
+    }
+
+    Ok(normalized)
 }
 
 async fn find_daily_topic_cards(
@@ -989,10 +1064,10 @@ async fn find_daily_topic_cards(
     daily_window_start: DateTime<Utc>,
     exclude_card_ids: &[i64],
     limit: usize,
-) -> Result<Vec<(i64, String, String, i64)>, (StatusCode, String)> {
+) -> Result<Vec<(i64, String, String, i64, String)>, (StatusCode, String)> {
     let mut daily_query = QueryBuilder::<Sqlite>::new(
         "
-        SELECT t.id, t.full_content, t.compressed_content, COALESCE(t.pinned, 0)
+        SELECT t.id, t.full_content, t.compressed_content, COALESCE(t.pinned, 0), COALESCE(t.image_data, '[]')
         FROM tipcards t
         WHERE t.topic_id = ",
     );
@@ -1018,7 +1093,7 @@ async fn find_daily_topic_cards(
     daily_query.push_bind(limit as i64);
 
     daily_query
-        .build_query_as::<(i64, String, String, i64)>()
+        .build_query_as::<(i64, String, String, i64, String)>()
         .fetch_all(&state.db)
         .await
         .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -1030,11 +1105,11 @@ async fn find_due_topic_cards(
     tipcard_type: &str,
     exclude_card_ids: &[i64],
     limit: usize,
-) -> Result<Vec<(i64, String, String, i64)>, (StatusCode, String)> {
+) -> Result<Vec<(i64, String, String, i64, String)>, (StatusCode, String)> {
     let now = Utc::now();
     let mut due_query = QueryBuilder::<Sqlite>::new(
         "
-        SELECT t.id, t.full_content, t.compressed_content, COALESCE(t.pinned, 0)
+        SELECT t.id, t.full_content, t.compressed_content, COALESCE(t.pinned, 0), COALESCE(t.image_data, '[]')
         FROM tipcards t
         JOIN review_states r ON t.id = r.card_id
         WHERE t.topic_id = ",
@@ -1069,7 +1144,7 @@ async fn find_due_topic_cards(
     due_query.push_bind(limit as i64);
 
     due_query
-        .build_query_as::<(i64, String, String, i64)>()
+        .build_query_as::<(i64, String, String, i64, String)>()
         .fetch_all(&state.db)
         .await
         .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -1108,6 +1183,7 @@ pub async fn build_tips(
         .unwrap_or_default()
         .trim()
         .to_string();
+    let manual_image_data = validate_image_data(query.manual_image_data.unwrap_or_default())?;
     let exclude_card_ids: Vec<i64> = query
         .exclude_card_ids
         .unwrap_or_default()
@@ -1198,6 +1274,7 @@ pub async fn build_tips(
                 &class_info,
                 manual_content.clone(),
                 compact,
+                manual_image_data.clone(),
                 &mut responses,
             )
             .await?;
@@ -1227,6 +1304,7 @@ pub async fn build_tips(
                 topic_name,
                 card.1.clone(),
                 card.2.clone(),
+                parse_image_data(&card.4),
                 &class_info,
                 card.3 != 0,
             ));
@@ -1250,6 +1328,7 @@ pub async fn build_tips(
                     topic_name,
                     card.1.clone(),
                     card.2.clone(),
+                    parse_image_data(&card.4),
                     &class_info,
                     card.3 != 0,
                 ));
@@ -1408,6 +1487,7 @@ async fn generate_tipcard(
         topic_name,
         full_tip,
         compressed_tip,
+        Vec::new(),
         class_info,
         false,
     ));
@@ -1422,6 +1502,7 @@ async fn create_manual_tipcard(
     class_info: &TopicClassInfo,
     full_tip: String,
     compressed_tip: String,
+    image_data: Vec<String>,
     responses: &mut Vec<TipCardJson>,
 ) -> Result<(), (StatusCode, String)> {
     let title = full_tip
@@ -1433,14 +1514,16 @@ async fn create_manual_tipcard(
         .take(96)
         .collect::<String>();
 
+    let image_data_json = image_data_json(&image_data)?;
     let card_id = sqlx::query(
-        "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content, image_data) VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(topic.id)
     .bind(&class_info.tipcard_type)
     .bind(&title)
     .bind(&full_tip)
     .bind(&compressed_tip)
+    .bind(&image_data_json)
     .execute(&state.db)
     .await
     .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -1461,6 +1544,7 @@ async fn create_manual_tipcard(
         topic_name,
         full_tip,
         compressed_tip,
+        image_data,
         class_info,
         false,
     ));
@@ -1524,6 +1608,7 @@ async fn create_custom_tipcard(
         topic_name,
         full_tip,
         compressed_tip,
+        Vec::new(),
         &class_info,
         false,
     ))
@@ -1570,6 +1655,7 @@ pub async fn unified_api(
                             exclude_card_ids: Some(query.exclude_card_ids),
                             manual_content: Some(query.manual_content),
                             manual_compressed_content: Some(query.manual_compressed_content),
+                            manual_image_data: None,
                         },
                     )
                     .await?
