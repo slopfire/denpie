@@ -11,6 +11,7 @@ DATA_DIR="${DATA_DIR:-/var/lib/$APP_NAME}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 LIBEXEC_DIR="${LIBEXEC_DIR:-/usr/local/libexec}"
 DEFAULTS_DIR="${DEFAULTS_DIR:-/etc/default}"
+POLKIT_DIR="${POLKIT_DIR:-/etc/polkit-1/rules.d}"
 
 usage() {
     cat <<EOF
@@ -142,6 +143,28 @@ write_autoupdate_units() {
     rm -f "$tmp_file"
     run_as_root install -m 0644 deploy/dailytipdraft-autoupdate.timer "$SYSTEMD_DIR/$APP_NAME-autoupdate.timer"
     write_autoupdate_defaults
+    write_autoupdate_policy
+}
+
+write_autoupdate_policy() {
+    if [ ! -d "$POLKIT_DIR" ]; then
+        echo "Polkit rules directory not found; Check Now may require autoupdate_command for manual updates." >&2
+        return
+    fi
+
+    tmp_file="$(mktemp)"
+    cat > "$tmp_file" <<EOF
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") == "$APP_NAME-autoupdate.service" &&
+        action.lookup("verb") == "start" &&
+        subject.user == "$SERVICE_USER") {
+        return polkit.Result.YES;
+    }
+});
+EOF
+    run_as_root install -m 0644 "$tmp_file" "$POLKIT_DIR/49-$APP_NAME-autoupdate.rules"
+    rm -f "$tmp_file"
 }
 
 install_app() {
@@ -174,6 +197,7 @@ uninstall_app() {
     run_as_root systemctl disable --now "$APP_NAME-autoupdate.timer" >/dev/null 2>&1 || true
     run_as_root rm -f "$SYSTEMD_DIR/$APP_NAME.service"
     run_as_root rm -f "$SYSTEMD_DIR/$APP_NAME-autoupdate.service" "$SYSTEMD_DIR/$APP_NAME-autoupdate.timer"
+    run_as_root rm -f "$POLKIT_DIR/49-$APP_NAME-autoupdate.rules"
     run_as_root systemctl daemon-reload
     echo "Removed systemd services. Data left in $DATA_DIR and binary left in $BIN_DIR."
 }

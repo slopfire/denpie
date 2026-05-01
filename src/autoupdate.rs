@@ -268,6 +268,11 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
             } else {
                 start_output.status.to_string()
             };
+            if detail.contains("Interactive authentication required") {
+                return Err(format!(
+                    "default updater {service} needs permission for the web service user; rerun ./install.sh to install the polkit rule, or set autoupdate_command for custom installs"
+                ));
+            }
             return Err(format!(
                 "default updater {service} failed: {detail}; set autoupdate_command for custom installs"
             ));
