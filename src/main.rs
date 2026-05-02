@@ -68,6 +68,7 @@ async fn main() {
         fs::write(&settings_path, out_str).await.unwrap();
         token
     };
+    //todo only on startup
     println!(">>> ADMIN SETUP TOKEN: {} <<<", admin_token);
 
     // Setup DB
