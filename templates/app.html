@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MindLift SRS</title>
+  <title>Sloppypie SRS</title>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -418,7 +418,7 @@
       <div class="flex items-center gap-3 mb-8">
         <span class="material-symbols-outlined icon-fill text-primary text-4xl">psychology</span>
         <div>
-          <h1 class="text-2xl font-black tracking-tight">MindLift SRS</h1>
+          <h1 class="text-2xl font-black tracking-tight">Sloppypie SRS</h1>
           <p class="text-sm text-muted">Admin token required</p>
         </div>
       </div>
@@ -434,8 +434,7 @@
       <div class="flex items-center gap-3 px-2 py-2 mb-6">
         <span class="material-symbols-outlined icon-fill text-primary text-3xl">psychology</span>
         <div>
-          <div class="text-lg font-black tracking-tight">MindLift SRS</div>
-          <div class="text-xs text-muted">Deep Learning Engine</div>
+          <div class="text-lg font-black tracking-tight">Sloppypie SRS</div>
         </div>
       </div>
       <div class="space-y-1 flex-1">
@@ -462,7 +461,7 @@
     <header class="sticky top-0 z-40 lg:ml-64 h-16 border-b surface backdrop-blur flex items-center justify-between px-4 sm:px-6">
       <div class="flex items-center gap-3">
         <span class="lg:hidden material-symbols-outlined icon-fill text-primary">psychology</span>
-        <div class="font-bold tracking-tight">MindLift SRS</div>
+        <div class="font-bold tracking-tight">Sloppypie SRS</div>
       </div>
       <div class="flex items-center gap-2">
         <select id="theme-select-top" class="theme-select lg:hidden rounded-lg border px-3 py-2 text-sm"></select>
@@ -703,7 +702,7 @@
       loadingSlotSeq: 0,
       loadingCardIds: new Set(),
       refreshingFlow: false,
-      cardOrder: JSON.parse(localStorage.getItem('mindlift-card-order') || '[]'),
+      cardOrder: JSON.parse(localStorage.getItem('sloppypie-card-order') || localStorage.getItem('mindlift-card-order') || '[]'),
       draggingCardId: null,
       expandedCardIds: new Set(),
       fullscreenCardId: null,
@@ -1105,7 +1104,7 @@
     }
 
     function initThemes() {
-      const saved = localStorage.getItem('mindlift-theme') || 'default';
+      const saved = localStorage.getItem('sloppypie-theme') || localStorage.getItem('mindlift-theme') || 'default';
       document.documentElement.dataset.theme = saved;
       document.querySelectorAll('.theme-select').forEach((select) => {
         select.innerHTML = themes.map(([id, label]) => `<option value="${id}">${label}</option>`).join('');
@@ -1125,7 +1124,7 @@
     function applyTheme(theme) {
       const selected = themes.some(([id]) => id === theme) ? theme : 'default';
       document.documentElement.dataset.theme = selected;
-      localStorage.setItem('mindlift-theme', selected);
+      localStorage.setItem('sloppypie-theme', selected);
       document.querySelectorAll('.theme-select').forEach((select) => select.value = selected);
     }
 
@@ -1180,7 +1179,7 @@
     }
 
     function saveCardOrder() {
-      localStorage.setItem('mindlift-card-order', JSON.stringify(state.cardOrder));
+      localStorage.setItem('sloppypie-card-order', JSON.stringify(state.cardOrder));
     }
 
     function insertCardOrderAfter(sourceId, newIds) {
@@ -1808,7 +1807,7 @@
       $('daily-time-zone-input').value = settings.daily_time_zone || 'UTC';
       $('daily-update-time-input').value = settings.daily_update_time || '00:00';
       $('max-active-cards-input').value = settings.max_active_cards || 0;
-      applyTheme(settings.color_scheme || localStorage.getItem('mindlift-theme') || 'default');
+      applyTheme(settings.color_scheme || localStorage.getItem('sloppypie-theme') || localStorage.getItem('mindlift-theme') || 'default');
     }
 
     async function loadTopic(name, className, tipcardType) {

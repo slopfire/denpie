@@ -143,7 +143,7 @@ mod tests {
         let response = client.get(format!("{url}/")).send().await.unwrap();
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         let body = response.text().await.unwrap();
-        assert!(body.contains("MindLift SRS"));
+        assert!(body.contains("Sloppypie SRS"));
         assert!(body.contains("admin-token"));
         assert!(body.contains("/app/tips"));
     }
