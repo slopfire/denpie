@@ -479,7 +479,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_force_daily_refresh_replaces_current_daily_card() {
+    async fn test_force_daily_refresh_replaces_current_daily_card_without_dismissing_old_card() {
         let (url, client) = spawn_test_server().await;
         let api_key = bootstrap_api_key(&url, &client, "force_daily_refresh").await;
 
@@ -545,7 +545,7 @@ mod tests {
             &url,
             &client,
             crate::api::pb::ApiRequest {
-                auth: api_key,
+                auth: api_key.clone(),
                 op: Some(crate::api::pb::api_request::Op::Tips(tips_query)),
             },
         )
@@ -561,6 +561,33 @@ mod tests {
                 other => panic!("unexpected response: {:?}", other),
             };
         assert_ne!(second_id, first_id);
+
+        let cards = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key,
+                op: Some(crate::api::pb::api_request::Op::ListTipcards(
+                    crate::api::pb::Empty {},
+                )),
+            },
+        )
+        .await;
+        assert_eq!(cards.status(), reqwest::StatusCode::OK);
+        let first_status = match crate::api::pb::ApiResponse::decode(cards.bytes().await.unwrap())
+            .unwrap()
+            .result
+            .unwrap()
+        {
+            crate::api::pb::api_response::Result::Tipcards(cards) => cards
+                .cards
+                .into_iter()
+                .find(|card| card.id == first_id)
+                .map(|card| card.status)
+                .expect("first card remains listed"),
+            other => panic!("unexpected response: {:?}", other),
+        };
+        assert_eq!(first_status, "active");
     }
 
     #[tokio::test]

@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS review_states (
     algorithm_used TEXT NOT NULL, -- 'fsrs' or 'sm2'
     state_data TEXT NOT NULL, -- JSON
     status TEXT NOT NULL DEFAULT 'active', -- 'active', 'acknowledged', 'memorized', or 'dismissed'
+    daily_refreshed_at DATETIME,
     next_review_at DATETIME NOT NULL,
     FOREIGN KEY(card_id) REFERENCES tipcards(id)
 );

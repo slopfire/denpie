@@ -2047,7 +2047,7 @@
           method: 'POST',
           body: JSON.stringify({ topics: '' })
         });
-        const dismissed = Number(result.refreshed_cards || 0);
+        const refreshed = Number(result.refreshed_cards || 0);
         const topicKeys = new Set(refreshTopics.map((topic) =>
           `${String(topic.name).toLowerCase()}::${topic.tipcard_type}`
         ));
@@ -2077,7 +2077,7 @@
         const failedCount = results.filter((result) => result.status === 'rejected').length;
         toast(failedCount
           ? `${loadedCount} fresh card(s), ${failedCount} topic(s) failed`
-          : `${dismissed} old card(s) dismissed, ${loadedCount} fresh card(s) loaded`);
+          : `${refreshed} old card(s) refreshed, ${loadedCount} fresh card(s) loaded`);
       } finally {
         button.disabled = false;
         state.refreshingFlow = false;

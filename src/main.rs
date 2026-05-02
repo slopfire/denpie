@@ -213,6 +213,7 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
         "TEXT NOT NULL DEFAULT 'active'",
     )
     .await?;
+    ensure_column(pool, "review_states", "daily_refreshed_at", "DATETIME").await?;
 
     sqlx::query(
         "INSERT OR IGNORE INTO topic_classes (name, tipcard_type) VALUES ('default', 'srs_tip')",
