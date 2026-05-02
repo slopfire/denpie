@@ -1401,32 +1401,77 @@ pub async fn force_daily_refresh(
     state: &AppState,
     req: ForceDailyRefreshRequest,
 ) -> Result<ForceDailyRefreshResponse, (StatusCode, String)> {
-    let topic_class = req.topic_class.unwrap_or_default();
-    let tipcard_type = req.tipcard_type.unwrap_or_default();
-    let class_info = get_or_create_topic_class(state, &topic_class, &tipcard_type).await?;
-    if matches!(
-        class_info.tipcard_type.as_str(),
-        "manual_tip" | "custom_tip"
-    ) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Only generated daily cards can be force-refreshed".to_string(),
-        ));
-    }
-
     let settings_str = fs::read_to_string(&state.settings_path).unwrap_or_default();
     let settings: serde_yaml::Value = serde_yaml::from_str(&settings_str).unwrap_or_default();
     let dismissed_until = Utc::now() + Duration::days(36500);
     let mut refreshed_cards = 0u64;
+    let topic_names: Vec<String> = req
+        .topics
+        .split(',')
+        .map(str::trim)
+        .filter(|topic| !topic.is_empty())
+        .map(str::to_string)
+        .collect();
+    let topic_class = req.topic_class.unwrap_or_default();
+    let tipcard_type = req.tipcard_type.unwrap_or_default();
+    let all_generated_topics =
+        topic_names.is_empty() && topic_class.trim().is_empty() && tipcard_type.trim().is_empty();
 
-    for topic_name in req.topics.split(',') {
-        let topic_name = topic_name.trim();
-        if topic_name.is_empty() {
-            continue;
+    let targets: Vec<(TopicInfo, String)> = if all_generated_topics {
+        sqlx::query_as::<
+            _,
+            (
+                i64,
+                Option<String>,
+                Option<i64>,
+                Option<String>,
+                Option<String>,
+                String,
+            ),
+        >(
+            "SELECT top.id, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, tc.tipcard_type
+             FROM topics top
+             JOIN topic_classes tc ON tc.id = top.class_id
+             WHERE tc.tipcard_type NOT IN ('manual_tip', 'custom_tip')",
+        )
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .into_iter()
+        .map(|row| {
+            (
+                TopicInfo {
+                    id: row.0,
+                    prompt_template: row.1,
+                    daily_card_count: row.2,
+                    daily_time_zone: row.3,
+                    daily_update_time: row.4,
+                },
+                row.5,
+            )
+        })
+        .collect()
+    } else {
+        let class_info = get_or_create_topic_class(state, &topic_class, &tipcard_type).await?;
+        if matches!(
+            class_info.tipcard_type.as_str(),
+            "manual_tip" | "custom_tip"
+        ) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Only generated daily cards can be force-refreshed".to_string(),
+            ));
         }
+        let mut targets = Vec::new();
+        for topic_name in topic_names {
+            let topic = get_or_create_topic(state, &topic_name, class_info.id).await?;
+            targets.push((topic, class_info.tipcard_type.clone()));
+        }
+        targets
+    };
 
-        let topic = get_or_create_topic(state, topic_name, class_info.id).await?;
-        let result = if is_queue_tipcard(&class_info.tipcard_type) {
+    for (topic, tipcard_type) in targets {
+        let result = if is_queue_tipcard(&tipcard_type) {
             sqlx::query(
                 "UPDATE review_states
                  SET status = 'dismissed', next_review_at = ?
@@ -1441,7 +1486,7 @@ pub async fn force_daily_refresh(
             )
             .bind(dismissed_until)
             .bind(topic.id)
-            .bind(&class_info.tipcard_type)
+            .bind(&tipcard_type)
             .execute(&state.db)
             .await
         } else {
@@ -1461,7 +1506,7 @@ pub async fn force_daily_refresh(
             )
             .bind(dismissed_until)
             .bind(topic.id)
-            .bind(&class_info.tipcard_type)
+            .bind(&tipcard_type)
             .bind(
                 daily_window_start
                     .naive_utc()

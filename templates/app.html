@@ -496,7 +496,7 @@
             <h1 class="text-3xl font-bold tracking-tight">Unified Flow</h1>
             <p class="text-muted mt-2">All cards in one review surface.</p>
           </div>
-          <form id="tips-form" class="surface border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-3 w-full xl:w-auto">
+          <form id="tips-form" class="surface border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 w-full xl:w-auto">
             <input id="tips-topics" class="rounded-lg border px-3 py-2 xl:col-span-2" placeholder="Rust, Python, System Design" required>
             <input id="tips-type" type="hidden" value="casual_tip">
             <div class="tip-type-switch muted-surface border border-token rounded-lg p-1 grid grid-cols-3 sm:col-span-2" role="group" aria-label="Card class">
@@ -507,11 +507,8 @@
             <button class="rounded-lg bg-primary-solid px-4 py-2 font-bold flex items-center justify-center gap-2">
               <span id="tips-submit-icon" class="material-symbols-outlined">auto_awesome</span><span id="tips-submit-label">Add</span>
             </button>
-            <button id="force-daily-refresh-btn" type="button" class="rounded-lg border border-token px-4 py-2 font-bold flex items-center justify-center gap-2" title="Force daily card refresh">
-              <span class="material-symbols-outlined">sync</span><span>Force Refresh</span>
-            </button>
-            <textarea id="manual-card-content" class="hidden rounded-lg border px-3 py-2 sm:col-span-2 xl:col-span-6 h-28 resize-y" placeholder="Write manual card text"></textarea>
-            <div id="manual-card-images-row" class="hidden sm:col-span-2 xl:col-span-6 flex flex-wrap items-center gap-3">
+            <textarea id="manual-card-content" class="hidden rounded-lg border px-3 py-2 sm:col-span-2 xl:col-span-5 h-28 resize-y" placeholder="Write manual card text"></textarea>
+            <div id="manual-card-images-row" class="hidden sm:col-span-2 xl:col-span-5 flex flex-wrap items-center gap-3">
               <label class="inline-flex items-center gap-2 rounded-lg border border-token px-3 py-2 text-sm font-bold cursor-pointer">
                 <span class="material-symbols-outlined">add_photo_alternate</span>
                 <span>Attach images</span>
@@ -603,6 +600,13 @@
               <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Card Refresh Time</label>
               <input id="daily-update-time-input" type="time" class="w-full rounded-lg border px-4 py-3">
             </div>
+          </div>
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div class="text-sm text-muted">Refresh every generated topic now and replace current unpinned daily cards.</div>
+            <button id="force-daily-refresh-btn" type="button" class="rounded-lg border border-token px-4 py-2 font-bold flex items-center justify-center gap-2">
+              <span class="material-symbols-outlined">sync</span>
+              <span>Force Daily Refresh</span>
+            </button>
           </div>
           <div>
             <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Max Active Cards</label>
@@ -1173,7 +1177,6 @@
       $('manual-card-images-row').classList.toggle('hidden', tipcardType !== 'manual_tip');
       $('tips-submit-icon').textContent = tipcardType === 'manual_tip' ? 'add_notes' : 'auto_awesome';
       $('tips-submit-label').textContent = tipcardType === 'manual_tip' ? 'Save' : 'Add';
-      $('force-daily-refresh-btn').classList.toggle('hidden', tipcardType === 'manual_tip');
     }
 
     function saveCardOrder() {
@@ -2026,40 +2029,56 @@
     }
 
     async function forceDailyRefresh() {
-      const tipcardType = $('tips-type').value;
-      if (tipcardType === 'manual_tip') {
-        toast('Manual cards do not use daily refresh');
-        return;
-      }
-      const topics = requestedTopics().slice(0, 6);
-      const loadTopics = topics.length ? topics : [$('tips-topics').value.trim() || 'Tip'];
-      const topicSet = new Set(loadTopics.map((topic) => topic.toLowerCase()));
       const button = $('force-daily-refresh-btn');
       button.disabled = true;
       state.refreshingFlow = true;
       renderFlow();
       try {
+        await saveSettings();
+        const latestTopics = await api('/app/topics');
+        const refreshTopics = latestTopics.filter((topic) =>
+          !['manual_tip', 'custom_tip'].includes(topic.tipcard_type)
+        );
+        if (!refreshTopics.length) {
+          toast('No generated topics to refresh');
+          return;
+        }
+        state.topics = latestTopics;
         const result = await api('/app/daily-refresh', {
           method: 'POST',
-          body: JSON.stringify({
-            topics: loadTopics.join(','),
-            topic_class: cardKindFromType(tipcardType),
-            tipcard_type: tipcardType
-          })
+          body: JSON.stringify({ topics: '' })
         });
         const dismissed = Number(result.refreshed_cards || 0);
+        const topicKeys = new Set(refreshTopics.map((topic) =>
+          `${String(topic.name).toLowerCase()}::${topic.tipcard_type}`
+        ));
         state.cardOrder = state.cardOrder.filter((cardId) => {
           const card = state.archiveCards.find((item) => Number(item.id) === Number(cardId));
           if (!card) return true;
-          return !(
-            topicSet.has(String(card.topic_name || card.topic || '').toLowerCase()) &&
-            card.tipcard_type === tipcardType &&
-            !card.pinned
-          );
+          const key = `${String(card.topic_name || card.topic || '').toLowerCase()}::${card.tipcard_type}`;
+          return !(topicKeys.has(key) && !card.pinned);
         });
         saveCardOrder();
-        await pullTips();
-        toast(dismissed ? 'Daily cards refreshed' : 'Fresh daily cards loaded');
+        const requests = refreshTopics.map((topic) => api('/app/tips', {
+          method: 'POST',
+          body: JSON.stringify({
+            topics: topic.name,
+            topic_class: topic.class_name,
+            tipcard_type: topic.tipcard_type,
+            count: 1
+          })
+        }));
+        const results = await Promise.allSettled(requests);
+        results
+          .filter((result) => result.status === 'fulfilled')
+          .forEach((result) => mergeCardsIntoArchive(result.value));
+        const loadedCount = results.reduce((sum, result) =>
+          sum + (result.status === 'fulfilled' ? result.value.length : 0), 0);
+        await refreshAll();
+        const failedCount = results.filter((result) => result.status === 'rejected').length;
+        toast(failedCount
+          ? `${loadedCount} fresh card(s), ${failedCount} topic(s) failed`
+          : `${dismissed} old card(s) dismissed, ${loadedCount} fresh card(s) loaded`);
       } finally {
         button.disabled = false;
         state.refreshingFlow = false;

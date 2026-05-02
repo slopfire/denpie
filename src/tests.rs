@@ -519,9 +519,9 @@ mod tests {
                 auth: api_key.clone(),
                 op: Some(crate::api::pb::api_request::Op::ForceDailyRefresh(
                     crate::api::pb::ForceDailyRefreshRequest {
-                        topics: "rust".into(),
-                        topic_class: "default".into(),
-                        tipcard_type: "srs_tip".into(),
+                        topics: "".into(),
+                        topic_class: "".into(),
+                        tipcard_type: "".into(),
                     },
                 )),
             },

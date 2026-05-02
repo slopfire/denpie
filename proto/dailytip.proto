@@ -237,7 +237,7 @@ message PinTipcardRequest {
 }
 
 message ForceDailyRefreshRequest {
-    string topics = 1; // comma separated
+    string topics = 1; // comma separated; empty with empty class/type refreshes all generated topics
     string topic_class = 2; // optional, defaults to "default"
     string tipcard_type = 3; // optional class type: "srs_tip", "casual_tip", or "repeatable_tip"
 }
