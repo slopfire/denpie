@@ -409,7 +409,7 @@ struct TopicInfo {
     compression_level: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct TipsJsonRequest {
     pub count: Option<u32>,
     pub topics: String,
@@ -1138,13 +1138,6 @@ async fn find_daily_topic_cards(
     daily_query.push(" AND t.tipcard_type = ");
     daily_query.push_bind(tipcard_type);
     daily_query.push(" AND r.status = 'active'");
-    daily_query.push(" AND t.created_at >= ");
-    daily_query.push_bind(
-        daily_window_start
-            .naive_utc()
-            .format("%Y-%m-%d %H:%M:%S")
-            .to_string(),
-    );
     daily_query.push(" AND (r.daily_refreshed_at IS NULL OR r.daily_refreshed_at < ");
     daily_query.push_bind(
         daily_window_start
@@ -1557,18 +1550,11 @@ pub async fn force_daily_refresh(
                  WHERE t.topic_id = ?
                    AND t.tipcard_type = ?
                    AND COALESCE(t.pinned, 0) = 0
-                   AND t.created_at >= ?
                    AND r.status = 'active'
                    AND (r.daily_refreshed_at IS NULL OR r.daily_refreshed_at < ?)",
             )
             .bind(topic.id)
             .bind(&tipcard_type)
-            .bind(
-                daily_window_start
-                    .naive_utc()
-                    .format("%Y-%m-%d %H:%M:%S")
-                    .to_string(),
-            )
             .bind(
                 daily_window_start
                     .naive_utc()

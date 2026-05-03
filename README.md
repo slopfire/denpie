@@ -8,7 +8,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Casual Cards**: Queue-style tips can be dismissed or acknowledged so clients can pull the next card immediately; acknowledged cards are scheduled.
 - **Repeatable Cards**: Re:word-style cards can be dismissed, repeated, memorized, or acknowledged; clients can advance after repeatable review actions, and repeated cards come back when due through scheduling.
 - **Topic Classes**: Topics belong to a card behavior class: casual, repeatable, or manual. 
-- **Daily Topic Cards**: Each topic/type returns a configurable number of stable cards per local day, with per-topic overrides for count and card refresh time. The browser dashboard uses the global time zone setting.
+- **Daily Topic Cards**: Each topic/type returns a configurable number of stable cards, with per-topic overrides for count and card refresh time. Unpinned current cards stay active across automatic daily refreshes until reviewed or force-refreshed. The browser dashboard uses the global time zone setting.
 - **Forced Card Refresh**: The settings screen can move current generated daily cards out of the active daily view and immediately pull fresh cards without dismissing the old cards; the protobuf API can also target selected topics.
 - **Pinned Tipcards**: Any active card can be pinned from the control panel or API so it stays visible in a separate top section until unpinned.
 - **Tipcard Images**: Manual cards can be saved with attached images, and existing cards can receive or clear image attachments from the browser control panel.

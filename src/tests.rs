@@ -593,6 +593,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_daily_refresh_keeps_current_unpinned_daily_card_until_forced() {
+        let settings_path = unique_settings_path();
+        fs::write(&settings_path, "{}").await.unwrap();
+        let db = setup_db().await;
+        let state = Arc::new(AppState {
+            db,
+            settings_path,
+            template_dir: PathBuf::from("templates"),
+        });
+
+        let request = crate::api::TipsJsonRequest {
+            count: Some(1),
+            topics: "rust".into(),
+            topic_class: Some("default".into()),
+            tipcard_type: Some("srs_tip".into()),
+            exclude_card_ids: None,
+            manual_content: None,
+            manual_compressed_content: None,
+            manual_image_data: None,
+        };
+
+        let first = crate::api::build_tips(&state, request.clone())
+            .await
+            .unwrap();
+        assert_eq!(first.len(), 1);
+        let first_id = first[0].id;
+
+        sqlx::query("UPDATE tipcards SET created_at = '2000-01-01 00:00:00' WHERE id = ?")
+            .bind(first_id)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE review_states SET next_review_at = '2999-01-01 00:00:00' WHERE card_id = ?",
+        )
+        .bind(first_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+        let automatic_refresh = crate::api::build_tips(&state, request.clone())
+            .await
+            .unwrap();
+        assert_eq!(automatic_refresh.len(), 1);
+        assert_eq!(automatic_refresh[0].id, first_id);
+        let card_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tipcards")
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+        assert_eq!(card_count, 1);
+
+        let forced = crate::api::force_daily_refresh(
+            &state,
+            crate::api::ForceDailyRefreshRequest {
+                topics: "rust".into(),
+                topic_class: Some("default".into()),
+                tipcard_type: Some("srs_tip".into()),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(forced.refreshed_cards, 1);
+
+        let replacement = crate::api::build_tips(&state, request).await.unwrap();
+        assert_eq!(replacement.len(), 1);
+        assert_ne!(replacement[0].id, first_id);
+    }
+
+    #[tokio::test]
     async fn test_unified_api_can_delete_tipcard() {
         let (url, client) = spawn_test_server().await;
         let api_key = bootstrap_api_key(&url, &client, "delete_flow").await;
