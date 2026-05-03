@@ -433,6 +433,7 @@
       transition: min-height 150ms cubic-bezier(.2, 0, 0, 1);
     }
     .card-text.is-expanded { min-height: min(48vh, 420px); }
+    .flow-card-list .card-text.is-expanded { min-height: 0; }
     .card-text-body { animation: card-text-snap 120ms cubic-bezier(.2, 0, 0, 1); }
     .card-text p {
       text-align: left;
@@ -1919,10 +1920,10 @@
       $('flow-count').textContent = cards.length;
       const hasPinned = pinnedCards.length > 0;
       $('pinned-flow-section').classList.toggle('hidden', !hasPinned);
-      $('pinned-flow-grid').className = listMode ? 'grid grid-cols-1 gap-3 items-start' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start';
+      $('pinned-flow-grid').className = listMode ? 'grid grid-cols-1 gap-3 items-start w-full max-w-4xl mx-auto' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start';
       $('empty-flow').classList.toggle('hidden', hasPinned || flowItems.length > 0 || state.loadingSlots.length > 0 || state.refreshingFlow);
       document.body.classList.toggle('has-fullscreen-card', state.fullscreenCardId !== null);
-      $('flow-grid').className = listMode ? 'grid grid-cols-1 gap-3 items-start' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start';
+      $('flow-grid').className = listMode ? 'grid grid-cols-1 gap-3 items-start w-full max-w-4xl mx-auto' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start';
       $('flow-grid-btn').classList.toggle('bg-primary-soft', !listMode);
       $('flow-grid-btn').classList.toggle('text-primary', !listMode);
       $('flow-list-btn').classList.toggle('bg-primary-soft', listMode);
@@ -1947,10 +1948,10 @@
         const articleClass = fullscreen
           ? 'flow-card is-fullscreen surface border fixed top-0 right-0 bottom-0 z-[70] overflow-hidden flex flex-col'
           : (listMode
-            ? 'flow-card surface border relative overflow-hidden flex flex-col lg:flex-row'
+            ? 'flow-card flow-card-list surface border relative overflow-hidden flex flex-col lg:flex-row'
             : 'flow-card surface border relative overflow-hidden min-h-[240px] flex flex-col');
         const contentClass = listMode
-          ? 'text-base leading-7 flex-1'
+          ? 'text-base leading-7'
           : 'text-base leading-7 flex-1';
         return `<article class="${articleClass}" data-card-id="${card.id}">
           <div class="absolute top-0 left-0 w-1 h-full ${lineClass}"></div>
