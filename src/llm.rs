@@ -14,6 +14,7 @@ Aim for 180-260 words. Markdown is allowed. Avoid filler, hype, and invented fac
 
 const MIN_COMPRESS_CHARS: usize = 420;
 const MIN_COMPRESS_WORDS: usize = 70;
+pub const DEFAULT_COMPRESSION_LEVEL: &str = "balanced";
 
 #[derive(Clone, Debug, Default)]
 pub struct TokenUsage {
@@ -37,6 +38,72 @@ impl ReasoningConfig {
     pub fn new(effort: impl Into<String>) -> Self {
         Self {
             effort: effort.into(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompressionLevel {
+    Light,
+    Balanced,
+    Strong,
+    Ultra,
+}
+
+impl CompressionLevel {
+    pub fn from_setting(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "light" => Self::Light,
+            "strong" => Self::Strong,
+            "ultra" => Self::Ultra,
+            _ => Self::Balanced,
+        }
+    }
+
+    pub fn as_setting(self) -> &'static str {
+        match self {
+            Self::Light => "light",
+            Self::Balanced => "balanced",
+            Self::Strong => "strong",
+            Self::Ultra => "ultra",
+        }
+    }
+
+    pub fn reasoning_effort(self) -> &'static str {
+        match self {
+            Self::Light => "minimal",
+            Self::Balanced => "low",
+            Self::Strong => "medium",
+            Self::Ultra => "high",
+        }
+    }
+
+    fn prompt_rules(self) -> &'static str {
+        match self {
+            Self::Light => {
+                "Preset: Light compression.\n\
+                 - Preserve nearly all useful detail, examples, and caveats.\n\
+                 - Target 110-150 words, or about 650-900 characters.\n\
+                 - Prefer trimming connective prose over removing steps."
+            }
+            Self::Balanced => {
+                "Preset: Balanced compression.\n\
+                 - Preserve the most useful actionable details; never reduce it to a vague teaser.\n\
+                 - Target 70-110 words, or about 420-650 characters.\n\
+                 - Keep markdown if it improves scanning on mobile."
+            }
+            Self::Strong => {
+                "Preset: Strong compression.\n\
+                 - Keep only the core idea, the highest-value example or command, and one caveat when important.\n\
+                 - Target 40-70 words, or about 250-420 characters.\n\
+                 - Use tight bullets or compact sentences."
+            }
+            Self::Ultra => {
+                "Preset: Ultra compression.\n\
+                 - Return a reminder-sized card with the action, trigger, and critical caveat only.\n\
+                 - Target 18-35 words, or about 120-240 characters.\n\
+                 - Avoid setup, explanation, and nice-to-have context."
+            }
         }
     }
 }
@@ -89,6 +156,7 @@ pub async fn compress_card(
     model: &str,
     api_key: &str,
     api_base: &str,
+    level: CompressionLevel,
     reasoning: &ReasoningConfig,
 ) -> LlmResponse {
     if should_keep_full_card(full_content) {
@@ -110,12 +178,11 @@ pub async fn compress_card(
          Rules:\n\
          - Use only facts, steps, commands, examples, and caveats from the source tip.\n\
          - Do not add new claims, numbers, tools, citations, links, or explanations.\n\
-         - Preserve the most useful actionable details; never reduce it to a vague teaser.\n\
          - If the source is already card-sized, return it unchanged.\n\
-         - Target 70-110 words, or about 420-650 characters, unless preserving key details needs slightly more.\n\
-         - Keep markdown if it improves scanning on mobile.\n\
          - Return only the compact card text.\n\n\
+         {}\n\n\
          Source tip:\n{}",
+        level.prompt_rules(),
         full_content
     );
     create_chat_completion(model, &prompt, api_key, api_base, reasoning).await
@@ -243,7 +310,7 @@ fn fallback_title(full_content: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{fallback_title, should_keep_full_card};
+    use super::{fallback_title, should_keep_full_card, CompressionLevel};
 
     #[test]
     fn fallback_title_uses_first_non_empty_line_without_heading_marker() {
@@ -274,5 +341,25 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         assert!(!should_keep_full_card(&card));
+    }
+
+    #[test]
+    fn compression_level_normalizes_settings() {
+        assert_eq!(
+            CompressionLevel::from_setting(" ULTRA ").as_setting(),
+            "ultra"
+        );
+        assert_eq!(
+            CompressionLevel::from_setting("unknown").as_setting(),
+            "balanced"
+        );
+    }
+
+    #[test]
+    fn compression_level_selects_reasoning_effort() {
+        assert_eq!(CompressionLevel::Light.reasoning_effort(), "minimal");
+        assert_eq!(CompressionLevel::Balanced.reasoning_effort(), "low");
+        assert_eq!(CompressionLevel::Strong.reasoning_effort(), "medium");
+        assert_eq!(CompressionLevel::Ultra.reasoning_effort(), "high");
     }
 }

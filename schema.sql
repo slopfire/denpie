@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS topics (
     daily_card_count INTEGER,
     daily_time_zone TEXT,
     daily_update_time TEXT,
+    compression_level TEXT,
     UNIQUE(name, class_id),
     FOREIGN KEY(class_id) REFERENCES topic_classes(id)
 );

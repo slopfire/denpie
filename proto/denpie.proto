@@ -135,6 +135,7 @@ message Settings {
     string daily_time_zone = 16;
     string daily_update_time = 17;
     uint64 max_active_cards = 18;
+    string compression_level = 19;
 }
 
 message UpdateSettingsRequest {
@@ -155,6 +156,7 @@ message UpdateSettingsRequest {
     optional string daily_time_zone = 15;
     optional string daily_update_time = 16;
     optional uint64 max_active_cards = 17;
+    optional string compression_level = 18;
 }
 
 message ApiKeyInfo {
@@ -174,6 +176,7 @@ message AdminTopic {
     uint32 daily_card_count = 4;
     string daily_time_zone = 5;
     string daily_update_time = 6;
+    string compression_level = 7;
 }
 
 message AdminTopics {
@@ -217,6 +220,7 @@ message AppTopicInfo {
     uint32 daily_card_count = 9;
     string daily_time_zone = 10;
     string daily_update_time = 11;
+    string compression_level = 12;
 }
 
 message AppTopics {
@@ -229,6 +233,7 @@ message UpdateTopicRequest {
     optional uint32 daily_card_count = 3;
     optional string daily_time_zone = 4;
     optional string daily_update_time = 5;
+    optional string compression_level = 6;
 }
 
 message PinTipcardRequest {

@@ -225,6 +225,11 @@ fn current_settings(state: &AppState) -> pb::Settings {
         .and_then(|v| v.as_str())
         .unwrap_or("https://openrouter.ai/api/v1")
         .to_string();
+    let compression_level = settings
+        .get("llm_compression_level")
+        .and_then(|v| v.as_str())
+        .map(llm::CompressionLevel::from_setting)
+        .unwrap_or_else(|| llm::CompressionLevel::from_setting(llm::DEFAULT_COMPRESSION_LEVEL));
 
     pb::Settings {
         model: settings
@@ -258,11 +263,8 @@ fn current_settings(state: &AppState) -> pb::Settings {
             .and_then(|v| v.as_str())
             .unwrap_or("none")
             .to_string(),
-        compress_reasoning_effort: settings
-            .get("llm_compress_reasoning_effort")
-            .and_then(|v| v.as_str())
-            .unwrap_or("none")
-            .to_string(),
+        compress_reasoning_effort: compression_level.reasoning_effort().to_string(),
+        compression_level: compression_level.as_setting().to_string(),
         color_scheme: settings
             .get("color_scheme")
             .and_then(|v| v.as_str())
@@ -342,11 +344,25 @@ fn update_settings_file(
         put_string_setting(map, "llm_base_url", req.base_url);
         put_string_setting(map, "llm_compress_base_url", req.compress_base_url);
         put_string_setting(map, "llm_reasoning_effort", req.reasoning_effort);
-        put_string_setting(
-            map,
-            "llm_compress_reasoning_effort",
-            req.compress_reasoning_effort,
-        );
+        if let Some(compression_level) = req.compression_level {
+            let level = llm::CompressionLevel::from_setting(&compression_level);
+            put_string_setting(
+                map,
+                "llm_compression_level",
+                Some(level.as_setting().to_string()),
+            );
+            put_string_setting(
+                map,
+                "llm_compress_reasoning_effort",
+                Some(level.reasoning_effort().to_string()),
+            );
+        } else {
+            put_string_setting(
+                map,
+                "llm_compress_reasoning_effort",
+                req.compress_reasoning_effort,
+            );
+        }
         put_string_setting(map, "color_scheme", req.color_scheme);
         put_bool_setting(map, "autoupdate_enabled", req.autoupdate_enabled);
         put_string_setting(map, "autoupdate_repo", req.autoupdate_repo);
@@ -390,6 +406,7 @@ struct TopicInfo {
     daily_card_count: Option<i64>,
     daily_time_zone: Option<String>,
     daily_update_time: Option<String>,
+    compression_level: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -474,9 +491,10 @@ async fn list_admin_topics_pb(state: &AppState) -> Result<pb::AdminTopics, (Stat
             Option<i64>,
             Option<String>,
             Option<String>,
+            Option<String>,
         ),
     >(
-        "SELECT id, name, prompt_template, daily_card_count, daily_time_zone, daily_update_time
+        "SELECT id, name, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
          FROM topics
          ORDER BY name ASC",
     )
@@ -494,6 +512,7 @@ async fn list_admin_topics_pb(state: &AppState) -> Result<pb::AdminTopics, (Stat
                 daily_card_count: row.3.unwrap_or(1).max(1) as u32,
                 daily_time_zone: row.4.unwrap_or_default(),
                 daily_update_time: row.5.unwrap_or_default(),
+                compression_level: row.6.unwrap_or_default(),
             })
             .collect(),
     })
@@ -732,6 +751,7 @@ async fn app_topics_pb(state: &AppState) -> Result<pb::AppTopics, (StatusCode, S
             Option<i64>,
             Option<String>,
             Option<String>,
+            Option<String>,
             i64,
             i64,
             i64,
@@ -745,6 +765,7 @@ async fn app_topics_pb(state: &AppState) -> Result<pb::AppTopics, (StatusCode, S
                 top.daily_card_count,
                 top.daily_time_zone,
                 top.daily_update_time,
+                top.compression_level,
                 COUNT(t.id) AS total_cards,
                 SUM(CASE WHEN r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1) THEN 1 ELSE 0 END) AS due_cards,
                 SUM(CASE WHEN r.status != 'active' THEN 1 ELSE 0 END) AS completed_cards
@@ -752,7 +773,7 @@ async fn app_topics_pb(state: &AppState) -> Result<pb::AppTopics, (StatusCode, S
          LEFT JOIN topic_classes tc ON top.class_id = tc.id
          LEFT JOIN tipcards t ON t.topic_id = top.id
          LEFT JOIN review_states r ON r.card_id = t.id
-         GROUP BY top.id, top.name, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, tc.name, tc.tipcard_type
+         GROUP BY top.id, top.name, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level, tc.name, tc.tipcard_type
          ORDER BY due_cards DESC, top.name ASC",
     )
     .bind(now)
@@ -772,9 +793,10 @@ async fn app_topics_pb(state: &AppState) -> Result<pb::AppTopics, (StatusCode, S
                 daily_card_count: row.5.unwrap_or(1).max(1) as u32,
                 daily_time_zone: row.6.unwrap_or_default(),
                 daily_update_time: row.7.unwrap_or_default(),
-                total_cards: row.8,
-                due_cards: row.9,
-                completed_cards: row.10,
+                compression_level: row.8.unwrap_or_default(),
+                total_cards: row.9,
+                due_cards: row.10,
+                completed_cards: row.11,
             })
             .collect(),
     })
@@ -784,17 +806,25 @@ async fn update_topic_prompt(
     state: &AppState,
     req: pb::UpdateTopicRequest,
 ) -> Result<(), (StatusCode, String)> {
-    let current =
-        sqlx::query_as::<_, (Option<String>, Option<i64>, Option<String>, Option<String>)>(
-            "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time
+    let current = sqlx::query_as::<
+        _,
+        (
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
+        "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
          FROM topics
          WHERE id = ?",
-        )
-        .bind(req.id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "Topic not found".to_string()))?;
+    )
+    .bind(req.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .ok_or_else(|| (StatusCode::NOT_FOUND, "Topic not found".to_string()))?;
 
     let prompt_template = req
         .prompt_template
@@ -839,16 +869,32 @@ async fn update_topic_prompt(
             }
         })
         .unwrap_or(current.3);
+    let compression_level = req
+        .compression_level
+        .map(|value| {
+            let value = value.trim().to_string();
+            if value.is_empty() {
+                None
+            } else {
+                Some(
+                    llm::CompressionLevel::from_setting(&value)
+                        .as_setting()
+                        .to_string(),
+                )
+            }
+        })
+        .unwrap_or(current.4);
 
     sqlx::query(
         "UPDATE topics
-         SET prompt_template = ?, daily_card_count = ?, daily_time_zone = ?, daily_update_time = ?
+         SET prompt_template = ?, daily_card_count = ?, daily_time_zone = ?, daily_update_time = ?, compression_level = ?
          WHERE id = ?",
     )
     .bind(prompt_template)
     .bind(daily_card_count)
     .bind(daily_time_zone)
     .bind(daily_update_time)
+    .bind(compression_level)
     .bind(req.id)
     .execute(&state.db)
     .await
@@ -929,9 +975,10 @@ async fn get_or_create_topic(
             Option<i64>,
             Option<String>,
             Option<String>,
+            Option<String>,
         ),
     >(
-        "SELECT id, prompt_template, daily_card_count, daily_time_zone, daily_update_time
+        "SELECT id, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
          FROM topics
          WHERE name = ? AND class_id = ?",
     )
@@ -947,6 +994,7 @@ async fn get_or_create_topic(
             daily_card_count: row.2,
             daily_time_zone: row.3,
             daily_update_time: row.4,
+            compression_level: row.5,
         });
     }
 
@@ -962,6 +1010,7 @@ async fn get_or_create_topic(
             daily_card_count: None,
             daily_time_zone: None,
             daily_update_time: None,
+            compression_level: None,
         }),
         Err(insert_error) => {
             if let Some(row) = sqlx::query_as::<
@@ -972,9 +1021,10 @@ async fn get_or_create_topic(
                     Option<i64>,
                     Option<String>,
                     Option<String>,
+                    Option<String>,
                 ),
             >(
-                "SELECT id, prompt_template, daily_card_count, daily_time_zone, daily_update_time
+                "SELECT id, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
                  FROM topics
                  WHERE name = ? AND class_id = ?",
             )
@@ -990,6 +1040,7 @@ async fn get_or_create_topic(
                     daily_card_count: row.2,
                     daily_time_zone: row.3,
                     daily_update_time: row.4,
+                    compression_level: row.5,
                 })
             } else {
                 Err((StatusCode::INTERNAL_SERVER_ERROR, insert_error.to_string()))
@@ -1256,11 +1307,12 @@ pub async fn build_tips(
         .and_then(|v| v.as_str())
         .unwrap_or("none")
         .to_string();
-    let llm_compress_reasoning_effort = settings
-        .get("llm_compress_reasoning_effort")
+    let llm_compression_level = settings
+        .get("llm_compression_level")
         .and_then(|v| v.as_str())
-        .unwrap_or("none")
-        .to_string();
+        .map(llm::CompressionLevel::from_setting)
+        .unwrap_or_else(|| llm::CompressionLevel::from_setting(llm::DEFAULT_COMPRESSION_LEVEL));
+    let llm_compress_reasoning_effort = llm_compression_level.reasoning_effort().to_string();
     let max_active_cards = setting_u64(&settings, "max_active_cards", 0);
     let mut active_room = active_card_room(state, max_active_cards).await?;
     let llm_reasoning = llm::ReasoningConfig::new(llm_reasoning_effort);
@@ -1371,6 +1423,7 @@ pub async fn build_tips(
                     &llm_reasoning,
                     &llm_compress_model,
                     &llm_compress_base_url,
+                    llm_compression_level,
                     &llm_compress_reasoning,
                     &mut responses,
                 )
@@ -1392,6 +1445,7 @@ pub async fn build_tips(
                 &llm_reasoning,
                 &llm_compress_model,
                 &llm_compress_base_url,
+                llm_compression_level,
                 &llm_compress_reasoning,
                 &mut responses,
             )
@@ -1433,10 +1487,11 @@ pub async fn force_daily_refresh(
                 Option<i64>,
                 Option<String>,
                 Option<String>,
+                Option<String>,
                 String,
             ),
         >(
-            "SELECT top.id, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, tc.tipcard_type
+            "SELECT top.id, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level, tc.tipcard_type
              FROM topics top
              JOIN topic_classes tc ON tc.id = top.class_id
              WHERE tc.tipcard_type NOT IN ('manual_tip', 'custom_tip')",
@@ -1453,8 +1508,9 @@ pub async fn force_daily_refresh(
                     daily_card_count: row.2,
                     daily_time_zone: row.3,
                     daily_update_time: row.4,
+                    compression_level: row.5,
                 },
-                row.5,
+                row.6,
             )
         })
         .collect()
@@ -1588,7 +1644,8 @@ async fn generate_tipcard(
     llm_reasoning: &llm::ReasoningConfig,
     llm_compress_model: &str,
     llm_compress_base_url: &str,
-    llm_compress_reasoning: &llm::ReasoningConfig,
+    llm_compression_level: llm::CompressionLevel,
+    _llm_compress_reasoning: &llm::ReasoningConfig,
     responses: &mut Vec<TipCardJson>,
 ) -> Result<(), (StatusCode, String)> {
     let template = topic
@@ -1604,13 +1661,20 @@ async fn generate_tipcard(
         llm::generate_new_card(llm_model, &prompt, llm_api_key, llm_base_url, llm_reasoning).await;
     record_llm_token_usage(state, llm_model, "generate_card", &full_res.usage).await?;
     let full_tip = full_res.content;
+    let compression_level = topic
+        .compression_level
+        .as_deref()
+        .map(llm::CompressionLevel::from_setting)
+        .unwrap_or(llm_compression_level);
+    let compression_reasoning = llm::ReasoningConfig::new(compression_level.reasoning_effort());
 
     let compressed_res = llm::compress_card(
         &full_tip,
         llm_compress_model,
         llm_api_key,
         llm_compress_base_url,
-        llm_compress_reasoning,
+        compression_level,
+        &compression_reasoning,
     )
     .await;
     record_llm_token_usage(
@@ -1627,7 +1691,7 @@ async fn generate_tipcard(
         llm_compress_model,
         llm_api_key,
         llm_compress_base_url,
-        llm_compress_reasoning,
+        &compression_reasoning,
     )
     .await;
     record_llm_token_usage(

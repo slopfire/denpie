@@ -31,6 +31,7 @@ pub struct SettingsRes {
     compress_base_url: String,
     reasoning_effort: String,
     compress_reasoning_effort: String,
+    compression_level: String,
     color_scheme: String,
     transparency: String,
     blur_intensity: String,
@@ -84,11 +85,12 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         .and_then(|v| v.as_str())
         .unwrap_or("none")
         .to_string();
-    let compress_reasoning_effort = settings
-        .get("llm_compress_reasoning_effort")
+    let compression_level = settings
+        .get("llm_compression_level")
         .and_then(|v| v.as_str())
-        .unwrap_or("none")
-        .to_string();
+        .map(llm::CompressionLevel::from_setting)
+        .unwrap_or_else(|| llm::CompressionLevel::from_setting(llm::DEFAULT_COMPRESSION_LEVEL));
+    let compress_reasoning_effort = compression_level.reasoning_effort().to_string();
     let color_scheme = settings
         .get("color_scheme")
         .and_then(|v| v.as_str())
@@ -161,6 +163,7 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         compress_base_url,
         reasoning_effort,
         compress_reasoning_effort,
+        compression_level: compression_level.as_setting().to_string(),
         color_scheme,
         transparency,
         blur_intensity,
@@ -186,6 +189,7 @@ pub struct UpdateSettingsReq {
     compress_base_url: Option<String>,
     reasoning_effort: Option<String>,
     compress_reasoning_effort: Option<String>,
+    compression_level: Option<String>,
     color_scheme: Option<String>,
     transparency: Option<String>,
     blur_intensity: Option<String>,
@@ -254,7 +258,17 @@ pub async fn update_settings(
                 serde_yaml::Value::String(reasoning_effort),
             );
         }
-        if let Some(compress_reasoning_effort) = req.compress_reasoning_effort {
+        if let Some(compression_level) = req.compression_level {
+            let level = llm::CompressionLevel::from_setting(&compression_level);
+            map.insert(
+                serde_yaml::Value::String("llm_compression_level".to_string()),
+                serde_yaml::Value::String(level.as_setting().to_string()),
+            );
+            map.insert(
+                serde_yaml::Value::String("llm_compress_reasoning_effort".to_string()),
+                serde_yaml::Value::String(level.reasoning_effort().to_string()),
+            );
+        } else if let Some(compress_reasoning_effort) = req.compress_reasoning_effort {
             map.insert(
                 serde_yaml::Value::String("llm_compress_reasoning_effort".to_string()),
                 serde_yaml::Value::String(compress_reasoning_effort),
@@ -521,6 +535,7 @@ pub struct TopicInfo {
     pub daily_card_count: u32,
     pub daily_time_zone: String,
     pub daily_update_time: String,
+    pub compression_level: String,
 }
 
 pub async fn list_topics(State(state): State<Arc<AppState>>) -> Json<Vec<TopicInfo>> {
@@ -533,9 +548,10 @@ pub async fn list_topics(State(state): State<Arc<AppState>>) -> Json<Vec<TopicIn
             Option<i64>,
             Option<String>,
             Option<String>,
+            Option<String>,
         ),
     >(
-        "SELECT id, name, prompt_template, daily_card_count, daily_time_zone, daily_update_time
+        "SELECT id, name, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
          FROM topics
          ORDER BY name ASC",
     )
@@ -552,6 +568,7 @@ pub async fn list_topics(State(state): State<Arc<AppState>>) -> Json<Vec<TopicIn
             daily_card_count: r.3.unwrap_or(1).max(1) as u32,
             daily_time_zone: r.4.unwrap_or_default(),
             daily_update_time: r.5.unwrap_or_default(),
+            compression_level: r.6.unwrap_or_default(),
         })
         .collect();
     Json(topics)
@@ -677,6 +694,7 @@ pub struct AppTopicInfo {
     pub daily_card_count: u32,
     pub daily_time_zone: String,
     pub daily_update_time: String,
+    pub compression_level: String,
 }
 
 pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopicInfo>> {
@@ -692,6 +710,7 @@ pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopic
             Option<i64>,
             Option<String>,
             Option<String>,
+            Option<String>,
             i64,
             i64,
             i64,
@@ -705,6 +724,7 @@ pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopic
                 top.daily_card_count,
                 top.daily_time_zone,
                 top.daily_update_time,
+                top.compression_level,
                 COUNT(t.id) AS total_cards,
                 SUM(CASE WHEN r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1) THEN 1 ELSE 0 END) AS due_cards,
                 SUM(CASE WHEN r.status != 'active' THEN 1 ELSE 0 END) AS completed_cards
@@ -712,7 +732,7 @@ pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopic
          LEFT JOIN topic_classes tc ON top.class_id = tc.id
          LEFT JOIN tipcards t ON t.topic_id = top.id
          LEFT JOIN review_states r ON r.card_id = t.id
-         GROUP BY top.id, top.name, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, tc.name, tc.tipcard_type
+         GROUP BY top.id, top.name, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level, tc.name, tc.tipcard_type
          ORDER BY due_cards DESC, top.name ASC",
     )
     .bind(now)
@@ -731,9 +751,10 @@ pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopic
                 daily_card_count: r.5.unwrap_or(1).max(1) as u32,
                 daily_time_zone: r.6.unwrap_or_default(),
                 daily_update_time: r.7.unwrap_or_default(),
-                total_cards: r.8,
-                due_cards: r.9,
-                completed_cards: r.10,
+                compression_level: r.8.unwrap_or_default(),
+                total_cards: r.9,
+                due_cards: r.10,
+                completed_cards: r.11,
             })
             .collect(),
     )
@@ -746,23 +767,32 @@ pub struct UpdateTopicReq {
     pub daily_card_count: Option<u32>,
     pub daily_time_zone: Option<String>,
     pub daily_update_time: Option<String>,
+    pub compression_level: Option<String>,
 }
 
 pub async fn update_topic(
     State(state): State<Arc<AppState>>,
     Json(req): Json<UpdateTopicReq>,
 ) -> Result<Json<()>, (StatusCode, String)> {
-    let current =
-        sqlx::query_as::<_, (Option<String>, Option<i64>, Option<String>, Option<String>)>(
-            "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time
+    let current = sqlx::query_as::<
+        _,
+        (
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
+        "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
          FROM topics
          WHERE id = ?",
-        )
-        .bind(req.id)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "Topic not found".to_string()))?;
+    )
+    .bind(req.id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .ok_or_else(|| (StatusCode::NOT_FOUND, "Topic not found".to_string()))?;
 
     let prompt_template = req
         .prompt_template
@@ -807,16 +837,32 @@ pub async fn update_topic(
             }
         })
         .unwrap_or(current.3);
+    let compression_level = req
+        .compression_level
+        .map(|value| {
+            let value = value.trim().to_string();
+            if value.is_empty() {
+                None
+            } else {
+                Some(
+                    llm::CompressionLevel::from_setting(&value)
+                        .as_setting()
+                        .to_string(),
+                )
+            }
+        })
+        .unwrap_or(current.4);
 
     sqlx::query(
         "UPDATE topics
-         SET prompt_template = ?, daily_card_count = ?, daily_time_zone = ?, daily_update_time = ?
+         SET prompt_template = ?, daily_card_count = ?, daily_time_zone = ?, daily_update_time = ?, compression_level = ?
          WHERE id = ?",
     )
     .bind(prompt_template)
     .bind(daily_card_count)
     .bind(daily_time_zone)
     .bind(daily_update_time)
+    .bind(compression_level)
     .bind(req.id)
     .execute(&state.db)
     .await

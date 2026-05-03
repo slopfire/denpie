@@ -1594,18 +1594,16 @@
                             </div>
                             <div>
                                 <label class="block card-kicker mb-2"
-                                    >Compression Reasoning</label
+                                    >Compression Level</label
                                 >
                                 <select
-                                    id="compress-reasoning-effort-input"
+                                    id="compression-level-input"
                                     class="w-full rounded-md border px-3 py-2"
                                 >
-                                    <option value="none">None</option>
-                                    <option value="minimal">Minimal</option>
-                                    <option value="low">Low</option>
-                                    <option value="medium">Medium</option>
-                                    <option value="high">High</option>
-                                    <option value="xhigh">XHigh</option>
+                                    <option value="light">Light</option>
+                                    <option value="balanced">Balanced</option>
+                                    <option value="strong">Strong</option>
+                                    <option value="ultra">Ultra</option>
                                 </select>
                             </div>
                         </div>
@@ -3165,6 +3163,7 @@
                             const promptId = `topic-prompt-${topic.id}`;
                             const dailyCountId = `topic-daily-count-${topic.id}`;
                             const dailyTimeId = `topic-daily-time-${topic.id}`;
+                            const compressionLevelId = `topic-compression-level-${topic.id}`;
                             return `<article class="surface border p-4 relative overflow-hidden">
           <div class="absolute left-0 top-0 bottom-0 w-1" style="background:${line}"></div>
           <div class="flex items-start justify-between gap-3 mb-4">
@@ -3199,7 +3198,17 @@
                 <input id="${dailyTimeId}" type="time" class="w-full border px-3 py-2 text-sm" value="${escapeHtml(topic.daily_update_time || "")}">
               </div>
             </div>
-            <button type="button" class="mt-2 border border-token px-3 py-2 text-sm" onclick="saveTopicSettings(${topic.id}, '${promptId}', '${dailyCountId}', '${dailyTimeId}')">
+            <div class="mt-3">
+              <label class="block card-kicker mb-1" for="${compressionLevelId}">Compression Level</label>
+              <select id="${compressionLevelId}" class="w-full border px-3 py-2 text-sm">
+                <option value="" ${topic.compression_level ? "" : "selected"}>Use global</option>
+                <option value="light" ${topic.compression_level === "light" ? "selected" : ""}>Light</option>
+                <option value="balanced" ${topic.compression_level === "balanced" ? "selected" : ""}>Balanced</option>
+                <option value="strong" ${topic.compression_level === "strong" ? "selected" : ""}>Strong</option>
+                <option value="ultra" ${topic.compression_level === "ultra" ? "selected" : ""}>Ultra</option>
+              </select>
+            </div>
+            <button type="button" class="mt-2 border border-token px-3 py-2 text-sm" onclick="saveTopicSettings(${topic.id}, '${promptId}', '${dailyCountId}', '${dailyTimeId}', '${compressionLevelId}')">
               ${radixIcon("check", "align-middle text-base")}
               <span class="align-middle">Save</span>
             </button>
@@ -3215,6 +3224,7 @@
                 promptId,
                 dailyCountId,
                 dailyTimeId,
+                compressionLevelId,
             ) {
                 await api("/app/topics", {
                     method: "PATCH",
@@ -3224,6 +3234,7 @@
                         daily_card_count: Number($(dailyCountId).value) || 0,
                         daily_time_zone: "",
                         daily_update_time: $(dailyTimeId).value,
+                        compression_level: $(compressionLevelId).value,
                     }),
                 });
                 await refreshAll();
@@ -3851,8 +3862,8 @@
                     settings.compress_base_url || settings.base_url || "";
                 $("reasoning-effort-input").value =
                     settings.reasoning_effort || "none";
-                $("compress-reasoning-effort-input").value =
-                    settings.compress_reasoning_effort || "none";
+                $("compression-level-input").value =
+                    settings.compression_level || "balanced";
                 $("autoupdate-enabled-input").checked = Boolean(
                     settings.autoupdate_enabled,
                 );
@@ -3891,7 +3902,7 @@
                         "shadcn",
                 );
                 syncShadcnSelect($("reasoning-effort-input"));
-                syncShadcnSelect($("compress-reasoning-effort-input"));
+                syncShadcnSelect($("compression-level-input"));
             }
 
             async function loadTopic(name, className, tipcardType) {
@@ -4381,9 +4392,7 @@
                     base_url: $("base-url-input").value,
                     compress_base_url: $("compress-base-url-input").value,
                     reasoning_effort: $("reasoning-effort-input").value,
-                    compress_reasoning_effort: $(
-                        "compress-reasoning-effort-input",
-                    ).value,
+                    compression_level: $("compression-level-input").value,
                     autoupdate_enabled: $("autoupdate-enabled-input").checked,
                     autoupdate_repo: $("autoupdate-repo-input").value,
                     autoupdate_branch: $("autoupdate-branch-input").value,

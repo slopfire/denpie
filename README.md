@@ -114,7 +114,8 @@ All runtime configuration lives in `settings.yaml` and is managed through the pr
 | `llm_model` | Model identifier string | `google/gemini-3.1-flash` |
 | `llm_compress_model` | Model identifier string for compressed summaries and generated card titles | `google/gemini-3.1-flash-lite-preview` |
 | `llm_reasoning_effort` | Reasoning effort for generated tips: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh` | `none` |
-| `llm_compress_reasoning_effort` | Reasoning effort for compressed summaries and generated titles; `none` disables compression/title thinking tokens | `none` |
+| `llm_compression_level` | Compression preset for compact cards: `light`, `balanced`, `strong`, or `ultra`; each preset also selects compression/title reasoning effort | `balanced` |
+| `llm_compress_reasoning_effort` | Backward-compatible stored compression/title reasoning effort; new settings writes derive it from `llm_compression_level` | `low` |
 | `prompt_template` | Tip generation prompt (`{topic}` placeholder); defaults to a practical 180-260 word card prompt with examples and caveats | See `llm::DEFAULT_PROMPT_TEMPLATE` |
 | `llm_api_key` | API key for the LLM provider | *(empty — set via API)* |
 | `llm_base_url` | Base URL for the OpenAI-compatible API | `https://openrouter.ai/api/v1` |
@@ -252,11 +253,11 @@ The unified protobuf API is the only public API:
 | `review_states` | Per-card review state, status, and next review timestamp |
 | `llm_token_usage` | Token usage returned by LLM calls, used for daily, monthly, and total dashboard counters |
 
-Topic rows can override the daily refresh defaults with `daily_card_count` and `daily_update_time` in the browser dashboard; the global `daily_time_zone` setting is used for refresh windows. Empty time fields inherit the global settings; empty or zero count falls back to one card.
+Topic rows can override the daily refresh defaults with `daily_card_count` and `daily_update_time` in the browser dashboard; the global `daily_time_zone` setting is used for refresh windows. Topics can also override `llm_compression_level` with their own compression preset. Empty time and compression fields inherit the global settings; empty or zero count falls back to one card.
 
 The token counters use `usage.total_tokens` from each OpenAI-compatible chat completion response. Providers that omit usage metadata contribute zero tokens for that call.
 
-Tip content can include markdown such as headings, lists, emphasis, links, blockquotes, inline code, and fenced code blocks. The built-in browser UI supports common inline combinations such as bold text containing inline code. The protobuf API returns raw `full_content` and `compressed_content` strings so clients can choose their own renderer. Generated cards below roughly 420 characters or 70 words skip LLM compression and reuse the full content as the compact card text.
+Tip content can include markdown such as headings, lists, emphasis, links, blockquotes, inline code, and fenced code blocks. The built-in browser UI supports common inline combinations such as bold text containing inline code. The protobuf API returns raw `full_content` and `compressed_content` strings so clients can choose their own renderer. Generated cards below roughly 420 characters or 70 words skip LLM compression and reuse the full content as the compact card text. Longer generated cards use the configured compression preset: `light` keeps more context, `balanced` is the default compact card, `strong` trims to essentials, and `ultra` creates reminder-sized cards.
 
 ## Running Tests
 

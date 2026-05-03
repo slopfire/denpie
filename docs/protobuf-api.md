@@ -62,6 +62,8 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 
 Daily card refresh windows use `settings.daily_time_zone` (IANA name such as `UTC`, `Asia/Vladivostok`, or `America/New_York`; fixed offsets such as `UTC+10` are also accepted) and `settings.daily_update_time` (`HH:MM`, default `00:00`). Each topic can override count/time with `update_topic.daily_card_count`, `update_topic.daily_time_zone`, and `update_topic.daily_update_time`. Invalid values fall back to `UTC`, midnight, and one card.
 
+Compression uses `settings.compression_level` by default. Each topic can override it with `update_topic.compression_level`; send an empty string to inherit the global preset.
+
 Use `force_daily_refresh` with empty fields to refresh all existing generated topics, or with comma-separated topics plus the desired `topic_class` and `tipcard_type` to target selected topics before the normal refresh time. The operation schedules active, unpinned generated cards forward and returns `refreshed_cards`; pinned cards stay in place, and refreshed cards are not marked dismissed.
 
 For user-authored cards, set `TipsQuery.tipcard_type` to `manual_tip` and provide `manual_content`. The server stores that text directly as the full card content, uses `manual_compressed_content` when provided, and otherwise uses the full text as compact content. Manual cards do not call the LLM.
@@ -87,6 +89,8 @@ The browser dashboard marks `custom_tip` cards with a grey class stripe.
 ## Active Card Limit
 
 Set `Settings.max_active_cards` with `update_settings.max_active_cards` to cap cards whose review state is `active`. `0` means unlimited. When the cap is reached, `tips` still returns existing due or pinned cards, but it does not create new generated cards; manual card creation returns `409 Conflict`.
+
+Set `Settings.compression_level` with `update_settings.compression_level` to choose the compact-card preset. Valid values are `light`, `balanced`, `strong`, and `ultra`; invalid values fall back to `balanced`. The server derives compression/title reasoning effort from the selected preset.
 
 ## Pinning Cards
 

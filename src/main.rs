@@ -203,6 +203,7 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
     ensure_column(pool, "topics", "daily_card_count", "INTEGER").await?;
     ensure_column(pool, "topics", "daily_time_zone", "TEXT").await?;
     ensure_column(pool, "topics", "daily_update_time", "TEXT").await?;
+    ensure_column(pool, "topics", "compression_level", "TEXT").await?;
     ensure_column(
         pool,
         "tipcards",

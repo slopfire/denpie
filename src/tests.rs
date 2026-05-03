@@ -412,6 +412,7 @@ mod tests {
                         daily_card_count: Some(2),
                         daily_time_zone: Some("Asia/Vladivostok".into()),
                         daily_update_time: Some("06:30".into()),
+                        compression_level: Some("strong".into()),
                     },
                 )),
             },
@@ -476,6 +477,7 @@ mod tests {
         assert_eq!(topics.daily_card_count, 2);
         assert_eq!(topics.daily_time_zone, "Asia/Vladivostok");
         assert_eq!(topics.daily_update_time, "06:30");
+        assert_eq!(topics.compression_level, "strong");
     }
 
     #[tokio::test]
