@@ -437,7 +437,7 @@
       -webkit-user-select: text;
       transition: min-height 150ms cubic-bezier(.2, 0, 0, 1);
     }
-    .card-text.is-expanded { min-height: min(48vh, 420px); }
+    .card-text.is-expanded { min-height: 0; }
     .flow-card-list .card-text.is-expanded { min-height: 0; }
     .card-text-body { animation: card-text-snap 120ms cubic-bezier(.2, 0, 0, 1); }
     .card-text p {
@@ -1955,11 +1955,12 @@
         const fullscreen = state.fullscreenCardId === Number(card.id);
         const displayedText = (expanded || fullscreen) ? fullText : compactText;
         const textHtml = renderCardTextHtml(renderMarkdown(displayedText), card, expanded, hasCompact, fullscreen);
+        const shouldUseCompactCardHeight = !listMode && !fullscreen && !expanded;
         const articleClass = fullscreen
           ? 'flow-card is-fullscreen surface border fixed top-0 right-0 bottom-0 z-[70] overflow-hidden flex flex-col'
           : (listMode
             ? 'flow-card flow-card-list surface border relative overflow-hidden flex flex-col lg:flex-row'
-            : 'flow-card surface border relative overflow-hidden min-h-[240px] flex flex-col');
+            : `flow-card surface border relative overflow-hidden ${shouldUseCompactCardHeight ? 'min-h-[240px]' : ''} flex flex-col`);
         const contentClass = listMode
           ? 'text-base leading-7'
           : 'text-base leading-7 flex-1';
