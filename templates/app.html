@@ -13,113 +13,171 @@
     :root,
     [data-theme="carbonfox"] {
       color-scheme: dark;
-      --bg: #161616;
-      --surface: #1f1f1f;
-      --surface-muted: #282828;
-      --surface-strong: #393939;
-      --text: #f2f4f8;
-      --muted: #a6a6a6;
-      --border: #525253;
-      --primary: #78a9ff;
-      --primary-soft: #1c2b44;
-      --primary-text: #e5efff;
-      --secondary: #be95ff;
-      --tertiary: #3ddbd9;
-      --danger: #ee5396;
-      --ok: #25be6a;
-      --shadow: 0 14px 32px -24px rgba(0, 0, 0, 0.95);
+      --background: 222.2 84% 4.9%;
+      --foreground: 210 40% 98%;
+      --card: 222.2 84% 5.8%;
+      --card-foreground: 210 40% 98%;
+      --popover: 222.2 84% 5.8%;
+      --popover-foreground: 210 40% 98%;
+      --primary-hsl: 210 40% 98%;
+      --primary-foreground: 222.2 47.4% 11.2%;
+      --secondary-hsl: 217.2 32.6% 17.5%;
+      --secondary-foreground: 210 40% 98%;
+      --muted-hsl: 217.2 32.6% 17.5%;
+      --muted-foreground: 215 20.2% 65.1%;
+      --accent-hsl: 217.2 32.6% 17.5%;
+      --accent-foreground: 210 40% 98%;
+      --destructive-hsl: 0 62.8% 30.6%;
+      --destructive-foreground: 210 40% 98%;
+      --border-hsl: 217.2 32.6% 17.5%;
+      --input-hsl: 217.2 32.6% 17.5%;
+      --ring-hsl: 212.7 26.8% 83.9%;
+      --chart-1: 221.2 83.2% 53.3%;
+      --chart-2: 142.1 70.6% 45.3%;
+      --chart-3: 47.9 95.8% 53.1%;
+      --chart-4: 262.1 83.3% 57.8%;
+      --chart-5: 346.8 77.2% 49.8%;
+      --radius: 0.5rem;
+      --bg: hsl(var(--background));
+      --surface: hsl(var(--card));
+      --surface-muted: hsl(var(--muted-hsl));
+      --surface-strong: hsl(var(--accent-hsl));
+      --text: hsl(var(--foreground));
+      --muted: hsl(var(--muted-foreground));
+      --border: hsl(var(--border-hsl));
+      --primary: hsl(var(--primary-hsl));
+      --primary-soft: hsl(var(--accent-hsl));
+      --primary-text: hsl(var(--primary-foreground));
+      --secondary: hsl(var(--chart-4));
+      --tertiary: hsl(var(--chart-2));
+      --danger: hsl(var(--destructive-hsl));
+      --ok: hsl(var(--chart-2));
+      --shadow: 0 1px 2px rgba(0, 0, 0, .26);
     }
     [data-theme="ayu"] {
       color-scheme: dark;
-      --bg: #0f1419;
-      --surface: #14191f;
-      --surface-muted: #1f2430;
-      --surface-strong: #2d3640;
-      --text: #e6e1cf;
-      --muted: #b3b1ad;
-      --border: #39434d;
-      --primary: #59c2ff;
-      --primary-soft: #102a38;
-      --primary-text: #d2efff;
-      --secondary: #d2a6ff;
-      --tertiary: #ffb454;
-      --danger: #f07178;
-      --ok: #aad94c;
-      --shadow: 0 14px 32px -24px rgba(0, 0, 0, 0.9);
+      --background: 220 18% 8%;
+      --foreground: 44 45% 86%;
+      --card: 216 17% 10%;
+      --primary-hsl: 199 100% 68%;
+      --primary-foreground: 220 18% 8%;
+      --secondary-hsl: 226 20% 16%;
+      --muted-hsl: 226 20% 16%;
+      --accent-hsl: 213 17% 21%;
+      --border-hsl: 212 15% 26%;
+      --input-hsl: 212 15% 26%;
+      --ring-hsl: 199 100% 68%;
+      --chart-1: 199 100% 68%;
+      --chart-2: 78 64% 58%;
+      --chart-3: 38 100% 66%;
+      --chart-4: 270 100% 83%;
+      --chart-5: 357 82% 69%;
     }
     [data-theme="solarized-light"] {
       color-scheme: light;
-      --bg: #fdf6e3;
-      --surface: #eee8d5;
-      --surface-muted: #e4dcc4;
-      --surface-strong: #d8cfb8;
-      --text: #073642;
-      --muted: #657b83;
-      --border: #c7bea7;
-      --primary: #268bd2;
-      --primary-soft: #d7e8ea;
-      --primary-text: #075985;
-      --secondary: #6c71c4;
-      --tertiary: #b58900;
-      --danger: #dc322f;
-      --ok: #859900;
+      --background: 44 87% 94%;
+      --foreground: 192 81% 14%;
+      --card: 44 60% 90%;
+      --card-foreground: 192 81% 14%;
+      --popover: 44 60% 90%;
+      --popover-foreground: 192 81% 14%;
+      --primary-hsl: 205 69% 49%;
+      --primary-foreground: 0 0% 100%;
+      --secondary-hsl: 45 34% 83%;
+      --secondary-foreground: 192 81% 14%;
+      --muted-hsl: 45 34% 83%;
+      --muted-foreground: 194 14% 40%;
+      --accent-hsl: 46 42% 79%;
+      --accent-foreground: 192 81% 14%;
+      --destructive-hsl: 1 71% 52%;
+      --destructive-foreground: 0 0% 100%;
+      --border-hsl: 43 27% 72%;
+      --input-hsl: 43 27% 72%;
+      --ring-hsl: 205 69% 49%;
+      --chart-1: 205 69% 49%;
+      --chart-2: 68 100% 30%;
+      --chart-3: 45 100% 35%;
+      --chart-4: 237 43% 60%;
+      --chart-5: 1 71% 52%;
     }
     [data-theme="solarized-dark"] {
       color-scheme: dark;
-      --bg: #002b36;
-      --surface: #073642;
-      --surface-muted: #0d4451;
-      --surface-strong: #15515f;
-      --text: #eee8d5;
-      --muted: #93a1a1;
-      --border: #24515f;
-      --primary: #2aa198;
-      --primary-soft: #073f43;
-      --primary-text: #dff7f3;
-      --secondary: #6c71c4;
-      --tertiary: #cb4b16;
-      --danger: #dc322f;
-      --ok: #859900;
+      --background: 192 100% 11%;
+      --foreground: 44 60% 89%;
+      --card: 192 72% 14%;
+      --primary-hsl: 175 59% 40%;
+      --primary-foreground: 44 60% 89%;
+      --secondary-hsl: 190 72% 18%;
+      --muted-hsl: 190 72% 18%;
+      --accent-hsl: 190 62% 23%;
+      --border-hsl: 192 45% 26%;
+      --input-hsl: 192 45% 26%;
+      --ring-hsl: 175 59% 40%;
+      --chart-1: 175 59% 40%;
+      --chart-2: 68 100% 30%;
+      --chart-3: 18 80% 44%;
+      --chart-4: 237 43% 60%;
+      --chart-5: 1 71% 52%;
     }
     [data-theme="amoled"] {
       color-scheme: dark;
-      --bg: #000000;
-      --surface: #050505;
-      --surface-muted: #0d0d0d;
-      --surface-strong: #171717;
-      --text: #f5f5f5;
-      --muted: #9ca3af;
-      --border: #262626;
-      --primary: #22d3ee;
-      --primary-soft: #06262c;
-      --primary-text: #cffafe;
-      --secondary: #a78bfa;
-      --tertiary: #fbbf24;
-      --danger: #fb7185;
-      --ok: #4ade80;
+      --background: 0 0% 0%;
+      --foreground: 0 0% 96%;
+      --card: 0 0% 2%;
+      --primary-hsl: 187 92% 53%;
+      --primary-foreground: 0 0% 0%;
+      --secondary-hsl: 0 0% 6%;
+      --muted-hsl: 0 0% 6%;
+      --accent-hsl: 0 0% 9%;
+      --border-hsl: 0 0% 15%;
+      --input-hsl: 0 0% 15%;
+      --ring-hsl: 187 92% 53%;
+      --chart-1: 187 92% 53%;
+      --chart-2: 142 76% 64%;
+      --chart-3: 43 96% 56%;
+      --chart-4: 258 90% 76%;
+      --chart-5: 351 95% 71%;
       --shadow: none;
     }
     [data-theme="slate"] {
       color-scheme: dark;
-      --bg: #020617;
-      --surface: #0f172a;
-      --surface-muted: #1e293b;
-      --surface-strong: #334155;
-      --text: #e2e8f0;
-      --muted: #94a3b8;
-      --border: #334155;
-      --primary: #38bdf8;
-      --primary-soft: #082f49;
-      --primary-text: #e0f2fe;
-      --secondary: #a78bfa;
-      --tertiary: #f59e0b;
-      --danger: #f87171;
-      --ok: #34d399;
+      --background: 222 47% 5%;
+      --foreground: 213 31% 91%;
+      --card: 222 47% 11%;
+      --primary-hsl: 199 89% 48%;
+      --primary-foreground: 204 100% 97%;
+      --secondary-hsl: 215 28% 17%;
+      --muted-hsl: 215 28% 17%;
+      --accent-hsl: 215 25% 27%;
+      --border-hsl: 215 25% 27%;
+      --input-hsl: 215 25% 27%;
+      --ring-hsl: 199 89% 48%;
+      --chart-1: 199 89% 48%;
+      --chart-2: 160 84% 39%;
+      --chart-3: 38 92% 50%;
+      --chart-4: 258 90% 76%;
+      --chart-5: 0 91% 71%;
+    }
+    [data-theme] {
+      --bg: hsl(var(--background));
+      --surface: hsl(var(--card));
+      --surface-muted: hsl(var(--muted-hsl));
+      --surface-strong: hsl(var(--accent-hsl));
+      --text: hsl(var(--foreground));
+      --muted: hsl(var(--muted-foreground));
+      --border: hsl(var(--border-hsl));
+      --primary: hsl(var(--primary-hsl));
+      --primary-soft: hsl(var(--accent-hsl));
+      --primary-text: hsl(var(--primary-foreground));
+      --secondary: hsl(var(--chart-4));
+      --tertiary: hsl(var(--chart-3));
+      --danger: hsl(var(--destructive-hsl));
+      --ok: hsl(var(--chart-2));
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      background: var(--bg);
+      background: hsl(var(--background));
       color: var(--text);
       font-family: Inter, ui-sans-serif, system-ui, sans-serif;
       font-size: 14px;
@@ -135,14 +193,14 @@
       height: 1em;
     }
     .icon-fill { font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24; }
-    .surface { background: var(--surface); border-color: var(--border); box-shadow: var(--shadow); }
-    .muted-surface { background: var(--surface-muted); border-color: var(--border); }
-    .strong-surface { background: var(--surface-strong); }
+    .surface { background: hsl(var(--card)); color: hsl(var(--card-foreground)); border-color: hsl(var(--border-hsl)); box-shadow: var(--shadow); }
+    .muted-surface { background: hsl(var(--muted-hsl)); color: hsl(var(--muted-foreground)); border-color: hsl(var(--border-hsl)); }
+    .strong-surface { background: hsl(var(--accent-hsl)); color: hsl(var(--accent-foreground)); }
     .text-muted { color: var(--muted); }
     .text-primary { color: var(--primary); }
-    .bg-primary { background: var(--primary); color: var(--primary-text); }
-    .bg-primary-solid { background: var(--primary); color: var(--bg); }
-    .bg-primary-soft { background: var(--primary-soft); color: var(--primary-text); }
+    .bg-primary { background: hsl(var(--primary-hsl)); color: hsl(var(--primary-foreground)); }
+    .bg-primary-solid { background: hsl(var(--primary-hsl)); color: hsl(var(--primary-foreground)); }
+    .bg-primary-soft { background: hsl(var(--accent-hsl)); color: hsl(var(--accent-foreground)); }
     .border-token { border-color: var(--border); }
     .nav-item { color: var(--muted); }
     .nav-item:hover { background: var(--surface-muted); color: var(--text); }
@@ -369,6 +427,142 @@
       border-radius: 8px;
     }
     .flow-card.is-fullscreen .card-images img { max-height: 42vh; }
+    .surface {
+      border-radius: var(--radius);
+      border-width: 1px;
+    }
+    input, textarea, select {
+      min-height: 2.5rem;
+      border-radius: calc(var(--radius) - 2px);
+      background: hsl(var(--background));
+      border: 1px solid hsl(var(--input-hsl));
+      color: hsl(var(--foreground));
+      box-shadow: 0 1px 1px rgba(0, 0, 0, .04);
+    }
+    textarea { min-height: 5rem; }
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: hsl(var(--ring-hsl));
+      box-shadow: 0 0 0 2px hsl(var(--ring-hsl) / .28);
+    }
+    input[type="checkbox"] {
+      min-height: 1rem;
+      accent-color: hsl(var(--primary-hsl));
+      box-shadow: none;
+    }
+    button, label[for], label:has(input[type="file"]) {
+      border-radius: calc(var(--radius) - 2px);
+      font-weight: 500;
+    }
+    button:disabled {
+      cursor: not-allowed;
+      opacity: .5;
+    }
+    .bg-primary-solid {
+      border: 1px solid hsl(var(--primary-hsl));
+      box-shadow: 0 1px 2px rgba(0, 0, 0, .16);
+    }
+    .bg-primary-solid:hover { opacity: .92; }
+    .border-token {
+      border-color: hsl(var(--border-hsl));
+    }
+    button.border-token,
+    label.border-token,
+    button.border {
+      background: hsl(var(--background));
+      color: hsl(var(--foreground));
+    }
+    button.border-token:hover,
+    label.border-token:hover,
+    button.border:hover {
+      background: hsl(var(--accent-hsl));
+      color: hsl(var(--accent-foreground));
+    }
+    .nav-item {
+      border: 1px solid transparent;
+      background: transparent;
+      color: hsl(var(--muted-foreground));
+    }
+    .nav-item:hover {
+      background: hsl(var(--accent-hsl));
+      color: hsl(var(--accent-foreground));
+    }
+    .nav-item.active {
+      background: hsl(var(--secondary-hsl));
+      color: hsl(var(--secondary-foreground));
+      border-color: hsl(var(--border-hsl));
+      box-shadow: 0 1px 1px rgba(0, 0, 0, .08);
+    }
+    .tip-type-switch {
+      background: hsl(var(--muted-hsl));
+      border-radius: var(--radius);
+      padding: .25rem;
+    }
+    .tip-type-switch button.active,
+    #flow-grid-btn.bg-primary-soft,
+    #flow-list-btn.bg-primary-soft {
+      background: hsl(var(--background));
+      color: hsl(var(--foreground));
+      box-shadow: 0 1px 2px rgba(0, 0, 0, .14);
+    }
+    .markdown-content code,
+    .markdown-content pre,
+    code {
+      background: hsl(var(--muted-hsl));
+      color: hsl(var(--foreground));
+      border-color: hsl(var(--border-hsl));
+    }
+    .toast {
+      background: hsl(var(--popover));
+      color: hsl(var(--popover-foreground));
+      border-color: hsl(var(--border-hsl));
+      box-shadow: 0 12px 40px -18px rgba(0, 0, 0, .6);
+    }
+    .update-popup {
+      background: hsl(var(--background) / .82);
+      backdrop-filter: blur(8px);
+    }
+    .card-line-repeatable { background: hsl(var(--chart-4)); }
+    .card-line-casual { background: hsl(var(--chart-3)); }
+    .card-line-manual { background: hsl(var(--chart-2)); }
+    .card-line-custom { background: hsl(var(--muted-foreground)); }
+    .card-line-srs { background: hsl(var(--chart-1)); }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid hsl(var(--border-hsl));
+      background: hsl(var(--secondary-hsl));
+      color: hsl(var(--secondary-foreground));
+      padding: .125rem .5rem;
+      font-size: .6875rem;
+      font-weight: 600;
+      line-height: 1.25rem;
+      white-space: nowrap;
+    }
+    .card-kicker {
+      color: hsl(var(--muted-foreground));
+      font-size: .75rem;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+    .section-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      letter-spacing: 0;
+      line-height: 1.75rem;
+    }
+    .icon-tile {
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: calc(var(--radius) - 2px);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid hsl(var(--border-hsl));
+      background: hsl(var(--secondary-hsl));
+      color: hsl(var(--secondary-foreground));
+    }
     @media (prefers-reduced-motion: reduce) {
       *,
       *::before,
@@ -382,35 +576,35 @@
   </style>
 </head>
 <body class="min-h-screen">
-  <div id="toast" class="toast surface border rounded-lg px-3 py-2 text-sm font-medium"></div>
+  <div id="toast" class="toast surface border rounded-md px-3 py-2 text-sm font-medium"></div>
   <div id="update-popup" class="update-popup">
-    <div class="surface border rounded-lg w-full max-w-md p-4">
+    <div class="surface border rounded-md w-full max-w-md p-4">
       <div class="flex items-start gap-3">
         <span class="material-symbols-outlined text-primary text-xl">system_update_alt</span>
         <div class="min-w-0">
-          <h2 class="text-xl font-black tracking-tight">Server update found</h2>
+          <h2 class="text-xl font-semibold tracking-tight">Server update found</h2>
           <p id="update-popup-message" class="mt-2 text-sm text-muted">Initiating server update.</p>
         </div>
       </div>
       <div class="mt-5 update-progress-track">
         <div id="update-popup-progress" class="update-progress-bar"></div>
       </div>
-      <div id="update-popup-stage" class="mt-3 text-xs font-bold uppercase tracking-wider text-muted">Starting updater</div>
+      <div id="update-popup-stage" class="mt-3 card-kicker">Starting updater</div>
     </div>
   </div>
 
   <section id="login-panel" class="min-h-screen flex items-center justify-center p-4">
-    <div class="surface border rounded-lg w-full max-w-md p-4">
+    <div class="surface border rounded-md w-full max-w-md p-4">
       <div class="flex items-center gap-3 mb-4">
         <span class="material-symbols-outlined icon-fill text-primary text-4xl">psychology</span>
         <div>
-          <h1 class="text-xl font-black tracking-tight">Sloppypie SRS</h1>
+          <h1 class="text-xl font-semibold tracking-tight">Sloppypie SRS</h1>
           <p class="text-sm text-muted">Admin token required</p>
         </div>
       </div>
-      <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2" for="admin-token">Admin Token</label>
-      <input id="admin-token" type="password" class="w-full rounded-lg border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)]" autocomplete="current-password">
-      <button id="login-btn" class="mt-4 w-full rounded-lg bg-primary-solid px-3 py-2 font-bold">Login</button>
+      <label class="block card-kicker mb-2" for="admin-token">Admin Token</label>
+      <input id="admin-token" type="password" class="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)]" autocomplete="current-password">
+      <button id="login-btn" class="mt-4 w-full rounded-md bg-primary-solid px-3 py-2 font-medium">Login</button>
       <p id="login-error" class="mt-3 text-sm" style="color: var(--danger)"></p>
     </div>
   </section>
@@ -420,30 +614,30 @@
       <div class="flex items-center gap-2 px-2 py-2 mb-4">
         <div class="flex min-w-0 items-center gap-2">
           <span class="material-symbols-outlined icon-fill shrink-0 text-primary text-xl">psychology</span>
-          <div class="truncate text-lg font-black tracking-tight">Sloppypie SRS</div>
+          <div class="truncate text-lg font-semibold tracking-tight">Sloppypie SRS</div>
         </div>
       </div>
       <div class="space-y-1 flex-1">
-        <button data-view="dashboard" class="nav-item active w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
+        <button data-view="dashboard" class="nav-item active w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-left">
           <span class="material-symbols-outlined icon-fill justify-self-center">dashboard</span><span class="justify-self-start text-left">Dashboard</span>
         </button>
-        <button data-view="flow" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
+        <button data-view="flow" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-left">
           <span class="material-symbols-outlined justify-self-center">all_inclusive</span><span class="justify-self-start text-left">Unified Flow</span>
         </button>
-        <button data-view="settings" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
+        <button data-view="settings" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-left">
           <span class="material-symbols-outlined justify-self-center">settings</span><span class="justify-self-start text-left">Settings</span>
         </button>
-        <button data-view="keys" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
+        <button data-view="keys" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-left">
           <span class="material-symbols-outlined justify-self-center">key</span><span class="justify-self-start text-left">API Keys</span>
         </button>
-        <button data-view="archive" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
+        <button data-view="archive" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-left">
           <span class="material-symbols-outlined justify-self-center">inventory_2</span><span class="justify-self-start text-left">Archive</span>
         </button>
       </div>
-      <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2" for="theme-select-side">Color Scheme</label>
+      <label class="block card-kicker mb-2" for="theme-select-side">Color Scheme</label>
       <div class="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2">
-        <select id="theme-select-side" class="theme-select w-full rounded-lg border px-3 py-2 text-sm"></select>
-        <button id="refresh-btn" class="h-9 w-9 shrink-0 rounded-lg border border-token p-0 hover:opacity-80" title="Refresh">
+        <select id="theme-select-side" class="theme-select w-full rounded-md border px-3 py-2 text-sm"></select>
+        <button id="refresh-btn" class="h-9 w-9 shrink-0 rounded-md border border-token p-0 hover:opacity-80" title="Refresh">
           <span class="material-symbols-outlined">refresh</span>
         </button>
       </div>
@@ -452,7 +646,7 @@
     <main class="lg:ml-56 px-4 sm:px-6 lg:px-6 py-5 pb-20 max-w-none">
       <section id="view-dashboard">
         <div class="mb-4">
-          <h1 class="text-xl font-bold tracking-tight">Welcome back</h1>
+          <h1 class="text-xl font-semibold tracking-tight">Welcome back</h1>
           <p class="text-muted mt-2">Cards, topics, and queue state from local server.</p>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4" id="stats-grid"></div>
@@ -460,8 +654,8 @@
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <h2 class="text-xl font-semibold flex items-center gap-2"><span class="material-symbols-outlined text-primary">folder_open</span>Active Topics</h2>
           <div class="flex gap-2">
-            <input id="topic-search" class="rounded-lg border px-4 py-2 w-full sm:w-72" placeholder="Find topic" aria-label="Find topic">
-            <button data-view="flow" class="nav-shortcut rounded-lg bg-primary-solid px-3 py-2 font-semibold"><span class="material-symbols-outlined">add</span></button>
+            <input id="topic-search" class="rounded-md border px-4 py-2 w-full sm:w-72" placeholder="Find topic" aria-label="Find topic">
+            <button data-view="flow" class="nav-shortcut rounded-md bg-primary-solid px-3 py-2 font-semibold"><span class="material-symbols-outlined">add</span></button>
           </div>
         </div>
         <div id="topics-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3"></div>
@@ -470,23 +664,23 @@
       <section id="view-flow" class="hidden-view">
         <div class="flex flex-col xl:flex-row xl:items-end justify-between gap-3 mb-4">
           <div>
-            <h1 class="text-xl font-bold tracking-tight">Unified Flow</h1>
+            <h1 class="text-xl font-semibold tracking-tight">Unified Flow</h1>
             <p class="text-muted mt-2">All cards in one review surface.</p>
           </div>
-          <form id="tips-form" class="surface border rounded-lg p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 w-full xl:w-auto">
-            <input id="tips-topics" class="rounded-lg border px-3 py-2 xl:col-span-2" placeholder="Rust, Python, System Design" aria-label="Topics" required>
+          <form id="tips-form" class="surface border rounded-md p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 w-full xl:w-auto">
+            <input id="tips-topics" class="rounded-md border px-3 py-2 xl:col-span-2" placeholder="Rust, Python, System Design" aria-label="Topics" required>
             <input id="tips-type" type="hidden" value="casual_tip">
-            <div class="tip-type-switch muted-surface border border-token rounded-lg p-1 grid grid-cols-3 sm:col-span-2" role="group" aria-label="Card class">
-              <button type="button" data-tip-type="casual_tip" class="active rounded-md px-3 py-2 text-sm font-bold">Casual</button>
-              <button type="button" data-tip-type="repeatable_tip" class="rounded-md px-3 py-2 text-sm font-bold">Repeat</button>
-              <button type="button" data-tip-type="manual_tip" class="rounded-md px-3 py-2 text-sm font-bold">Manual</button>
+            <div class="tip-type-switch muted-surface border border-token rounded-md p-1 grid grid-cols-3 sm:col-span-2" role="group" aria-label="Card class">
+              <button type="button" data-tip-type="casual_tip" class="active rounded-md px-3 py-2 text-sm font-medium">Casual</button>
+              <button type="button" data-tip-type="repeatable_tip" class="rounded-md px-3 py-2 text-sm font-medium">Repeat</button>
+              <button type="button" data-tip-type="manual_tip" class="rounded-md px-3 py-2 text-sm font-medium">Manual</button>
             </div>
-            <button class="rounded-lg bg-primary-solid px-4 py-2 font-bold flex items-center justify-center gap-2">
+            <button class="rounded-md bg-primary-solid px-4 py-2 font-medium flex items-center justify-center gap-2">
               <span id="tips-submit-icon" class="material-symbols-outlined">auto_awesome</span><span id="tips-submit-label">Add</span>
             </button>
-            <textarea id="manual-card-content" class="hidden rounded-lg border px-3 py-2 sm:col-span-2 xl:col-span-5 h-20 resize-y" placeholder="Write manual card text"></textarea>
+            <textarea id="manual-card-content" class="hidden rounded-md border px-3 py-2 sm:col-span-2 xl:col-span-5 h-20 resize-y" placeholder="Write manual card text"></textarea>
             <div id="manual-card-images-row" class="hidden sm:col-span-2 xl:col-span-5 flex flex-wrap items-center gap-3">
-              <label class="inline-flex items-center gap-2 rounded-lg border border-token px-3 py-2 text-sm font-bold cursor-pointer">
+              <label class="inline-flex items-center gap-2 rounded-md border border-token px-3 py-2 text-sm font-medium cursor-pointer">
                 <span class="material-symbols-outlined">add_photo_alternate</span>
                 <span>Attach images</span>
                 <input id="manual-card-images" type="file" accept="image/*" multiple class="hidden">
@@ -497,7 +691,7 @@
         </div>
         <div class="flex justify-between items-center gap-3 mb-4">
           <div class="text-sm text-muted"><span id="flow-count">0</span> cards</div>
-          <div class="flex muted-surface rounded-lg p-1 border border-token">
+          <div class="flex muted-surface rounded-md p-1 border border-token">
             <button id="flow-grid-btn" type="button" class="rounded px-2 py-1 bg-primary-soft text-primary" title="Grid view">
               <span class="material-symbols-outlined">grid_view</span>
             </button>
@@ -507,31 +701,31 @@
           </div>
         </div>
         <div id="pinned-flow-section" class="hidden mb-4">
-          <div class="flex items-center gap-2 mb-3 text-sm font-bold text-primary">
+          <div class="flex items-center gap-2 mb-3 text-sm font-medium text-primary">
             <span class="material-symbols-outlined icon-fill">push_pin</span>
             <span>Pinned</span>
           </div>
           <div id="pinned-flow-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start"></div>
         </div>
         <div id="flow-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3"></div>
-        <div id="empty-flow" class="surface border rounded-lg p-10 text-center text-muted">No cards yet.</div>
+        <div id="empty-flow" class="surface border rounded-md p-10 text-center text-muted">No cards yet.</div>
       </section>
 
       <section id="view-settings" class="hidden-view">
-        <h1 class="text-xl font-bold tracking-tight mb-4">Settings</h1>
-        <form id="settings-form" class="surface border rounded-lg p-4 max-w-5xl space-y-5">
+        <h1 class="text-xl font-semibold tracking-tight mb-4">Settings</h1>
+        <form id="settings-form" class="surface border rounded-md p-4 max-w-5xl space-y-5">
           <div>
-            <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">LLM Model</label>
-            <input id="model-input" class="w-full rounded-lg border px-3 py-2">
+            <label class="block card-kicker mb-2">LLM Model</label>
+            <input id="model-input" class="w-full rounded-md border px-3 py-2">
           </div>
           <div>
-            <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Compression Model</label>
-            <input id="compress-model-input" class="w-full rounded-lg border px-3 py-2">
+            <label class="block card-kicker mb-2">Compression Model</label>
+            <input id="compress-model-input" class="w-full rounded-md border px-3 py-2">
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">LLM Reasoning</label>
-              <select id="reasoning-effort-input" class="w-full rounded-lg border px-3 py-2">
+              <label class="block card-kicker mb-2">LLM Reasoning</label>
+              <select id="reasoning-effort-input" class="w-full rounded-md border px-3 py-2">
                 <option value="none">None</option>
                 <option value="minimal">Minimal</option>
                 <option value="low">Low</option>
@@ -541,8 +735,8 @@
               </select>
             </div>
             <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Compression Reasoning</label>
-              <select id="compress-reasoning-effort-input" class="w-full rounded-lg border px-3 py-2">
+              <label class="block card-kicker mb-2">Compression Reasoning</label>
+              <select id="compress-reasoning-effort-input" class="w-full rounded-md border px-3 py-2">
                 <option value="none">None</option>
                 <option value="minimal">Minimal</option>
                 <option value="low">Low</option>
@@ -553,76 +747,76 @@
             </div>
           </div>
           <div>
-            <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Prompt Template</label>
-            <textarea id="template-input" class="w-full rounded-lg border px-3 py-2 h-20 resize-y"></textarea>
+            <label class="block card-kicker mb-2">Prompt Template</label>
+            <textarea id="template-input" class="w-full rounded-md border px-3 py-2 h-20 resize-y"></textarea>
           </div>
           <div>
-            <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">LLM API Key</label>
-            <input id="api-key-input" type="password" class="w-full rounded-lg border px-3 py-2">
+            <label class="block card-kicker mb-2">LLM API Key</label>
+            <input id="api-key-input" type="password" class="w-full rounded-md border px-3 py-2">
           </div>
           <div>
-            <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">LLM Base URL</label>
-            <input id="base-url-input" class="w-full rounded-lg border px-3 py-2">
+            <label class="block card-kicker mb-2">LLM Base URL</label>
+            <input id="base-url-input" class="w-full rounded-md border px-3 py-2">
           </div>
           <div>
-            <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Compression Base URL</label>
-            <input id="compress-base-url-input" class="w-full rounded-lg border px-3 py-2">
+            <label class="block card-kicker mb-2">Compression Base URL</label>
+            <input id="compress-base-url-input" class="w-full rounded-md border px-3 py-2">
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Card Refresh Time Zone</label>
-              <input id="daily-time-zone-input" list="time-zone-options" class="w-full rounded-lg border px-3 py-2" placeholder="UTC">
+              <label class="block card-kicker mb-2">Card Refresh Time Zone</label>
+              <input id="daily-time-zone-input" list="time-zone-options" class="w-full rounded-md border px-3 py-2" placeholder="UTC">
             </div>
             <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Card Refresh Time</label>
-              <input id="daily-update-time-input" type="time" class="w-full rounded-lg border px-3 py-2">
+              <label class="block card-kicker mb-2">Card Refresh Time</label>
+              <input id="daily-update-time-input" type="time" class="w-full rounded-md border px-3 py-2">
             </div>
           </div>
           <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div class="text-sm text-muted">Refresh every generated topic now and replace current unpinned daily cards.</div>
-            <button id="force-daily-refresh-btn" type="button" class="rounded-lg border border-token px-4 py-2 font-bold flex items-center justify-center gap-2">
+            <button id="force-daily-refresh-btn" type="button" class="rounded-md border border-token px-4 py-2 font-medium flex items-center justify-center gap-2">
               <span class="material-symbols-outlined">sync</span>
               <span>Force Daily Refresh</span>
             </button>
           </div>
           <div>
-            <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Max Active Cards</label>
-            <input id="max-active-cards-input" type="number" min="0" step="1" class="w-full rounded-lg border px-3 py-2" placeholder="0">
+            <label class="block card-kicker mb-2">Max Active Cards</label>
+            <input id="max-active-cards-input" type="number" min="0" step="1" class="w-full rounded-md border px-3 py-2" placeholder="0">
             <div class="mt-2 text-xs text-muted">0 means unlimited. When full, existing due cards still show but new cards are not created.</div>
           </div>
-          <div class="border border-token rounded-lg p-4 space-y-4">
-            <label class="flex items-center gap-3 text-sm font-bold">
+          <div class="border border-token rounded-md p-4 space-y-4">
+            <label class="flex items-center gap-3 text-sm font-medium">
               <input id="autoupdate-enabled-input" type="checkbox" class="h-4 w-4">
               <span>Enable Server Self-Updates</span>
             </label>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">GitHub Repo</label>
-                <input id="autoupdate-repo-input" class="w-full rounded-lg border px-3 py-2" placeholder="slopfire/dailytipdraft">
+                <label class="block card-kicker mb-2">GitHub Repo</label>
+                <input id="autoupdate-repo-input" class="w-full rounded-md border px-3 py-2" placeholder="slopfire/dailytipdraft">
               </div>
               <div>
-                <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Branch</label>
-                <input id="autoupdate-branch-input" class="w-full rounded-lg border px-3 py-2" placeholder="master">
+                <label class="block card-kicker mb-2">Branch</label>
+                <input id="autoupdate-branch-input" class="w-full rounded-md border px-3 py-2" placeholder="master">
               </div>
             </div>
             <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Server Update Check Interval Seconds</label>
-              <input id="autoupdate-interval-input" type="number" min="60" class="w-full rounded-lg border px-3 py-2">
+              <label class="block card-kicker mb-2">Server Update Check Interval Seconds</label>
+              <input id="autoupdate-interval-input" type="number" min="60" class="w-full rounded-md border px-3 py-2">
             </div>
             <div>
-              <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Server Update Command</label>
-              <textarea id="autoupdate-command-input" class="w-full rounded-lg border px-3 py-2 h-20 resize-y" placeholder="Optional command for non-systemd installs"></textarea>
+              <label class="block card-kicker mb-2">Server Update Command</label>
+              <textarea id="autoupdate-command-input" class="w-full rounded-md border px-3 py-2 h-20 resize-y" placeholder="Optional command for non-systemd installs"></textarea>
               <div class="mt-2 text-xs text-muted">Leave empty to use the installed systemd server updater service.</div>
             </div>
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div class="text-xs text-muted">Last server build seen: <span id="autoupdate-last-sha">not recorded</span></div>
-              <button id="autoupdate-trigger-btn" type="button" class="rounded-lg border border-token px-4 py-2 font-bold flex items-center justify-center gap-2">
+              <button id="autoupdate-trigger-btn" type="button" class="rounded-md border border-token px-4 py-2 font-medium flex items-center justify-center gap-2">
                 <span class="material-symbols-outlined">system_update_alt</span>
                 <span>Check Server Now</span>
               </button>
             </div>
-            <div id="autoupdate-progress" class="hidden muted-surface rounded-lg p-3 space-y-2">
-              <div class="flex items-center justify-between gap-3 text-xs font-bold uppercase tracking-wider text-muted">
+            <div id="autoupdate-progress" class="hidden muted-surface rounded-md p-3 space-y-2">
+              <div class="flex items-center justify-between gap-3 card-kicker">
                 <span id="autoupdate-progress-label">Preparing check</span>
                 <span id="autoupdate-progress-percent">0%</span>
               </div>
@@ -632,36 +826,36 @@
               <div id="autoupdate-progress-detail" class="text-xs text-muted">Saving server update settings before checking GitHub.</div>
             </div>
           </div>
-          <button class="rounded-lg bg-primary-solid px-5 py-3 font-bold">Save Settings</button>
+          <button class="rounded-md bg-primary-solid px-5 py-3 font-medium">Save Settings</button>
         </form>
       </section>
 
       <section id="view-keys" class="hidden-view">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-          <h1 class="text-xl font-bold tracking-tight">API Keys</h1>
+          <h1 class="text-xl font-semibold tracking-tight">API Keys</h1>
           <form id="key-form" class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-            <input id="key-name" class="min-w-0 rounded-lg border px-4 py-2 sm:w-56" placeholder="desktop_widget" aria-label="API key client name">
-            <button class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary-solid px-4 py-2 font-bold sm:w-auto"><span class="material-symbols-outlined">add</span>Generate</button>
+            <input id="key-name" class="min-w-0 rounded-md border px-4 py-2 sm:w-56" placeholder="desktop_widget" aria-label="API key client name">
+            <button class="flex w-full items-center justify-center gap-2 rounded-md bg-primary-solid px-4 py-2 font-medium sm:w-auto"><span class="material-symbols-outlined">add</span>Generate</button>
           </form>
         </div>
-        <div id="new-key-box" class="hidden surface border rounded-lg p-4 mb-4">
-          <div class="text-xs font-bold uppercase tracking-wider text-muted mb-2">New key</div>
-          <code id="new-key" class="block rounded-lg muted-surface border p-3 break-all"></code>
+        <div id="new-key-box" class="hidden surface border rounded-md p-4 mb-4">
+          <div class="card-kicker mb-2">New key</div>
+          <code id="new-key" class="block rounded-md muted-surface border p-3 break-all"></code>
         </div>
         <div id="keys-list" class="grid grid-cols-1 lg:grid-cols-2 gap-3"></div>
       </section>
 
       <section id="view-archive" class="hidden-view">
-        <h1 class="text-xl font-bold tracking-tight mb-4">Archive</h1>
+        <h1 class="text-xl font-semibold tracking-tight mb-4">Archive</h1>
         <div id="archive-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3"></div>
       </section>
     </main>
 
     <nav class="lg:hidden fixed bottom-0 left-0 right-0 z-50 h-14 surface border-t flex items-center justify-around px-2">
-      <button data-view="dashboard" class="nav-item active flex flex-col items-center rounded-lg px-3 py-2 text-xs font-bold"><span class="material-symbols-outlined icon-fill">dashboard</span>Home</button>
-      <button data-view="flow" class="nav-item flex flex-col items-center rounded-lg px-3 py-2 text-xs font-bold"><span class="material-symbols-outlined">all_inclusive</span>Flow</button>
-      <button data-view="settings" class="nav-item flex flex-col items-center rounded-lg px-3 py-2 text-xs font-bold"><span class="material-symbols-outlined">settings</span>Config</button>
-      <button data-view="keys" class="nav-item flex flex-col items-center rounded-lg px-3 py-2 text-xs font-bold"><span class="material-symbols-outlined">key</span>Keys</button>
+      <button data-view="dashboard" class="nav-item active flex flex-col items-center rounded-md px-3 py-2 text-xs font-medium"><span class="material-symbols-outlined icon-fill">dashboard</span>Home</button>
+      <button data-view="flow" class="nav-item flex flex-col items-center rounded-md px-3 py-2 text-xs font-medium"><span class="material-symbols-outlined">all_inclusive</span>Flow</button>
+      <button data-view="settings" class="nav-item flex flex-col items-center rounded-md px-3 py-2 text-xs font-medium"><span class="material-symbols-outlined">settings</span>Config</button>
+      <button data-view="keys" class="nav-item flex flex-col items-center rounded-md px-3 py-2 text-xs font-medium"><span class="material-symbols-outlined">key</span>Keys</button>
     </nav>
     <datalist id="time-zone-options"></datalist>
   </div>
@@ -1246,8 +1440,8 @@
 
     function skeletonCard(listMode = false) {
       const articleClass = listMode
-        ? 'surface border rounded-lg relative overflow-hidden flex flex-col lg:flex-row min-h-[210px]'
-        : 'surface border rounded-lg relative overflow-hidden min-h-[240px] flex flex-col';
+        ? 'surface border relative overflow-hidden flex flex-col lg:flex-row min-h-[210px]'
+        : 'surface border relative overflow-hidden min-h-[240px] flex flex-col';
       return `<article class="${articleClass}" aria-busy="true">
         <div class="absolute top-0 left-0 w-1 h-full card-line-srs"></div>
         <div class="p-4 flex flex-col flex-1">
@@ -1269,11 +1463,14 @@
     }
 
     function statCard(icon, value, label, tone) {
-      return `<div class="surface border rounded-lg p-4 flex items-center gap-3">
-        <div class="w-12 h-12 rounded-lg flex items-center justify-center" style="background:${tone};color:var(--bg)">
-          <span class="material-symbols-outlined icon-fill">${icon}</span>
+      return `<div class="surface border p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div class="card-kicker">${label}</div>
+          <div class="icon-tile" style="color:${tone}">
+            <span class="material-symbols-outlined icon-fill">${icon}</span>
+          </div>
         </div>
-        <div><div class="text-xl font-extrabold">${value}</div><div class="text-sm text-muted font-medium">${label}</div></div>
+        <div class="mt-3 text-2xl font-semibold tracking-tight">${value}</div>
       </div>`;
     }
 
@@ -1303,12 +1500,12 @@
     }
 
     function tokenSpendCard(label, value) {
-      return `<div class="surface border rounded-lg px-3 py-2 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2 text-sm font-bold text-muted">
+      return `<div class="surface border px-4 py-3 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2 card-kicker">
           <span class="material-symbols-outlined text-primary">token</span>
           <span>${label}</span>
         </div>
-        <div class="text-xl font-extrabold">${formatTokenCount(value)}</div>
+        <div class="text-xl font-semibold tracking-tight">${formatTokenCount(value)}</div>
       </div>`;
     }
 
@@ -1336,21 +1533,21 @@
         const promptId = `topic-prompt-${topic.id}`;
         const dailyCountId = `topic-daily-count-${topic.id}`;
         const dailyTimeId = `topic-daily-time-${topic.id}`;
-        return `<article class="surface border rounded-lg p-4 relative overflow-hidden">
+        return `<article class="surface border p-4 relative overflow-hidden">
           <div class="absolute left-0 top-0 bottom-0 w-1" style="background:${line}"></div>
           <div class="flex items-start justify-between gap-3 mb-4">
             <div>
-              <h3 class="text-lg font-bold">${escapeHtml(topic.name)}</h3>
+              <h3 class="text-lg font-semibold tracking-tight">${escapeHtml(topic.name)}</h3>
               <div class="flex flex-wrap items-center gap-2 mt-2">
-                <span class="bg-primary-soft rounded px-2 py-1 text-[11px] font-bold uppercase tracking-wider">${cardKindLabel(topic.tipcard_type)}</span>
+                <span class="badge">${cardKindLabel(topic.tipcard_type)}</span>
                 <span class="text-xs text-muted">${topic.due_cards} due</span>
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <button class="rounded-lg border border-token p-1" title="Load topic" onclick="loadTopic(decodeURIComponent('${encodeURIComponent(topic.name)}'), decodeURIComponent('${encodeURIComponent(topic.class_name)}'), decodeURIComponent('${encodeURIComponent(topic.tipcard_type)}'))">
+              <button class="border border-token p-1" title="Load topic" onclick="loadTopic(decodeURIComponent('${encodeURIComponent(topic.name)}'), decodeURIComponent('${encodeURIComponent(topic.class_name)}'), decodeURIComponent('${encodeURIComponent(topic.tipcard_type)}'))">
                 <span class="material-symbols-outlined">play_arrow</span>
               </button>
-              <button class="rounded-lg border border-token p-1" title="Delete topic" onclick="deleteTopic(${topic.id}, decodeURIComponent('${encodeURIComponent(topic.name)}'))">
+              <button class="border border-token p-1" title="Delete topic" onclick="deleteTopic(${topic.id}, decodeURIComponent('${encodeURIComponent(topic.name)}'))">
                 <span class="material-symbols-outlined" style="color:var(--danger)">delete</span>
               </button>
             </div>
@@ -1358,25 +1555,25 @@
           <div class="muted-surface rounded-full h-2 overflow-hidden"><div class="h-2" style="width:${percent}%;background:${line}"></div></div>
           <div class="flex justify-between text-xs text-muted mt-2"><span>${percent}% complete</span><span>${total} cards</span></div>
           <div class="mt-4 border-t border-token pt-4">
-            <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2" for="${promptId}">Topic Prompt</label>
-            <textarea id="${promptId}" class="w-full rounded-lg border px-3 py-2 h-16 resize-y text-sm" placeholder="Uses global prompt when empty">${escapeHtml(topic.prompt_template || '')}</textarea>
+            <label class="block card-kicker mb-2" for="${promptId}">Topic Prompt</label>
+            <textarea id="${promptId}" class="w-full border px-3 py-2 h-16 resize-y text-sm" placeholder="Uses global prompt when empty">${escapeHtml(topic.prompt_template || '')}</textarea>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
               <div>
-                <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyCountId}">Cards Per Day</label>
-                <input id="${dailyCountId}" type="number" min="1" max="20" class="w-full rounded-lg border px-3 py-2 text-sm" value="${Number(topic.daily_card_count || 1)}">
+                <label class="block card-kicker mb-1" for="${dailyCountId}">Cards Per Day</label>
+                <input id="${dailyCountId}" type="number" min="1" max="20" class="w-full border px-3 py-2 text-sm" value="${Number(topic.daily_card_count || 1)}">
               </div>
               <div>
-                <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyTimeId}">Refresh Time</label>
-                <input id="${dailyTimeId}" type="time" class="w-full rounded-lg border px-3 py-2 text-sm" value="${escapeHtml(topic.daily_update_time || '')}">
+                <label class="block card-kicker mb-1" for="${dailyTimeId}">Refresh Time</label>
+                <input id="${dailyTimeId}" type="time" class="w-full border px-3 py-2 text-sm" value="${escapeHtml(topic.daily_update_time || '')}">
               </div>
             </div>
-            <button type="button" class="mt-2 rounded-lg border border-token px-3 py-2 text-sm font-bold" onclick="saveTopicSettings(${topic.id}, '${promptId}', '${dailyCountId}', '${dailyTimeId}')">
+            <button type="button" class="mt-2 border border-token px-3 py-2 text-sm" onclick="saveTopicSettings(${topic.id}, '${promptId}', '${dailyCountId}', '${dailyTimeId}')">
               <span class="material-symbols-outlined align-middle text-base">save</span>
               <span class="align-middle">Save</span>
             </button>
           </div>
         </article>`;
-      }).join('') || `<div class="surface border rounded-lg p-4 text-muted">No topics yet.</div>`;
+      }).join('') || `<div class="surface border p-4 text-muted">No topics yet.</div>`;
     }
 
     async function saveTopicSettings(topicId, promptId, dailyCountId, dailyTimeId) {
@@ -1421,26 +1618,26 @@
     }
 
     function cardActions(card) {
-      const deleteButton = `<button onclick="deleteCard(${card.id})" class="rounded-lg border border-token p-2" title="Delete card"><span class="material-symbols-outlined" style="color:var(--danger)">delete</span></button>`;
+      const deleteButton = `<button onclick="deleteCard(${card.id})" class="border border-token p-2" title="Delete card"><span class="material-symbols-outlined" style="color:var(--danger)">delete</span></button>`;
       if (card.status && card.status !== 'active') {
-        return `<div class="rounded-lg muted-surface border border-token p-2 flex-1 text-center text-sm font-semibold text-muted">${escapeHtml(card.status)}</div>${deleteButton}`;
+        return `<div class="muted-surface border border-token p-2 flex-1 text-center text-sm font-medium text-muted">${escapeHtml(card.status)}</div>${deleteButton}`;
       }
       if (card.tipcard_type === 'casual_tip') {
-        return `<button onclick="reviewCard(${card.id}, 'dismiss')" class="rounded-lg border border-token p-2" title="Dismiss"><span class="material-symbols-outlined">close</span></button>
-          <button onclick="reviewCard(${card.id}, 'acknowledge')" class="rounded-lg bg-primary-solid p-2 flex-1" title="Acknowledge"><span class="material-symbols-outlined">done</span></button>${deleteButton}`;
+        return `<button onclick="reviewCard(${card.id}, 'dismiss')" class="border border-token p-2" title="Dismiss"><span class="material-symbols-outlined">close</span></button>
+          <button onclick="reviewCard(${card.id}, 'acknowledge')" class="bg-primary-solid p-2 flex-1" title="Acknowledge"><span class="material-symbols-outlined">done</span></button>${deleteButton}`;
       }
       if (card.tipcard_type === 'repeatable_tip') {
-        return `<button onclick="reviewCard(${card.id}, 'dismiss')" class="rounded-lg border border-token p-2" title="Dismiss"><span class="material-symbols-outlined">close</span></button>
-          <button onclick="reviewCard(${card.id}, 'repeat')" class="rounded-lg border border-token p-2" title="Repeat"><span class="material-symbols-outlined">replay</span></button>
-          <button onclick="reviewCard(${card.id}, 'memorize')" class="rounded-lg bg-primary-solid p-2 flex-1" title="Memorize"><span class="material-symbols-outlined">psychology</span></button>${deleteButton}`;
+        return `<button onclick="reviewCard(${card.id}, 'dismiss')" class="border border-token p-2" title="Dismiss"><span class="material-symbols-outlined">close</span></button>
+          <button onclick="reviewCard(${card.id}, 'repeat')" class="border border-token p-2" title="Repeat"><span class="material-symbols-outlined">replay</span></button>
+          <button onclick="reviewCard(${card.id}, 'memorize')" class="bg-primary-solid p-2 flex-1" title="Memorize"><span class="material-symbols-outlined">psychology</span></button>${deleteButton}`;
       }
       if (card.tipcard_type === 'manual_tip') {
-        return `<button onclick="reviewCard(${card.id}, 'dismiss')" class="rounded-lg border border-token p-2" title="Dismiss"><span class="material-symbols-outlined">close</span></button>
-          <button onclick="reviewCard(${card.id}, 'acknowledge')" class="rounded-lg bg-primary-solid p-2 flex-1" title="Acknowledge"><span class="material-symbols-outlined">done</span></button>${deleteButton}`;
+        return `<button onclick="reviewCard(${card.id}, 'dismiss')" class="border border-token p-2" title="Dismiss"><span class="material-symbols-outlined">close</span></button>
+          <button onclick="reviewCard(${card.id}, 'acknowledge')" class="bg-primary-solid p-2 flex-1" title="Acknowledge"><span class="material-symbols-outlined">done</span></button>${deleteButton}`;
       }
-      return `<button onclick="reviewCard(${card.id}, '', 1)" class="rounded-lg border border-token p-2 flex-1" title="Again">Again</button>
-        <button onclick="reviewCard(${card.id}, '', 3)" class="rounded-lg border border-token p-2 flex-1" title="Good">Good</button>
-        <button onclick="reviewCard(${card.id}, '', 5)" class="rounded-lg bg-primary-solid p-2 flex-1" title="Easy">Easy</button>${deleteButton}`;
+      return `<button onclick="reviewCard(${card.id}, '', 1)" class="border border-token p-2 flex-1" title="Again">Again</button>
+        <button onclick="reviewCard(${card.id}, '', 3)" class="border border-token p-2 flex-1" title="Good">Good</button>
+        <button onclick="reviewCard(${card.id}, '', 5)" class="bg-primary-solid p-2 flex-1" title="Easy">Easy</button>${deleteButton}`;
     }
 
     async function copyCardText(cardId) {
@@ -1475,7 +1672,7 @@
     }
 
     function cardTitleFullscreenButton(card, fullscreen) {
-      return `<button onclick="toggleCardFullscreen(${card.id})" class="rounded-lg border border-token p-2" title="${fullscreen ? 'Exit fullscreen' : 'Fullscreen'}"><span class="material-symbols-outlined">${fullscreen ? 'close_fullscreen' : 'open_in_full'}</span></button>`;
+      return `<button onclick="toggleCardFullscreen(${card.id})" class="border border-token p-2" title="${fullscreen ? 'Exit fullscreen' : 'Fullscreen'}"><span class="material-symbols-outlined">${fullscreen ? 'close_fullscreen' : 'open_in_full'}</span></button>`;
     }
 
     function renderCardImages(card) {
@@ -1502,10 +1699,10 @@
     function cardContentControls(card) {
       const pinned = Boolean(card.pinned);
       const hasImages = Array.isArray(card.image_data) && card.image_data.length > 0;
-      return `<button onclick="togglePinCard(${card.id}, ${pinned ? 'false' : 'true'})" class="rounded-lg border border-token p-2 ${pinned ? 'bg-primary-soft text-primary' : ''}" title="${pinned ? 'Unpin card' : 'Pin card'}"><span class="material-symbols-outlined ${pinned ? 'icon-fill' : ''}">push_pin</span></button>
-        <label class="rounded-lg border border-token p-2 cursor-pointer" title="Attach images"><span class="material-symbols-outlined">add_photo_alternate</span><input type="file" accept="image/*" multiple class="hidden" onchange="attachCardImages(${card.id}, this.files).finally(() => { this.value = ''; })"></label>
-        ${hasImages ? `<button onclick="clearCardImages(${card.id})" class="rounded-lg border border-token p-2" title="Clear images"><span class="material-symbols-outlined">hide_image</span></button>` : ''}
-        <button onclick="copyCardText(${card.id})" data-copy-card-id="${card.id}" class="card-copy-btn rounded-lg border border-token p-2" title="Copy text"><span class="material-symbols-outlined">content_copy</span></button>`;
+      return `<button onclick="togglePinCard(${card.id}, ${pinned ? 'false' : 'true'})" class="border border-token p-2 ${pinned ? 'bg-primary-soft text-primary' : ''}" title="${pinned ? 'Unpin card' : 'Pin card'}"><span class="material-symbols-outlined ${pinned ? 'icon-fill' : ''}">push_pin</span></button>
+        <label class="border border-token p-2 cursor-pointer" title="Attach images"><span class="material-symbols-outlined">add_photo_alternate</span><input type="file" accept="image/*" multiple class="hidden" onchange="attachCardImages(${card.id}, this.files).finally(() => { this.value = ''; })"></label>
+        ${hasImages ? `<button onclick="clearCardImages(${card.id})" class="border border-token p-2" title="Clear images"><span class="material-symbols-outlined">hide_image</span></button>` : ''}
+        <button onclick="copyCardText(${card.id})" data-copy-card-id="${card.id}" class="card-copy-btn border border-token p-2" title="Copy text"><span class="material-symbols-outlined">content_copy</span></button>`;
     }
 
     function renderFlow() {
@@ -1595,8 +1792,8 @@
         const articleClass = fullscreen
           ? 'flow-card is-fullscreen surface border fixed top-0 right-0 bottom-0 z-[70] overflow-hidden flex flex-col'
           : (listMode
-            ? 'flow-card surface border rounded-lg relative overflow-hidden flex flex-col lg:flex-row'
-            : 'flow-card surface border rounded-lg relative overflow-hidden min-h-[240px] flex flex-col');
+            ? 'flow-card surface border relative overflow-hidden flex flex-col lg:flex-row'
+            : 'flow-card surface border relative overflow-hidden min-h-[240px] flex flex-col');
         const contentClass = listMode
           ? 'text-base leading-7 flex-1'
           : 'text-base leading-7 flex-1';
@@ -1604,13 +1801,13 @@
           <div class="absolute top-0 left-0 w-1 h-full ${lineClass}"></div>
           <div class="p-4 flex flex-col flex-1">
             <div class="flex justify-between items-start gap-3 border-b border-token pb-3 mb-4">
-              <div class="flex items-center gap-2 font-bold">
-                <button type="button" class="card-drag-handle rounded border border-token p-1" title="Drag to reorder" draggable="true"><span class="material-symbols-outlined">drag_indicator</span></button>
+              <div class="flex items-center gap-2 font-medium">
+                <button type="button" class="card-drag-handle border border-token p-1" title="Drag to reorder" draggable="true"><span class="material-symbols-outlined">drag_indicator</span></button>
                 ${card.pinned ? '<span class="material-symbols-outlined text-primary icon-fill" title="Pinned">push_pin</span>' : ''}
                 <span class="material-symbols-outlined text-primary">code</span>${escapeHtml(topic)}
               </div>
               <div class="card-title-controls flex items-center gap-2">
-                <span class="bg-primary-soft rounded px-2 py-1 text-[11px] font-bold uppercase tracking-wider">${escapeHtml(typeLabel)}</span>
+                <span class="badge">${escapeHtml(typeLabel)}</span>
                 ${cardTitleFullscreenButton(card, fullscreen)}
               </div>
             </div>
@@ -1732,25 +1929,25 @@
     }
 
     function renderKeys() {
-      $('keys-list').innerHTML = state.keys.map((key) => `<article class="surface border rounded-lg p-4">
+      $('keys-list').innerHTML = state.keys.map((key) => `<article class="surface border p-4">
         <div class="flex items-start justify-between gap-3">
           <div>
-            <div class="font-bold">${escapeHtml(key.client_name)}</div>
+            <div class="font-semibold">${escapeHtml(key.client_name)}</div>
             <div class="text-sm text-muted mt-1">${escapeHtml(key.created_at)}</div>
           </div>
-          <button onclick="deleteKey(${key.id})" class="rounded-lg border border-token p-2" title="Delete"><span class="material-symbols-outlined" style="color:var(--danger)">delete</span></button>
+          <button onclick="deleteKey(${key.id})" class="border border-token p-2" title="Delete"><span class="material-symbols-outlined" style="color:var(--danger)">delete</span></button>
         </div>
-      </article>`).join('') || `<div class="surface border rounded-lg p-4 text-muted">No keys yet.</div>`;
+      </article>`).join('') || `<div class="surface border p-4 text-muted">No keys yet.</div>`;
     }
 
     function renderArchive() {
-      $('archive-list').innerHTML = orderedCards().map((card) => `<article class="surface border rounded-lg p-4">
+      $('archive-list').innerHTML = orderedCards().map((card) => `<article class="surface border p-4">
         <div class="flex justify-between gap-3 mb-3">
-          <div class="font-bold">${escapeHtml(card.topic_name || card.topic)}</div>
+          <div class="font-semibold">${escapeHtml(card.topic_name || card.topic)}</div>
           <div class="flex items-center gap-2">
-            <span class="text-xs text-muted">${escapeHtml(card.status && card.status !== 'active' ? card.status : cardBadgeLabel(card))}</span>
-            <button onclick="togglePinCard(${card.id}, ${card.pinned ? 'false' : 'true'})" class="rounded-lg border border-token p-1 ${card.pinned ? 'bg-primary-soft text-primary' : ''}" title="${card.pinned ? 'Unpin card' : 'Pin card'}"><span class="material-symbols-outlined ${card.pinned ? 'icon-fill' : ''}">push_pin</span></button>
-            <button onclick="deleteCard(${card.id})" class="rounded-lg border border-token p-1" title="Delete card"><span class="material-symbols-outlined" style="color:var(--danger)">delete</span></button>
+            <span class="badge">${escapeHtml(card.status && card.status !== 'active' ? card.status : cardBadgeLabel(card))}</span>
+            <button onclick="togglePinCard(${card.id}, ${card.pinned ? 'false' : 'true'})" class="border border-token p-1 ${card.pinned ? 'bg-primary-soft text-primary' : ''}" title="${card.pinned ? 'Unpin card' : 'Pin card'}"><span class="material-symbols-outlined ${card.pinned ? 'icon-fill' : ''}">push_pin</span></button>
+            <button onclick="deleteCard(${card.id})" class="border border-token p-1" title="Delete card"><span class="material-symbols-outlined" style="color:var(--danger)">delete</span></button>
           </div>
         </div>
         ${renderCardImages(card)}
@@ -1759,7 +1956,7 @@
           <p>${escapeHtml(card.created_at || card.topic_class || '')}</p>
           <p>Next rewind: ${escapeHtml(formatNextRewind(card))}</p>
         </div>
-      </article>`).join('') || `<div class="surface border rounded-lg p-4 text-muted">No cards yet.</div>`;
+      </article>`).join('') || `<div class="surface border p-4 text-muted">No cards yet.</div>`;
     }
 
     async function refreshAll() {
