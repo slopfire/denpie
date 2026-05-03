@@ -90,7 +90,7 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
     let color_scheme = settings
         .get("color_scheme")
         .and_then(|v| v.as_str())
-        .unwrap_or("default")
+        .unwrap_or("carbonfox")
         .to_string();
     let autoupdate_enabled = settings
         .get("autoupdate_enabled")

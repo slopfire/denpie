@@ -125,7 +125,7 @@ All runtime configuration lives in `settings.yaml` and is managed through the pr
 | `llm_api_key` | API key for the LLM provider | *(empty — set via API)* |
 | `llm_base_url` | Base URL for the OpenAI-compatible API | `https://openrouter.ai/api/v1` |
 | `llm_compress_base_url` | Base URL for compression requests; defaults to `llm_base_url` when missing | `https://openrouter.ai/api/v1` |
-| `color_scheme` | Client color scheme preference for external clients. Browser themes include `default`, `ayu`, `solarized-light`, `solarized-dark`, `dracula`, `carbonfox`, `amoled`, and `slate`. | `default` |
+| `color_scheme` | Client color scheme preference for external clients. Browser themes include `carbonfox`, `ayu`, `solarized-light`, `solarized-dark`, `amoled`, and `slate`. | `carbonfox` |
 | `daily_time_zone` | Default IANA time zone or fixed `UTC+n` offset used for daily topic-card refresh windows | `UTC` |
 | `daily_update_time` | Default local `HH:MM` card refresh time when each topic can receive new daily cards | `00:00` |
 | `autoupdate_enabled` | Enable GitHub commit polling and server self-updates | `false` |

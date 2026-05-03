@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="default">
+<html lang="en" data-theme="carbonfox">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,23 +10,24 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
   <style>
-    :root {
-      color-scheme: light;
-      --bg: #f8fafc;
-      --surface: #ffffff;
-      --surface-muted: #f1f5f9;
-      --surface-strong: #e2e8f0;
-      --text: #0f172a;
-      --muted: #64748b;
-      --border: #cbd5e1;
-      --primary: #4f46e5;
-      --primary-soft: #eef2ff;
-      --primary-text: #312e81;
-      --secondary: #7c3aed;
-      --tertiary: #d97706;
-      --danger: #dc2626;
-      --ok: #16a34a;
-      --shadow: 0 10px 30px -24px rgba(15, 23, 42, 0.55);
+    :root,
+    [data-theme="carbonfox"] {
+      color-scheme: dark;
+      --bg: #161616;
+      --surface: #1f1f1f;
+      --surface-muted: #282828;
+      --surface-strong: #393939;
+      --text: #f2f4f8;
+      --muted: #a6a6a6;
+      --border: #525253;
+      --primary: #78a9ff;
+      --primary-soft: #1c2b44;
+      --primary-text: #e5efff;
+      --secondary: #be95ff;
+      --tertiary: #3ddbd9;
+      --danger: #ee5396;
+      --ok: #25be6a;
+      --shadow: 0 14px 32px -24px rgba(0, 0, 0, 0.95);
     }
     [data-theme="ayu"] {
       color-scheme: dark;
@@ -80,41 +81,6 @@
       --danger: #dc322f;
       --ok: #859900;
     }
-    [data-theme="dracula"] {
-      color-scheme: dark;
-      --bg: #282a36;
-      --surface: #343746;
-      --surface-muted: #44475a;
-      --surface-strong: #51556b;
-      --text: #f8f8f2;
-      --muted: #bd93f9;
-      --border: #5a5f78;
-      --primary: #8be9fd;
-      --primary-soft: #354456;
-      --primary-text: #ecfbff;
-      --secondary: #ff79c6;
-      --tertiary: #ffb86c;
-      --danger: #ff5555;
-      --ok: #50fa7b;
-    }
-    [data-theme="carbonfox"] {
-      color-scheme: dark;
-      --bg: #161616;
-      --surface: #1f1f1f;
-      --surface-muted: #282828;
-      --surface-strong: #393939;
-      --text: #f2f4f8;
-      --muted: #a6a6a6;
-      --border: #525253;
-      --primary: #78a9ff;
-      --primary-soft: #1c2b44;
-      --primary-text: #e5efff;
-      --secondary: #be95ff;
-      --tertiary: #3ddbd9;
-      --danger: #ee5396;
-      --ok: #25be6a;
-      --shadow: 0 14px 32px -24px rgba(0, 0, 0, 0.95);
-    }
     [data-theme="amoled"] {
       color-scheme: dark;
       --bg: #000000;
@@ -156,11 +122,17 @@
       background: var(--bg);
       color: var(--text);
       font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      font-size: 14px;
     }
     .material-symbols-outlined {
       font-variation-settings: 'FILL' 0, 'wght' 450, 'GRAD' 0, 'opsz' 24;
       font-size: 22px;
       line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1em;
+      height: 1em;
     }
     .icon-fill { font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24; }
     .surface { background: var(--surface); border-color: var(--border); box-shadow: var(--shadow); }
@@ -175,6 +147,20 @@
     .nav-item { color: var(--muted); }
     .nav-item:hover { background: var(--surface-muted); color: var(--text); }
     .nav-item.active { background: var(--primary-soft); color: var(--primary); }
+    button,
+    label {
+      min-height: 2.25rem;
+    }
+    button:has(.material-symbols-outlined):not(.nav-item),
+    label:has(.material-symbols-outlined) {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+    }
+    input, textarea, select, button {
+      transition: border-color .12s ease, background-color .12s ease, color .12s ease, opacity .12s ease;
+    }
     .card-line-repeatable { background: var(--secondary); }
     .card-line-casual { background: var(--tertiary); }
     .card-line-manual { background: var(--ok); }
@@ -273,7 +259,7 @@
       overflow-y: auto;
     }
     @media (min-width: 1024px) {
-      .flow-card.is-fullscreen { left: 16rem; }
+      .flow-card.is-fullscreen { left: 14rem; }
     }
     .card-text {
       min-width: 0;
@@ -281,7 +267,7 @@
       -webkit-user-select: text;
       transition: min-height 150ms cubic-bezier(.2, 0, 0, 1);
     }
-    .card-text.is-expanded { min-height: min(58vh, 520px); }
+    .card-text.is-expanded { min-height: min(48vh, 420px); }
     .card-text-body { animation: card-text-snap 120ms cubic-bezier(.2, 0, 0, 1); }
     .card-text p {
       text-align: left;
@@ -396,11 +382,11 @@
   </style>
 </head>
 <body class="min-h-screen">
-  <div id="toast" class="toast surface border rounded-lg px-4 py-3 text-sm font-medium"></div>
+  <div id="toast" class="toast surface border rounded-lg px-3 py-2 text-sm font-medium"></div>
   <div id="update-popup" class="update-popup">
-    <div class="surface border rounded-xl w-full max-w-md p-6">
+    <div class="surface border rounded-lg w-full max-w-md p-4">
       <div class="flex items-start gap-3">
-        <span class="material-symbols-outlined text-primary text-3xl">system_update_alt</span>
+        <span class="material-symbols-outlined text-primary text-xl">system_update_alt</span>
         <div class="min-w-0">
           <h2 class="text-xl font-black tracking-tight">Server update found</h2>
           <p id="update-popup-message" class="mt-2 text-sm text-muted">Initiating server update.</p>
@@ -413,90 +399,82 @@
     </div>
   </div>
 
-  <section id="login-panel" class="min-h-screen flex items-center justify-center p-6">
-    <div class="surface border rounded-xl w-full max-w-md p-8">
-      <div class="flex items-center gap-3 mb-8">
+  <section id="login-panel" class="min-h-screen flex items-center justify-center p-4">
+    <div class="surface border rounded-lg w-full max-w-md p-4">
+      <div class="flex items-center gap-3 mb-4">
         <span class="material-symbols-outlined icon-fill text-primary text-4xl">psychology</span>
         <div>
-          <h1 class="text-2xl font-black tracking-tight">Sloppypie SRS</h1>
+          <h1 class="text-xl font-black tracking-tight">Sloppypie SRS</h1>
           <p class="text-sm text-muted">Admin token required</p>
         </div>
       </div>
       <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2" for="admin-token">Admin Token</label>
-      <input id="admin-token" type="password" class="w-full rounded-lg border px-4 py-3 outline-none focus:ring-2 focus:ring-[var(--primary)]" autocomplete="current-password">
-      <button id="login-btn" class="mt-4 w-full rounded-lg bg-primary-solid px-4 py-3 font-bold">Login</button>
+      <input id="admin-token" type="password" class="w-full rounded-lg border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)]" autocomplete="current-password">
+      <button id="login-btn" class="mt-4 w-full rounded-lg bg-primary-solid px-3 py-2 font-bold">Login</button>
       <p id="login-error" class="mt-3 text-sm" style="color: var(--danger)"></p>
     </div>
   </section>
 
   <div id="app-shell" class="hidden min-h-screen">
-    <nav class="hidden lg:flex fixed left-0 top-0 z-50 h-full w-64 flex-col border-r surface p-4">
-      <div class="flex items-center gap-3 px-2 py-2 mb-6">
-        <span class="material-symbols-outlined icon-fill text-primary text-3xl">psychology</span>
-        <div>
-          <div class="text-lg font-black tracking-tight">Sloppypie SRS</div>
+    <nav class="hidden lg:flex fixed left-0 top-0 z-50 h-full w-56 flex-col border-r surface p-4">
+      <div class="flex items-center gap-2 px-2 py-2 mb-4">
+        <div class="flex min-w-0 items-center gap-2">
+          <span class="material-symbols-outlined icon-fill shrink-0 text-primary text-xl">psychology</span>
+          <div class="truncate text-lg font-black tracking-tight">Sloppypie SRS</div>
         </div>
       </div>
       <div class="space-y-1 flex-1">
-        <button data-view="dashboard" class="nav-item active w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
-          <span class="material-symbols-outlined icon-fill">dashboard</span><span>Dashboard</span>
+        <button data-view="dashboard" class="nav-item active w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
+          <span class="material-symbols-outlined icon-fill justify-self-center">dashboard</span><span class="justify-self-start text-left">Dashboard</span>
         </button>
-        <button data-view="flow" class="nav-item w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
-          <span class="material-symbols-outlined">all_inclusive</span><span>Unified Flow</span>
+        <button data-view="flow" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
+          <span class="material-symbols-outlined justify-self-center">all_inclusive</span><span class="justify-self-start text-left">Unified Flow</span>
         </button>
-        <button data-view="settings" class="nav-item w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
-          <span class="material-symbols-outlined">settings</span><span>Settings</span>
+        <button data-view="settings" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
+          <span class="material-symbols-outlined justify-self-center">settings</span><span class="justify-self-start text-left">Settings</span>
         </button>
-        <button data-view="keys" class="nav-item w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
-          <span class="material-symbols-outlined">key</span><span>API Keys</span>
+        <button data-view="keys" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
+          <span class="material-symbols-outlined justify-self-center">key</span><span class="justify-self-start text-left">API Keys</span>
         </button>
-        <button data-view="archive" class="nav-item w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
-          <span class="material-symbols-outlined">inventory_2</span><span>Archive</span>
+        <button data-view="archive" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold text-left">
+          <span class="material-symbols-outlined justify-self-center">inventory_2</span><span class="justify-self-start text-left">Archive</span>
         </button>
       </div>
       <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2" for="theme-select-side">Color Scheme</label>
-      <select id="theme-select-side" class="theme-select w-full rounded-lg border px-3 py-2 text-sm"></select>
-    </nav>
-
-    <header class="sticky top-0 z-40 lg:ml-64 h-16 border-b surface backdrop-blur flex items-center justify-between px-4 sm:px-6">
-      <div class="flex items-center gap-3">
-        <span class="lg:hidden material-symbols-outlined icon-fill text-primary">psychology</span>
-        <div class="font-bold tracking-tight">Sloppypie SRS</div>
-      </div>
-      <div class="flex items-center gap-2">
-        <select id="theme-select-top" class="theme-select lg:hidden rounded-lg border px-3 py-2 text-sm"></select>
-        <button id="refresh-btn" class="rounded-lg border border-token p-2 hover:opacity-80" title="Refresh">
+      <div class="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2">
+        <select id="theme-select-side" class="theme-select w-full rounded-lg border px-3 py-2 text-sm"></select>
+        <button id="refresh-btn" class="h-9 w-9 shrink-0 rounded-lg border border-token p-0 hover:opacity-80" title="Refresh">
           <span class="material-symbols-outlined">refresh</span>
         </button>
       </div>
-    </header>
+    </nav>
 
-    <main class="lg:ml-64 px-4 sm:px-6 lg:px-10 py-8 pb-24 max-w-[1500px]">
+    <main class="lg:ml-56 px-4 sm:px-6 lg:px-6 py-5 pb-20 max-w-none">
       <section id="view-dashboard">
-        <div class="mb-8">
-          <h1 class="text-3xl font-bold tracking-tight">Welcome back</h1>
+        <div class="mb-4">
+          <h1 class="text-xl font-bold tracking-tight">Welcome back</h1>
           <p class="text-muted mt-2">Cards, topics, and queue state from local server.</p>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8" id="stats-grid"></div>
-        <div id="token-spend-row" class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6"></div>
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-          <h2 class="text-2xl font-semibold flex items-center gap-2"><span class="material-symbols-outlined text-primary">folder_open</span>Active Topics</h2>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4" id="stats-grid"></div>
+        <div id="token-spend-row" class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4"></div>
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <h2 class="text-xl font-semibold flex items-center gap-2"><span class="material-symbols-outlined text-primary">folder_open</span>Active Topics</h2>
           <div class="flex gap-2">
-            <input id="topic-search" class="rounded-lg border px-4 py-2 w-full sm:w-72" placeholder="Find topic">
+            <input id="topic-search" class="rounded-lg border px-4 py-2 w-full sm:w-72" placeholder="Find topic" aria-label="Find topic">
             <button data-view="flow" class="nav-shortcut rounded-lg bg-primary-solid px-3 py-2 font-semibold"><span class="material-symbols-outlined">add</span></button>
           </div>
         </div>
-        <div id="topics-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"></div>
+        <div id="topics-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3"></div>
       </section>
 
       <section id="view-flow" class="hidden-view">
-        <div class="flex flex-col xl:flex-row xl:items-end justify-between gap-5 mb-8">
+        <div class="flex flex-col xl:flex-row xl:items-end justify-between gap-3 mb-4">
           <div>
-            <h1 class="text-3xl font-bold tracking-tight">Unified Flow</h1>
+            <h1 class="text-xl font-bold tracking-tight">Unified Flow</h1>
             <p class="text-muted mt-2">All cards in one review surface.</p>
           </div>
-          <form id="tips-form" class="surface border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 w-full xl:w-auto">
-            <input id="tips-topics" class="rounded-lg border px-3 py-2 xl:col-span-2" placeholder="Rust, Python, System Design" required>
+          <form id="tips-form" class="surface border rounded-lg p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 w-full xl:w-auto">
+            <input id="tips-topics" class="rounded-lg border px-3 py-2 xl:col-span-2" placeholder="Rust, Python, System Design" aria-label="Topics" required>
             <input id="tips-type" type="hidden" value="casual_tip">
             <div class="tip-type-switch muted-surface border border-token rounded-lg p-1 grid grid-cols-3 sm:col-span-2" role="group" aria-label="Card class">
               <button type="button" data-tip-type="casual_tip" class="active rounded-md px-3 py-2 text-sm font-bold">Casual</button>
@@ -506,7 +484,7 @@
             <button class="rounded-lg bg-primary-solid px-4 py-2 font-bold flex items-center justify-center gap-2">
               <span id="tips-submit-icon" class="material-symbols-outlined">auto_awesome</span><span id="tips-submit-label">Add</span>
             </button>
-            <textarea id="manual-card-content" class="hidden rounded-lg border px-3 py-2 sm:col-span-2 xl:col-span-5 h-28 resize-y" placeholder="Write manual card text"></textarea>
+            <textarea id="manual-card-content" class="hidden rounded-lg border px-3 py-2 sm:col-span-2 xl:col-span-5 h-20 resize-y" placeholder="Write manual card text"></textarea>
             <div id="manual-card-images-row" class="hidden sm:col-span-2 xl:col-span-5 flex flex-wrap items-center gap-3">
               <label class="inline-flex items-center gap-2 rounded-lg border border-token px-3 py-2 text-sm font-bold cursor-pointer">
                 <span class="material-symbols-outlined">add_photo_alternate</span>
@@ -517,7 +495,7 @@
             </div>
           </form>
         </div>
-        <div class="flex justify-between items-center gap-4 mb-5">
+        <div class="flex justify-between items-center gap-3 mb-4">
           <div class="text-sm text-muted"><span id="flow-count">0</span> cards</div>
           <div class="flex muted-surface rounded-lg p-1 border border-token">
             <button id="flow-grid-btn" type="button" class="rounded px-2 py-1 bg-primary-soft text-primary" title="Grid view">
@@ -528,32 +506,32 @@
             </button>
           </div>
         </div>
-        <div id="pinned-flow-section" class="hidden mb-8">
+        <div id="pinned-flow-section" class="hidden mb-4">
           <div class="flex items-center gap-2 mb-3 text-sm font-bold text-primary">
             <span class="material-symbols-outlined icon-fill">push_pin</span>
             <span>Pinned</span>
           </div>
-          <div id="pinned-flow-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start"></div>
+          <div id="pinned-flow-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start"></div>
         </div>
-        <div id="flow-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"></div>
-        <div id="empty-flow" class="surface border rounded-xl p-10 text-center text-muted">No cards yet.</div>
+        <div id="flow-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3"></div>
+        <div id="empty-flow" class="surface border rounded-lg p-10 text-center text-muted">No cards yet.</div>
       </section>
 
       <section id="view-settings" class="hidden-view">
-        <h1 class="text-3xl font-bold tracking-tight mb-6">Settings</h1>
-        <form id="settings-form" class="surface border rounded-xl p-6 max-w-3xl space-y-5">
+        <h1 class="text-xl font-bold tracking-tight mb-4">Settings</h1>
+        <form id="settings-form" class="surface border rounded-lg p-4 max-w-5xl space-y-5">
           <div>
             <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">LLM Model</label>
-            <input id="model-input" class="w-full rounded-lg border px-4 py-3">
+            <input id="model-input" class="w-full rounded-lg border px-3 py-2">
           </div>
           <div>
             <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Compression Model</label>
-            <input id="compress-model-input" class="w-full rounded-lg border px-4 py-3">
+            <input id="compress-model-input" class="w-full rounded-lg border px-3 py-2">
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">LLM Reasoning</label>
-              <select id="reasoning-effort-input" class="w-full rounded-lg border px-4 py-3">
+              <select id="reasoning-effort-input" class="w-full rounded-lg border px-3 py-2">
                 <option value="none">None</option>
                 <option value="minimal">Minimal</option>
                 <option value="low">Low</option>
@@ -564,7 +542,7 @@
             </div>
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Compression Reasoning</label>
-              <select id="compress-reasoning-effort-input" class="w-full rounded-lg border px-4 py-3">
+              <select id="compress-reasoning-effort-input" class="w-full rounded-lg border px-3 py-2">
                 <option value="none">None</option>
                 <option value="minimal">Minimal</option>
                 <option value="low">Low</option>
@@ -576,28 +554,28 @@
           </div>
           <div>
             <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Prompt Template</label>
-            <textarea id="template-input" class="w-full rounded-lg border px-4 py-3 h-36 resize-y"></textarea>
+            <textarea id="template-input" class="w-full rounded-lg border px-3 py-2 h-20 resize-y"></textarea>
           </div>
           <div>
             <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">LLM API Key</label>
-            <input id="api-key-input" type="password" class="w-full rounded-lg border px-4 py-3">
+            <input id="api-key-input" type="password" class="w-full rounded-lg border px-3 py-2">
           </div>
           <div>
             <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">LLM Base URL</label>
-            <input id="base-url-input" class="w-full rounded-lg border px-4 py-3">
+            <input id="base-url-input" class="w-full rounded-lg border px-3 py-2">
           </div>
           <div>
             <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Compression Base URL</label>
-            <input id="compress-base-url-input" class="w-full rounded-lg border px-4 py-3">
+            <input id="compress-base-url-input" class="w-full rounded-lg border px-3 py-2">
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Card Refresh Time Zone</label>
-              <input id="daily-time-zone-input" list="time-zone-options" class="w-full rounded-lg border px-4 py-3" placeholder="UTC">
+              <input id="daily-time-zone-input" list="time-zone-options" class="w-full rounded-lg border px-3 py-2" placeholder="UTC">
             </div>
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Card Refresh Time</label>
-              <input id="daily-update-time-input" type="time" class="w-full rounded-lg border px-4 py-3">
+              <input id="daily-update-time-input" type="time" class="w-full rounded-lg border px-3 py-2">
             </div>
           </div>
           <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -609,31 +587,31 @@
           </div>
           <div>
             <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Max Active Cards</label>
-            <input id="max-active-cards-input" type="number" min="0" step="1" class="w-full rounded-lg border px-4 py-3" placeholder="0">
+            <input id="max-active-cards-input" type="number" min="0" step="1" class="w-full rounded-lg border px-3 py-2" placeholder="0">
             <div class="mt-2 text-xs text-muted">0 means unlimited. When full, existing due cards still show but new cards are not created.</div>
           </div>
-          <div class="border border-token rounded-xl p-4 space-y-4">
+          <div class="border border-token rounded-lg p-4 space-y-4">
             <label class="flex items-center gap-3 text-sm font-bold">
               <input id="autoupdate-enabled-input" type="checkbox" class="h-4 w-4">
               <span>Enable Server Self-Updates</span>
             </label>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">GitHub Repo</label>
-                <input id="autoupdate-repo-input" class="w-full rounded-lg border px-4 py-3" placeholder="slopfire/dailytipdraft">
+                <input id="autoupdate-repo-input" class="w-full rounded-lg border px-3 py-2" placeholder="slopfire/dailytipdraft">
               </div>
               <div>
                 <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Branch</label>
-                <input id="autoupdate-branch-input" class="w-full rounded-lg border px-4 py-3" placeholder="master">
+                <input id="autoupdate-branch-input" class="w-full rounded-lg border px-3 py-2" placeholder="master">
               </div>
             </div>
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Server Update Check Interval Seconds</label>
-              <input id="autoupdate-interval-input" type="number" min="60" class="w-full rounded-lg border px-4 py-3">
+              <input id="autoupdate-interval-input" type="number" min="60" class="w-full rounded-lg border px-3 py-2">
             </div>
             <div>
               <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Server Update Command</label>
-              <textarea id="autoupdate-command-input" class="w-full rounded-lg border px-4 py-3 h-24 resize-y" placeholder="Optional command for non-systemd installs"></textarea>
+              <textarea id="autoupdate-command-input" class="w-full rounded-lg border px-3 py-2 h-20 resize-y" placeholder="Optional command for non-systemd installs"></textarea>
               <div class="mt-2 text-xs text-muted">Leave empty to use the installed systemd server updater service.</div>
             </div>
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -659,27 +637,27 @@
       </section>
 
       <section id="view-keys" class="hidden-view">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <h1 class="text-3xl font-bold tracking-tight">API Keys</h1>
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <h1 class="text-xl font-bold tracking-tight">API Keys</h1>
           <form id="key-form" class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-            <input id="key-name" class="min-w-0 rounded-lg border px-4 py-2 sm:w-56" placeholder="desktop_widget">
+            <input id="key-name" class="min-w-0 rounded-lg border px-4 py-2 sm:w-56" placeholder="desktop_widget" aria-label="API key client name">
             <button class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary-solid px-4 py-2 font-bold sm:w-auto"><span class="material-symbols-outlined">add</span>Generate</button>
           </form>
         </div>
-        <div id="new-key-box" class="hidden surface border rounded-xl p-4 mb-5">
+        <div id="new-key-box" class="hidden surface border rounded-lg p-4 mb-4">
           <div class="text-xs font-bold uppercase tracking-wider text-muted mb-2">New key</div>
           <code id="new-key" class="block rounded-lg muted-surface border p-3 break-all"></code>
         </div>
-        <div id="keys-list" class="grid grid-cols-1 lg:grid-cols-2 gap-4"></div>
+        <div id="keys-list" class="grid grid-cols-1 lg:grid-cols-2 gap-3"></div>
       </section>
 
       <section id="view-archive" class="hidden-view">
-        <h1 class="text-3xl font-bold tracking-tight mb-6">Archive</h1>
-        <div id="archive-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"></div>
+        <h1 class="text-xl font-bold tracking-tight mb-4">Archive</h1>
+        <div id="archive-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3"></div>
       </section>
     </main>
 
-    <nav class="lg:hidden fixed bottom-0 left-0 right-0 z-50 h-16 surface border-t flex items-center justify-around px-2">
+    <nav class="lg:hidden fixed bottom-0 left-0 right-0 z-50 h-14 surface border-t flex items-center justify-around px-2">
       <button data-view="dashboard" class="nav-item active flex flex-col items-center rounded-lg px-3 py-2 text-xs font-bold"><span class="material-symbols-outlined icon-fill">dashboard</span>Home</button>
       <button data-view="flow" class="nav-item flex flex-col items-center rounded-lg px-3 py-2 text-xs font-bold"><span class="material-symbols-outlined">all_inclusive</span>Flow</button>
       <button data-view="settings" class="nav-item flex flex-col items-center rounded-lg px-3 py-2 text-xs font-bold"><span class="material-symbols-outlined">settings</span>Config</button>
@@ -710,12 +688,10 @@
       now: new Date()
     };
     const themes = [
-      ['default', 'Default'],
+      ['carbonfox', 'Carbonfox'],
       ['ayu', 'Ayu'],
       ['solarized-light', 'Solarized Light'],
       ['solarized-dark', 'Solarized Dark'],
-      ['dracula', 'Dracula'],
-      ['carbonfox', 'Carbonfox'],
       ['amoled', 'AMOLED'],
       ['slate', 'Slate']
     ];
@@ -1104,7 +1080,7 @@
     }
 
     function initThemes() {
-      const saved = localStorage.getItem('sloppypie-theme') || localStorage.getItem('mindlift-theme') || 'default';
+      const saved = normalizeTheme(localStorage.getItem('sloppypie-theme') || localStorage.getItem('mindlift-theme'));
       document.documentElement.dataset.theme = saved;
       document.querySelectorAll('.theme-select').forEach((select) => {
         select.innerHTML = themes.map(([id, label]) => `<option value="${id}">${label}</option>`).join('');
@@ -1121,8 +1097,12 @@
       });
     }
 
+    function normalizeTheme(theme) {
+      return themes.some(([id]) => id === theme) ? theme : 'carbonfox';
+    }
+
     function applyTheme(theme) {
-      const selected = themes.some(([id]) => id === theme) ? theme : 'default';
+      const selected = normalizeTheme(theme);
       document.documentElement.dataset.theme = selected;
       localStorage.setItem('sloppypie-theme', selected);
       document.querySelectorAll('.theme-select').forEach((select) => select.value = selected);
@@ -1265,11 +1245,11 @@
 
     function skeletonCard(listMode = false) {
       const articleClass = listMode
-        ? 'surface border rounded-xl relative overflow-hidden flex flex-col lg:flex-row min-h-[210px]'
-        : 'surface border rounded-xl relative overflow-hidden min-h-[280px] flex flex-col';
+        ? 'surface border rounded-lg relative overflow-hidden flex flex-col lg:flex-row min-h-[210px]'
+        : 'surface border rounded-lg relative overflow-hidden min-h-[240px] flex flex-col';
       return `<article class="${articleClass}" aria-busy="true">
         <div class="absolute top-0 left-0 w-1 h-full card-line-srs"></div>
-        <div class="p-5 flex flex-col flex-1">
+        <div class="p-4 flex flex-col flex-1">
           <div class="flex justify-between items-start gap-3 border-b border-token pb-3 mb-4">
             <div class="skeleton-block h-6 w-36"></div>
             <div class="skeleton-block h-6 w-20"></div>
@@ -1288,11 +1268,11 @@
     }
 
     function statCard(icon, value, label, tone) {
-      return `<div class="surface border rounded-xl p-5 flex items-center gap-4">
+      return `<div class="surface border rounded-lg p-4 flex items-center gap-3">
         <div class="w-12 h-12 rounded-lg flex items-center justify-center" style="background:${tone};color:var(--bg)">
           <span class="material-symbols-outlined icon-fill">${icon}</span>
         </div>
-        <div><div class="text-3xl font-extrabold">${value}</div><div class="text-sm text-muted font-medium">${label}</div></div>
+        <div><div class="text-xl font-extrabold">${value}</div><div class="text-sm text-muted font-medium">${label}</div></div>
       </div>`;
     }
 
@@ -1322,7 +1302,7 @@
     }
 
     function tokenSpendCard(label, value) {
-      return `<div class="surface border rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+      return `<div class="surface border rounded-lg px-3 py-2 flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 text-sm font-bold text-muted">
           <span class="material-symbols-outlined text-primary">token</span>
           <span>${label}</span>
@@ -1356,7 +1336,7 @@
         const dailyCountId = `topic-daily-count-${topic.id}`;
         const dailyZoneId = `topic-daily-zone-${topic.id}`;
         const dailyTimeId = `topic-daily-time-${topic.id}`;
-        return `<article class="surface border rounded-xl p-5 relative overflow-hidden">
+        return `<article class="surface border rounded-lg p-4 relative overflow-hidden">
           <div class="absolute left-0 top-0 bottom-0 w-1" style="background:${line}"></div>
           <div class="flex items-start justify-between gap-3 mb-4">
             <div>
@@ -1379,7 +1359,7 @@
           <div class="flex justify-between text-xs text-muted mt-2"><span>${percent}% complete</span><span>${total} cards</span></div>
           <div class="mt-4 border-t border-token pt-4">
             <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2" for="${promptId}">Topic Prompt</label>
-            <textarea id="${promptId}" class="w-full rounded-lg border px-3 py-2 h-24 resize-y text-sm" placeholder="Uses global prompt when empty">${escapeHtml(topic.prompt_template || '')}</textarea>
+            <textarea id="${promptId}" class="w-full rounded-lg border px-3 py-2 h-16 resize-y text-sm" placeholder="Uses global prompt when empty">${escapeHtml(topic.prompt_template || '')}</textarea>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
               <div>
                 <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyCountId}">Cards Per Day</label>
@@ -1400,7 +1380,7 @@
             </button>
           </div>
         </article>`;
-      }).join('') || `<div class="surface border rounded-xl p-8 text-muted">No topics yet.</div>`;
+      }).join('') || `<div class="surface border rounded-lg p-4 text-muted">No topics yet.</div>`;
     }
 
     async function saveTopicSettings(topicId, promptId, dailyCountId, dailyZoneId, dailyTimeId) {
@@ -1572,10 +1552,10 @@
       $('flow-count').textContent = cards.length;
       const hasPinned = pinnedCards.length > 0;
       $('pinned-flow-section').classList.toggle('hidden', !hasPinned);
-      $('pinned-flow-grid').className = listMode ? 'grid grid-cols-1 gap-4 items-start' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start';
+      $('pinned-flow-grid').className = listMode ? 'grid grid-cols-1 gap-3 items-start' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start';
       $('empty-flow').classList.toggle('hidden', hasPinned || flowItems.length > 0 || state.loadingSlots.length > 0 || state.refreshingFlow);
       document.body.classList.toggle('has-fullscreen-card', state.fullscreenCardId !== null);
-      $('flow-grid').className = listMode ? 'grid grid-cols-1 gap-4 items-start' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start';
+      $('flow-grid').className = listMode ? 'grid grid-cols-1 gap-3 items-start' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start';
       $('flow-grid-btn').classList.toggle('bg-primary-soft', !listMode);
       $('flow-grid-btn').classList.toggle('text-primary', !listMode);
       $('flow-list-btn').classList.toggle('bg-primary-soft', listMode);
@@ -1600,14 +1580,14 @@
         const articleClass = fullscreen
           ? 'flow-card is-fullscreen surface border fixed top-0 right-0 bottom-0 z-[70] overflow-hidden flex flex-col'
           : (listMode
-            ? 'flow-card surface border rounded-xl relative overflow-hidden flex flex-col lg:flex-row'
-            : 'flow-card surface border rounded-xl relative overflow-hidden min-h-[280px] flex flex-col');
+            ? 'flow-card surface border rounded-lg relative overflow-hidden flex flex-col lg:flex-row'
+            : 'flow-card surface border rounded-lg relative overflow-hidden min-h-[240px] flex flex-col');
         const contentClass = listMode
           ? 'text-base leading-7 flex-1'
-          : 'text-lg leading-8 flex-1';
+          : 'text-base leading-7 flex-1';
         return `<article class="${articleClass}" data-card-id="${card.id}">
           <div class="absolute top-0 left-0 w-1 h-full ${lineClass}"></div>
-          <div class="p-5 flex flex-col flex-1">
+          <div class="p-4 flex flex-col flex-1">
             <div class="flex justify-between items-start gap-3 border-b border-token pb-3 mb-4">
               <div class="flex items-center gap-2 font-bold">
                 <button type="button" class="card-drag-handle rounded border border-token p-1" title="Drag to reorder" draggable="true"><span class="material-symbols-outlined">drag_indicator</span></button>
@@ -1737,19 +1717,19 @@
     }
 
     function renderKeys() {
-      $('keys-list').innerHTML = state.keys.map((key) => `<article class="surface border rounded-xl p-5">
-        <div class="flex items-start justify-between gap-4">
+      $('keys-list').innerHTML = state.keys.map((key) => `<article class="surface border rounded-lg p-4">
+        <div class="flex items-start justify-between gap-3">
           <div>
             <div class="font-bold">${escapeHtml(key.client_name)}</div>
             <div class="text-sm text-muted mt-1">${escapeHtml(key.created_at)}</div>
           </div>
           <button onclick="deleteKey(${key.id})" class="rounded-lg border border-token p-2" title="Delete"><span class="material-symbols-outlined" style="color:var(--danger)">delete</span></button>
         </div>
-      </article>`).join('') || `<div class="surface border rounded-xl p-8 text-muted">No keys yet.</div>`;
+      </article>`).join('') || `<div class="surface border rounded-lg p-4 text-muted">No keys yet.</div>`;
     }
 
     function renderArchive() {
-      $('archive-list').innerHTML = orderedCards().map((card) => `<article class="surface border rounded-xl p-5">
+      $('archive-list').innerHTML = orderedCards().map((card) => `<article class="surface border rounded-lg p-4">
         <div class="flex justify-between gap-3 mb-3">
           <div class="font-bold">${escapeHtml(card.topic_name || card.topic)}</div>
           <div class="flex items-center gap-2">
@@ -1764,7 +1744,7 @@
           <p>${escapeHtml(card.created_at || card.topic_class || '')}</p>
           <p>Next rewind: ${escapeHtml(formatNextRewind(card))}</p>
         </div>
-      </article>`).join('') || `<div class="surface border rounded-xl p-8 text-muted">No cards yet.</div>`;
+      </article>`).join('') || `<div class="surface border rounded-lg p-4 text-muted">No cards yet.</div>`;
     }
 
     async function refreshAll() {
@@ -1807,7 +1787,7 @@
       $('daily-time-zone-input').value = settings.daily_time_zone || 'UTC';
       $('daily-update-time-input').value = settings.daily_update_time || '00:00';
       $('max-active-cards-input').value = settings.max_active_cards || 0;
-      applyTheme(settings.color_scheme || localStorage.getItem('sloppypie-theme') || localStorage.getItem('mindlift-theme') || 'default');
+      applyTheme(settings.color_scheme || localStorage.getItem('sloppypie-theme') || localStorage.getItem('mindlift-theme') || 'carbonfox');
     }
 
     async function loadTopic(name, className, tipcardType) {
