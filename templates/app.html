@@ -1334,7 +1334,6 @@
             : (topic.tipcard_type === 'custom_tip' ? 'var(--muted)' : 'var(--secondary)'));
         const promptId = `topic-prompt-${topic.id}`;
         const dailyCountId = `topic-daily-count-${topic.id}`;
-        const dailyZoneId = `topic-daily-zone-${topic.id}`;
         const dailyTimeId = `topic-daily-time-${topic.id}`;
         return `<article class="surface border rounded-lg p-4 relative overflow-hidden">
           <div class="absolute left-0 top-0 bottom-0 w-1" style="background:${line}"></div>
@@ -1360,21 +1359,17 @@
           <div class="mt-4 border-t border-token pt-4">
             <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2" for="${promptId}">Topic Prompt</label>
             <textarea id="${promptId}" class="w-full rounded-lg border px-3 py-2 h-16 resize-y text-sm" placeholder="Uses global prompt when empty">${escapeHtml(topic.prompt_template || '')}</textarea>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
               <div>
                 <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyCountId}">Cards Per Day</label>
                 <input id="${dailyCountId}" type="number" min="1" max="20" class="w-full rounded-lg border px-3 py-2 text-sm" value="${Number(topic.daily_card_count || 1)}">
-              </div>
-              <div>
-                <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyZoneId}">Refresh Zone</label>
-                <input id="${dailyZoneId}" list="time-zone-options" class="w-full rounded-lg border px-3 py-2 text-sm" placeholder="Global" value="${escapeHtml(topic.daily_time_zone || '')}">
               </div>
               <div>
                 <label class="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1" for="${dailyTimeId}">Refresh Time</label>
                 <input id="${dailyTimeId}" type="time" class="w-full rounded-lg border px-3 py-2 text-sm" value="${escapeHtml(topic.daily_update_time || '')}">
               </div>
             </div>
-            <button type="button" class="mt-2 rounded-lg border border-token px-3 py-2 text-sm font-bold" onclick="saveTopicSettings(${topic.id}, '${promptId}', '${dailyCountId}', '${dailyZoneId}', '${dailyTimeId}')">
+            <button type="button" class="mt-2 rounded-lg border border-token px-3 py-2 text-sm font-bold" onclick="saveTopicSettings(${topic.id}, '${promptId}', '${dailyCountId}', '${dailyTimeId}')">
               <span class="material-symbols-outlined align-middle text-base">save</span>
               <span class="align-middle">Save</span>
             </button>
@@ -1383,14 +1378,14 @@
       }).join('') || `<div class="surface border rounded-lg p-4 text-muted">No topics yet.</div>`;
     }
 
-    async function saveTopicSettings(topicId, promptId, dailyCountId, dailyZoneId, dailyTimeId) {
+    async function saveTopicSettings(topicId, promptId, dailyCountId, dailyTimeId) {
       await api('/app/topics', {
         method: 'PATCH',
         body: JSON.stringify({
           id: topicId,
           prompt_template: $(promptId).value,
           daily_card_count: Number($(dailyCountId).value) || 0,
-          daily_time_zone: $(dailyZoneId).value,
+          daily_time_zone: '',
           daily_update_time: $(dailyTimeId).value
         })
       });
