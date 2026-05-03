@@ -289,8 +289,7 @@
       font-family: Inter, ui-sans-serif, system-ui, sans-serif;
       font-size: 14px;
     }
-    .radix-icon,
-    .material-symbols-outlined {
+    .radix-icon {
       font-size: 22px;
       line-height: 1;
       display: inline-flex;
@@ -316,9 +315,7 @@
       min-height: 2.25rem;
     }
     button:has(.radix-icon):not(.nav-item),
-    button:has(.material-symbols-outlined):not(.nav-item),
-    label:has(.radix-icon),
-    label:has(.material-symbols-outlined) {
+    label:has(.radix-icon) {
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -462,8 +459,7 @@
       vertical-align: -0.25rem;
       margin-left: 0.35rem;
     }
-    .card-inline-expand .radix-icon,
-    .card-inline-expand .material-symbols-outlined { font-size: 17px; }
+    .card-inline-expand .radix-icon { font-size: 17px; }
     .card-inline-expand {
       transition: transform 110ms cubic-bezier(.2, 0, 0, 1), background-color 110ms ease, border-color 110ms ease;
     }
@@ -690,7 +686,7 @@
   <div id="update-popup" class="update-popup">
     <div class="surface border rounded-md w-full max-w-md p-4">
       <div class="flex items-start gap-3">
-        <span class="material-symbols-outlined text-primary text-xl">system_update_alt</span>
+        <iconify-icon icon="radix-icons:update" class="radix-icon text-primary text-xl" aria-hidden="true"></iconify-icon>
         <div class="min-w-0">
           <h2 class="text-xl font-semibold tracking-tight">Server update found</h2>
           <p id="update-popup-message" class="mt-2 text-sm text-muted">Initiating server update.</p>
@@ -705,7 +701,7 @@
   <div id="confirm-popup" class="update-popup" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
     <div class="surface border rounded-md w-full max-w-md p-4">
       <div class="flex items-start gap-3">
-        <span class="material-symbols-outlined text-xl" style="color:var(--danger)">warning</span>
+        <iconify-icon icon="radix-icons:exclamation-triangle" class="radix-icon text-xl" style="color:var(--danger)" aria-hidden="true"></iconify-icon>
         <div class="min-w-0">
           <h2 id="confirm-title" class="text-xl font-semibold tracking-tight">Delete topic</h2>
           <p id="confirm-message" class="mt-2 text-sm text-muted"></p>
@@ -721,7 +717,7 @@
   <section id="login-panel" class="min-h-screen flex items-center justify-center p-4">
     <div class="surface border rounded-md w-full max-w-md p-4">
       <div class="flex items-center gap-3 mb-4">
-        <span class="material-symbols-outlined icon-fill text-primary text-4xl">psychology</span>
+        <iconify-icon icon="radix-icons:bookmark-filled" class="radix-icon text-primary text-4xl" aria-hidden="true"></iconify-icon>
         <div>
           <h1 class="text-xl font-semibold tracking-tight">Sloppypie SRS</h1>
           <p class="text-sm text-muted">Admin token required</p>
@@ -738,32 +734,32 @@
     <nav class="hidden lg:flex fixed left-0 top-0 z-50 h-full w-56 flex-col border-r surface p-4">
       <div class="flex items-center gap-2 px-2 py-2 mb-4">
         <div class="flex min-w-0 items-center gap-2">
-          <span class="material-symbols-outlined icon-fill shrink-0 text-primary text-xl">psychology</span>
+          <iconify-icon icon="radix-icons:bookmark-filled" class="radix-icon shrink-0 text-primary text-xl" aria-hidden="true"></iconify-icon>
           <div class="truncate text-lg font-semibold tracking-tight">Sloppypie SRS</div>
         </div>
       </div>
       <div class="space-y-1 flex-1">
         <button data-view="dashboard" class="nav-item active w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-left">
-          <span class="material-symbols-outlined icon-fill justify-self-center">dashboard</span><span class="justify-self-start text-left">Dashboard</span>
+          <iconify-icon icon="radix-icons:dashboard" class="radix-icon justify-self-center" aria-hidden="true"></iconify-icon><span class="justify-self-start text-left">Dashboard</span>
         </button>
         <button data-view="flow" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-left">
-          <span class="material-symbols-outlined justify-self-center">all_inclusive</span><span class="justify-self-start text-left">Unified Flow</span>
+          <iconify-icon icon="radix-icons:loop" class="radix-icon justify-self-center" aria-hidden="true"></iconify-icon><span class="justify-self-start text-left">Unified Flow</span>
         </button>
         <button data-view="settings" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-left">
-          <span class="material-symbols-outlined justify-self-center">settings</span><span class="justify-self-start text-left">Settings</span>
+          <iconify-icon icon="radix-icons:gear" class="radix-icon justify-self-center" aria-hidden="true"></iconify-icon><span class="justify-self-start text-left">Settings</span>
         </button>
         <button data-view="keys" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-left">
-          <span class="material-symbols-outlined justify-self-center">key</span><span class="justify-self-start text-left">API Keys</span>
+          <iconify-icon icon="radix-icons:lock-closed" class="radix-icon justify-self-center" aria-hidden="true"></iconify-icon><span class="justify-self-start text-left">API Keys</span>
         </button>
         <button data-view="archive" class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-left">
-          <span class="material-symbols-outlined justify-self-center">inventory_2</span><span class="justify-self-start text-left">Archive</span>
+          <iconify-icon icon="radix-icons:archive" class="radix-icon justify-self-center" aria-hidden="true"></iconify-icon><span class="justify-self-start text-left">Archive</span>
         </button>
       </div>
       <label class="block card-kicker mb-2" for="theme-select-side">Color Scheme</label>
       <div class="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2">
         <select id="theme-select-side" class="theme-select w-full rounded-md border px-3 py-2 text-sm"></select>
-        <button id="refresh-btn" class="h-9 w-9 shrink-0 rounded-md border border-token p-0 hover:opacity-80" title="Refresh">
-          <span class="material-symbols-outlined">refresh</span>
+        <button id="refresh-btn" class="h-10 w-10 shrink-0 rounded-md border border-token p-0 hover:opacity-80" title="Refresh">
+          <iconify-icon icon="radix-icons:reload" class="radix-icon" aria-hidden="true"></iconify-icon>
         </button>
       </div>
     </nav>
@@ -777,10 +773,10 @@
         <div class="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-4" id="stats-grid"></div>
         <div id="token-spend-row" class="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-4"></div>
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-          <h2 class="text-xl font-semibold flex items-center gap-2"><span class="material-symbols-outlined text-primary">folder_open</span>Active Topics</h2>
+          <h2 class="text-xl font-semibold flex items-center gap-2"><iconify-icon icon="radix-icons:layers" class="radix-icon text-primary" aria-hidden="true"></iconify-icon>Active Topics</h2>
           <div class="flex gap-2">
             <input id="topic-search" class="rounded-md border px-4 py-2 w-full sm:w-72" placeholder="Find topic" aria-label="Find topic">
-            <button data-view="flow" class="nav-shortcut rounded-md bg-primary-solid px-3 py-2 font-semibold"><span class="material-symbols-outlined">add</span></button>
+            <button data-view="flow" class="nav-shortcut rounded-md bg-primary-solid px-3 py-2 font-semibold"><iconify-icon icon="radix-icons:plus" class="radix-icon" aria-hidden="true"></iconify-icon></button>
           </div>
         </div>
         <div id="topics-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3"></div>
@@ -801,12 +797,12 @@
               <button type="button" data-tip-type="manual_tip" class="rounded-md px-3 py-2 text-sm font-medium">Manual</button>
             </div>
             <button class="rounded-md bg-primary-solid px-4 py-2 font-medium flex items-center justify-center gap-2">
-              <span id="tips-submit-icon" class="material-symbols-outlined">auto_awesome</span><span id="tips-submit-label">Add</span>
+              <iconify-icon id="tips-submit-icon" icon="radix-icons:magic-wand" class="radix-icon" aria-hidden="true"></iconify-icon><span id="tips-submit-label">Add</span>
             </button>
             <textarea id="manual-card-content" class="hidden rounded-md border px-3 py-2 sm:col-span-2 xl:col-span-5 h-20 resize-y" placeholder="Write manual card text"></textarea>
             <div id="manual-card-images-row" class="hidden sm:col-span-2 xl:col-span-5 flex flex-wrap items-center gap-3">
               <label class="inline-flex items-center gap-2 rounded-md border border-token px-3 py-2 text-sm font-medium cursor-pointer">
-                <span class="material-symbols-outlined">add_photo_alternate</span>
+                <iconify-icon icon="radix-icons:image" class="radix-icon" aria-hidden="true"></iconify-icon>
                 <span>Attach images</span>
                 <input id="manual-card-images" type="file" accept="image/*" multiple class="hidden">
               </label>
@@ -818,16 +814,16 @@
           <div class="text-sm text-muted"><span id="flow-count">0</span> cards</div>
           <div class="flex muted-surface rounded-md p-1 border border-token">
             <button id="flow-grid-btn" type="button" class="rounded px-2 py-1 bg-primary-soft text-primary" title="Grid view">
-              <span class="material-symbols-outlined">grid_view</span>
+              <iconify-icon icon="radix-icons:grid" class="radix-icon" aria-hidden="true"></iconify-icon>
             </button>
             <button id="flow-list-btn" type="button" class="rounded px-2 py-1" title="Column view">
-              <span class="material-symbols-outlined">view_list</span>
+              <iconify-icon icon="radix-icons:list-bullet" class="radix-icon" aria-hidden="true"></iconify-icon>
             </button>
           </div>
         </div>
         <div id="pinned-flow-section" class="hidden mb-4">
           <div class="flex items-center gap-2 mb-3 text-sm font-medium text-primary">
-            <span class="material-symbols-outlined icon-fill">push_pin</span>
+            <iconify-icon icon="radix-icons:drawing-pin-filled" class="radix-icon" aria-hidden="true"></iconify-icon>
             <span>Pinned</span>
           </div>
           <div id="pinned-flow-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start"></div>
@@ -900,7 +896,7 @@
           <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div class="text-sm text-muted">Refresh every generated topic now and replace current unpinned daily cards.</div>
             <button id="force-daily-refresh-btn" type="button" class="rounded-md border border-token px-4 py-2 font-medium flex items-center justify-center gap-2">
-              <span class="material-symbols-outlined">sync</span>
+              <iconify-icon icon="radix-icons:update" class="radix-icon" aria-hidden="true"></iconify-icon>
               <span>Force Daily Refresh</span>
             </button>
           </div>
@@ -936,7 +932,7 @@
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div class="text-xs text-muted">Last server build seen: <span id="autoupdate-last-sha">not recorded</span></div>
               <button id="autoupdate-trigger-btn" type="button" class="rounded-md border border-token px-4 py-2 font-medium flex items-center justify-center gap-2">
-                <span class="material-symbols-outlined">system_update_alt</span>
+                <iconify-icon icon="radix-icons:update" class="radix-icon" aria-hidden="true"></iconify-icon>
                 <span>Check Server Now</span>
               </button>
             </div>
@@ -960,7 +956,7 @@
           <h1 class="text-xl font-semibold tracking-tight">API Keys</h1>
           <form id="key-form" class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
             <input id="key-name" class="min-w-0 rounded-md border px-4 py-2 sm:w-56" placeholder="desktop_widget" aria-label="API key client name">
-            <button class="flex w-full items-center justify-center gap-2 rounded-md bg-primary-solid px-4 py-2 font-medium sm:w-auto"><span class="material-symbols-outlined">add</span>Generate</button>
+            <button class="flex w-full items-center justify-center gap-2 rounded-md bg-primary-solid px-4 py-2 font-medium sm:w-auto"><iconify-icon icon="radix-icons:plus" class="radix-icon" aria-hidden="true"></iconify-icon>Generate</button>
           </form>
         </div>
         <div id="new-key-box" class="hidden surface border rounded-md p-4 mb-4">
@@ -977,10 +973,10 @@
     </main>
 
     <nav class="lg:hidden fixed bottom-0 left-0 right-0 z-50 h-14 surface border-t flex items-center justify-around px-2">
-      <button data-view="dashboard" class="nav-item active flex flex-col items-center rounded-md px-3 py-2 text-xs font-medium"><span class="material-symbols-outlined icon-fill">dashboard</span>Home</button>
-      <button data-view="flow" class="nav-item flex flex-col items-center rounded-md px-3 py-2 text-xs font-medium"><span class="material-symbols-outlined">all_inclusive</span>Flow</button>
-      <button data-view="settings" class="nav-item flex flex-col items-center rounded-md px-3 py-2 text-xs font-medium"><span class="material-symbols-outlined">settings</span>Config</button>
-      <button data-view="keys" class="nav-item flex flex-col items-center rounded-md px-3 py-2 text-xs font-medium"><span class="material-symbols-outlined">key</span>Keys</button>
+      <button data-view="dashboard" class="nav-item active flex flex-col items-center rounded-md px-3 py-2 text-xs font-medium"><iconify-icon icon="radix-icons:dashboard" class="radix-icon" aria-hidden="true"></iconify-icon>Home</button>
+      <button data-view="flow" class="nav-item flex flex-col items-center rounded-md px-3 py-2 text-xs font-medium"><iconify-icon icon="radix-icons:loop" class="radix-icon" aria-hidden="true"></iconify-icon>Flow</button>
+      <button data-view="settings" class="nav-item flex flex-col items-center rounded-md px-3 py-2 text-xs font-medium"><iconify-icon icon="radix-icons:gear" class="radix-icon" aria-hidden="true"></iconify-icon>Config</button>
+      <button data-view="keys" class="nav-item flex flex-col items-center rounded-md px-3 py-2 text-xs font-medium"><iconify-icon icon="radix-icons:lock-closed" class="radix-icon" aria-hidden="true"></iconify-icon>Keys</button>
     </nav>
     <datalist id="time-zone-options"></datalist>
   </div>
@@ -1022,87 +1018,11 @@
     const MAX_CARD_IMAGES = 4;
     const MAX_CARD_IMAGE_BYTES = 2_500_000;
     const CARD_IMAGE_MAX_EDGE = 1600;
-    const materialToRadixIcons = {
-      add: 'plus',
-      add_notes: 'file-plus',
-      add_photo_alternate: 'image',
-      all_inclusive: 'loop',
-      auto_awesome: 'magic-wand',
-      close: 'cross-2',
-      close_fullscreen: 'exit-full-screen',
-      code: 'code',
-      content_copy: 'clipboard-copy',
-      dashboard: 'dashboard',
-      delete: 'trash',
-      done: 'check',
-      drag_indicator: 'drag-handle-dots-2',
-      folder_open: 'layers',
-      grid_view: 'grid',
-      hide_image: 'eye-closed',
-      inventory_2: 'archive',
-      key: 'lock-closed',
-      open_in_full: 'enter-full-screen',
-      play_arrow: 'play',
-      psychology: 'bookmark',
-      push_pin: 'drawing-pin',
-      refresh: 'reload',
-      replay: 'reset',
-      save: 'download',
-      schedule: 'clock',
-      settings: 'gear',
-      style: 'card-stack',
-      sync: 'update',
-      system_update_alt: 'download',
-      token: 'tokens',
-      unfold_less: 'double-arrow-up',
-      unfold_more: 'double-arrow-down',
-      view_list: 'list-bullet',
-      warning: 'exclamation-triangle'
-    };
-    const filledRadixIcons = {
-      bookmark: 'bookmark-filled',
-      'drawing-pin': 'drawing-pin-filled',
-      push_pin: 'drawing-pin-filled'
-    };
-
-    function radixIconName(materialName, filled = false) {
-      const key = String(materialName || '').trim();
-      const base = materialToRadixIcons[key] || key.replace(/_/g, '-');
-      return filled ? (filledRadixIcons[key] || filledRadixIcons[base] || base) : base;
+    function radixIcon(name, classes = '', attrs = '') {
+      const classAttr = `radix-icon${classes ? ` ${classes}` : ''}`;
+      const attrText = attrs ? ` ${attrs}` : '';
+      return `<iconify-icon icon="radix-icons:${name}" class="${classAttr}" aria-hidden="true"${attrText}></iconify-icon>`;
     }
-
-    function setRadixIcon(node, materialName, filled = false) {
-      if (!node) return;
-      node.setAttribute('icon', `radix-icons:${radixIconName(materialName, filled)}`);
-      node.setAttribute('aria-hidden', 'true');
-    }
-
-    function convertMaterialIcon(span) {
-      const materialName = span.textContent.trim();
-      if (!materialName) return;
-      const icon = document.createElement('iconify-icon');
-      const classes = [...span.classList].filter((name) => name !== 'material-symbols-outlined');
-      icon.className = ['radix-icon', ...classes].join(' ');
-      for (const attr of span.attributes) {
-        if (attr.name !== 'class') icon.setAttribute(attr.name, attr.value);
-      }
-      setRadixIcon(icon, materialName, span.classList.contains('icon-fill'));
-      span.replaceWith(icon);
-    }
-
-    function convertMaterialIcons(root = document) {
-      root.querySelectorAll?.('.material-symbols-outlined').forEach(convertMaterialIcon);
-    }
-
-    new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        mutation.addedNodes.forEach((node) => {
-          if (node.nodeType !== Node.ELEMENT_NODE) return;
-          if (node.matches?.('.material-symbols-outlined')) convertMaterialIcon(node);
-          convertMaterialIcons(node);
-        });
-      });
-    }).observe(document.documentElement, { childList: true, subtree: true });
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -1583,7 +1503,7 @@
       });
       $('manual-card-content').classList.toggle('hidden', tipcardType !== 'manual_tip');
       $('manual-card-images-row').classList.toggle('hidden', tipcardType !== 'manual_tip');
-      setRadixIcon($('tips-submit-icon'), tipcardType === 'manual_tip' ? 'add_notes' : 'auto_awesome');
+      $('tips-submit-icon').setAttribute('icon', tipcardType === 'manual_tip' ? 'radix-icons:file-plus' : 'radix-icons:magic-wand');
       $('tips-submit-label').textContent = tipcardType === 'manual_tip' ? 'Save' : 'Add';
     }
 
@@ -1701,7 +1621,7 @@
         <div class="flex items-center justify-between gap-2">
           <div class="card-kicker">${label}</div>
           <div class="icon-tile h-8 w-8 sm:h-10 sm:w-10" style="color:${tone}">
-            <span class="material-symbols-outlined icon-fill">${icon}</span>
+            ${radixIcon(icon)}
           </div>
         </div>
         <div class="mt-2 text-2xl sm:mt-3 sm:text-2xl font-semibold tracking-tight">${value}</div>
@@ -1711,10 +1631,10 @@
     function renderStats() {
       const s = state.summary || { due_cards: 0, total_cards: 0, topics: 0, active_cards: 0 };
       $('stats-grid').innerHTML = [
-        statCard('style', s.due_cards, 'Cards Due', 'var(--danger)'),
-        statCard('inventory_2', s.total_cards, 'Total Cards', 'var(--primary)'),
-        statCard('folder_open', s.topics, 'Topics', 'var(--secondary)'),
-        statCard('schedule', s.active_cards, 'Active Queue', 'var(--tertiary)')
+        statCard('card-stack', s.due_cards, 'Cards Due', 'var(--danger)'),
+        statCard('archive', s.total_cards, 'Total Cards', 'var(--primary)'),
+        statCard('layers', s.topics, 'Topics', 'var(--secondary)'),
+        statCard('clock', s.active_cards, 'Active Queue', 'var(--tertiary)')
       ].join('');
     }
 
@@ -1736,7 +1656,7 @@
     function tokenSpendCard(label, value) {
       return `<div class="surface border px-3 py-2.5 sm:px-4 sm:py-3 flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 card-kicker">
-          <span class="material-symbols-outlined text-primary">token</span>
+          ${radixIcon('tokens', 'text-primary')}
           <span>${label}</span>
         </div>
         <div class="text-lg sm:text-xl font-semibold tracking-tight">${formatTokenCount(value)}</div>
@@ -1779,10 +1699,10 @@
             </div>
             <div class="flex items-center gap-2">
               <button class="border border-token p-1" title="Load topic" onclick="loadTopic(decodeURIComponent('${encodeURIComponent(topic.name)}'), decodeURIComponent('${encodeURIComponent(topic.class_name)}'), decodeURIComponent('${encodeURIComponent(topic.tipcard_type)}'))">
-                <span class="material-symbols-outlined">play_arrow</span>
+                ${radixIcon('play')}
               </button>
               <button class="border border-token p-1" title="Delete topic" onclick="deleteTopic(${topic.id}, decodeURIComponent('${encodeURIComponent(topic.name)}'))">
-                <span class="material-symbols-outlined" style="color:var(--danger)">delete</span>
+                ${radixIcon('trash', '', 'style="color:var(--danger)"')}
               </button>
             </div>
           </div>
@@ -1802,7 +1722,7 @@
               </div>
             </div>
             <button type="button" class="mt-2 border border-token px-3 py-2 text-sm" onclick="saveTopicSettings(${topic.id}, '${promptId}', '${dailyCountId}', '${dailyTimeId}')">
-              <span class="material-symbols-outlined align-middle text-base">save</span>
+              ${radixIcon('check', 'align-middle text-base')}
               <span class="align-middle">Save</span>
             </button>
           </div>
@@ -1857,22 +1777,22 @@
     }
 
     function cardActions(card) {
-      const deleteButton = `<button onclick="deleteCard(${card.id})" class="border border-token p-2" title="Delete card"><span class="material-symbols-outlined" style="color:var(--danger)">delete</span></button>`;
+      const deleteButton = `<button onclick="deleteCard(${card.id})" class="border border-token p-2" title="Delete card">${radixIcon('trash', '', 'style="color:var(--danger)"')}</button>`;
       if (card.status && card.status !== 'active') {
         return `<div class="muted-surface border border-token p-2 flex-1 text-center text-sm font-medium text-muted">${escapeHtml(card.status)}</div>${deleteButton}`;
       }
       if (card.tipcard_type === 'casual_tip') {
-        return `<button onclick="reviewCard(${card.id}, 'dismiss')" class="border border-token p-2" title="Dismiss"><span class="material-symbols-outlined">close</span></button>
-          <button onclick="reviewCard(${card.id}, 'acknowledge')" class="bg-primary-solid p-2 flex-1" title="Acknowledge"><span class="material-symbols-outlined">done</span></button>${deleteButton}`;
+        return `<button onclick="reviewCard(${card.id}, 'dismiss')" class="border border-token p-2" title="Dismiss">${radixIcon('cross-2')}</button>
+          <button onclick="reviewCard(${card.id}, 'acknowledge')" class="bg-primary-solid p-2 flex-1" title="Acknowledge">${radixIcon('check')}</button>${deleteButton}`;
       }
       if (card.tipcard_type === 'repeatable_tip') {
-        return `<button onclick="reviewCard(${card.id}, 'dismiss')" class="border border-token p-2" title="Dismiss"><span class="material-symbols-outlined">close</span></button>
-          <button onclick="reviewCard(${card.id}, 'repeat')" class="border border-token p-2" title="Repeat"><span class="material-symbols-outlined">replay</span></button>
-          <button onclick="reviewCard(${card.id}, 'memorize')" class="bg-primary-solid p-2 flex-1" title="Memorize"><span class="material-symbols-outlined">psychology</span></button>${deleteButton}`;
+        return `<button onclick="reviewCard(${card.id}, 'dismiss')" class="border border-token p-2" title="Dismiss">${radixIcon('cross-2')}</button>
+          <button onclick="reviewCard(${card.id}, 'repeat')" class="border border-token p-2" title="Repeat">${radixIcon('reset')}</button>
+          <button onclick="reviewCard(${card.id}, 'memorize')" class="bg-primary-solid p-2 flex-1" title="Memorize">${radixIcon('bookmark-filled')}</button>${deleteButton}`;
       }
       if (card.tipcard_type === 'manual_tip') {
-        return `<button onclick="reviewCard(${card.id}, 'dismiss')" class="border border-token p-2" title="Dismiss"><span class="material-symbols-outlined">close</span></button>
-          <button onclick="reviewCard(${card.id}, 'acknowledge')" class="bg-primary-solid p-2 flex-1" title="Acknowledge"><span class="material-symbols-outlined">done</span></button>${deleteButton}`;
+        return `<button onclick="reviewCard(${card.id}, 'dismiss')" class="border border-token p-2" title="Dismiss">${radixIcon('cross-2')}</button>
+          <button onclick="reviewCard(${card.id}, 'acknowledge')" class="bg-primary-solid p-2 flex-1" title="Acknowledge">${radixIcon('check')}</button>${deleteButton}`;
       }
       return `<button onclick="reviewCard(${card.id}, '', 1)" class="border border-token p-2 flex-1" title="Again">Again</button>
         <button onclick="reviewCard(${card.id}, '', 3)" class="border border-token p-2 flex-1" title="Good">Good</button>
@@ -1911,7 +1831,7 @@
     }
 
     function cardTitleFullscreenButton(card, fullscreen) {
-      return `<button onclick="toggleCardFullscreen(${card.id})" class="border border-token p-2" title="${fullscreen ? 'Exit fullscreen' : 'Fullscreen'}"><span class="material-symbols-outlined">${fullscreen ? 'close_fullscreen' : 'open_in_full'}</span></button>`;
+      return `<button onclick="toggleCardFullscreen(${card.id})" class="border border-token p-2" title="${fullscreen ? 'Exit fullscreen' : 'Fullscreen'}">${radixIcon(fullscreen ? 'exit-full-screen' : 'enter-full-screen')}</button>`;
     }
 
     function renderCardImages(card) {
@@ -1924,7 +1844,7 @@
 
     function renderCardTextHtml(markdownHtml, card, expanded, hasCompact, fullscreen) {
       if (!hasCompact || fullscreen) return markdownHtml;
-      const button = `<button onclick="toggleCardExpanded(${card.id})" class="card-inline-expand rounded-md border border-token" title="${expanded ? 'Show compact text' : 'Expand text'}"><span class="material-symbols-outlined">${expanded ? 'unfold_less' : 'unfold_more'}</span></button>`;
+      const button = `<button onclick="toggleCardExpanded(${card.id})" class="card-inline-expand rounded-md border border-token" title="${expanded ? 'Show compact text' : 'Expand text'}">${radixIcon(expanded ? 'double-arrow-up' : 'double-arrow-down')}</button>`;
       const trimmed = markdownHtml.trimEnd();
       const targets = ['</p>', '</li>', '</blockquote>'];
       for (const target of targets) {
@@ -1938,10 +1858,10 @@
     function cardContentControls(card) {
       const pinned = Boolean(card.pinned);
       const hasImages = Array.isArray(card.image_data) && card.image_data.length > 0;
-      return `<button onclick="togglePinCard(${card.id}, ${pinned ? 'false' : 'true'})" class="border border-token p-2 ${pinned ? 'bg-primary-soft text-primary' : ''}" title="${pinned ? 'Unpin card' : 'Pin card'}"><span class="material-symbols-outlined ${pinned ? 'icon-fill' : ''}">push_pin</span></button>
-        <label class="border border-token p-2 cursor-pointer" title="Attach images"><span class="material-symbols-outlined">add_photo_alternate</span><input type="file" accept="image/*" multiple class="hidden" onchange="attachCardImages(${card.id}, this.files).finally(() => { this.value = ''; })"></label>
-        ${hasImages ? `<button onclick="clearCardImages(${card.id})" class="border border-token p-2" title="Clear images"><span class="material-symbols-outlined">hide_image</span></button>` : ''}
-        <button onclick="copyCardText(${card.id})" data-copy-card-id="${card.id}" class="card-copy-btn border border-token p-2" title="Copy text"><span class="material-symbols-outlined">content_copy</span></button>`;
+      return `<button onclick="togglePinCard(${card.id}, ${pinned ? 'false' : 'true'})" class="border border-token p-2 ${pinned ? 'bg-primary-soft text-primary' : ''}" title="${pinned ? 'Unpin card' : 'Pin card'}">${radixIcon(pinned ? 'drawing-pin-filled' : 'drawing-pin')}</button>
+        <label class="border border-token p-2 cursor-pointer" title="Attach images">${radixIcon('image')}<input type="file" accept="image/*" multiple class="hidden" onchange="attachCardImages(${card.id}, this.files).finally(() => { this.value = ''; })"></label>
+        ${hasImages ? `<button onclick="clearCardImages(${card.id})" class="border border-token p-2" title="Clear images">${radixIcon('eye-closed')}</button>` : ''}
+        <button onclick="copyCardText(${card.id})" data-copy-card-id="${card.id}" class="card-copy-btn border border-token p-2" title="Copy text">${radixIcon('clipboard-copy')}</button>`;
     }
 
     function renderFlow() {
@@ -2041,9 +1961,9 @@
           <div class="p-4 flex flex-col flex-1">
             <div class="flex justify-between items-start gap-3 border-b border-token pb-3 mb-4">
               <div class="flex items-center gap-2 font-medium">
-                <button type="button" class="card-drag-handle border border-token p-1" title="Drag to reorder" draggable="true"><span class="material-symbols-outlined">drag_indicator</span></button>
-                ${card.pinned ? '<span class="material-symbols-outlined text-primary icon-fill" title="Pinned">push_pin</span>' : ''}
-                <span class="material-symbols-outlined text-primary">code</span>${escapeHtml(topic)}
+                <button type="button" class="card-drag-handle border border-token p-1" title="Drag to reorder" draggable="true">${radixIcon('drag-handle-dots-2')}</button>
+                ${card.pinned ? radixIcon('drawing-pin-filled', 'text-primary', 'title="Pinned"') : ''}
+                ${radixIcon('code', 'text-primary')}${escapeHtml(topic)}
               </div>
               <div class="card-title-controls flex items-center gap-2">
                 <span class="badge">${escapeHtml(typeLabel)}</span>
@@ -2219,7 +2139,7 @@
             <div class="font-semibold">${escapeHtml(key.client_name)}</div>
             <div class="text-sm text-muted mt-1">${escapeHtml(key.created_at)}</div>
           </div>
-          <button onclick="deleteKey(${key.id})" class="border border-token p-2" title="Delete"><span class="material-symbols-outlined" style="color:var(--danger)">delete</span></button>
+          <button onclick="deleteKey(${key.id})" class="border border-token p-2" title="Delete">${radixIcon('trash', '', 'style="color:var(--danger)"')}</button>
         </div>
       </article>`).join('') || `<div class="surface border p-4 text-muted">No keys yet.</div>`;
     }
@@ -2230,8 +2150,8 @@
           <div class="font-semibold">${escapeHtml(card.topic_name || card.topic)}</div>
           <div class="flex items-center gap-2">
             <span class="badge">${escapeHtml(card.status && card.status !== 'active' ? card.status : cardBadgeLabel(card))}</span>
-            <button onclick="togglePinCard(${card.id}, ${card.pinned ? 'false' : 'true'})" class="border border-token p-1 ${card.pinned ? 'bg-primary-soft text-primary' : ''}" title="${card.pinned ? 'Unpin card' : 'Pin card'}"><span class="material-symbols-outlined ${card.pinned ? 'icon-fill' : ''}">push_pin</span></button>
-            <button onclick="deleteCard(${card.id})" class="border border-token p-1" title="Delete card"><span class="material-symbols-outlined" style="color:var(--danger)">delete</span></button>
+            <button onclick="togglePinCard(${card.id}, ${card.pinned ? 'false' : 'true'})" class="border border-token p-1 ${card.pinned ? 'bg-primary-soft text-primary' : ''}" title="${card.pinned ? 'Unpin card' : 'Pin card'}">${radixIcon(card.pinned ? 'drawing-pin-filled' : 'drawing-pin')}</button>
+            <button onclick="deleteCard(${card.id})" class="border border-token p-1" title="Delete card">${radixIcon('trash', '', 'style="color:var(--danger)"')}</button>
           </div>
         </div>
         ${renderCardImages(card)}
@@ -2685,7 +2605,6 @@
     window.clearCardImages = clearCardImages;
 
     document.addEventListener('DOMContentLoaded', async () => {
-      convertMaterialIcons();
       initTimeZoneOptions();
       initThemes();
       document.querySelectorAll('[data-view]').forEach((btn) => btn.addEventListener('click', () => setView(btn.dataset.view)));
