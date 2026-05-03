@@ -135,6 +135,10 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
     shared_state: Arc<AppState>,
     session_layer: SessionManagerLayer<S>,
 ) -> Router {
+    let static_dir = std::env::var_os("DAILYTIP_STATIC_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("static"));
+
     Router::new()
         .route(
             "/admin/settings",
@@ -171,7 +175,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .route("/app/daily-refresh", post(dashboard::force_daily_refresh))
         .route("/app/review", post(dashboard::app_review))
         .route_layer(axum::middleware::from_fn(auth::require_session))
-        .nest_service("/static", ServeDir::new("static"))
+        .nest_service("/static", ServeDir::new(static_dir))
         .route("/", get(dashboard::app_index))
         .route("/auth/login", post(auth::login))
         .route("/api", post(api::unified_api))

@@ -21,7 +21,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Single Dashboard Surface**: The browser dashboard is served only at `/`;
 - **CSS-Only Motion**: The control page uses fast page-entry, card-entry, and compact-to-full tipcard animations with reduced-motion support.
 - **Markdown Tipcards**: API responses keep the original raw markdown-capable text so clients can render it however they need.
-- **Optional Server Self-Updates**: Disabled by default. The systemd install includes a root-owned updater timer; enabling it through the API polls GitHub, rebuilds from the configured repository branch, installs the new binary/schema, and restarts the service.
+- **Optional Server Self-Updates**: Disabled by default. The systemd install includes a root-owned updater timer; enabling it through the API polls GitHub, rebuilds from the configured repository branch, installs the new binary, schema, templates, and static assets, and restarts the service.
 - **Bootstrap Admin Token**: On first startup the server generates and prints an admin token. Use it only with `bootstrap_api_key` to create a full-access API key.
 - **Protobuf API**: The only public API is a single protobuf request/response envelope for both client and admin operations.
 - **Single-User, Multi-Client**: One user's SRS state is shared across all clients (desktop widget, Telegram bot, etc.) via per-client API keys.
@@ -161,6 +161,8 @@ The server can run from the project directory with defaults, or from an installe
 | `DAILYTIP_BIND_ADDR` | Listen address and port | `127.0.0.1:3017` |
 | `DAILYTIP_DATA_DIR` | Directory for `settings.yaml` and `dailytip.db` | current directory |
 | `DAILYTIP_SCHEMA_PATH` | Path to `schema.sql` | `schema.sql` in the current directory |
+| `DAILYTIP_TEMPLATE_DIR` | Directory containing `app.html` | `templates` in the current directory |
+| `DAILYTIP_STATIC_DIR` | Directory served at `/static` | `static` in the current directory |
 
 Example:
 
@@ -168,6 +170,8 @@ Example:
 DAILYTIP_BIND_ADDR=127.0.0.1:3017 \
 DAILYTIP_DATA_DIR=/var/lib/dailytipdraft \
 DAILYTIP_SCHEMA_PATH=/usr/local/share/dailytipdraft/schema.sql \
+DAILYTIP_TEMPLATE_DIR=/usr/local/share/dailytipdraft/templates \
+DAILYTIP_STATIC_DIR=/usr/local/share/dailytipdraft/static \
 dailytipdraft
 ```
 
@@ -181,7 +185,7 @@ Use the installer on a Linux host with systemd:
 ./install.sh
 ```
 
-The installer installs Rust with rustup if `cargo` is not available, builds `target/release/dailytipdraft`, installs the binary to `/usr/local/bin/dailytipdraft`, installs `schema.sql` and the root page to `/usr/local/share/dailytipdraft`, creates a `dailytipdraft` system user, stores runtime data in `/var/lib/dailytipdraft`, and starts `dailytipdraft.service`. It uses `sudo` internally for system directories, service users, and systemd commands.
+The installer installs Rust with rustup if `cargo` is not available, builds `target/release/dailytipdraft`, installs the binary to `/usr/local/bin/dailytipdraft`, installs `schema.sql`, the root page, and static assets to `/usr/local/share/dailytipdraft`, creates a `dailytipdraft` system user, stores runtime data in `/var/lib/dailytipdraft`, and starts `dailytipdraft.service`. It uses `sudo` internally for system directories, service users, and systemd commands.
 It also installs and enables `dailytipdraft-autoupdate.timer`, which stays idle unless `autoupdate_enabled: true` is set in `settings.yaml`.
 
 Useful commands:

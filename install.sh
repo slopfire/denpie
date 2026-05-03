@@ -103,6 +103,7 @@ write_service() {
         -e "s|^Environment=DAILYTIP_DATA_DIR=.*|Environment=DAILYTIP_DATA_DIR=$DATA_DIR|" \
         -e "s|^Environment=DAILYTIP_SCHEMA_PATH=.*|Environment=DAILYTIP_SCHEMA_PATH=$SHARE_DIR/schema.sql|" \
         -e "s|^Environment=DAILYTIP_TEMPLATE_DIR=.*|Environment=DAILYTIP_TEMPLATE_DIR=$SHARE_DIR/templates|" \
+        -e "s|^Environment=DAILYTIP_STATIC_DIR=.*|Environment=DAILYTIP_STATIC_DIR=$SHARE_DIR/static|" \
         -e "s|^ExecStart=.*|ExecStart=$BIN_DIR/$APP_NAME|" \
         -e "s|^ReadWritePaths=.*|ReadWritePaths=$DATA_DIR|" \
         deploy/dailytipdraft.service > "$tmp_file"
@@ -172,11 +173,14 @@ install_app() {
     build_release
     ensure_user
 
-    run_as_root install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/templates"
+    run_as_root install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/templates" "$SHARE_DIR/static"
     run_as_root install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$DATA_DIR"
     run_as_root install -m 0755 "target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
     run_as_root install -m 0644 schema.sql "$SHARE_DIR/schema.sql"
     run_as_root install -m 0644 templates/*.html "$SHARE_DIR/templates/"
+    run_as_root rm -rf "$SHARE_DIR/static"
+    run_as_root install -d -m 0755 "$SHARE_DIR/static"
+    run_as_root cp -R static/. "$SHARE_DIR/static/"
     write_service
     write_autoupdate_units
 

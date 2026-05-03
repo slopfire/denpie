@@ -164,11 +164,14 @@ git clone --depth 1 --branch "$branch" "$remote_url" "$SOURCE_DIR.tmp"
     cargo build --release
 )
 
-write_status installing "Installing binary, schema, and templates" "$latest_sha"
-install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/templates"
+write_status installing "Installing binary, schema, templates, and static assets" "$latest_sha"
+install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/templates" "$SHARE_DIR/static"
 install -m 0755 "$SOURCE_DIR.tmp/target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
 install -m 0644 "$SOURCE_DIR.tmp/schema.sql" "$SHARE_DIR/schema.sql"
 install -m 0644 "$SOURCE_DIR.tmp/templates/"*.html "$SHARE_DIR/templates/"
+rm -rf "$SHARE_DIR/static"
+install -d -m 0755 "$SHARE_DIR/static"
+cp -R "$SOURCE_DIR.tmp/static/." "$SHARE_DIR/static/"
 rm -rf "$SOURCE_DIR"
 mv "$SOURCE_DIR.tmp" "$SOURCE_DIR"
 
