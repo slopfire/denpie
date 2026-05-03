@@ -29,17 +29,9 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 
 ## Screenshots
 
-### Dashboard
-
-![Dashboard with SRS summary metrics, token counters, and active topic cards](docs/assets/dashboard.png)
-
-### Unified Flow
-
-![Unified flow view showing due cards and review actions](docs/assets/unified-flow.png)
-
-### Fullscreen Card
-
-![Fullscreen tip card reading view](docs/assets/fullscreen-card.png)
+| Dashboard | Unified Flow | Fullscreen Card |
+| :---: | :---: | :---: |
+| ![Dashboard](docs/assets/dashboard.png) | ![Unified Flow](docs/assets/unified-flow.png) | ![Fullscreen Card](docs/assets/fullscreen-card.png) |
 
 ## Tech Stack
 
