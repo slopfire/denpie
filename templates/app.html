@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sloppypie SRS</title>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
   <style>
     :root,
     [data-theme="shadcn"] {
@@ -27,7 +27,7 @@
       --muted-foreground: 240 5% 64.9%;
       --accent-hsl: 240 3.7% 15.9%;
       --accent-foreground: 0 0% 98%;
-      --destructive-hsl: 0 62.8% 30.6%;
+      --destructive-hsl: 0 84.2% 60.2%;
       --destructive-foreground: 0 0% 98%;
       --border-hsl: 240 3.7% 15.9%;
       --input-hsl: 240 3.7% 15.9%;
@@ -289,8 +289,8 @@
       font-family: Inter, ui-sans-serif, system-ui, sans-serif;
       font-size: 14px;
     }
+    .radix-icon,
     .material-symbols-outlined {
-      font-variation-settings: 'FILL' 0, 'wght' 450, 'GRAD' 0, 'opsz' 24;
       font-size: 22px;
       line-height: 1;
       display: inline-flex;
@@ -299,7 +299,6 @@
       width: 1em;
       height: 1em;
     }
-    .icon-fill { font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24; }
     .surface { background: hsl(var(--card)); color: hsl(var(--card-foreground)); border-color: hsl(var(--border-hsl)); box-shadow: var(--shadow); }
     .muted-surface { background: hsl(var(--muted-hsl)); color: hsl(var(--muted-foreground)); border-color: hsl(var(--border-hsl)); }
     .strong-surface { background: hsl(var(--accent-hsl)); color: hsl(var(--accent-foreground)); }
@@ -316,7 +315,9 @@
     label {
       min-height: 2.25rem;
     }
+    button:has(.radix-icon):not(.nav-item),
     button:has(.material-symbols-outlined):not(.nav-item),
+    label:has(.radix-icon),
     label:has(.material-symbols-outlined) {
       display: inline-flex;
       align-items: center;
@@ -461,6 +462,7 @@
       vertical-align: -0.25rem;
       margin-left: 0.35rem;
     }
+    .card-inline-expand .radix-icon,
     .card-inline-expand .material-symbols-outlined { font-size: 17px; }
     .card-inline-expand {
       transition: transform 110ms cubic-bezier(.2, 0, 0, 1), background-color 110ms ease, border-color 110ms ease;
@@ -772,8 +774,8 @@
           <h1 class="text-xl font-semibold tracking-tight">Welcome back</h1>
           <p class="text-muted mt-2">Cards, topics, and queue state from local server.</p>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4" id="stats-grid"></div>
-        <div id="token-spend-row" class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4"></div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-4" id="stats-grid"></div>
+        <div id="token-spend-row" class="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-4"></div>
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <h2 class="text-xl font-semibold flex items-center gap-2"><span class="material-symbols-outlined text-primary">folder_open</span>Active Topics</h2>
           <div class="flex gap-2">
@@ -1020,6 +1022,87 @@
     const MAX_CARD_IMAGES = 4;
     const MAX_CARD_IMAGE_BYTES = 2_500_000;
     const CARD_IMAGE_MAX_EDGE = 1600;
+    const materialToRadixIcons = {
+      add: 'plus',
+      add_notes: 'file-plus',
+      add_photo_alternate: 'image',
+      all_inclusive: 'loop',
+      auto_awesome: 'magic-wand',
+      close: 'cross-2',
+      close_fullscreen: 'exit-full-screen',
+      code: 'code',
+      content_copy: 'clipboard-copy',
+      dashboard: 'dashboard',
+      delete: 'trash',
+      done: 'check',
+      drag_indicator: 'drag-handle-dots-2',
+      folder_open: 'layers',
+      grid_view: 'grid',
+      hide_image: 'eye-closed',
+      inventory_2: 'archive',
+      key: 'lock-closed',
+      open_in_full: 'enter-full-screen',
+      play_arrow: 'play',
+      psychology: 'bookmark',
+      push_pin: 'drawing-pin',
+      refresh: 'reload',
+      replay: 'reset',
+      save: 'download',
+      schedule: 'clock',
+      settings: 'gear',
+      style: 'card-stack',
+      sync: 'update',
+      system_update_alt: 'download',
+      token: 'tokens',
+      unfold_less: 'double-arrow-up',
+      unfold_more: 'double-arrow-down',
+      view_list: 'list-bullet',
+      warning: 'exclamation-triangle'
+    };
+    const filledRadixIcons = {
+      bookmark: 'bookmark-filled',
+      'drawing-pin': 'drawing-pin-filled',
+      push_pin: 'drawing-pin-filled'
+    };
+
+    function radixIconName(materialName, filled = false) {
+      const key = String(materialName || '').trim();
+      const base = materialToRadixIcons[key] || key.replace(/_/g, '-');
+      return filled ? (filledRadixIcons[key] || filledRadixIcons[base] || base) : base;
+    }
+
+    function setRadixIcon(node, materialName, filled = false) {
+      if (!node) return;
+      node.setAttribute('icon', `radix-icons:${radixIconName(materialName, filled)}`);
+      node.setAttribute('aria-hidden', 'true');
+    }
+
+    function convertMaterialIcon(span) {
+      const materialName = span.textContent.trim();
+      if (!materialName) return;
+      const icon = document.createElement('iconify-icon');
+      const classes = [...span.classList].filter((name) => name !== 'material-symbols-outlined');
+      icon.className = ['radix-icon', ...classes].join(' ');
+      for (const attr of span.attributes) {
+        if (attr.name !== 'class') icon.setAttribute(attr.name, attr.value);
+      }
+      setRadixIcon(icon, materialName, span.classList.contains('icon-fill'));
+      span.replaceWith(icon);
+    }
+
+    function convertMaterialIcons(root = document) {
+      root.querySelectorAll?.('.material-symbols-outlined').forEach(convertMaterialIcon);
+    }
+
+    new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType !== Node.ELEMENT_NODE) return;
+          if (node.matches?.('.material-symbols-outlined')) convertMaterialIcon(node);
+          convertMaterialIcons(node);
+        });
+      });
+    }).observe(document.documentElement, { childList: true, subtree: true });
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -1500,7 +1583,7 @@
       });
       $('manual-card-content').classList.toggle('hidden', tipcardType !== 'manual_tip');
       $('manual-card-images-row').classList.toggle('hidden', tipcardType !== 'manual_tip');
-      $('tips-submit-icon').textContent = tipcardType === 'manual_tip' ? 'add_notes' : 'auto_awesome';
+      setRadixIcon($('tips-submit-icon'), tipcardType === 'manual_tip' ? 'add_notes' : 'auto_awesome');
       $('tips-submit-label').textContent = tipcardType === 'manual_tip' ? 'Save' : 'Add';
     }
 
@@ -1614,14 +1697,14 @@
     }
 
     function statCard(icon, value, label, tone) {
-      return `<div class="surface border p-4">
-        <div class="flex items-center justify-between gap-3">
+      return `<div class="surface border p-3 sm:p-4">
+        <div class="flex items-center justify-between gap-2">
           <div class="card-kicker">${label}</div>
-          <div class="icon-tile" style="color:${tone}">
+          <div class="icon-tile h-8 w-8 sm:h-10 sm:w-10" style="color:${tone}">
             <span class="material-symbols-outlined icon-fill">${icon}</span>
           </div>
         </div>
-        <div class="mt-3 text-2xl font-semibold tracking-tight">${value}</div>
+        <div class="mt-2 text-2xl sm:mt-3 sm:text-2xl font-semibold tracking-tight">${value}</div>
       </div>`;
     }
 
@@ -1651,12 +1734,12 @@
     }
 
     function tokenSpendCard(label, value) {
-      return `<div class="surface border px-4 py-3 flex items-center justify-between gap-3">
+      return `<div class="surface border px-3 py-2.5 sm:px-4 sm:py-3 flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 card-kicker">
           <span class="material-symbols-outlined text-primary">token</span>
           <span>${label}</span>
         </div>
-        <div class="text-xl font-semibold tracking-tight">${formatTokenCount(value)}</div>
+        <div class="text-lg sm:text-xl font-semibold tracking-tight">${formatTokenCount(value)}</div>
       </div>`;
     }
 
@@ -2602,6 +2685,7 @@
     window.clearCardImages = clearCardImages;
 
     document.addEventListener('DOMContentLoaded', async () => {
+      convertMaterialIcons();
       initTimeZoneOptions();
       initThemes();
       document.querySelectorAll('[data-view]').forEach((btn) => btn.addEventListener('click', () => setView(btn.dataset.view)));
