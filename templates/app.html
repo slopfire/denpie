@@ -283,6 +283,44 @@
                 --tertiary: hsl(var(--chart-3));
                 --danger: hsl(var(--destructive-hsl));
                 --ok: hsl(var(--chart-2));
+                --glass-blur: 10px;
+                --glass-card-alpha: 0.74;
+                --glass-muted-alpha: 0.68;
+                --glass-strong-alpha: 0.72;
+                --glass-control-alpha: 0.58;
+                --glass-popover-alpha: 0.78;
+            }
+            [data-blur="none"] {
+                --glass-blur: 0px;
+                --glass-card-alpha: 0.9;
+                --glass-muted-alpha: 0.84;
+                --glass-strong-alpha: 0.86;
+                --glass-control-alpha: 0.78;
+                --glass-popover-alpha: 0.9;
+            }
+            [data-blur="low"] {
+                --glass-blur: 4px;
+                --glass-card-alpha: 0.8;
+                --glass-muted-alpha: 0.74;
+                --glass-strong-alpha: 0.78;
+                --glass-control-alpha: 0.66;
+                --glass-popover-alpha: 0.84;
+            }
+            [data-blur="medium"] {
+                --glass-blur: 10px;
+                --glass-card-alpha: 0.74;
+                --glass-muted-alpha: 0.68;
+                --glass-strong-alpha: 0.72;
+                --glass-control-alpha: 0.58;
+                --glass-popover-alpha: 0.78;
+            }
+            [data-blur="full"] {
+                --glass-blur: 18px;
+                --glass-card-alpha: 0.66;
+                --glass-muted-alpha: 0.58;
+                --glass-strong-alpha: 0.64;
+                --glass-control-alpha: 0.5;
+                --glass-popover-alpha: 0.7;
             }
             * {
                 box-sizing: border-box;
@@ -321,19 +359,25 @@
                 height: 1em;
             }
             .surface {
-                background: hsl(var(--card));
+                background: hsl(var(--card) / var(--glass-card-alpha));
                 color: hsl(var(--card-foreground));
                 border-color: hsl(var(--border-hsl));
                 box-shadow: var(--shadow);
+                backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
+                -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
             }
             .muted-surface {
-                background: hsl(var(--muted-hsl));
+                background: hsl(var(--muted-hsl) / var(--glass-muted-alpha));
                 color: hsl(var(--muted-foreground));
                 border-color: hsl(var(--border-hsl));
+                backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+                -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
             }
             .strong-surface {
-                background: hsl(var(--accent-hsl));
+                background: hsl(var(--accent-hsl) / var(--glass-strong-alpha));
                 color: hsl(var(--accent-foreground));
+                backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+                -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
             }
             .text-muted {
                 color: var(--muted);
@@ -350,7 +394,7 @@
                 color: hsl(var(--primary-foreground));
             }
             .bg-primary-soft {
-                background: hsl(var(--accent-hsl));
+                background: hsl(var(--accent-hsl) / var(--glass-strong-alpha));
                 color: hsl(var(--accent-foreground));
             }
             .border-token {
@@ -360,11 +404,11 @@
                 color: var(--muted);
             }
             .nav-item:hover {
-                background: var(--surface-muted);
+                background: hsl(var(--muted-hsl) / var(--glass-muted-alpha));
                 color: var(--text);
             }
             .nav-item.active {
-                background: var(--primary-soft);
+                background: hsl(var(--accent-hsl) / var(--glass-strong-alpha));
                 color: var(--primary);
             }
             button,
@@ -490,9 +534,11 @@
             .update-progress-track {
                 height: 8px;
                 overflow: hidden;
-                background: var(--surface-muted);
+                background: hsl(var(--muted-hsl) / var(--glass-muted-alpha));
                 border: 1px solid var(--border);
                 border-radius: 999px;
+                backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+                -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
             }
             .update-progress-bar {
                 height: 100%;
@@ -676,7 +722,7 @@
                 text-align: left;
             }
             .markdown-content code {
-                background: var(--surface-muted);
+                background: hsl(var(--muted-hsl) / var(--glass-muted-alpha));
                 border: 1px solid var(--border);
                 border-radius: 6px;
                 padding: 0.08rem 0.32rem;
@@ -686,7 +732,7 @@
                 font-size: 0.9em;
             }
             .markdown-content pre {
-                background: var(--surface-muted);
+                background: hsl(var(--muted-hsl) / var(--glass-muted-alpha));
                 border: 1px solid var(--border);
                 border-radius: 8px;
                 padding: 0.9rem;
@@ -729,10 +775,12 @@
             select {
                 min-height: 2.5rem;
                 border-radius: calc(var(--radius) - 2px);
-                background: hsl(var(--background));
+                background: hsl(var(--background) / var(--glass-control-alpha));
                 border: 1px solid hsl(var(--input-hsl));
                 color: hsl(var(--foreground));
                 box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+                backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+                -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
             }
             textarea {
                 min-height: 5rem;
@@ -772,13 +820,15 @@
             button.border-token,
             label.border-token,
             button.border {
-                background: hsl(var(--background));
+                background: hsl(var(--background) / var(--glass-control-alpha));
                 color: hsl(var(--foreground));
+                backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+                -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
             }
             button.border-token:hover,
             label.border-token:hover,
             button.border:hover {
-                background: hsl(var(--accent-hsl));
+                background: hsl(var(--accent-hsl) / var(--glass-strong-alpha));
                 color: hsl(var(--accent-foreground));
             }
             .nav-item {
@@ -787,43 +837,52 @@
                 color: hsl(var(--muted-foreground));
             }
             .nav-item:hover {
-                background: hsl(var(--accent-hsl));
+                background: hsl(var(--accent-hsl) / var(--glass-strong-alpha));
                 color: hsl(var(--accent-foreground));
+                backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+                -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
             }
             .nav-item.active {
-                background: hsl(var(--secondary-hsl));
+                background: hsl(var(--secondary-hsl) / var(--glass-muted-alpha));
                 color: hsl(var(--secondary-foreground));
                 border-color: hsl(var(--border-hsl));
                 box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
+                backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+                -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
             }
             .tip-type-switch {
-                background: hsl(var(--muted-hsl));
+                background: hsl(var(--muted-hsl) / var(--glass-muted-alpha));
                 border-radius: var(--radius);
                 padding: 0.25rem;
+                backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+                -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
             }
             .tip-type-switch button.active,
             #flow-grid-btn.bg-primary-soft,
             #flow-list-btn.bg-primary-soft {
-                background: hsl(var(--background));
+                background: hsl(var(--background) / var(--glass-control-alpha));
                 color: hsl(var(--foreground));
                 box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
             }
             .markdown-content code,
             .markdown-content pre,
             code {
-                background: hsl(var(--muted-hsl));
+                background: hsl(var(--muted-hsl) / var(--glass-muted-alpha));
                 color: hsl(var(--foreground));
                 border-color: hsl(var(--border-hsl));
             }
             .toast {
-                background: hsl(var(--popover));
+                background: hsl(var(--popover) / var(--glass-popover-alpha));
                 color: hsl(var(--popover-foreground));
                 border-color: hsl(var(--border-hsl));
                 box-shadow: 0 12px 40px -18px rgba(0, 0, 0, 0.6);
+                backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
+                -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.15);
             }
             .update-popup {
-                background: hsl(var(--background) / 0.82);
-                backdrop-filter: blur(8px);
+                background: hsl(var(--background) / var(--glass-popover-alpha));
+                backdrop-filter: blur(var(--glass-blur));
+                -webkit-backdrop-filter: blur(var(--glass-blur));
             }
             .card-line-repeatable {
                 background: hsl(var(--chart-4));
@@ -845,7 +904,7 @@
                 align-items: center;
                 border-radius: 999px;
                 border: 1px solid hsl(var(--border-hsl));
-                background: hsl(var(--secondary-hsl));
+                background: hsl(var(--secondary-hsl) / var(--glass-muted-alpha));
                 color: hsl(var(--secondary-foreground));
                 padding: 0.125rem 0.5rem;
                 font-size: 0.6875rem;
@@ -873,8 +932,10 @@
                 align-items: center;
                 justify-content: center;
                 border: 1px solid hsl(var(--border-hsl));
-                background: hsl(var(--secondary-hsl));
+                background: hsl(var(--secondary-hsl) / var(--glass-muted-alpha));
                 color: hsl(var(--secondary-foreground));
+                backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+                -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
             }
             @media (prefers-reduced-motion: reduce) {
                 *,
@@ -1494,6 +1555,20 @@
                                 0 means unlimited. When full, existing due cards
                                 still show but new cards are not created.
                             </div>
+                        </div>
+                        <div>
+                            <label class="block card-kicker mb-2"
+                                >Interface Blur</label
+                            >
+                            <select
+                                id="ui-blur-input"
+                                class="w-full rounded-md border px-3 py-2"
+                            >
+                                <option value="none">None</option>
+                                <option value="low">Low</option>
+                                <option value="medium">Medium</option>
+                                <option value="full">Full</option>
+                            </select>
                         </div>
                         <div
                             class="border border-token rounded-md p-4 space-y-4"
@@ -2359,8 +2434,18 @@
                 });
             }
 
+            function initUiBlur() {
+                applyUiBlur(localStorage.getItem("denpie-ui-blur") || "medium");
+            }
+
             function normalizeTheme(theme) {
                 return themes.some(([id]) => id === theme) ? theme : "shadcn";
+            }
+
+            function normalizeUiBlur(blur) {
+                return ["none", "low", "medium", "full"].includes(blur)
+                    ? blur
+                    : "medium";
             }
 
             function applyTheme(theme) {
@@ -2370,6 +2455,14 @@
                 document
                     .querySelectorAll(".theme-select")
                     .forEach((select) => (select.value = selected));
+            }
+
+            function applyUiBlur(blur) {
+                const selected = normalizeUiBlur(blur);
+                document.documentElement.dataset.blur = selected;
+                localStorage.setItem("denpie-ui-blur", selected);
+                const input = $("ui-blur-input");
+                if (input) input.value = selected;
             }
 
             function setAuthed(authed) {
@@ -3411,6 +3504,11 @@
                     settings.daily_update_time || "00:00";
                 $("max-active-cards-input").value =
                     settings.max_active_cards || 0;
+                applyUiBlur(
+                    settings.ui_blur ||
+                        localStorage.getItem("denpie-ui-blur") ||
+                        "medium",
+                );
                 applyTheme(
                     settings.color_scheme ||
                         localStorage.getItem("denpie-theme") ||
@@ -3920,6 +4018,7 @@
                     max_active_cards:
                         Number($("max-active-cards-input").value) || 0,
                     color_scheme: document.documentElement.dataset.theme,
+                    ui_blur: document.documentElement.dataset.blur || "medium",
                 };
             }
 
@@ -3945,6 +4044,7 @@
             document.addEventListener("DOMContentLoaded", async () => {
                 initTimeZoneOptions();
                 initThemes();
+                initUiBlur();
                 document
                     .querySelectorAll("[data-view]")
                     .forEach((btn) =>
@@ -4028,6 +4128,15 @@
                     event.preventDefault();
                     await saveSettings();
                     toast("Settings saved");
+                });
+                $("ui-blur-input").addEventListener("change", async () => {
+                    applyUiBlur($("ui-blur-input").value);
+                    if (!state.authed) return;
+                    try {
+                        await saveSettings();
+                    } catch (err) {
+                        toast(err.message);
+                    }
                 });
                 $("autoupdate-trigger-btn").addEventListener(
                     "click",

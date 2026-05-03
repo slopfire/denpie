@@ -32,6 +32,7 @@ pub struct SettingsRes {
     reasoning_effort: String,
     compress_reasoning_effort: String,
     color_scheme: String,
+    ui_blur: String,
     autoupdate_enabled: bool,
     autoupdate_repo: String,
     autoupdate_branch: String,
@@ -92,6 +93,11 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         .and_then(|v| v.as_str())
         .unwrap_or("shadcn")
         .to_string();
+    let ui_blur = settings
+        .get("ui_blur")
+        .and_then(|v| v.as_str())
+        .unwrap_or("medium")
+        .to_string();
     let autoupdate_enabled = settings
         .get("autoupdate_enabled")
         .and_then(|v| v.as_bool())
@@ -149,6 +155,7 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         reasoning_effort,
         compress_reasoning_effort,
         color_scheme,
+        ui_blur,
         autoupdate_enabled,
         autoupdate_repo,
         autoupdate_branch,
@@ -172,6 +179,7 @@ pub struct UpdateSettingsReq {
     reasoning_effort: Option<String>,
     compress_reasoning_effort: Option<String>,
     color_scheme: Option<String>,
+    ui_blur: Option<String>,
     autoupdate_enabled: Option<bool>,
     autoupdate_repo: Option<String>,
     autoupdate_branch: Option<String>,
@@ -246,6 +254,12 @@ pub async fn update_settings(
             map.insert(
                 serde_yaml::Value::String("color_scheme".to_string()),
                 serde_yaml::Value::String(color_scheme),
+            );
+        }
+        if let Some(ui_blur) = req.ui_blur {
+            map.insert(
+                serde_yaml::Value::String("ui_blur".to_string()),
+                serde_yaml::Value::String(ui_blur),
             );
         }
         if let Some(autoupdate_enabled) = req.autoupdate_enabled {
