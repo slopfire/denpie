@@ -72,7 +72,7 @@ mod tests {
 
     fn unique_settings_path() -> PathBuf {
         let suffix: u64 = rand::random();
-        std::env::temp_dir().join(format!("dailytipdraft-test-settings-{suffix}.yaml"))
+        std::env::temp_dir().join(format!("denpie-test-settings-{suffix}.yaml"))
     }
 
     async fn bootstrap_api_key(url: &str, client: &reqwest::Client, client_name: &str) -> String {
@@ -143,7 +143,7 @@ mod tests {
         let response = client.get(format!("{url}/")).send().await.unwrap();
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         let body = response.text().await.unwrap();
-        assert!(body.contains("Sloppypie SRS"));
+        assert!(body.contains("Denpie"));
         assert!(body.contains("admin-token"));
         assert!(body.contains("/app/tips"));
     }

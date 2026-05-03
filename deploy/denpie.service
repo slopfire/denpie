@@ -1,0 +1,26 @@
+[Unit]
+Description=Daily Tip Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=denpie
+Group=denpie
+WorkingDirectory=/var/lib/denpie
+Environment=DENPIE_BIND_ADDR=127.0.0.1:3017
+Environment=DENPIE_DATA_DIR=/var/lib/denpie
+Environment=DENPIE_SCHEMA_PATH=/usr/local/share/denpie/schema.sql
+Environment=DENPIE_TEMPLATE_DIR=/usr/local/share/denpie/templates
+Environment=DENPIE_STATIC_DIR=/usr/local/share/denpie/static
+ExecStart=/usr/local/bin/denpie
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/denpie
+
+[Install]
+WantedBy=multi-user.target

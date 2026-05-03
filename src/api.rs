@@ -21,7 +21,7 @@ use crate::{
 };
 
 pub mod pb {
-    include!(concat!(env!("OUT_DIR"), "/dailytip.rs"));
+    include!(concat!(env!("OUT_DIR"), "/denpie.rs"));
 }
 
 fn protobuf_response<T: Message>(msg: &T) -> Response {
@@ -275,7 +275,7 @@ fn current_settings(state: &AppState) -> pb::Settings {
         autoupdate_repo: settings
             .get("autoupdate_repo")
             .and_then(|v| v.as_str())
-            .unwrap_or("slopfire/dailytipdraft")
+            .unwrap_or("slopfire/denpie")
             .to_string(),
         autoupdate_branch: settings
             .get("autoupdate_branch")

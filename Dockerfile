@@ -16,20 +16,20 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --home /var/lib/dailytipdraft --create-home --shell /usr/sbin/nologin dailytipdraft
+    && useradd --system --home /var/lib/denpie --create-home --shell /usr/sbin/nologin denpie
 
 WORKDIR /app
-COPY --from=builder /app/target/release/dailytipdraft /usr/local/bin/dailytipdraft
+COPY --from=builder /app/target/release/denpie /usr/local/bin/denpie
 COPY schema.sql /app/schema.sql
 COPY templates /app/templates
 
-ENV DAILYTIP_BIND_ADDR=127.0.0.1:3017 \
-    DAILYTIP_DATA_DIR=/var/lib/dailytipdraft \
-    DAILYTIP_SCHEMA_PATH=/app/schema.sql \
-    DAILYTIP_TEMPLATE_DIR=/app/templates
+ENV DENPIE_BIND_ADDR=127.0.0.1:3017 \
+    DENPIE_DATA_DIR=/var/lib/denpie \
+    DENPIE_SCHEMA_PATH=/app/schema.sql \
+    DENPIE_TEMPLATE_DIR=/app/templates
 
-VOLUME ["/var/lib/dailytipdraft"]
+VOLUME ["/var/lib/denpie"]
 EXPOSE 3017
-USER dailytipdraft
+USER denpie
 
-CMD ["dailytipdraft"]
+CMD ["denpie"]

@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package dailytip;
+package denpie;
 
 message TipsQuery {
     uint64 count = 1;

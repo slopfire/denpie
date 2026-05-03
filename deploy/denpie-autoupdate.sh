@@ -1,15 +1,15 @@
 #!/usr/bin/env sh
 set -eu
 
-APP_NAME="${APP_NAME:-dailytipdraft}"
-SERVICE_NAME="${SERVICE_NAME:-dailytipdraft.service}"
+APP_NAME="${APP_NAME:-denpie}"
+SERVICE_NAME="${SERVICE_NAME:-denpie.service}"
 BIN_DIR="${BIN_DIR:-/usr/local/bin}"
 SHARE_DIR="${SHARE_DIR:-/usr/local/share/$APP_NAME}"
 DATA_DIR="${DATA_DIR:-/var/lib/$APP_NAME}"
 SETTINGS_PATH="${SETTINGS_PATH:-$DATA_DIR/settings.yaml}"
 STATE_DIR="${STATE_DIR:-$DATA_DIR/autoupdate}"
 SOURCE_DIR="${SOURCE_DIR:-$STATE_DIR/source}"
-DEFAULT_REPO="${DEFAULT_REPO:-slopfire/dailytipdraft}"
+DEFAULT_REPO="${DEFAULT_REPO:-slopfire/denpie}"
 DEFAULT_BRANCH="${DEFAULT_BRANCH:-master}"
 DEFAULT_INTERVAL_SECS="${DEFAULT_INTERVAL_SECS:-3600}"
 

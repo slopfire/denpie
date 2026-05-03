@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sloppypie SRS</title>
+  <title>Denpie</title>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -335,7 +335,7 @@
     .card-line-casual { background: var(--tertiary); }
     .card-line-manual { background: var(--ok); }
     .card-line-custom { background: var(--muted); }
-    .card-line-srs { background: var(--primary); }
+    .card-line-denpie { background: var(--primary); }
     .tip-type-switch button { color: var(--muted); }
     .tip-type-switch button.active { background: var(--primary-soft); color: var(--primary); }
     .hidden-view { display: none; }
@@ -639,7 +639,7 @@
     .card-line-casual { background: hsl(var(--chart-3)); }
     .card-line-manual { background: hsl(var(--chart-2)); }
     .card-line-custom { background: hsl(var(--muted-foreground)); }
-    .card-line-srs { background: hsl(var(--chart-1)); }
+    .card-line-denpie { background: hsl(var(--chart-1)); }
     .badge {
       display: inline-flex;
       align-items: center;
@@ -724,9 +724,9 @@
   <section id="login-panel" class="min-h-screen flex items-center justify-center p-4">
     <div class="surface border rounded-md w-full max-w-md p-4">
       <div class="flex items-center gap-3 mb-4">
-        <iconify-icon icon="radix-icons:bookmark-filled" class="radix-icon text-primary text-4xl" aria-hidden="true"></iconify-icon>
+        <iconify-icon icon="radix-icons:lightning-bolt" class="radix-icon text-primary text-4xl" aria-hidden="true"></iconify-icon>
         <div>
-          <h1 class="text-xl font-semibold tracking-tight">Sloppypie SRS</h1>
+          <h1 class="text-xl font-semibold tracking-tight">Denpie</h1>
           <p class="text-sm text-muted">Admin token required</p>
         </div>
       </div>
@@ -741,8 +741,8 @@
     <nav class="hidden lg:flex fixed left-0 top-0 z-50 h-full w-56 flex-col border-r surface p-4">
       <div class="flex items-center gap-2 px-2 py-2 mb-4">
         <div class="flex min-w-0 items-center gap-2">
-          <iconify-icon icon="radix-icons:bookmark-filled" class="radix-icon shrink-0 text-primary text-xl" aria-hidden="true"></iconify-icon>
-          <div class="truncate text-lg font-semibold tracking-tight">Sloppypie SRS</div>
+          <iconify-icon icon="radix-icons:lightning-bolt" class="radix-icon shrink-0 text-primary text-xl" aria-hidden="true"></iconify-icon>
+          <div class="truncate text-lg font-semibold tracking-tight">Denpie</div>
         </div>
       </div>
       <div class="space-y-1 flex-1">
@@ -920,7 +920,7 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label class="block card-kicker mb-2">GitHub Repo</label>
-                <input id="autoupdate-repo-input" class="w-full rounded-md border px-3 py-2" placeholder="slopfire/dailytipdraft">
+                <input id="autoupdate-repo-input" class="w-full rounded-md border px-3 py-2" placeholder="slopfire/denpie">
               </div>
               <div>
                 <label class="block card-kicker mb-2">Branch</label>
@@ -1002,7 +1002,7 @@
       loadingSlotSeq: 0,
       loadingCardIds: new Set(),
       refreshingFlow: false,
-      cardOrder: JSON.parse(localStorage.getItem('sloppypie-card-order') || localStorage.getItem('mindlift-card-order') || '[]'),
+      cardOrder: JSON.parse(localStorage.getItem('denpie-card-order') || localStorage.getItem('mindlift-card-order') || '[]'),
       draggingCardId: null,
       expandedCardIds: new Set(),
       fullscreenCardId: null,
@@ -1436,7 +1436,7 @@
     }
 
     function initThemes() {
-      const saved = normalizeTheme(localStorage.getItem('sloppypie-theme') || localStorage.getItem('mindlift-theme'));
+      const saved = normalizeTheme(localStorage.getItem('denpie-theme') || localStorage.getItem('mindlift-theme'));
       document.documentElement.dataset.theme = saved;
       document.querySelectorAll('.theme-select').forEach((select) => {
         select.innerHTML = themes.map(([id, label]) => `<option value="${id}">${label}</option>`).join('');
@@ -1460,7 +1460,7 @@
     function applyTheme(theme) {
       const selected = normalizeTheme(theme);
       document.documentElement.dataset.theme = selected;
-      localStorage.setItem('sloppypie-theme', selected);
+      localStorage.setItem('denpie-theme', selected);
       document.querySelectorAll('.theme-select').forEach((select) => select.value = selected);
     }
 
@@ -1515,7 +1515,7 @@
     }
 
     function saveCardOrder() {
-      localStorage.setItem('sloppypie-card-order', JSON.stringify(state.cardOrder));
+      localStorage.setItem('denpie-card-order', JSON.stringify(state.cardOrder));
     }
 
     function insertCardOrderAfter(sourceId, newIds) {
@@ -1604,7 +1604,7 @@
         ? 'surface border relative overflow-hidden flex flex-col lg:flex-row min-h-[210px]'
         : 'surface border relative overflow-hidden min-h-[240px] flex flex-col';
       return `<article class="${articleClass}" aria-busy="true">
-        <div class="absolute top-0 left-0 w-1 h-full card-line-srs"></div>
+        <div class="absolute top-0 left-0 w-1 h-full card-line-denpie"></div>
         <div class="p-4 flex flex-col flex-1">
           <div class="flex justify-between items-start gap-3 border-b border-token pb-3 mb-4">
             <div class="skeleton-block h-6 w-36"></div>
@@ -1795,7 +1795,7 @@
       if (card.tipcard_type === 'repeatable_tip') {
         return `<button onclick="reviewCard(${card.id}, 'dismiss')" class="border border-token p-2" title="Dismiss">${radixIcon('cross-2')}</button>
           <button onclick="reviewCard(${card.id}, 'repeat')" class="border border-token p-2" title="Repeat">${radixIcon('reset')}</button>
-          <button onclick="reviewCard(${card.id}, 'memorize')" class="bg-primary-solid p-2 flex-1" title="Memorize">${radixIcon('bookmark-filled')}</button>${deleteButton}`;
+          <button onclick="reviewCard(${card.id}, 'memorize')" class="bg-primary-solid p-2 flex-1" title="Memorize">${radixIcon('lightning-bolt')}</button>${deleteButton}`;
       }
       if (card.tipcard_type === 'manual_tip') {
         return `<button onclick="reviewCard(${card.id}, 'dismiss')" class="border border-token p-2" title="Dismiss">${radixIcon('cross-2')}</button>
@@ -2202,7 +2202,7 @@
       $('reasoning-effort-input').value = settings.reasoning_effort || 'none';
       $('compress-reasoning-effort-input').value = settings.compress_reasoning_effort || 'none';
       $('autoupdate-enabled-input').checked = Boolean(settings.autoupdate_enabled);
-      $('autoupdate-repo-input').value = settings.autoupdate_repo || 'slopfire/dailytipdraft';
+      $('autoupdate-repo-input').value = settings.autoupdate_repo || 'slopfire/denpie';
       $('autoupdate-branch-input').value = settings.autoupdate_branch || 'master';
       $('autoupdate-interval-input').value = settings.autoupdate_check_interval_secs || 3600;
       $('autoupdate-command-input').value = settings.autoupdate_command || '';
@@ -2210,7 +2210,7 @@
       $('daily-time-zone-input').value = settings.daily_time_zone || 'UTC';
       $('daily-update-time-input').value = settings.daily_update_time || '00:00';
       $('max-active-cards-input').value = settings.max_active_cards || 0;
-      applyTheme(settings.color_scheme || localStorage.getItem('sloppypie-theme') || localStorage.getItem('mindlift-theme') || 'shadcn');
+      applyTheme(settings.color_scheme || localStorage.getItem('denpie-theme') || localStorage.getItem('mindlift-theme') || 'shadcn');
     }
 
     async function loadTopic(name, className, tipcardType) {

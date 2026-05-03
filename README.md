@@ -1,18 +1,18 @@
-# Daily Tip Server
+# Denpie
 
-A Rust-based backend service that generates, serves, and schedules daily tip cards using a spaced repetition system (SM-2 / FSRS). LLM content generation is powered by any OpenAI-compatible API endpoint (Gemini, OpenRouter, etc.) via `async-openai`.
+A Rust-based backend service that generates, serves, and schedules daily tip cards using a intelligent scheduling system (SM-2 / FSRS). LLM content generation is powered by any OpenAI-compatible API endpoint (Gemini, OpenRouter, etc.) via `async-openai`.
 
 ## Features
 
-- **Spaced Repetition System (SRS)**: SM-2 and FSRS algorithms optimize tip delivery based on user review grades.
-- **Casual Cards**: Queue-style tips can be dismissed or acknowledged so clients can pull the next card immediately; acknowledged cards are scheduled with SRS.
-- **Repeatable Cards**: Re:word-style cards can be dismissed, repeated, memorized, or acknowledged; clients can advance after repeatable review actions, and repeated cards come back when due through SRS scheduling.
-- **Topic Classes**: Topics belong to a card behavior class: casual, repeatable, or manual. SRS remains the scheduling algorithm, not a card class.
-- **Daily Topic Cards**: Each topic/type returns a configurable number of stable SRS cards per local day, with per-topic overrides for count and card refresh time. The browser dashboard uses the global time zone setting.
+- **Intelligent Scheduling**: SM-2 and FSRS algorithms optimize tip delivery based on user review grades.
+- **Casual Cards**: Queue-style tips can be dismissed or acknowledged so clients can pull the next card immediately; acknowledged cards are scheduled.
+- **Repeatable Cards**: Re:word-style cards can be dismissed, repeated, memorized, or acknowledged; clients can advance after repeatable review actions, and repeated cards come back when due through scheduling.
+- **Topic Classes**: Topics belong to a card behavior class: casual, repeatable, or manual. 
+- **Daily Topic Cards**: Each topic/type returns a configurable number of stable cards per local day, with per-topic overrides for count and card refresh time. The browser dashboard uses the global time zone setting.
 - **Forced Card Refresh**: The settings screen can move current generated daily cards out of the active daily view and immediately pull fresh cards without dismissing the old cards; the protobuf API can also target selected topics.
 - **Pinned Tipcards**: Any active card can be pinned from the control panel or API so it stays visible in a separate top section until unpinned.
 - **Tipcard Images**: Manual cards can be saved with attached images, and existing cards can receive or clear image attachments from the browser control panel.
-- **Custom Tipcards**: External workflows can submit grey `custom_tip` cards for summaries or reminders without adding SRS review state.
+- **Custom Tipcards**: External workflows can submit grey `custom_tip` cards for summaries or reminders without adding scheduling review state.
 - **Active Card Limit**: A global max-active-cards setting can stop new card creation while still allowing due and pinned cards to be reviewed.
 - **Any OpenAI-Compatible LLM**: Configure the API key, base URL, and model through the protobuf API — no hardcoded vendor lock-in.
 - **Token Spend Counters**: The browser dashboard tracks OpenAI-compatible `usage.total_tokens` for daily, monthly, and lifetime LLM calls.
@@ -24,7 +24,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Optional Server Self-Updates**: Disabled by default. The systemd install includes a root-owned updater timer; enabling it through the API polls GitHub, rebuilds from the configured repository branch, installs the new binary, schema, templates, and static assets, and restarts the service.
 - **Bootstrap Admin Token**: On first startup the server generates and prints an admin token. Use it only with `bootstrap_api_key` to create a full-access API key.
 - **Protobuf API**: The only public API is a single protobuf request/response envelope for both client and admin operations.
-- **Single-User, Multi-Client**: One user's SRS state is shared across all clients (desktop widget, Telegram bot, etc.) via per-client API keys.
+- **Single-User, Multi-Client**: One user's scheduling state is shared across all clients (desktop widget, Telegram bot, etc.) via per-client API keys.
 - **SQLite Database**: Lightweight persistence via `sqlx` with compile-time query validation.
 
 ## Screenshots
@@ -58,7 +58,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 │   └── srs.rs         # SM-2 and FSRS algorithm implementations
 ├── schema.sql         # SQLite table definitions (applied automatically on startup)
 ├── proto/
-│   └── dailytip.proto # Protobuf schema for the unified API
+│   └── denpie.proto # Protobuf schema for the unified API
 ├── templates/
 │   └── app.html       # Root control page using /api
 ├── static/
@@ -89,7 +89,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    cargo run
    ```
    The server starts on `http://127.0.0.1:3017` by default. On the first run it will:
-   - Create `dailytip.db` and apply `schema.sql` automatically.
+   - Create `denpie.db` and apply `schema.sql` automatically.
    - Generate and print a one-time admin token to the console.
 
 4. **Open the root page** at `http://127.0.0.1:3017/`, or call `POST /api` directly. Use `bootstrap_api_key` with the printed `admin_token` to create the first `sk_live_*` full-access key.
@@ -100,7 +100,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    - **LLM Base URL** — e.g. `https://openrouter.ai/api/v1` or `https://generativelanguage.googleapis.com/v1beta/openai`
    - **Prompt Template** — use `{topic}` as the placeholder; `{context}`, `{existing_cards}`, and `{dismissed_cards}` can place prior card titles explicitly
 
-   Each topic can also define its own prompt, daily card count, and card refresh time with `update_topic`; the browser dashboard uses the global time zone setting. Topics can be deleted from the browser control panel or with `delete_topic`; deleting a topic also deletes its cards and review state. The browser control panel has a class switcher for Casual, Repeatable, and Manual cards; Manual cards are saved from user-entered text and do not call the LLM. In Manual mode, Tab or Enter moves from the title field straight to the card text; in the card text, Enter saves the card and Shift+Enter inserts a newline. External systems can use `submit_custom_tipcard` to store `custom_tip` cards for summaries and reminders; these cards return `topic_class = "custom"` and do not create SRS review state. Active cards can be pinned so they remain in a separate top section even before their next review time; unpinning returns them to normal scheduling. Use **Force Daily Refresh** in settings to move current generated cards out of the active daily view and pull replacements immediately without marking the old cards dismissed; protobuf clients can use `force_daily_refresh` for all generated topics or selected topics. Set **Max Active Cards** to stop creating new cards once active review state reaches that number; `0` means unlimited, and existing due/pinned cards remain available. Empty topic prompts and time fields fall back to the global settings. When a new generated card is created, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
+   Each topic can also define its own prompt, daily card count, and card refresh time with `update_topic`; the browser dashboard uses the global time zone setting. Topics can be deleted from the browser control panel or with `delete_topic`; deleting a topic also deletes its cards and review state. The browser control panel has a class switcher for Casual, Repeatable, and Manual cards; Manual cards are saved from user-entered text and do not call the LLM. In Manual mode, Tab or Enter moves from the title field straight to the card text; in the card text, Enter saves the card and Shift+Enter inserts a newline. External systems can use `submit_custom_tipcard` to store `custom_tip` cards for summaries and reminders; these cards return `topic_class = "custom"` and do not create scheduling review state. Active cards can be pinned so they remain in a separate top section even before their next review time; unpinning returns them to normal scheduling. Use **Force Daily Refresh** in settings to move current generated cards out of the active daily view and pull replacements immediately without marking the old cards dismissed; protobuf clients can use `force_daily_refresh` for all generated topics or selected topics. Set **Max Active Cards** to stop creating new cards once active review state reaches that number; `0` means unlimited, and existing due/pinned cards remain available. Empty topic prompts and time fields fall back to the global settings. When a new generated card is created, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
 
 6. **Use the API key** in `ApiRequest.auth` for every operation except `bootstrap_api_key`.
 
@@ -123,7 +123,7 @@ All runtime configuration lives in `settings.yaml` and is managed through the pr
 | `daily_time_zone` | Default IANA time zone or fixed `UTC+n` offset used for daily topic-card refresh windows | `UTC` |
 | `daily_update_time` | Default local `HH:MM` card refresh time when each topic can receive new daily cards | `00:00` |
 | `autoupdate_enabled` | Enable GitHub commit polling and server self-updates | `false` |
-| `autoupdate_repo` | GitHub repository in `owner/repo` form, or a GitHub URL | `slopfire/dailytipdraft` |
+| `autoupdate_repo` | GitHub repository in `owner/repo` form, or a GitHub URL | `slopfire/denpie` |
 | `autoupdate_branch` | Branch or ref checked through the GitHub commits API | `master` |
 | `autoupdate_check_interval_secs` | Poll interval in seconds; values below 60 are clamped to 60 | `3600` |
 | `autoupdate_command` | Optional local shell command for non-systemd server updates after a new commit is detected | *(empty)* |
@@ -131,21 +131,21 @@ All runtime configuration lives in `settings.yaml` and is managed through the pr
 
 ### Server Self-Updates
 
-Server self-updates are intentionally off by default. For the systemd installation, the installer enables a `dailytipdraft-autoupdate.timer` that reads `settings.yaml`; checking **Enable Server Self-Updates** in the app is enough. On the first successful check the updater records the current commit SHA as a baseline and does not update. On later checks, a changed SHA triggers a root-owned update helper that fetches the configured branch, runs `cargo build --release`, installs the new binary plus shared files, records the new SHA, and restarts `dailytipdraft.service`. The host must keep the build tools available after installation (`git`, `cargo` from the installer-managed rustup toolchain or another Rust installation, and `protoc`/`protobuf-compiler`).
+Server self-updates are intentionally off by default. For the systemd installation, the installer enables a `denpie-autoupdate.timer` that reads `settings.yaml`; checking **Enable Server Self-Updates** in the app is enough. On the first successful check the updater records the current commit SHA as a baseline and does not update. On later checks, a changed SHA triggers a root-owned update helper that fetches the configured branch, runs `cargo build --release`, installs the new binary plus shared files, records the new SHA, and restarts `denpie.service`. The host must keep the build tools available after installation (`git`, `cargo` from the installer-managed rustup toolchain or another Rust installation, and `protoc`/`protobuf-compiler`).
 
-The settings screen also has a **Check Server Now** button. It shows staged progress while saving server update settings, checking GitHub, and, when a new commit is found, starting the server update flow. If `autoupdate_command` is empty, it starts the default systemd updater service (`dailytipdraft-autoupdate.service`) with `systemctl start --no-block`; set `DAILYTIP_AUTOUPDATE_SERVICE` to use a different unit name. The installer also installs a narrow polkit rule allowing the `dailytipdraft` service user to start only that updater unit. If the unit or permission rule is missing, the check fails with a configuration message instead of a raw systemctl failure. For non-systemd or custom deployments it runs the configured `autoupdate_command` immediately after checking GitHub. When a server update is found, the browser shows the target commit, polls `/admin/autoupdate/status` for real updater phases, and polls the server build SHA after restart, so it only reports completion when the deployed server changes. The updater records `autoupdate_last_seen_sha` only after a successful service restart, allowing failed restarts to be retried. You can also manually trigger the root-owned updater with:
+The settings screen also has a **Check Server Now** button. It shows staged progress while saving server update settings, checking GitHub, and, when a new commit is found, starting the server update flow. If `autoupdate_command` is empty, it starts the default systemd updater service (`denpie-autoupdate.service`) with `systemctl start --no-block`; set `DENPIE_AUTOUPDATE_SERVICE` to use a different unit name. The installer also installs a narrow polkit rule allowing the `denpie` service user to start only that updater unit. If the unit or permission rule is missing, the check fails with a configuration message instead of a raw systemctl failure. For non-systemd or custom deployments it runs the configured `autoupdate_command` immediately after checking GitHub. When a server update is found, the browser shows the target commit, polls `/admin/autoupdate/status` for real updater phases, and polls the server build SHA after restart, so it only reports completion when the deployed server changes. The updater records `autoupdate_last_seen_sha` only after a successful service restart, allowing failed restarts to be retried. You can also manually trigger the root-owned updater with:
 
 ```bash
-sudo systemctl start dailytipdraft-autoupdate.service
+sudo systemctl start denpie-autoupdate.service
 ```
 
 Manual systemd starts bypass the saved check interval; the helper still exits without changes when the recorded SHA already matches the remote branch.
 
-Default repository comes from this repo's `origin` remote: `slopfire/dailytipdraft`. You can override it with another `owner/repo`, `https://github.com/owner/repo`, or `git@github.com:owner/repo.git` value. Example:
+Default repository comes from this repo's `origin` remote: `slopfire/denpie`. You can override it with another `owner/repo`, `https://github.com/owner/repo`, or `git@github.com:owner/repo.git` value. Example:
 
 ```yaml
 autoupdate_enabled: true
-autoupdate_repo: slopfire/dailytipdraft
+autoupdate_repo: slopfire/denpie
 autoupdate_branch: master
 autoupdate_check_interval_secs: 1800
 ```
@@ -158,21 +158,21 @@ The server can run from the project directory with defaults, or from an installe
 
 | Variable | Description | Default |
 |---|---|---|
-| `DAILYTIP_BIND_ADDR` | Listen address and port | `127.0.0.1:3017` |
-| `DAILYTIP_DATA_DIR` | Directory for `settings.yaml` and `dailytip.db` | current directory |
-| `DAILYTIP_SCHEMA_PATH` | Path to `schema.sql` | `schema.sql` in the current directory |
-| `DAILYTIP_TEMPLATE_DIR` | Directory containing `app.html` | `templates` in the current directory |
-| `DAILYTIP_STATIC_DIR` | Directory served at `/static` | `static` in the current directory |
+| `DENPIE_BIND_ADDR` | Listen address and port | `127.0.0.1:3017` |
+| `DENPIE_DATA_DIR` | Directory for `settings.yaml` and `denpie.db` | current directory |
+| `DENPIE_SCHEMA_PATH` | Path to `schema.sql` | `schema.sql` in the current directory |
+| `DENPIE_TEMPLATE_DIR` | Directory containing `app.html` | `templates` in the current directory |
+| `DENPIE_STATIC_DIR` | Directory served at `/static` | `static` in the current directory |
 
 Example:
 
 ```bash
-DAILYTIP_BIND_ADDR=127.0.0.1:3017 \
-DAILYTIP_DATA_DIR=/var/lib/dailytipdraft \
-DAILYTIP_SCHEMA_PATH=/usr/local/share/dailytipdraft/schema.sql \
-DAILYTIP_TEMPLATE_DIR=/usr/local/share/dailytipdraft/templates \
-DAILYTIP_STATIC_DIR=/usr/local/share/dailytipdraft/static \
-dailytipdraft
+DENPIE_BIND_ADDR=127.0.0.1:3017 \
+DENPIE_DATA_DIR=/var/lib/denpie \
+DENPIE_SCHEMA_PATH=/usr/local/share/denpie/schema.sql \
+DENPIE_TEMPLATE_DIR=/usr/local/share/denpie/templates \
+DENPIE_STATIC_DIR=/usr/local/share/denpie/static \
+denpie
 ```
 
 ## Deployment
@@ -185,17 +185,17 @@ Use the installer on a Linux host with systemd:
 ./install.sh
 ```
 
-The installer installs Rust with rustup if `cargo` is not available, builds `target/release/dailytipdraft`, installs the binary to `/usr/local/bin/dailytipdraft`, installs `schema.sql`, the root page, and static assets to `/usr/local/share/dailytipdraft`, creates a `dailytipdraft` system user, stores runtime data in `/var/lib/dailytipdraft`, and starts `dailytipdraft.service`. It uses `sudo` internally for system directories, service users, and systemd commands.
-It also installs and enables `dailytipdraft-autoupdate.timer`, which stays idle unless `autoupdate_enabled: true` is set in `settings.yaml`.
+The installer installs Rust with rustup if `cargo` is not available, builds `target/release/denpie`, installs the binary to `/usr/local/bin/denpie`, installs `schema.sql`, the root page, and static assets to `/usr/local/share/denpie`, creates a `denpie` system user, stores runtime data in `/var/lib/denpie`, and starts `denpie.service`. It uses `sudo` internally for system directories, service users, and systemd commands.
+It also installs and enables `denpie-autoupdate.timer`, which stays idle unless `autoupdate_enabled: true` is set in `settings.yaml`.
 
 Useful commands:
 
 ```bash
-sudo systemctl status dailytipdraft
-sudo journalctl -u dailytipdraft -f
-sudo systemctl restart dailytipdraft
-sudo systemctl status dailytipdraft-autoupdate.timer
-sudo systemctl start dailytipdraft-autoupdate.service
+sudo systemctl status denpie
+sudo journalctl -u denpie -f
+sudo systemctl restart denpie
+sudo systemctl status denpie-autoupdate.timer
+sudo systemctl start denpie-autoupdate.service
 ./install.sh uninstall
 ```
 
@@ -208,7 +208,7 @@ BIND_ADDR=127.0.0.1:3010 ./install.sh
 The generated admin token is printed in the service logs on first startup:
 
 ```bash
-sudo journalctl -u dailytipdraft -n 100 --no-pager
+sudo journalctl -u denpie -n 100 --no-pager
 ```
 
 ### Docker
@@ -216,21 +216,21 @@ sudo journalctl -u dailytipdraft -n 100 --no-pager
 Build and run:
 
 ```bash
-docker build -t dailytipdraft .
+docker build -t denpie .
 docker run -d \
-  --name dailytipdraft \
+  --name denpie \
   --network host \
-  -v dailytipdraft-data:/var/lib/dailytipdraft \
-  dailytipdraft
+  -v denpie-data:/var/lib/denpie \
+  denpie
 ```
 
 Read the first-start admin token:
 
 ```bash
-docker logs dailytipdraft
+docker logs denpie
 ```
 
-The Docker image listens on `127.0.0.1:3017` by default and stores `settings.yaml` plus `dailytip.db` in `/var/lib/dailytipdraft`.
+The Docker image listens on `127.0.0.1:3017` by default and stores `settings.yaml` plus `denpie.db` in `/var/lib/denpie`.
 
 ## API Documentation
 

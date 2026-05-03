@@ -35,4 +35,4 @@ Then put returned `sk_live_*` into `ApiRequest.auth` for every request.
 - `delete_topic`: delete topic + all cards + review state.
 - `get_summary`: counts.
 
-Canonical schema: [`../proto/dailytip.proto`](../proto/dailytip.proto).
+Canonical schema: [`../proto/denpie.proto`](../proto/denpie.proto).

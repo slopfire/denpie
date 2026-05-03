@@ -1,9 +1,9 @@
-# AI Agent Instructions (Daily Tip Server)
+# AI Agent Instructions (Denpie)
 
-**Daily Tip Server** codebase. Primary context guide.
+**Denpie** codebase. Primary context guide.
 
 ## Project Overview
-Backend service for daily tip cards using SRS (FSRS, SM-2). Admin dashboard, API key auth, Gemini LLM tips via `async-openai`.
+Backend service for daily tip cards using intelligent scheduling (FSRS, SM-2). Admin dashboard, API key auth, Gemini LLM tips via `async-openai`.
 
 ## Technology Stack & Best Practices
 - **Language**: Rust (edition 2021)
@@ -17,7 +17,7 @@ Backend service for daily tip cards using SRS (FSRS, SM-2). Admin dashboard, API
 - **Frontend**: Tailwind CSS (Admin UI)
 
 ## Architecture & File Mapping
-- **Design Paradigm**: Single-user, multi-client. Global SRS state; multiple clients (desktop widget, Telegram bot) via API keys.
+- **Design Paradigm**: Single-user, multi-client. Global scheduling state; multiple clients (desktop widget, Telegram bot) via API keys.
 - `src/main.rs`: Axum router, DI (State), DB pool, app init.
 - `src/api.rs`: API routes for `/tips`, `/review`. Reads `settings.yaml`.
 - `src/auth.rs`: Middleware for hashed API key verification (`client_name`).

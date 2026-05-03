@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-APP_NAME="dailytipdraft"
-SERVICE_USER="${SERVICE_USER:-dailytipdraft}"
+APP_NAME="denpie"
+SERVICE_USER="${SERVICE_USER:-denpie}"
 SERVICE_GROUP="${SERVICE_GROUP:-$SERVICE_USER}"
 BIND_ADDR="${BIND_ADDR:-127.0.0.1:3017}"
 BIN_DIR="${BIN_DIR:-/usr/local/bin}"
@@ -20,11 +20,11 @@ Usage: ./install.sh [install|uninstall|print-service]
 Environment overrides:
   BIND_ADDR       listen address for systemd service (default: 127.0.0.1:3017)
   BIN_DIR         binary install directory (default: /usr/local/bin)
-  SHARE_DIR       schema install directory (default: /usr/local/share/dailytipdraft)
-  DATA_DIR        runtime data directory (default: /var/lib/dailytipdraft)
+  SHARE_DIR       schema install directory (default: /usr/local/share/denpie)
+  DATA_DIR        runtime data directory (default: /var/lib/denpie)
   LIBEXEC_DIR     helper script directory (default: /usr/local/libexec)
-  SERVICE_USER    system user name (default: dailytipdraft)
-  SKIP_BUILD=1    install existing target/release/dailytipdraft
+  SERVICE_USER    system user name (default: denpie)
+  SKIP_BUILD=1    install existing target/release/denpie
   RUSTUP_INIT_URL rustup installer URL (default: https://sh.rustup.rs)
 EOF
 }
@@ -99,14 +99,14 @@ write_service() {
         -e "s|^User=.*|User=$SERVICE_USER|" \
         -e "s|^Group=.*|Group=$SERVICE_GROUP|" \
         -e "s|^WorkingDirectory=.*|WorkingDirectory=$DATA_DIR|" \
-        -e "s|^Environment=DAILYTIP_BIND_ADDR=.*|Environment=DAILYTIP_BIND_ADDR=$BIND_ADDR|" \
-        -e "s|^Environment=DAILYTIP_DATA_DIR=.*|Environment=DAILYTIP_DATA_DIR=$DATA_DIR|" \
-        -e "s|^Environment=DAILYTIP_SCHEMA_PATH=.*|Environment=DAILYTIP_SCHEMA_PATH=$SHARE_DIR/schema.sql|" \
-        -e "s|^Environment=DAILYTIP_TEMPLATE_DIR=.*|Environment=DAILYTIP_TEMPLATE_DIR=$SHARE_DIR/templates|" \
-        -e "s|^Environment=DAILYTIP_STATIC_DIR=.*|Environment=DAILYTIP_STATIC_DIR=$SHARE_DIR/static|" \
+        -e "s|^Environment=DENPIE_BIND_ADDR=.*|Environment=DENPIE_BIND_ADDR=$BIND_ADDR|" \
+        -e "s|^Environment=DENPIE_DATA_DIR=.*|Environment=DENPIE_DATA_DIR=$DATA_DIR|" \
+        -e "s|^Environment=DENPIE_SCHEMA_PATH=.*|Environment=DENPIE_SCHEMA_PATH=$SHARE_DIR/schema.sql|" \
+        -e "s|^Environment=DENPIE_TEMPLATE_DIR=.*|Environment=DENPIE_TEMPLATE_DIR=$SHARE_DIR/templates|" \
+        -e "s|^Environment=DENPIE_STATIC_DIR=.*|Environment=DENPIE_STATIC_DIR=$SHARE_DIR/static|" \
         -e "s|^ExecStart=.*|ExecStart=$BIN_DIR/$APP_NAME|" \
         -e "s|^ReadWritePaths=.*|ReadWritePaths=$DATA_DIR|" \
-        deploy/dailytipdraft.service > "$tmp_file"
+        deploy/denpie.service > "$tmp_file"
     run_as_root install -m 0644 "$tmp_file" "$SYSTEMD_DIR/$APP_NAME.service"
     rm -f "$tmp_file"
 }
@@ -125,7 +125,7 @@ STATE_DIR=$DATA_DIR/autoupdate
 PATH=$rust_path
 CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}
 RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}
-DEFAULT_REPO=slopfire/dailytipdraft
+DEFAULT_REPO=slopfire/denpie
 DEFAULT_BRANCH=master
 EOF
     run_as_root install -m 0644 "$tmp_file" "$DEFAULTS_DIR/$APP_NAME-autoupdate"
@@ -134,15 +134,15 @@ EOF
 
 write_autoupdate_units() {
     run_as_root install -d -m 0755 "$LIBEXEC_DIR" "$DEFAULTS_DIR"
-    run_as_root install -m 0755 deploy/dailytipdraft-autoupdate.sh "$LIBEXEC_DIR/$APP_NAME-autoupdate"
+    run_as_root install -m 0755 deploy/denpie-autoupdate.sh "$LIBEXEC_DIR/$APP_NAME-autoupdate"
     tmp_file="$(mktemp)"
     sed \
         -e "s|^EnvironmentFile=.*|EnvironmentFile=-$DEFAULTS_DIR/$APP_NAME-autoupdate|" \
         -e "s|^ExecStart=.*|ExecStart=$LIBEXEC_DIR/$APP_NAME-autoupdate force|" \
-        deploy/dailytipdraft-autoupdate.service > "$tmp_file"
+        deploy/denpie-autoupdate.service > "$tmp_file"
     run_as_root install -m 0644 "$tmp_file" "$SYSTEMD_DIR/$APP_NAME-autoupdate.service"
     rm -f "$tmp_file"
-    run_as_root install -m 0644 deploy/dailytipdraft-autoupdate.timer "$SYSTEMD_DIR/$APP_NAME-autoupdate.timer"
+    run_as_root install -m 0644 deploy/denpie-autoupdate.timer "$SYSTEMD_DIR/$APP_NAME-autoupdate.timer"
     write_autoupdate_defaults
     write_autoupdate_policy
 }
@@ -215,7 +215,7 @@ case "$ACTION" in
         uninstall_app
         ;;
     print-service)
-        sed "s|127.0.0.1:3017|$BIND_ADDR|g" deploy/dailytipdraft.service
+        sed "s|127.0.0.1:3017|$BIND_ADDR|g" deploy/denpie.service
         ;;
     -h|--help|help)
         usage

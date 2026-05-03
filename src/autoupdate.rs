@@ -16,8 +16,8 @@ pub struct AutoupdateConfig {
     pub last_seen_sha: String,
 }
 
-const DEFAULT_REPO: &str = "slopfire/dailytipdraft";
-const DEFAULT_SYSTEMD_UPDATE_SERVICE: &str = "dailytipdraft-autoupdate.service";
+const DEFAULT_REPO: &str = "slopfire/denpie";
+const DEFAULT_SYSTEMD_UPDATE_SERVICE: &str = "denpie-autoupdate.service";
 
 impl AutoupdateConfig {
     pub fn from_settings(settings: &Value) -> Self {
@@ -269,7 +269,7 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
     }
 
     if config.command.is_empty() {
-        let service = std::env::var("DAILYTIP_AUTOUPDATE_SERVICE")
+        let service = std::env::var("DENPIE_AUTOUPDATE_SERVICE")
             .ok()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_SYSTEMD_UPDATE_SERVICE.to_string());
@@ -394,7 +394,7 @@ async fn latest_github_sha(
     let url = format!("https://api.github.com/repos/{repo}/commits/{branch}");
     let res = client
         .get(url)
-        .header(reqwest::header::USER_AGENT, "dailytipdraft-autoupdate")
+        .header(reqwest::header::USER_AGENT, "denpie-autoupdate")
         .send()
         .await
         .map_err(|err| format!("github request failed: {err}"))?;

@@ -36,7 +36,7 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     // Setup Admin Token
-    let data_dir = std::env::var_os("DAILYTIP_DATA_DIR")
+    let data_dir = std::env::var_os("DENPIE_DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
     fs::create_dir_all(&data_dir)
@@ -73,7 +73,7 @@ async fn main() {
     println!(">>> ADMIN SETUP TOKEN: {} <<<", admin_token);
 
     // Setup DB
-    let db_path = data_dir.join("dailytip.db");
+    let db_path = data_dir.join("denpie.db");
     let db_options = SqliteConnectOptions::new()
         .filename(&db_path)
         .create_if_missing(true);
@@ -84,7 +84,7 @@ async fn main() {
         .expect("Failed to create pool");
 
     // Init schema
-    let schema_path = std::env::var_os("DAILYTIP_SCHEMA_PATH")
+    let schema_path = std::env::var_os("DENPIE_SCHEMA_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("schema.sql"));
     let schema = fs::read_to_string(&schema_path)
@@ -111,7 +111,7 @@ async fn main() {
     let shared_state = Arc::new(AppState {
         db: pool,
         settings_path,
-        template_dir: std::env::var_os("DAILYTIP_TEMPLATE_DIR")
+        template_dir: std::env::var_os("DENPIE_TEMPLATE_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("templates")),
     });
@@ -122,9 +122,9 @@ async fn main() {
 
     let app = build_app(shared_state, session_layer);
 
-    let addr = std::env::var("DAILYTIP_BIND_ADDR")
+    let addr = std::env::var("DENPIE_BIND_ADDR")
         .ok()
-        .map(|value| SocketAddr::from_str(&value).expect("Invalid DAILYTIP_BIND_ADDR"))
+        .map(|value| SocketAddr::from_str(&value).expect("Invalid DENPIE_BIND_ADDR"))
         .unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 3017)));
     println!("listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
@@ -135,7 +135,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
     shared_state: Arc<AppState>,
     session_layer: SessionManagerLayer<S>,
 ) -> Router {
-    let static_dir = std::env::var_os("DAILYTIP_STATIC_DIR")
+    let static_dir = std::env::var_os("DENPIE_STATIC_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("static"));
 

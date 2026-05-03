@@ -1,4 +1,4 @@
--- Database schema for Daily Tip Server
+-- Database schema for Denpie
 
 CREATE TABLE IF NOT EXISTS api_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

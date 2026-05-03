@@ -99,7 +99,7 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
     let autoupdate_repo = settings
         .get("autoupdate_repo")
         .and_then(|v| v.as_str())
-        .unwrap_or("slopfire/dailytipdraft")
+        .unwrap_or("slopfire/denpie")
         .to_string();
     let autoupdate_branch = settings
         .get("autoupdate_branch")
@@ -137,7 +137,7 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
 
     Json(SettingsRes {
         server_version: env!("CARGO_PKG_VERSION").to_string(),
-        build_sha: option_env!("DAILYTIP_BUILD_SHA")
+        build_sha: option_env!("DENPIE_BUILD_SHA")
             .unwrap_or("unknown")
             .to_string(),
         model,
@@ -327,7 +327,7 @@ pub async fn trigger_autoupdate(State(state): State<Arc<AppState>>) -> Response 
                 restarting: result.should_exit_for_restart,
                 updating: result.update_started,
                 target_sha: result.target_sha,
-                build_sha: option_env!("DAILYTIP_BUILD_SHA")
+                build_sha: option_env!("DENPIE_BUILD_SHA")
                     .unwrap_or("unknown")
                     .to_string(),
             })

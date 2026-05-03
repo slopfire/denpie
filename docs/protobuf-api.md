@@ -1,4 +1,4 @@
-# Daily Tip Unified Protobuf API
+# Denpie Unified Protobuf API
 
 Base URL for local development:
 
@@ -8,7 +8,7 @@ http://127.0.0.1:3017
 
 `POST /api` is the canonical API for both card clients and administration. The server is single-user, so an API key has full access to tips, reviews, settings, API-key management, topic metadata, card deletion, card pinning, and summary counts.
 
-Requests and responses use `application/x-protobuf` with the canonical schema in [`proto/dailytip.proto`](../proto/dailytip.proto).
+Requests and responses use `application/x-protobuf` with the canonical schema in [`proto/denpie.proto`](../proto/denpie.proto).
 
 The root page at `GET /` is a browser control panel that uses this same protobuf endpoint.
 
@@ -37,7 +37,7 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 |---|---|---|
 | `bootstrap_api_key` | `api_key_created` | Create the first/full-access API key using `admin_token`. |
 | `tips` | `tips` | Get due cards, reuse the current daily topic card, generate a new card after the configured daily card refresh time, or create a manual card from user text. |
-| `submit_custom_tipcard` | `tips` | Store an externally supplied custom card without creating SRS review state. |
+| `submit_custom_tipcard` | `tips` | Store an externally supplied custom card without creating scheduling review state. |
 | `review` | `ok` | Review, dismiss, acknowledge, repeat, or memorize a card. |
 | `get_topics` | `topics` | List known topic names. |
 | `get_topic_classes` | `topic_classes` | List topic classes and card behavior types. |
@@ -68,7 +68,7 @@ For user-authored cards, set `TipsQuery.tipcard_type` to `manual_tip` and provid
 
 ## Custom Tipcards
 
-Use `submit_custom_tipcard` for cards that come from external workflows such as email summaries, reminders, or non-client automations. The server stores the card as `tipcard_type = "custom_tip"` under the `topic_class = "custom"` class and returns those names in the `tips.tips[0]` response. Custom cards do not create a `review_states` row, so SRS algorithms never schedule or update them. They still appear in card lists and total card counts.
+Use `submit_custom_tipcard` for cards that come from external workflows such as email summaries, reminders, or non-client automations. The server stores the card as `tipcard_type = "custom_tip"` under the `topic_class = "custom"` class and returns those names in the `tips.tips[0]` response. Custom cards do not create a `review_states` row, so scheduling algorithms never schedule or update them. They still appear in card lists and total card counts.
 
 ```proto
 ApiRequest {

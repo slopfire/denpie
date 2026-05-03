@@ -6,4 +6,4 @@ target
 *.sqlite3
 settings.yaml
 __pycache__
-dailytip_pb2.py
+denpie_pb2.py
