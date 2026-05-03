@@ -2024,29 +2024,74 @@
             cardNode.setPointerCapture?.(event.pointerId);
             cardNode.style.pointerEvents = 'none';
             let targetNode = null;
+            let lastClientX = event.clientX;
+            let lastClientY = event.clientY;
+            let scrollFrame = null;
+            let scrollSpeed = 0;
+            const scrollEdgeSize = Math.min(120, Math.max(72, window.innerHeight * 0.14));
             const setTarget = (nextTarget) => {
               if (targetNode === nextTarget) return;
               targetNode?.classList.remove('drag-over');
               targetNode = nextTarget;
               targetNode?.classList.add('drag-over');
             };
+            const updateTarget = () => {
+              setTarget(cardNodeFromPoint(lastClientX, lastClientY, sourceId));
+            };
+            const stopAutoScroll = () => {
+              scrollSpeed = 0;
+              if (scrollFrame !== null) {
+                cancelAnimationFrame(scrollFrame);
+                scrollFrame = null;
+              }
+            };
+            const updateAutoScroll = () => {
+              if (lastClientY < scrollEdgeSize) {
+                scrollSpeed = -Math.ceil((1 - (lastClientY / scrollEdgeSize)) * 18);
+              } else if (lastClientY > window.innerHeight - scrollEdgeSize) {
+                scrollSpeed = Math.ceil((1 - ((window.innerHeight - lastClientY) / scrollEdgeSize)) * 18);
+              } else {
+                scrollSpeed = 0;
+              }
+              if (scrollSpeed === 0 || scrollFrame !== null) return;
+              const tick = () => {
+                if (scrollSpeed === 0) {
+                  scrollFrame = null;
+                  return;
+                }
+                window.scrollBy(0, scrollSpeed);
+                updateTarget();
+                scrollFrame = requestAnimationFrame(tick);
+              };
+              scrollFrame = requestAnimationFrame(tick);
+            };
             const onMove = (moveEvent) => {
               moveEvent.preventDefault();
-              setTarget(cardNodeFromPoint(moveEvent.clientX, moveEvent.clientY, sourceId));
+              lastClientX = moveEvent.clientX;
+              lastClientY = moveEvent.clientY;
+              updateTarget();
+              updateAutoScroll();
             };
             const onEnd = (endEvent) => {
               endEvent.preventDefault();
+              stopAutoScroll();
               cardNode.releasePointerCapture?.(event.pointerId);
-              const droppedOn = targetNode || cardNodeFromPoint(endEvent.clientX, endEvent.clientY, sourceId);
+              lastClientX = endEvent.clientX;
+              lastClientY = endEvent.clientY;
+              const droppedOn = targetNode || cardNodeFromPoint(lastClientX, lastClientY, sourceId);
               const changed = droppedOn && reorderFlowCard(sourceId, droppedOn.dataset.cardId);
               clearFlowDragState();
               if (changed) renderFlow();
             };
-            const onCancel = () => clearFlowDragState();
+            const onCancel = () => {
+              stopAutoScroll();
+              clearFlowDragState();
+            };
             cardNode.addEventListener('pointermove', onMove);
             cardNode.addEventListener('pointerup', onEnd, { once: true });
             cardNode.addEventListener('pointercancel', onCancel, { once: true });
             const cleanup = () => {
+              stopAutoScroll();
               cardNode.removeEventListener('pointermove', onMove);
               cardNode.removeEventListener('pointercancel', onCancel);
             };

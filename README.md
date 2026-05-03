@@ -17,7 +17,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Any OpenAI-Compatible LLM**: Configure the API key, base URL, and model through the protobuf API — no hardcoded vendor lock-in.
 - **Token Spend Counters**: The browser dashboard tracks OpenAI-compatible `usage.total_tokens` for daily, monthly, and lifetime LLM calls.
 - **Unified Protobuf API**: `POST /api` manages tips, reviews, settings, keys, topics, topic deletion, card pinning, cards, and summary counts with one full-access API key.
-- **Root Control Page**: `/` serves a shadcn-inspired browser control panel that talks to the same protobuf API, with stable per-card loading skeletons, compact/full card text controls, title-row fullscreen card viewing, and touch-friendly card reordering.
+- **Root Control Page**: `/` serves a shadcn-inspired browser control panel that talks to the same protobuf API, with stable per-card loading skeletons, compact/full card text controls, title-row fullscreen card viewing, and touch-friendly card reordering with edge auto-scroll.
 - **Single Dashboard Surface**: The browser dashboard is served only at `/`;
 - **CSS-Only Motion**: The control page uses fast page-entry, card-entry, and compact-to-full tipcard animations with reduced-motion support.
 - **Markdown Tipcards**: API responses keep the original raw markdown-capable text so clients can render it however they need.
