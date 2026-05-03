@@ -685,7 +685,8 @@
       expandedCardIds: new Set(),
       fullscreenCardId: null,
       buildSha: '',
-      now: new Date()
+      now: new Date(),
+      softRefreshTimer: null
     };
     const themes = [
       ['carbonfox', 'Carbonfox'],
@@ -1395,9 +1396,28 @@
 
     async function deleteTopic(id, name) {
       if (!window.confirm(`Delete topic "${name}" and all its cards?`)) return;
-      await api('/app/topics', { method: 'DELETE', body: JSON.stringify({ id }) });
-      await refreshAll();
-      toast('Topic deleted');
+      const previousTopics = state.topics;
+      const previousCards = state.archiveCards;
+      const previousOrder = [...state.cardOrder];
+      state.topics = state.topics.filter((topic) => Number(topic.id) !== Number(id));
+      const deletedName = String(name || '').toLowerCase();
+      state.archiveCards = state.archiveCards.filter((card) =>
+        String(card.topic_name || card.topic || '').toLowerCase() !== deletedName
+      );
+      syncCardOrder();
+      renderCardsAndSummary();
+      try {
+        await api('/app/topics', { method: 'DELETE', body: JSON.stringify({ id }) });
+        scheduleSoftRefresh();
+        toast('Topic deleted');
+      } catch (err) {
+        state.topics = previousTopics;
+        state.archiveCards = previousCards;
+        state.cardOrder = previousOrder;
+        saveCardOrder();
+        renderCardsAndSummary();
+        toast(err.message);
+      }
     }
 
     function cardActions(card) {
@@ -1816,6 +1836,49 @@
       state.archiveCards = Array.from(byId.values());
     }
 
+    function removeCardLocal(id) {
+      const numericId = Number(id);
+      state.archiveCards = state.archiveCards.filter((card) => Number(card.id) !== numericId);
+      state.cardOrder = state.cardOrder.filter((cardId) => Number(cardId) !== numericId);
+      if (state.fullscreenCardId === numericId) state.fullscreenCardId = null;
+      saveCardOrder();
+    }
+
+    function patchCardLocal(id, patch) {
+      const numericId = Number(id);
+      state.archiveCards = state.archiveCards.map((card) =>
+        Number(card.id) === numericId ? { ...card, ...patch } : card
+      );
+    }
+
+    function renderCardsAndSummary() {
+      state.now = new Date();
+      renderStats();
+      renderTopics();
+      renderFlow();
+      renderArchive();
+    }
+
+    function scheduleSoftRefresh(delay = 150) {
+      window.clearTimeout(state.softRefreshTimer);
+      state.softRefreshTimer = window.setTimeout(async () => {
+        try {
+          const [summary, topics, cards] = await Promise.all([
+            api('/app/summary'),
+            api('/app/topics'),
+            api('/admin/tipcards')
+          ]);
+          state.summary = summary;
+          state.topics = topics;
+          state.archiveCards = cards;
+          syncCardOrder();
+          renderCardsAndSummary();
+        } catch (err) {
+          toast(err.message);
+        }
+      }, delay);
+    }
+
     async function pullReplacementCard(card, excludeCardIds = []) {
       const tipcardType = card.tipcard_type || 'repeatable_tip';
       const topic = card.topic_name || card.topic;
@@ -1929,10 +1992,17 @@
       const shouldAdvanceRepeatable = card?.tipcard_type === 'repeatable_tip' && ['dismiss', 'memorize', 'repeat'].includes(action);
       const shouldReplace = card && ((card.tipcard_type === 'casual_tip' && action === 'dismiss') || shouldAdvanceRepeatable);
       const excludeCardIds = shouldReplace ? visibleReplacementExclusions() : [];
+      const previousCards = state.archiveCards;
+      const previousOrder = [...state.cardOrder];
       if (shouldReplace) {
         state.loadingCardIds.add(cardId);
-        renderFlow();
+      } else {
+        patchCardLocal(cardId, {
+          next_review_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          status: 'active'
+        });
       }
+      renderCardsAndSummary();
       try {
         await api('/app/review', {
           method: 'POST',
@@ -1941,37 +2011,59 @@
         if (shouldReplace) {
           const replacementCards = await pullReplacementCard(card, excludeCardIds);
           insertCardOrderAfter(cardId, replacementCards.map((item) => item.id));
+          removeCardLocal(cardId);
           mergeCardsIntoArchive(replacementCards);
-          state.loadingCardIds.delete(cardId);
-          renderFlow();
         }
-        await refreshAll();
-        toast(shouldReplace ? 'Next card loaded' : 'Review saved');
-      } finally {
         state.loadingCardIds.delete(cardId);
-        renderFlow();
+        renderCardsAndSummary();
+        scheduleSoftRefresh();
+        toast(shouldReplace ? 'Next card loaded' : 'Review saved');
+      } catch (err) {
+        state.archiveCards = previousCards;
+        state.cardOrder = previousOrder;
+        state.loadingCardIds.delete(cardId);
+        saveCardOrder();
+        renderCardsAndSummary();
+        toast(err.message);
       }
     }
 
     async function deleteCard(id) {
-      await api('/admin/tipcards', { method: 'DELETE', body: JSON.stringify({ id }) });
-      state.cardOrder = state.cardOrder.filter((cardId) => Number(cardId) !== Number(id));
-      if (state.fullscreenCardId === Number(id)) state.fullscreenCardId = null;
-      saveCardOrder();
-      await refreshAll();
-      toast('Card deleted');
+      const previousCards = state.archiveCards;
+      const previousOrder = [...state.cardOrder];
+      const previousFullscreen = state.fullscreenCardId;
+      removeCardLocal(id);
+      renderCardsAndSummary();
+      try {
+        await api('/admin/tipcards', { method: 'DELETE', body: JSON.stringify({ id }) });
+        scheduleSoftRefresh();
+        toast('Card deleted');
+      } catch (err) {
+        state.archiveCards = previousCards;
+        state.cardOrder = previousOrder;
+        state.fullscreenCardId = previousFullscreen;
+        saveCardOrder();
+        renderCardsAndSummary();
+        toast(err.message);
+      }
     }
 
     async function togglePinCard(id, pinned) {
-      await api('/admin/tipcards', {
-        method: 'PATCH',
-        body: JSON.stringify({ id, pinned })
-      });
-      state.archiveCards = state.archiveCards.map((card) =>
-        Number(card.id) === Number(id) ? { ...card, pinned } : card
-      );
-      await refreshAll();
-      toast(pinned ? 'Card pinned' : 'Card unpinned');
+      const previousCards = state.archiveCards;
+      patchCardLocal(id, { pinned });
+      renderCardsAndSummary();
+      try {
+        await api('/admin/tipcards', {
+          method: 'PATCH',
+          body: JSON.stringify({ id, pinned })
+        });
+        scheduleSoftRefresh();
+        toast(pinned ? 'Card pinned' : 'Card unpinned');
+      } catch (err) {
+        state.archiveCards = previousCards;
+        renderCardsAndSummary();
+        toast(err.message);
+      }
     }
 
     async function refreshDailyCasualCards() {
@@ -1993,8 +2085,11 @@
           });
           const replacementCards = await pullReplacementCard(card);
           insertCardOrderAfter(card.id, replacementCards.map((item) => item.id));
+          removeCardLocal(card.id);
+          mergeCardsIntoArchive(replacementCards);
+          renderCardsAndSummary();
         }
-        await refreshAll();
+        scheduleSoftRefresh();
         toast('Casual cards refreshed');
       } finally {
         state.refreshingFlow = false;
