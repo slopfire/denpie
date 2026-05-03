@@ -61,6 +61,8 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 │   └── dailytip.proto # Protobuf schema for the unified API
 ├── templates/
 │   └── app.html       # Root control page using /api
+├── static/
+│   └── assets/        # Browser dashboard images and static files
 ├── docs/              # API documentation
 └── settings.yaml      # Runtime config, generated locally and ignored
 ```

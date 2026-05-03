@@ -284,7 +284,14 @@
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      background: hsl(var(--background));
+      background-color: hsl(var(--background));
+      background-image:
+        linear-gradient(90deg, hsl(var(--background)) 0%, hsl(var(--background) / .95) 43%, hsl(var(--background) / .72) 67%, hsl(var(--background) / .40) 100%),
+        url("/static/assets/app-background.webp");
+      background-repeat: no-repeat;
+      background-position: center, right center;
+      background-size: cover, auto 100vh;
+      background-attachment: fixed;
       color: var(--text);
       font-family: Inter, ui-sans-serif, system-ui, sans-serif;
       font-size: 14px;
