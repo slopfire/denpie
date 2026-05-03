@@ -1905,9 +1905,62 @@
                 </section>
 
                 <section id="view-archive" class="hidden-view">
-                    <h1 class="text-xl font-semibold tracking-tight mb-4">
-                        Archive
-                    </h1>
+                    <div
+                        class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between"
+                    >
+                        <div>
+                            <h1 class="text-xl font-semibold tracking-tight">
+                                Archive
+                            </h1>
+                            <p
+                                id="archive-count"
+                                class="mt-1 text-sm text-muted"
+                            ></p>
+                        </div>
+                        <div
+                            class="grid w-full gap-2 sm:grid-cols-[minmax(0,1fr)_180px_auto] lg:max-w-2xl"
+                        >
+                            <label class="sr-only" for="archive-search"
+                                >Search archive</label
+                            >
+                            <div class="relative">
+                                <iconify-icon
+                                    icon="radix-icons:magnifying-glass"
+                                    class="radix-icon pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+                                    aria-hidden="true"
+                                ></iconify-icon>
+                                <input
+                                    id="archive-search"
+                                    class="w-full rounded-md border border-token bg-transparent py-2 pl-9 pr-3"
+                                    placeholder="Search cards, titles, topics"
+                                    autocomplete="off"
+                                />
+                            </div>
+                            <select
+                                id="archive-status"
+                                class="w-full rounded-md border border-token bg-transparent px-3 py-2"
+                            >
+                                <option value="all">All status</option>
+                                <option value="active">Active</option>
+                                <option value="acknowledged">Acknowledged</option>
+                                <option value="memorized">Memorized</option>
+                                <option value="dismissed">Dismissed</option>
+                                <option value="custom">Custom</option>
+                            </select>
+                            <button
+                                id="archive-clear"
+                                type="button"
+                                class="border border-token px-3 py-2"
+                                title="Clear archive search"
+                            >
+                                <iconify-icon
+                                    icon="radix-icons:cross-2"
+                                    class="radix-icon"
+                                    aria-hidden="true"
+                                ></iconify-icon>
+                            </button>
+                        </div>
+                    </div>
                     <div
                         id="archive-list"
                         class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3"
@@ -1979,6 +2032,8 @@
                 topics: [],
                 tokenSpend: { daily: 0, monthly: 0, total: 0 },
                 archiveCards: [],
+                archiveSearch: "",
+                archiveStatus: "all",
                 keys: [],
                 currentView: "dashboard",
                 flowLayout: savedFlowLayout(),
@@ -2998,6 +3053,38 @@
                 );
             }
 
+            function searchableCardText(card) {
+                return [
+                    card.topic_name,
+                    card.topic,
+                    card.title,
+                    card.full_content,
+                    card.compressed_content,
+                    card.tipcard_type,
+                    card.topic_class,
+                    card.status,
+                ]
+                    .filter(Boolean)
+                    .join(" ")
+                    .toLowerCase();
+            }
+
+            function archiveFilteredCards() {
+                const query = state.archiveSearch.trim().toLowerCase();
+                const status = state.archiveStatus || "all";
+                return orderedCards().filter((card) => {
+                    const cardStatus = card.status || "active";
+                    if (status !== "all" && cardStatus !== status)
+                        return false;
+                    if (!query) return true;
+                    return query
+                        .split(/\s+/)
+                        .every((part) =>
+                            searchableCardText(card).includes(part),
+                        );
+                });
+            }
+
             function isCardDue(card) {
                 const raw = String(card.next_review_at || "").trim();
                 if (!raw) return true;
@@ -3826,12 +3913,23 @@
             }
 
             function renderArchive() {
+                const cards = archiveFilteredCards();
+                const total = state.archiveCards.length;
+                const queryActive =
+                    state.archiveSearch.trim() ||
+                    (state.archiveStatus && state.archiveStatus !== "all");
+                $("archive-count").textContent = queryActive
+                    ? `${cards.length} of ${total} cards`
+                    : `${total} cards`;
                 $("archive-list").innerHTML =
-                    orderedCards()
+                    cards
                         .map(
                             (card) => `<article class="surface border p-4">
         <div class="flex justify-between gap-3 mb-3">
-          <div class="font-semibold">${escapeHtml(card.topic_name || card.topic)}</div>
+          <div>
+            <div class="font-semibold">${escapeHtml(card.title || card.topic_name || card.topic)}</div>
+            ${card.title ? `<div class="text-xs text-muted mt-1">${escapeHtml(card.topic_name || card.topic || "")}</div>` : ""}
+          </div>
           <div class="flex items-center gap-2">
             <span class="badge">${escapeHtml(card.status && card.status !== "active" ? card.status : cardBadgeLabel(card))}</span>
             <button onclick="togglePinCard(${card.id}, ${card.pinned ? "false" : "true"})" class="border border-token p-1 ${card.pinned ? "bg-primary-soft text-primary" : ""}" title="${card.pinned ? "Unpin card" : "Pin card"}">${radixIcon(card.pinned ? "drawing-pin-filled" : "drawing-pin")}</button>
@@ -3847,7 +3945,7 @@
       </article>`,
                         )
                         .join("") ||
-                    `<div class="surface border p-4 text-muted">No cards yet.</div>`;
+                    `<div class="surface border p-4 text-muted">${queryActive ? "No matching cards." : "No cards yet."}</div>`;
             }
 
             async function refreshAll() {
@@ -4536,6 +4634,21 @@
                     forceDailyRefresh().catch((err) => toast(err.message)),
                 );
                 $("topic-search").addEventListener("input", renderTopics);
+                $("archive-search").addEventListener("input", (event) => {
+                    state.archiveSearch = event.target.value;
+                    renderArchive();
+                });
+                $("archive-status").addEventListener("change", (event) => {
+                    state.archiveStatus = event.target.value;
+                    renderArchive();
+                });
+                $("archive-clear").addEventListener("click", () => {
+                    state.archiveSearch = "";
+                    state.archiveStatus = "all";
+                    $("archive-search").value = "";
+                    $("archive-status").value = "all";
+                    renderArchive();
+                });
                 $("tips-form").addEventListener("submit", (event) => {
                     event.preventDefault();
                     pullTips().catch((err) => toast(err.message));

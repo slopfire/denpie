@@ -1,6 +1,6 @@
 use crate::{api, autoupdate, llm, AppState};
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Response},
     Json,
@@ -8,6 +8,7 @@ use axum::{
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sqlx::{QueryBuilder, Sqlite};
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
@@ -888,6 +889,7 @@ pub async fn delete_topic(
 pub struct TipcardInfo {
     pub id: i64,
     pub topic_name: String,
+    pub title: String,
     pub full_content: String,
     pub compressed_content: String,
     pub image_data: Vec<String>,
@@ -900,64 +902,151 @@ pub struct TipcardInfo {
     pub pinned: bool,
 }
 
-pub async fn list_tipcards(State(state): State<Arc<AppState>>) -> Json<Vec<TipcardInfo>> {
-    let rows = sqlx::query_as::<
-        _,
-        (
-            i64,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            i64,
-        ),
-    >(
+#[derive(Default, Deserialize)]
+pub struct ListTipcardsQuery {
+    pub q: Option<String>,
+    pub status: Option<String>,
+    pub topic: Option<String>,
+    pub topic_class: Option<String>,
+    pub tipcard_type: Option<String>,
+}
+
+fn escape_like(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+fn push_where(builder: &mut QueryBuilder<Sqlite>, has_where: &mut bool) {
+    if *has_where {
+        builder.push(" AND ");
+    } else {
+        builder.push(" WHERE ");
+        *has_where = true;
+    }
+}
+
+pub async fn list_tipcards(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ListTipcardsQuery>,
+) -> Json<Vec<TipcardInfo>> {
+    let mut builder = QueryBuilder::<Sqlite>::new(
         "SELECT t.id,
                 top.name AS topic_name,
+                COALESCE(t.title, '') AS title,
                 t.full_content,
                 t.compressed_content,
                 COALESCE(t.image_data, '[]') AS image_data,
                 COALESCE(CAST(t.created_at AS TEXT), '') AS created_at,
                 t.tipcard_type,
                 COALESCE(tc.name, 'default') AS topic_class,
-                COALESCE(r.status, 'active') AS status,
+                COALESCE(r.status, CASE WHEN t.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) AS status,
                 COALESCE(CAST(r.next_review_at AS TEXT), '') AS next_review_at,
                 COALESCE(r.state_data, '') AS state_data,
                 COALESCE(t.pinned, 0) AS pinned
          FROM tipcards t
          JOIN topics top ON t.topic_id = top.id
          LEFT JOIN topic_classes tc ON top.class_id = tc.id
-         LEFT JOIN review_states r ON r.card_id = t.id
-         ORDER BY pinned DESC, t.created_at DESC",
-    )
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+         LEFT JOIN review_states r ON r.card_id = t.id",
+    );
+
+    let mut has_where = false;
+    if let Some(q) = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
+        let pattern = format!("%{}%", escape_like(q));
+        push_where(&mut builder, &mut has_where);
+        builder
+            .push("(LOWER(top.name) LIKE LOWER(")
+            .push_bind(pattern.clone())
+            .push(") ESCAPE '\\' OR LOWER(COALESCE(t.title, '')) LIKE LOWER(")
+            .push_bind(pattern.clone())
+            .push(") ESCAPE '\\' OR LOWER(t.full_content) LIKE LOWER(")
+            .push_bind(pattern.clone())
+            .push(") ESCAPE '\\' OR LOWER(t.compressed_content) LIKE LOWER(")
+            .push_bind(pattern)
+            .push(") ESCAPE '\\')");
+    }
+    if let Some(status) = query
+        .status
+        .as_deref()
+        .map(str::trim)
+        .filter(|status| !status.is_empty() && *status != "all")
+    {
+        push_where(&mut builder, &mut has_where);
+        builder
+            .push("COALESCE(r.status, CASE WHEN t.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) = ")
+            .push_bind(status);
+    }
+    if let Some(topic) = query
+        .topic
+        .as_deref()
+        .map(str::trim)
+        .filter(|topic| !topic.is_empty())
+    {
+        push_where(&mut builder, &mut has_where);
+        builder.push("top.name = ").push_bind(topic);
+    }
+    if let Some(topic_class) = query
+        .topic_class
+        .as_deref()
+        .map(str::trim)
+        .filter(|topic_class| !topic_class.is_empty() && *topic_class != "all")
+    {
+        push_where(&mut builder, &mut has_where);
+        builder
+            .push("COALESCE(tc.name, 'default') = ")
+            .push_bind(topic_class);
+    }
+    if let Some(tipcard_type) = query
+        .tipcard_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|tipcard_type| !tipcard_type.is_empty() && *tipcard_type != "all")
+    {
+        push_where(&mut builder, &mut has_where);
+        builder.push("t.tipcard_type = ").push_bind(tipcard_type);
+    }
+    builder.push(" ORDER BY pinned DESC, t.created_at DESC LIMIT 500");
+
+    let rows = builder
+        .build_query_as::<(
+            i64,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            i64,
+        )>()
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
 
     let cards = rows
         .into_iter()
         .map(|r| TipcardInfo {
             id: r.0,
             topic_name: r.1,
-            full_content: r.2,
-            compressed_content: r.3,
-            image_data: serde_json::from_str::<Vec<String>>(&r.4).unwrap_or_default(),
-            created_at: r.5,
-            tipcard_type: r.6,
-            topic_class: r.7,
-            status: r.8,
-            next_review_at: r.9,
-            repeat_count: serde_json::from_str::<serde_json::Value>(&r.10)
+            title: r.2,
+            full_content: r.3,
+            compressed_content: r.4,
+            image_data: serde_json::from_str::<Vec<String>>(&r.5).unwrap_or_default(),
+            created_at: r.6,
+            tipcard_type: r.7,
+            topic_class: r.8,
+            status: r.9,
+            next_review_at: r.10,
+            repeat_count: serde_json::from_str::<serde_json::Value>(&r.11)
                 .ok()
                 .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
                 .unwrap_or(0) as u32,
-            pinned: r.11 != 0,
+            pinned: r.12 != 0,
         })
         .collect();
 
