@@ -266,7 +266,7 @@ fn current_settings(state: &AppState) -> pb::Settings {
         color_scheme: settings
             .get("color_scheme")
             .and_then(|v| v.as_str())
-            .unwrap_or("carbonfox")
+            .unwrap_or("shadcn")
             .to_string(),
         autoupdate_enabled: settings
             .get("autoupdate_enabled")
