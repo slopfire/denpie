@@ -1,4 +1,4 @@
-use crate::{api, autoupdate, AppState};
+use crate::{api, autoupdate, llm, AppState};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -55,7 +55,7 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
     let template = settings
         .get("prompt_template")
         .and_then(|v| v.as_str())
-        .unwrap_or("Give a smart tip about {topic}.")
+        .unwrap_or(llm::DEFAULT_PROMPT_TEMPLATE)
         .to_string();
     let api_key = settings
         .get("llm_api_key")

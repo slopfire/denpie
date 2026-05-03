@@ -240,7 +240,7 @@ fn current_settings(state: &AppState) -> pb::Settings {
         template: settings
             .get("prompt_template")
             .and_then(|v| v.as_str())
-            .unwrap_or("Give a smart tip about {topic}.")
+            .unwrap_or(llm::DEFAULT_PROMPT_TEMPLATE)
             .to_string(),
         api_key: settings
             .get("llm_api_key")
@@ -1229,7 +1229,7 @@ pub async fn build_tips(
     let template = settings
         .get("prompt_template")
         .and_then(|v| v.as_str())
-        .unwrap_or("Give a smart tip about {topic}.")
+        .unwrap_or(llm::DEFAULT_PROMPT_TEMPLATE)
         .to_string();
     let llm_api_key = settings
         .get("llm_api_key")

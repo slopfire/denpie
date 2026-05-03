@@ -1,5 +1,20 @@
 use serde_json::{json, Value};
 
+pub const DEFAULT_PROMPT_TEMPLATE: &str = "\
+Write one genuinely useful daily tip about {topic}.
+
+Make it practical, specific, and worth saving. Do not write a tiny fun fact.
+Include:
+- the core idea in plain language
+- why it matters
+- one concrete example, command, checklist, or mini workflow
+- one caveat or common mistake when useful
+
+Aim for 180-260 words. Markdown is allowed. Avoid filler, hype, and invented facts.";
+
+const MIN_COMPRESS_CHARS: usize = 420;
+const MIN_COMPRESS_WORDS: usize = 70;
+
 #[derive(Clone, Debug, Default)]
 pub struct TokenUsage {
     pub prompt_tokens: i64,
@@ -76,6 +91,13 @@ pub async fn compress_card(
     api_base: &str,
     reasoning: &ReasoningConfig,
 ) -> LlmResponse {
+    if should_keep_full_card(full_content) {
+        return LlmResponse {
+            content: full_content.trim().to_string(),
+            usage: TokenUsage::default(),
+        };
+    }
+
     if api_key.is_empty() {
         return LlmResponse {
             content: format!("Compressed: {}", full_content),
@@ -84,10 +106,30 @@ pub async fn compress_card(
     }
 
     let prompt = format!(
-        "Compress this tip into a very short summary:\n\n{}",
+        "Create the compact card text for this tip.\n\
+         Rules:\n\
+         - Use only facts, steps, commands, examples, and caveats from the source tip.\n\
+         - Do not add new claims, numbers, tools, citations, links, or explanations.\n\
+         - Preserve the most useful actionable details; never reduce it to a vague teaser.\n\
+         - If the source is already card-sized, return it unchanged.\n\
+         - Target 70-110 words, or about 420-650 characters, unless preserving key details needs slightly more.\n\
+         - Keep markdown if it improves scanning on mobile.\n\
+         - Return only the compact card text.\n\n\
+         Source tip:\n{}",
         full_content
     );
     create_chat_completion(model, &prompt, api_key, api_base, reasoning).await
+}
+
+fn should_keep_full_card(full_content: &str) -> bool {
+    let trimmed = full_content.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    let chars = trimmed.chars().count();
+    let words = trimmed.split_whitespace().count();
+    chars <= MIN_COMPRESS_CHARS || words <= MIN_COMPRESS_WORDS
 }
 
 async fn create_chat_completion(
@@ -201,7 +243,7 @@ fn fallback_title(full_content: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::fallback_title;
+    use super::{fallback_title, should_keep_full_card};
 
     #[test]
     fn fallback_title_uses_first_non_empty_line_without_heading_marker() {
@@ -217,5 +259,20 @@ mod tests {
             fallback_title("one two three four five six seven eight nine ten"),
             "one two three four five six seven eight"
         );
+    }
+
+    #[test]
+    fn small_card_is_not_compressed() {
+        let card = "Use `cargo check` before a full test run. It catches type errors quickly and keeps the edit loop short.";
+        assert!(should_keep_full_card(card));
+    }
+
+    #[test]
+    fn long_card_is_compressed() {
+        let card = (0..90)
+            .map(|_| "Keep the actionable detail that matters for the reader.")
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(!should_keep_full_card(&card));
     }
 }

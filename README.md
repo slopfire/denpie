@@ -115,7 +115,7 @@ All runtime configuration lives in `settings.yaml` and is managed through the pr
 | `llm_compress_model` | Model identifier string for compressed summaries and generated card titles | `google/gemini-3.1-flash-lite-preview` |
 | `llm_reasoning_effort` | Reasoning effort for generated tips: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh` | `none` |
 | `llm_compress_reasoning_effort` | Reasoning effort for compressed summaries and generated titles; `none` disables compression/title thinking tokens | `none` |
-| `prompt_template` | Tip generation prompt (`{topic}` placeholder) | `Give a smart tip about {topic}.` |
+| `prompt_template` | Tip generation prompt (`{topic}` placeholder); defaults to a practical 180-260 word card prompt with examples and caveats | See `llm::DEFAULT_PROMPT_TEMPLATE` |
 | `llm_api_key` | API key for the LLM provider | *(empty — set via API)* |
 | `llm_base_url` | Base URL for the OpenAI-compatible API | `https://openrouter.ai/api/v1` |
 | `llm_compress_base_url` | Base URL for compression requests; defaults to `llm_base_url` when missing | `https://openrouter.ai/api/v1` |
@@ -254,7 +254,7 @@ Topic rows can override the daily refresh defaults with `daily_card_count` and `
 
 The token counters use `usage.total_tokens` from each OpenAI-compatible chat completion response. Providers that omit usage metadata contribute zero tokens for that call.
 
-Tip content can include markdown such as headings, lists, emphasis, links, blockquotes, inline code, and fenced code blocks. The built-in browser UI supports common inline combinations such as bold text containing inline code. The protobuf API returns raw `full_content` and `compressed_content` strings so clients can choose their own renderer.
+Tip content can include markdown such as headings, lists, emphasis, links, blockquotes, inline code, and fenced code blocks. The built-in browser UI supports common inline combinations such as bold text containing inline code. The protobuf API returns raw `full_content` and `compressed_content` strings so clients can choose their own renderer. Generated cards below roughly 420 characters or 70 words skip LLM compression and reuse the full content as the compact card text.
 
 ## Running Tests
 
