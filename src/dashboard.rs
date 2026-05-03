@@ -32,7 +32,8 @@ pub struct SettingsRes {
     reasoning_effort: String,
     compress_reasoning_effort: String,
     color_scheme: String,
-    ui_blur: String,
+    transparency: String,
+    blur_intensity: String,
     autoupdate_enabled: bool,
     autoupdate_repo: String,
     autoupdate_branch: String,
@@ -93,8 +94,14 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         .and_then(|v| v.as_str())
         .unwrap_or("shadcn")
         .to_string();
-    let ui_blur = settings
-        .get("ui_blur")
+    let transparency = settings
+        .get("transparency")
+        .or_else(|| settings.get("ui_blur"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("medium")
+        .to_string();
+    let blur_intensity = settings
+        .get("blur_intensity")
         .and_then(|v| v.as_str())
         .unwrap_or("medium")
         .to_string();
@@ -155,7 +162,8 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         reasoning_effort,
         compress_reasoning_effort,
         color_scheme,
-        ui_blur,
+        transparency,
+        blur_intensity,
         autoupdate_enabled,
         autoupdate_repo,
         autoupdate_branch,
@@ -179,6 +187,8 @@ pub struct UpdateSettingsReq {
     reasoning_effort: Option<String>,
     compress_reasoning_effort: Option<String>,
     color_scheme: Option<String>,
+    transparency: Option<String>,
+    blur_intensity: Option<String>,
     ui_blur: Option<String>,
     autoupdate_enabled: Option<bool>,
     autoupdate_repo: Option<String>,
@@ -256,10 +266,17 @@ pub async fn update_settings(
                 serde_yaml::Value::String(color_scheme),
             );
         }
-        if let Some(ui_blur) = req.ui_blur {
+        let transparency = req.transparency.or(req.ui_blur);
+        if let Some(transparency) = transparency {
             map.insert(
-                serde_yaml::Value::String("ui_blur".to_string()),
-                serde_yaml::Value::String(ui_blur),
+                serde_yaml::Value::String("transparency".to_string()),
+                serde_yaml::Value::String(transparency),
+            );
+        }
+        if let Some(blur_intensity) = req.blur_intensity {
+            map.insert(
+                serde_yaml::Value::String("blur_intensity".to_string()),
+                serde_yaml::Value::String(blur_intensity),
             );
         }
         if let Some(autoupdate_enabled) = req.autoupdate_enabled {

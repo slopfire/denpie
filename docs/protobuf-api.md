@@ -41,7 +41,7 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 | `review` | `ok` | Review, dismiss, acknowledge, repeat, or memorize a card. |
 | `get_topics` | `topics` | List known topic names. |
 | `get_topic_classes` | `topic_classes` | List topic classes and card behavior types. |
-| `get_settings` | `settings` | Read LLM, prompt, theme, and server self-update settings. |
+| `get_settings` | `settings` | Read LLM, prompt, theme, appearance, and server self-update settings. |
 | `update_settings` | `ok` | Update provided settings fields. Unset optional fields are preserved. |
 | `create_api_key` | `api_key_created` | Create another full-access API key. |
 | `list_api_keys` | `api_keys` | List key metadata. Raw keys are never returned. |

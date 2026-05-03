@@ -284,43 +284,58 @@
                 --danger: hsl(var(--destructive-hsl));
                 --ok: hsl(var(--chart-2));
                 --glass-blur: 10px;
-                --glass-card-alpha: 0.74;
-                --glass-muted-alpha: 0.68;
-                --glass-strong-alpha: 0.72;
-                --glass-control-alpha: 0.58;
-                --glass-popover-alpha: 0.78;
+                --glass-card-alpha: 0.58;
+                --glass-muted-alpha: 0.5;
+                --glass-strong-alpha: 0.56;
+                --glass-control-alpha: 0.72;
+                --glass-primary-alpha: 1;
+                --glass-popover-alpha: 0.62;
+                --glass-panel-radius: 1rem;
+                --glass-control-radius: 0.8rem;
             }
-            [data-blur="none"] {
+            [data-blur-intensity="none"] {
                 --glass-blur: 0px;
-                --glass-card-alpha: 0.9;
-                --glass-muted-alpha: 0.84;
-                --glass-strong-alpha: 0.86;
-                --glass-control-alpha: 0.78;
-                --glass-popover-alpha: 0.9;
             }
-            [data-blur="low"] {
+            [data-blur-intensity="low"] {
                 --glass-blur: 4px;
-                --glass-card-alpha: 0.8;
-                --glass-muted-alpha: 0.74;
-                --glass-strong-alpha: 0.78;
-                --glass-control-alpha: 0.66;
-                --glass-popover-alpha: 0.84;
             }
-            [data-blur="medium"] {
+            [data-blur-intensity="medium"] {
                 --glass-blur: 10px;
-                --glass-card-alpha: 0.74;
-                --glass-muted-alpha: 0.68;
-                --glass-strong-alpha: 0.72;
-                --glass-control-alpha: 0.58;
-                --glass-popover-alpha: 0.78;
             }
-            [data-blur="full"] {
+            [data-blur-intensity="full"] {
                 --glass-blur: 18px;
-                --glass-card-alpha: 0.66;
-                --glass-muted-alpha: 0.58;
-                --glass-strong-alpha: 0.64;
-                --glass-control-alpha: 0.5;
-                --glass-popover-alpha: 0.7;
+            }
+            [data-transparency="none"] {
+                --glass-card-alpha: 1;
+                --glass-muted-alpha: 1;
+                --glass-strong-alpha: 1;
+                --glass-control-alpha: 1;
+                --glass-primary-alpha: 1;
+                --glass-popover-alpha: 0.94;
+            }
+            [data-transparency="low"] {
+                --glass-card-alpha: 0.72;
+                --glass-muted-alpha: 1;
+                --glass-strong-alpha: 1;
+                --glass-control-alpha: 1;
+                --glass-primary-alpha: 1;
+                --glass-popover-alpha: 0.82;
+            }
+            [data-transparency="medium"] {
+                --glass-card-alpha: 0.58;
+                --glass-muted-alpha: 0.5;
+                --glass-strong-alpha: 0.56;
+                --glass-control-alpha: 0.72;
+                --glass-primary-alpha: 1;
+                --glass-popover-alpha: 0.62;
+            }
+            [data-transparency="full"] {
+                --glass-card-alpha: 0.62;
+                --glass-muted-alpha: 0.54;
+                --glass-strong-alpha: 0.58;
+                --glass-control-alpha: 0.46;
+                --glass-primary-alpha: 0.86;
+                --glass-popover-alpha: 0.68;
             }
             * {
                 box-sizing: border-box;
@@ -390,8 +405,10 @@
                 color: hsl(var(--primary-foreground));
             }
             .bg-primary-solid {
-                background: hsl(var(--primary-hsl));
+                background: hsl(var(--primary-hsl) / var(--glass-primary-alpha));
                 color: hsl(var(--primary-foreground));
+                backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+                -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
             }
             .bg-primary-soft {
                 background: hsl(var(--accent-hsl) / var(--glass-strong-alpha));
@@ -552,6 +569,131 @@
                 background: var(--surface);
                 border-color: var(--border);
                 color: var(--text);
+            }
+            select {
+                color-scheme: inherit;
+            }
+            select option,
+            select optgroup {
+                background: hsl(var(--popover));
+                color: hsl(var(--popover-foreground));
+            }
+            select option:checked {
+                background: hsl(var(--accent-hsl));
+                color: hsl(var(--accent-foreground));
+            }
+            .native-select-hidden {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                opacity: 0;
+                pointer-events: none;
+            }
+            .shadcn-select {
+                position: relative;
+                width: 100%;
+            }
+            .shadcn-select .shadcn-select-trigger {
+                display: flex;
+                min-height: 2.5rem;
+                width: 100%;
+                align-items: center;
+                justify-content: space-between;
+                gap: 0.75rem;
+                border: 1px solid hsl(var(--input-hsl));
+                border-radius: var(--glass-control-radius);
+                background: hsl(var(--background) / var(--glass-control-alpha));
+                color: hsl(var(--foreground));
+                padding: 0.5rem 0.75rem;
+                text-align: left;
+                box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+                backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+                -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+            }
+            button.shadcn-select-trigger:has(.radix-icon):not(.nav-item) {
+                display: flex;
+                justify-content: space-between;
+            }
+            .shadcn-select-trigger:focus-visible {
+                outline: none;
+                border-color: hsl(var(--ring-hsl));
+                box-shadow: 0 0 0 2px hsl(var(--ring-hsl) / 0.28);
+            }
+            .shadcn-select-trigger > .shadcn-select-label {
+                flex: 1;
+                text-align: left;
+            }
+            .shadcn-select-trigger .radix-icon {
+                width: 1rem;
+                height: 1rem;
+                font-size: 1rem;
+                color: hsl(var(--muted-foreground));
+            }
+            .shadcn-select-menu {
+                position: absolute;
+                left: 0;
+                right: 0;
+                top: calc(100% + 0.35rem);
+                z-index: 120;
+                max-height: min(18rem, 52vh);
+                overflow-y: auto;
+                border: 1px solid hsl(var(--border-hsl));
+                border-radius: var(--glass-control-radius);
+                background: hsl(var(--popover));
+                color: hsl(var(--popover-foreground));
+                padding: 0.25rem;
+                box-shadow: 0 18px 48px -24px rgba(0, 0, 0, 0.72);
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+            }
+            .shadcn-select-menu.opens-up {
+                top: auto;
+                bottom: calc(100% + 0.35rem);
+            }
+            .shadcn-select-menu.hidden {
+                display: none;
+            }
+            .shadcn-select .shadcn-select-option {
+                display: grid;
+                min-height: 2rem;
+                width: 100%;
+                grid-template-columns: 1rem minmax(0, 1fr);
+                align-items: center;
+                gap: 0.5rem;
+                border: 0;
+                border-radius: calc(var(--glass-control-radius) - 0.25rem);
+                background: transparent;
+                color: hsl(var(--popover-foreground));
+                padding: 0.35rem 0.5rem;
+                text-align: left;
+                font-size: 0.875rem;
+            }
+            .shadcn-select button.shadcn-select-option:has(.radix-icon):not(.nav-item) {
+                display: grid;
+                justify-content: stretch;
+            }
+            .shadcn-select-option:hover,
+            .shadcn-select-option:focus-visible {
+                outline: none;
+                background: hsl(var(--accent-hsl) / var(--glass-strong-alpha));
+                color: hsl(var(--accent-foreground));
+            }
+            .shadcn-select-option.is-selected {
+                color: hsl(var(--accent-foreground));
+            }
+            .shadcn-select-option-check {
+                display: inline-flex;
+                justify-content: center;
+                opacity: 0;
+            }
+            .shadcn-select-option.is-selected .shadcn-select-option-check {
+                opacity: 1;
+            }
+            .shadcn-select-label {
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
             }
             input::placeholder,
             textarea::placeholder {
@@ -767,14 +909,22 @@
                 max-height: 42vh;
             }
             .surface {
-                border-radius: var(--radius);
+                border-radius: var(--glass-panel-radius);
                 border-width: 1px;
+            }
+            .rounded-md {
+                border-radius: var(--glass-control-radius);
+            }
+            .surface.rounded-md,
+            .tip-type-switch.rounded-md,
+            form.surface {
+                border-radius: var(--glass-panel-radius);
             }
             input,
             textarea,
             select {
                 min-height: 2.5rem;
-                border-radius: calc(var(--radius) - 2px);
+                border-radius: var(--glass-control-radius);
                 background: hsl(var(--background) / var(--glass-control-alpha));
                 border: 1px solid hsl(var(--input-hsl));
                 color: hsl(var(--foreground));
@@ -800,7 +950,7 @@
             button,
             label[for],
             label:has(input[type="file"]) {
-                border-radius: calc(var(--radius) - 2px);
+                border-radius: var(--glass-control-radius);
                 font-weight: 500;
             }
             button:disabled {
@@ -808,7 +958,7 @@
                 opacity: 0.5;
             }
             .bg-primary-solid {
-                border: 1px solid hsl(var(--primary-hsl));
+                border: 1px solid hsl(var(--primary-hsl) / 0.58);
                 box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
             }
             .bg-primary-solid:hover {
@@ -852,7 +1002,7 @@
             }
             .tip-type-switch {
                 background: hsl(var(--muted-hsl) / var(--glass-muted-alpha));
-                border-radius: var(--radius);
+                border-radius: var(--glass-panel-radius);
                 padding: 0.25rem;
                 backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
                 -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
@@ -1558,10 +1708,24 @@
                         </div>
                         <div>
                             <label class="block card-kicker mb-2"
-                                >Interface Blur</label
+                                >Transparency</label
                             >
                             <select
-                                id="ui-blur-input"
+                                id="transparency-input"
+                                class="w-full rounded-md border px-3 py-2"
+                            >
+                                <option value="none">None</option>
+                                <option value="low">Low</option>
+                                <option value="medium">Medium</option>
+                                <option value="full">Full</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block card-kicker mb-2"
+                                >Blur Intensity</label
+                            >
+                            <select
+                                id="blur-intensity-input"
                                 class="w-full rounded-md border px-3 py-2"
                             >
                                 <option value="none">None</option>
@@ -1855,6 +2019,186 @@
                             "'": "&#39;",
                         })[ch],
                 );
+            }
+
+            function selectOptionLabel(option) {
+                return option?.textContent?.trim() || option?.value || "";
+            }
+
+            function selectedOption(select) {
+                return (
+                    Array.from(select.options).find(
+                        (option) => option.value === select.value,
+                    ) || select.options[select.selectedIndex]
+                );
+            }
+
+            function closeShadcnSelect(wrapper) {
+                if (!wrapper) return;
+                const trigger = wrapper.querySelector(".shadcn-select-trigger");
+                const menu = wrapper.querySelector(".shadcn-select-menu");
+                trigger?.setAttribute("aria-expanded", "false");
+                menu?.classList.add("hidden");
+            }
+
+            function closeAllShadcnSelects(except = null) {
+                document
+                    .querySelectorAll(".shadcn-select")
+                    .forEach((wrapper) => {
+                        if (wrapper !== except) closeShadcnSelect(wrapper);
+                    });
+            }
+
+            function syncShadcnSelect(select) {
+                const wrapper = select?._shadcnSelect;
+                if (!wrapper) return;
+                const current = selectedOption(select);
+                const label = wrapper.querySelector(".shadcn-select-label");
+                if (label) label.textContent = selectOptionLabel(current);
+                wrapper
+                    .querySelectorAll(".shadcn-select-option")
+                    .forEach((button) => {
+                        const selected = button.dataset.value === select.value;
+                        button.classList.toggle("is-selected", selected);
+                        button.setAttribute(
+                            "aria-selected",
+                            selected ? "true" : "false",
+                        );
+                    });
+            }
+
+            function openShadcnSelect(wrapper) {
+                closeAllShadcnSelects(wrapper);
+                const trigger = wrapper.querySelector(".shadcn-select-trigger");
+                const menu = wrapper.querySelector(".shadcn-select-menu");
+                trigger?.setAttribute("aria-expanded", "true");
+                menu?.classList.remove("opens-up");
+                menu?.classList.remove("hidden");
+                if (menu && trigger) {
+                    const triggerRect = trigger.getBoundingClientRect();
+                    const spaceBelow = window.innerHeight - triggerRect.bottom;
+                    const spaceAbove = triggerRect.top;
+                    const menuHeight = Math.min(menu.scrollHeight, window.innerHeight * 0.52);
+                    if (spaceBelow < menuHeight + 12 && spaceAbove > spaceBelow) {
+                        menu.classList.add("opens-up");
+                    }
+                }
+                const selected =
+                    menu?.querySelector(".shadcn-select-option.is-selected") ||
+                    menu?.querySelector(".shadcn-select-option");
+                selected?.focus();
+            }
+
+            function moveShadcnOptionFocus(menu, direction) {
+                const options = Array.from(
+                    menu.querySelectorAll(".shadcn-select-option"),
+                );
+                const current = options.indexOf(document.activeElement);
+                const next =
+                    current < 0
+                        ? 0
+                        : (current + direction + options.length) %
+                          options.length;
+                options[next]?.focus();
+            }
+
+            function chooseShadcnOption(select, value) {
+                select.value = value;
+                syncShadcnSelect(select);
+                select.dispatchEvent(new Event("change", { bubbles: true }));
+                closeShadcnSelect(select._shadcnSelect);
+                select._shadcnSelect
+                    ?.querySelector(".shadcn-select-trigger")
+                    ?.focus();
+            }
+
+            function renderShadcnSelectOptions(select, menu) {
+                menu.innerHTML = Array.from(select.options)
+                    .map(
+                        (option) => `<button type="button" role="option" class="shadcn-select-option" data-value="${escapeHtml(option.value)}">
+                            <span class="shadcn-select-option-check">${radixIcon("check")}</span>
+                            <span class="shadcn-select-label">${escapeHtml(selectOptionLabel(option))}</span>
+                        </button>`,
+                    )
+                    .join("");
+                menu.querySelectorAll(".shadcn-select-option").forEach(
+                    (button) => {
+                        button.addEventListener("click", () =>
+                            chooseShadcnOption(select, button.dataset.value),
+                        );
+                        button.addEventListener("keydown", (event) => {
+                            if (event.key === "Escape") {
+                                event.preventDefault();
+                                closeShadcnSelect(select._shadcnSelect);
+                                select._shadcnSelect
+                                    ?.querySelector(".shadcn-select-trigger")
+                                    ?.focus();
+                            } else if (event.key === "ArrowDown") {
+                                event.preventDefault();
+                                moveShadcnOptionFocus(menu, 1);
+                            } else if (event.key === "ArrowUp") {
+                                event.preventDefault();
+                                moveShadcnOptionFocus(menu, -1);
+                            } else if (
+                                event.key === "Enter" ||
+                                event.key === " "
+                            ) {
+                                event.preventDefault();
+                                chooseShadcnOption(
+                                    select,
+                                    document.activeElement.dataset.value,
+                                );
+                            }
+                        });
+                    },
+                );
+            }
+
+            function enhanceShadcnSelect(select) {
+                if (!select || select._shadcnSelect) {
+                    if (select) syncShadcnSelect(select);
+                    return;
+                }
+                select.classList.add("native-select-hidden");
+                select.tabIndex = -1;
+
+                const wrapper = document.createElement("div");
+                wrapper.className = "shadcn-select";
+                wrapper.innerHTML = `<button type="button" class="shadcn-select-trigger" aria-haspopup="listbox" aria-expanded="false">
+                    <span class="shadcn-select-label"></span>
+                    ${radixIcon("chevron-down")}
+                </button><div class="shadcn-select-menu hidden" role="listbox"></div>`;
+                select.after(wrapper);
+                select._shadcnSelect = wrapper;
+
+                const trigger = wrapper.querySelector(
+                    ".shadcn-select-trigger",
+                );
+                const menu = wrapper.querySelector(".shadcn-select-menu");
+                renderShadcnSelectOptions(select, menu);
+                syncShadcnSelect(select);
+
+                trigger.addEventListener("click", () => {
+                    if (menu.classList.contains("hidden")) {
+                        openShadcnSelect(wrapper);
+                    } else {
+                        closeShadcnSelect(wrapper);
+                    }
+                });
+                trigger.addEventListener("keydown", (event) => {
+                    if (
+                        event.key === "ArrowDown" ||
+                        event.key === "Enter" ||
+                        event.key === " "
+                    ) {
+                        event.preventDefault();
+                        openShadcnSelect(wrapper);
+                    }
+                });
+            }
+
+            function enhanceAllShadcnSelects() {
+                document.querySelectorAll("select").forEach(enhanceShadcnSelect);
             }
 
             function readFileAsDataUrl(file) {
@@ -2434,17 +2778,24 @@
                 });
             }
 
-            function initUiBlur() {
-                applyUiBlur(localStorage.getItem("denpie-ui-blur") || "medium");
+            function initAppearanceControls() {
+                applyTransparency(
+                    localStorage.getItem("denpie-transparency") ||
+                        localStorage.getItem("denpie-ui-blur") ||
+                        "medium",
+                );
+                applyBlurIntensity(
+                    localStorage.getItem("denpie-blur-intensity") || "medium",
+                );
             }
 
             function normalizeTheme(theme) {
                 return themes.some(([id]) => id === theme) ? theme : "shadcn";
             }
 
-            function normalizeUiBlur(blur) {
-                return ["none", "low", "medium", "full"].includes(blur)
-                    ? blur
+            function normalizeAppearanceLevel(level) {
+                return ["none", "low", "medium", "full"].includes(level)
+                    ? level
                     : "medium";
             }
 
@@ -2454,15 +2805,32 @@
                 localStorage.setItem("denpie-theme", selected);
                 document
                     .querySelectorAll(".theme-select")
-                    .forEach((select) => (select.value = selected));
+                    .forEach((select) => {
+                        select.value = selected;
+                        syncShadcnSelect(select);
+                    });
             }
 
-            function applyUiBlur(blur) {
-                const selected = normalizeUiBlur(blur);
-                document.documentElement.dataset.blur = selected;
-                localStorage.setItem("denpie-ui-blur", selected);
-                const input = $("ui-blur-input");
-                if (input) input.value = selected;
+            function applyTransparency(transparency) {
+                const selected = normalizeAppearanceLevel(transparency);
+                document.documentElement.dataset.transparency = selected;
+                localStorage.setItem("denpie-transparency", selected);
+                const input = $("transparency-input");
+                if (input) {
+                    input.value = selected;
+                    syncShadcnSelect(input);
+                }
+            }
+
+            function applyBlurIntensity(intensity) {
+                const selected = normalizeAppearanceLevel(intensity);
+                document.documentElement.dataset.blurIntensity = selected;
+                localStorage.setItem("denpie-blur-intensity", selected);
+                const input = $("blur-intensity-input");
+                if (input) {
+                    input.value = selected;
+                    syncShadcnSelect(input);
+                }
             }
 
             function setAuthed(authed) {
@@ -3504,9 +3872,16 @@
                     settings.daily_update_time || "00:00";
                 $("max-active-cards-input").value =
                     settings.max_active_cards || 0;
-                applyUiBlur(
-                    settings.ui_blur ||
+                applyTransparency(
+                    settings.transparency ||
+                        settings.ui_blur ||
+                        localStorage.getItem("denpie-transparency") ||
                         localStorage.getItem("denpie-ui-blur") ||
+                        "medium",
+                );
+                applyBlurIntensity(
+                    settings.blur_intensity ||
+                        localStorage.getItem("denpie-blur-intensity") ||
                         "medium",
                 );
                 applyTheme(
@@ -3515,6 +3890,8 @@
                         localStorage.getItem("mindlift-theme") ||
                         "shadcn",
                 );
+                syncShadcnSelect($("reasoning-effort-input"));
+                syncShadcnSelect($("compress-reasoning-effort-input"));
             }
 
             async function loadTopic(name, className, tipcardType) {
@@ -4018,7 +4395,12 @@
                     max_active_cards:
                         Number($("max-active-cards-input").value) || 0,
                     color_scheme: document.documentElement.dataset.theme,
-                    ui_blur: document.documentElement.dataset.blur || "medium",
+                    transparency:
+                        document.documentElement.dataset.transparency ||
+                        "medium",
+                    blur_intensity:
+                        document.documentElement.dataset.blurIntensity ||
+                        "medium",
                 };
             }
 
@@ -4044,7 +4426,13 @@
             document.addEventListener("DOMContentLoaded", async () => {
                 initTimeZoneOptions();
                 initThemes();
-                initUiBlur();
+                initAppearanceControls();
+                enhanceAllShadcnSelects();
+                document.addEventListener("click", (event) => {
+                    if (!event.target.closest(".shadcn-select")) {
+                        closeAllShadcnSelects();
+                    }
+                });
                 document
                     .querySelectorAll("[data-view]")
                     .forEach((btn) =>
@@ -4129,8 +4517,17 @@
                     await saveSettings();
                     toast("Settings saved");
                 });
-                $("ui-blur-input").addEventListener("change", async () => {
-                    applyUiBlur($("ui-blur-input").value);
+                $("transparency-input").addEventListener("change", async () => {
+                    applyTransparency($("transparency-input").value);
+                    if (!state.authed) return;
+                    try {
+                        await saveSettings();
+                    } catch (err) {
+                        toast(err.message);
+                    }
+                });
+                $("blur-intensity-input").addEventListener("change", async () => {
+                    applyBlurIntensity($("blur-intensity-input").value);
                     if (!state.authed) return;
                     try {
                         await saveSettings();
