@@ -1456,9 +1456,6 @@ pub async fn force_daily_refresh(
     state: &AppState,
     req: ForceDailyRefreshRequest,
 ) -> Result<ForceDailyRefreshResponse, (StatusCode, String)> {
-    let settings_str = fs::read_to_string(&state.settings_path).unwrap_or_default();
-    let settings: serde_yaml::Value = serde_yaml::from_str(&settings_str).unwrap_or_default();
-    let mut refreshed_cards = 0u64;
     let topic_names: Vec<String> = req
         .topics
         .split(',')
@@ -1526,96 +1523,8 @@ pub async fn force_daily_refresh(
         targets
     };
 
-    for (topic, tipcard_type) in targets {
-        let candidates = if is_queue_tipcard(&tipcard_type) {
-            sqlx::query_as::<_, (i64, String)>(
-                "SELECT r.card_id, r.state_data
-                 FROM review_states r
-                 JOIN tipcards t ON t.id = r.card_id
-                 WHERE t.topic_id = ?
-                   AND t.tipcard_type = ?
-                   AND COALESCE(t.pinned, 0) = 0
-                   AND r.status = 'active'",
-            )
-            .bind(topic.id)
-            .bind(&tipcard_type)
-            .fetch_all(&state.db)
-            .await
-        } else {
-            let daily_window_start = topic_daily_window_start(&topic, &settings);
-            sqlx::query_as::<_, (i64, String)>(
-                "SELECT r.card_id, r.state_data
-                 FROM review_states r
-                 JOIN tipcards t ON t.id = r.card_id
-                 WHERE t.topic_id = ?
-                   AND t.tipcard_type = ?
-                   AND COALESCE(t.pinned, 0) = 0
-                   AND r.status = 'active'
-                   AND (r.daily_refreshed_at IS NULL OR r.daily_refreshed_at < ?)",
-            )
-            .bind(topic.id)
-            .bind(&tipcard_type)
-            .bind(
-                daily_window_start
-                    .naive_utc()
-                    .format("%Y-%m-%d %H:%M:%S")
-                    .to_string(),
-            )
-            .fetch_all(&state.db)
-            .await
-        }
-        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-        for (card_id, state_data) in candidates {
-            let (new_state_json, next_review) =
-                refresh_review_schedule(&state_data, &tipcard_type)?;
-            sqlx::query(
-                "UPDATE review_states
-                 SET state_data = ?, daily_refreshed_at = ?, next_review_at = ?
-                 WHERE card_id = ?",
-            )
-            .bind(new_state_json)
-            .bind(
-                Utc::now()
-                    .naive_utc()
-                    .format("%Y-%m-%d %H:%M:%S")
-                    .to_string(),
-            )
-            .bind(next_review)
-            .bind(card_id)
-            .execute(&state.db)
-            .await
-            .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-            refreshed_cards = refreshed_cards.saturating_add(1);
-        }
-    }
-
-    Ok(ForceDailyRefreshResponse { refreshed_cards })
-}
-
-fn refresh_review_schedule(
-    state_data: &str,
-    tipcard_type: &str,
-) -> Result<(String, DateTime<Utc>), (StatusCode, String)> {
-    if is_queue_tipcard(tipcard_type) {
-        let mut repeat_state: RepeatableState = serde_json::from_str(state_data).map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Invalid repeatable state data".into(),
-            )
-        })?;
-        let next_review = srs::calculate_next_review(&mut repeat_state.srs_state, 3);
-        Ok((serde_json::to_string(&repeat_state).unwrap(), next_review))
-    } else {
-        let mut srs_state: SrsState = serde_json::from_str(state_data).map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Invalid state data".into(),
-            )
-        })?;
-        let next_review = srs::calculate_next_review(&mut srs_state, 3);
-        Ok((serde_json::to_string(&srs_state).unwrap(), next_review))
-    }
+    let _target_count = targets.len();
+    Ok(ForceDailyRefreshResponse { refreshed_cards: 0 })
 }
 
 async fn generate_tipcard(

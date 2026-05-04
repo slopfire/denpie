@@ -1679,8 +1679,7 @@
                             class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
                         >
                             <div class="text-sm text-muted">
-                                Force-refresh generated topics now. Automatic
-                                daily refresh keeps current unpinned cards.
+                                Force-refresh generated topics now.
                             </div>
                             <button
                                 id="force-daily-refresh-btn"
@@ -4431,26 +4430,20 @@
                         return;
                     }
                     state.topics = latestTopics;
-                    const result = await api("/app/daily-refresh", {
-                        method: "POST",
-                        body: JSON.stringify({ topics: "" }),
-                    });
-                    const refreshed = Number(result.refreshed_cards || 0);
-                    const topicKeys = new Set(
-                        refreshTopics.map(
-                            (topic) =>
-                                `${String(topic.name).toLowerCase()}::${topic.tipcard_type}`,
-                        ),
-                    );
-                    state.cardOrder = state.cardOrder.filter((cardId) => {
-                        const card = state.archiveCards.find(
-                            (item) => Number(item.id) === Number(cardId),
-                        );
-                        if (!card) return true;
-                        const key = `${String(card.topic_name || card.topic || "").toLowerCase()}::${card.tipcard_type}`;
-                        return !(topicKeys.has(key) && !card.pinned);
-                    });
-                    saveCardOrder();
+                    const excludeIdsForTopic = (topic) =>
+                        state.archiveCards
+                            .filter((card) => {
+                                const cardTopic = String(
+                                    card.topic_name || card.topic || "",
+                                ).toLowerCase();
+                                return (
+                                    cardTopic ===
+                                        String(topic.name).toLowerCase() &&
+                                    card.tipcard_type === topic.tipcard_type
+                                );
+                            })
+                            .map((card) => Number(card.id))
+                            .filter(Boolean);
                     const requests = refreshTopics.map((topic) =>
                         api("/app/tips", {
                             method: "POST",
@@ -4459,6 +4452,7 @@
                                 topic_class: topic.class_name,
                                 tipcard_type: topic.tipcard_type,
                                 count: 1,
+                                exclude_card_ids: excludeIdsForTopic(topic),
                             }),
                         }),
                     );
@@ -4483,7 +4477,7 @@
                     toast(
                         failedCount
                             ? `${loadedCount} fresh card(s), ${failedCount} topic(s) failed`
-                            : `${refreshed} old card(s) refreshed, ${loadedCount} fresh card(s) loaded`,
+                            : `${loadedCount} fresh card(s) loaded`,
                     );
                 } finally {
                     button.disabled = false;

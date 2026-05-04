@@ -481,7 +481,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_force_daily_refresh_replaces_current_daily_card_without_dismissing_old_card() {
+    async fn test_force_daily_refresh_keeps_current_daily_card_and_allows_new_card() {
         let (url, client) = spawn_test_server().await;
         let api_key = bootstrap_api_key(&url, &client, "force_daily_refresh").await;
 
@@ -541,14 +541,14 @@ mod tests {
                 }
                 other => panic!("unexpected response: {:?}", other),
             };
-        assert_eq!(refreshed_cards, 1);
+        assert_eq!(refreshed_cards, 0);
 
         let second_response = post_api(
             &url,
             &client,
             crate::api::pb::ApiRequest {
                 auth: api_key.clone(),
-                op: Some(crate::api::pb::api_request::Op::Tips(tips_query)),
+                op: Some(crate::api::pb::api_request::Op::Tips(tips_query.clone())),
             },
         )
         .await;
@@ -562,7 +562,33 @@ mod tests {
                 crate::api::pb::api_response::Result::Tips(tips) => tips.tips[0].id,
                 other => panic!("unexpected response: {:?}", other),
             };
-        assert_ne!(second_id, first_id);
+        assert_eq!(second_id, first_id);
+
+        let excluded_response = post_api(
+            &url,
+            &client,
+            crate::api::pb::ApiRequest {
+                auth: api_key.clone(),
+                op: Some(crate::api::pb::api_request::Op::Tips(
+                    crate::api::pb::TipsQuery {
+                        exclude_card_ids: vec![first_id],
+                        ..tips_query
+                    },
+                )),
+            },
+        )
+        .await;
+        assert_eq!(excluded_response.status(), reqwest::StatusCode::OK);
+        let new_id =
+            match crate::api::pb::ApiResponse::decode(excluded_response.bytes().await.unwrap())
+                .unwrap()
+                .result
+                .unwrap()
+            {
+                crate::api::pb::api_response::Result::Tips(tips) => tips.tips[0].id,
+                other => panic!("unexpected response: {:?}", other),
+            };
+        assert_ne!(new_id, first_id);
 
         let cards = post_api(
             &url,
@@ -576,24 +602,28 @@ mod tests {
         )
         .await;
         assert_eq!(cards.status(), reqwest::StatusCode::OK);
-        let first_status = match crate::api::pb::ApiResponse::decode(cards.bytes().await.unwrap())
+        let listed_cards = match crate::api::pb::ApiResponse::decode(cards.bytes().await.unwrap())
             .unwrap()
             .result
             .unwrap()
         {
-            crate::api::pb::api_response::Result::Tipcards(cards) => cards
-                .cards
-                .into_iter()
-                .find(|card| card.id == first_id)
-                .map(|card| card.status)
-                .expect("first card remains listed"),
+            crate::api::pb::api_response::Result::Tipcards(cards) => cards.cards,
             other => panic!("unexpected response: {:?}", other),
         };
+        let first_status = listed_cards
+            .iter()
+            .find(|card| card.id == first_id)
+            .map(|card| card.status.as_str())
+            .expect("first card remains listed");
         assert_eq!(first_status, "active");
+        assert!(
+            listed_cards.iter().any(|card| card.id == new_id),
+            "new card should be listed alongside the first card"
+        );
     }
 
     #[tokio::test]
-    async fn test_daily_refresh_keeps_current_unpinned_daily_card_until_forced() {
+    async fn test_daily_refresh_keeps_current_unpinned_daily_card_and_exclude_adds_new_card() {
         let settings_path = unique_settings_path();
         fs::write(&settings_path, "{}").await.unwrap();
         let db = setup_db().await;
@@ -654,11 +684,30 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(forced.refreshed_cards, 1);
+        assert_eq!(forced.refreshed_cards, 0);
 
-        let replacement = crate::api::build_tips(&state, request).await.unwrap();
-        assert_eq!(replacement.len(), 1);
-        assert_ne!(replacement[0].id, first_id);
+        let after_force = crate::api::build_tips(&state, request.clone())
+            .await
+            .unwrap();
+        assert_eq!(after_force.len(), 1);
+        assert_eq!(after_force[0].id, first_id);
+
+        let fresh = crate::api::build_tips(
+            &state,
+            crate::api::TipsJsonRequest {
+                exclude_card_ids: Some(vec![first_id]),
+                ..request
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(fresh.len(), 1);
+        assert_ne!(fresh[0].id, first_id);
+        let card_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tipcards")
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+        assert_eq!(card_count, 2);
     }
 
     #[tokio::test]
