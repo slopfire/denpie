@@ -45,11 +45,7 @@ mod tests {
         .unwrap();
 
         let db = setup_db().await;
-        let state = Arc::new(AppState {
-            db,
-            settings_path,
-            template_dir: PathBuf::from("templates"),
-        });
+        let state = Arc::new(make_state(db, settings_path));
         let session_store = MemoryStore::default();
         let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
         let app = build_app(state, session_layer);
@@ -73,6 +69,18 @@ mod tests {
     fn unique_settings_path() -> PathBuf {
         let suffix: u64 = rand::random();
         std::env::temp_dir().join(format!("denpie-test-settings-{suffix}.yaml"))
+    }
+
+    fn make_state(db: SqlitePool, settings_path: PathBuf) -> AppState {
+        let settings_store = crate::config::SettingsStore::new(settings_path.clone());
+        AppState {
+            api_keys: crate::services::api_keys::ApiKeyService::new(db.clone()),
+            settings: crate::services::settings::SettingsService::new(settings_store),
+            reviews: crate::services::review::ReviewService::new(db.clone()),
+            db,
+            settings_path,
+            template_dir: PathBuf::from("templates"),
+        }
     }
 
     async fn bootstrap_api_key(url: &str, client: &reqwest::Client, client_name: &str) -> String {
@@ -627,11 +635,7 @@ mod tests {
         let settings_path = unique_settings_path();
         fs::write(&settings_path, "{}").await.unwrap();
         let db = setup_db().await;
-        let state = Arc::new(AppState {
-            db,
-            settings_path,
-            template_dir: PathBuf::from("templates"),
-        });
+        let state = Arc::new(make_state(db, settings_path));
 
         let request = crate::api::TipsJsonRequest {
             count: Some(1),
@@ -1157,11 +1161,7 @@ mod tests {
             .await
             .unwrap();
         let db = setup_db().await;
-        let state = AppState {
-            db,
-            settings_path,
-            template_dir: PathBuf::from("templates"),
-        };
+        let state = make_state(db, settings_path);
 
         let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
             .bind("repeatable")
@@ -1239,11 +1239,7 @@ mod tests {
             .await
             .unwrap();
         let db = setup_db().await;
-        let state = AppState {
-            db,
-            settings_path,
-            template_dir: PathBuf::from("templates"),
-        };
+        let state = make_state(db, settings_path);
 
         let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
             .bind("repeatable")
@@ -1317,11 +1313,7 @@ mod tests {
         .await
         .unwrap();
         let db = setup_db().await;
-        let state = AppState {
-            db,
-            settings_path,
-            template_dir: PathBuf::from("templates"),
-        };
+        let state = make_state(db, settings_path);
 
         let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
             .bind("repeatable")
@@ -1407,11 +1399,7 @@ mod tests {
             .await
             .unwrap();
         let db = setup_db().await;
-        let state = AppState {
-            db,
-            settings_path,
-            template_dir: PathBuf::from("templates"),
-        };
+        let state = make_state(db, settings_path);
 
         let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
             .bind("repeatable")
@@ -1478,11 +1466,7 @@ mod tests {
             .await
             .unwrap();
         let db = setup_db().await;
-        let state = AppState {
-            db,
-            settings_path,
-            template_dir: PathBuf::from("templates"),
-        };
+        let state = make_state(db, settings_path);
 
         let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
             .bind("casual")
@@ -1548,11 +1532,7 @@ mod tests {
             .await
             .unwrap();
         let db = setup_db().await;
-        let state = AppState {
-            db,
-            settings_path,
-            template_dir: PathBuf::from("templates"),
-        };
+        let state = make_state(db, settings_path);
 
         let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
             .bind("repeatable")
@@ -1786,11 +1766,7 @@ mod tests {
             .await
             .unwrap();
         let db = setup_db().await;
-        let state = AppState {
-            db,
-            settings_path,
-            template_dir: PathBuf::from("templates"),
-        };
+        let state = make_state(db, settings_path);
         let image = "data:image/png;base64,iVBORw0KGgo=".to_string();
 
         let tips = crate::api::build_tips(

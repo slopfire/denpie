@@ -1,14 +1,15 @@
-use crate::{api, autoupdate, llm, AppState};
+use crate::{
+    api, autoupdate, config,
+    db::repositories::{tipcards, token_usage, topics},
+    llm, AppState,
+};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Response},
     Json,
 };
-use rand::Rng;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use sqlx::{QueryBuilder, Sqlite};
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
@@ -48,135 +49,34 @@ pub struct SettingsRes {
 }
 
 pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRes> {
-    let settings_str = fs::read_to_string(&state.settings_path).unwrap_or_default();
-    let settings: serde_yaml::Value = serde_yaml::from_str(&settings_str).unwrap_or_default();
-
-    let model = settings
-        .get("llm_model")
-        .and_then(|v| v.as_str())
-        .unwrap_or("google/gemini-3.1-flash")
-        .to_string();
-    let template = settings
-        .get("prompt_template")
-        .and_then(|v| v.as_str())
-        .unwrap_or(llm::DEFAULT_PROMPT_TEMPLATE)
-        .to_string();
-    let api_key = settings
-        .get("llm_api_key")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let base_url = settings
-        .get("llm_base_url")
-        .and_then(|v| v.as_str())
-        .unwrap_or("https://openrouter.ai/api/v1")
-        .to_string();
-    let compress_model = settings
-        .get("llm_compress_model")
-        .and_then(|v| v.as_str())
-        .unwrap_or("google/gemini-3.1-flash-lite-preview")
-        .to_string();
-    let compress_base_url = settings
-        .get("llm_compress_base_url")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&base_url)
-        .to_string();
-    let reasoning_effort = settings
-        .get("llm_reasoning_effort")
-        .and_then(|v| v.as_str())
-        .unwrap_or("none")
-        .to_string();
-    let compression_level = settings
-        .get("llm_compression_level")
-        .and_then(|v| v.as_str())
-        .map(llm::CompressionLevel::from_setting)
-        .unwrap_or_else(|| llm::CompressionLevel::from_setting(llm::DEFAULT_COMPRESSION_LEVEL));
-    let compress_reasoning_effort = compression_level.reasoning_effort().to_string();
-    let color_scheme = settings
-        .get("color_scheme")
-        .and_then(|v| v.as_str())
-        .unwrap_or("shadcn")
-        .to_string();
-    let transparency = settings
-        .get("transparency")
-        .or_else(|| settings.get("ui_blur"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("medium")
-        .to_string();
-    let blur_intensity = settings
-        .get("blur_intensity")
-        .and_then(|v| v.as_str())
-        .unwrap_or("medium")
-        .to_string();
-    let autoupdate_enabled = settings
-        .get("autoupdate_enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let autoupdate_repo = settings
-        .get("autoupdate_repo")
-        .and_then(|v| v.as_str())
-        .unwrap_or("slopfire/denpie")
-        .to_string();
-    let autoupdate_branch = settings
-        .get("autoupdate_branch")
-        .and_then(|v| v.as_str())
-        .unwrap_or("master")
-        .to_string();
-    let autoupdate_check_interval_secs = settings
-        .get("autoupdate_check_interval_secs")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(3600);
-    let autoupdate_command = settings
-        .get("autoupdate_command")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let autoupdate_last_seen_sha = settings
-        .get("autoupdate_last_seen_sha")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let daily_time_zone = settings
-        .get("daily_time_zone")
-        .and_then(|v| v.as_str())
-        .unwrap_or("UTC")
-        .to_string();
-    let daily_update_time = settings
-        .get("daily_update_time")
-        .and_then(|v| v.as_str())
-        .unwrap_or("00:00")
-        .to_string();
-    let max_active_cards = settings
-        .get("max_active_cards")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+    let settings = state.settings.get_settings().unwrap_or_default();
 
     Json(SettingsRes {
         server_version: env!("CARGO_PKG_VERSION").to_string(),
         build_sha: option_env!("DENPIE_BUILD_SHA")
             .unwrap_or("unknown")
             .to_string(),
-        model,
-        compress_model,
-        template,
-        api_key,
-        base_url,
-        compress_base_url,
-        reasoning_effort,
-        compress_reasoning_effort,
-        compression_level: compression_level.as_setting().to_string(),
-        color_scheme,
-        transparency,
-        blur_intensity,
-        autoupdate_enabled,
-        autoupdate_repo,
-        autoupdate_branch,
-        autoupdate_check_interval_secs,
-        autoupdate_command,
-        autoupdate_last_seen_sha,
-        daily_time_zone,
-        daily_update_time,
-        max_active_cards,
+        model: settings.llm_model,
+        compress_model: settings.llm_compress_model,
+        template: settings.prompt_template,
+        api_key: settings.llm_api_key,
+        base_url: settings.llm_base_url,
+        compress_base_url: settings.llm_compress_base_url,
+        reasoning_effort: settings.llm_reasoning_effort,
+        compress_reasoning_effort: settings.llm_compress_reasoning_effort,
+        compression_level: settings.llm_compression_level,
+        color_scheme: settings.color_scheme,
+        transparency: settings.transparency,
+        blur_intensity: settings.blur_intensity,
+        autoupdate_enabled: settings.autoupdate_enabled,
+        autoupdate_repo: settings.autoupdate_repo,
+        autoupdate_branch: settings.autoupdate_branch,
+        autoupdate_check_interval_secs: settings.autoupdate_check_interval_secs,
+        autoupdate_command: settings.autoupdate_command,
+        autoupdate_last_seen_sha: settings.autoupdate_last_seen_sha,
+        daily_time_zone: settings.daily_time_zone,
+        daily_update_time: settings.daily_update_time,
+        max_active_cards: settings.max_active_cards,
     })
 }
 
@@ -209,143 +109,29 @@ pub async fn update_settings(
     State(state): State<Arc<AppState>>,
     Json(req): Json<UpdateSettingsReq>,
 ) -> Json<()> {
-    let settings_str = fs::read_to_string(&state.settings_path).unwrap_or_default();
-    let mut settings: serde_yaml::Value = serde_yaml::from_str(&settings_str)
-        .unwrap_or(serde_yaml::Value::Mapping(Default::default()));
-    if !settings.is_mapping() {
-        settings = serde_yaml::Value::Mapping(Default::default());
-    }
-
-    if let serde_yaml::Value::Mapping(ref mut map) = settings {
-        if let Some(model) = req.model {
-            map.insert(
-                serde_yaml::Value::String("llm_model".to_string()),
-                serde_yaml::Value::String(model),
-            );
-        }
-        if let Some(compress_model) = req.compress_model {
-            map.insert(
-                serde_yaml::Value::String("llm_compress_model".to_string()),
-                serde_yaml::Value::String(compress_model),
-            );
-        }
-        if let Some(template) = req.template {
-            map.insert(
-                serde_yaml::Value::String("prompt_template".to_string()),
-                serde_yaml::Value::String(template),
-            );
-        }
-        if let Some(api_key) = req.api_key {
-            map.insert(
-                serde_yaml::Value::String("llm_api_key".to_string()),
-                serde_yaml::Value::String(api_key),
-            );
-        }
-        if let Some(base_url) = req.base_url {
-            map.insert(
-                serde_yaml::Value::String("llm_base_url".to_string()),
-                serde_yaml::Value::String(base_url),
-            );
-        }
-        if let Some(compress_base_url) = req.compress_base_url {
-            map.insert(
-                serde_yaml::Value::String("llm_compress_base_url".to_string()),
-                serde_yaml::Value::String(compress_base_url),
-            );
-        }
-        if let Some(reasoning_effort) = req.reasoning_effort {
-            map.insert(
-                serde_yaml::Value::String("llm_reasoning_effort".to_string()),
-                serde_yaml::Value::String(reasoning_effort),
-            );
-        }
-        if let Some(compression_level) = req.compression_level {
-            let level = llm::CompressionLevel::from_setting(&compression_level);
-            map.insert(
-                serde_yaml::Value::String("llm_compression_level".to_string()),
-                serde_yaml::Value::String(level.as_setting().to_string()),
-            );
-            map.insert(
-                serde_yaml::Value::String("llm_compress_reasoning_effort".to_string()),
-                serde_yaml::Value::String(level.reasoning_effort().to_string()),
-            );
-        } else if let Some(compress_reasoning_effort) = req.compress_reasoning_effort {
-            map.insert(
-                serde_yaml::Value::String("llm_compress_reasoning_effort".to_string()),
-                serde_yaml::Value::String(compress_reasoning_effort),
-            );
-        }
-        if let Some(color_scheme) = req.color_scheme {
-            map.insert(
-                serde_yaml::Value::String("color_scheme".to_string()),
-                serde_yaml::Value::String(color_scheme),
-            );
-        }
-        let transparency = req.transparency.or(req.ui_blur);
-        if let Some(transparency) = transparency {
-            map.insert(
-                serde_yaml::Value::String("transparency".to_string()),
-                serde_yaml::Value::String(transparency),
-            );
-        }
-        if let Some(blur_intensity) = req.blur_intensity {
-            map.insert(
-                serde_yaml::Value::String("blur_intensity".to_string()),
-                serde_yaml::Value::String(blur_intensity),
-            );
-        }
-        if let Some(autoupdate_enabled) = req.autoupdate_enabled {
-            map.insert(
-                serde_yaml::Value::String("autoupdate_enabled".to_string()),
-                serde_yaml::Value::Bool(autoupdate_enabled),
-            );
-        }
-        if let Some(autoupdate_repo) = req.autoupdate_repo {
-            map.insert(
-                serde_yaml::Value::String("autoupdate_repo".to_string()),
-                serde_yaml::Value::String(autoupdate_repo),
-            );
-        }
-        if let Some(autoupdate_branch) = req.autoupdate_branch {
-            map.insert(
-                serde_yaml::Value::String("autoupdate_branch".to_string()),
-                serde_yaml::Value::String(autoupdate_branch),
-            );
-        }
-        if let Some(autoupdate_check_interval_secs) = req.autoupdate_check_interval_secs {
-            map.insert(
-                serde_yaml::Value::String("autoupdate_check_interval_secs".to_string()),
-                serde_yaml::Value::Number(autoupdate_check_interval_secs.into()),
-            );
-        }
-        if let Some(autoupdate_command) = req.autoupdate_command {
-            map.insert(
-                serde_yaml::Value::String("autoupdate_command".to_string()),
-                serde_yaml::Value::String(autoupdate_command.trim().to_string()),
-            );
-        }
-        if let Some(daily_time_zone) = req.daily_time_zone {
-            map.insert(
-                serde_yaml::Value::String("daily_time_zone".to_string()),
-                serde_yaml::Value::String(daily_time_zone),
-            );
-        }
-        if let Some(daily_update_time) = req.daily_update_time {
-            map.insert(
-                serde_yaml::Value::String("daily_update_time".to_string()),
-                serde_yaml::Value::String(daily_update_time),
-            );
-        }
-        if let Some(max_active_cards) = req.max_active_cards {
-            map.insert(
-                serde_yaml::Value::String("max_active_cards".to_string()),
-                serde_yaml::Value::Number(max_active_cards.into()),
-            );
-        }
-    }
-
-    let out_str = serde_yaml::to_string(&settings).unwrap();
-    fs::write(&state.settings_path, out_str).unwrap();
+    let _ = state.settings.update_settings(config::SettingsPatch {
+        model: req.model,
+        compress_model: req.compress_model,
+        template: req.template,
+        api_key: req.api_key,
+        base_url: req.base_url,
+        compress_base_url: req.compress_base_url,
+        reasoning_effort: req.reasoning_effort,
+        compress_reasoning_effort: req.compress_reasoning_effort,
+        compression_level: req.compression_level,
+        color_scheme: req.color_scheme,
+        transparency: req.transparency,
+        blur_intensity: req.blur_intensity,
+        ui_blur: req.ui_blur,
+        autoupdate_enabled: req.autoupdate_enabled,
+        autoupdate_repo: req.autoupdate_repo,
+        autoupdate_branch: req.autoupdate_branch,
+        autoupdate_check_interval_secs: req.autoupdate_check_interval_secs,
+        autoupdate_command: req.autoupdate_command,
+        daily_time_zone: req.daily_time_zone,
+        daily_update_time: req.daily_update_time,
+        max_active_cards: req.max_active_cards,
+    });
 
     Json(())
 }
@@ -398,26 +184,14 @@ pub async fn create_api_key(
     State(state): State<Arc<AppState>>,
     req: Option<Json<CreateKeyReq>>,
 ) -> Json<String> {
-    let raw_key: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(32)
-        .map(char::from)
-        .collect();
-    let api_key = format!("sk_live_{}", raw_key);
-
-    let mut hasher = Sha256::new();
-    hasher.update(api_key.as_bytes());
-    let key_hash = hex::encode(hasher.finalize());
-
     let client_name = req
         .and_then(|Json(r)| r.client_name)
         .unwrap_or_else(|| "default_client".to_string());
-
-    let _ = sqlx::query("INSERT INTO api_keys (key_hash, client_name) VALUES (?, ?)")
-        .bind(key_hash)
-        .bind(client_name)
-        .execute(&state.db)
-        .await;
+    let api_key = state
+        .api_keys
+        .create(Some(client_name))
+        .await
+        .unwrap_or_default();
 
     Json(api_key)
 }
@@ -430,19 +204,16 @@ pub struct ApiKeyInfo {
 }
 
 pub async fn list_api_keys(State(state): State<Arc<AppState>>) -> Json<Vec<ApiKeyInfo>> {
-    let rows = sqlx::query_as::<_, (i64, String, String)>(
-        "SELECT id, client_name, COALESCE(CAST(created_at AS TEXT), '') FROM api_keys ORDER BY created_at DESC",
-    )
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
-
-    let keys = rows
+    let keys = state
+        .api_keys
+        .list()
+        .await
+        .unwrap_or_default()
         .into_iter()
         .map(|row| ApiKeyInfo {
-            id: row.0,
-            client_name: row.1,
-            created_at: row.2,
+            id: row.id,
+            client_name: row.client_name,
+            created_at: row.created_at,
         })
         .collect();
 
@@ -458,12 +229,7 @@ pub async fn delete_api_key(
     State(state): State<Arc<AppState>>,
     Json(req): Json<DeleteKeyReq>,
 ) -> StatusCode {
-    let result = sqlx::query("DELETE FROM api_keys WHERE id = ?")
-        .bind(req.id)
-        .execute(&state.db)
-        .await;
-
-    if result.is_ok() {
+    if state.api_keys.delete(req.id).await.is_ok() {
         StatusCode::OK
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
@@ -499,31 +265,8 @@ pub async fn delete_tipcard(
     State(state): State<Arc<AppState>>,
     Json(req): Json<DeleteTipcardReq>,
 ) -> StatusCode {
-    let mut tx = match state.db.begin().await {
-        Ok(tx) => tx,
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
-    };
-
-    if sqlx::query("DELETE FROM review_states WHERE card_id = ?")
-        .bind(req.id)
-        .execute(&mut *tx)
-        .await
-        .is_err()
-    {
-        return StatusCode::INTERNAL_SERVER_ERROR;
-    }
-
-    if sqlx::query("DELETE FROM tipcards WHERE id = ?")
-        .bind(req.id)
-        .execute(&mut *tx)
-        .await
-        .is_err()
-    {
-        return StatusCode::INTERNAL_SERVER_ERROR;
-    }
-
-    match tx.commit().await {
-        Ok(_) => StatusCode::OK,
+    match tipcards::delete_with_review(&state.db, req.id).await {
+        Ok(()) => StatusCode::OK,
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
@@ -540,36 +283,18 @@ pub struct TopicInfo {
 }
 
 pub async fn list_topics(State(state): State<Arc<AppState>>) -> Json<Vec<TopicInfo>> {
-    let rows = sqlx::query_as::<
-        _,
-        (
-            i64,
-            String,
-            Option<String>,
-            Option<i64>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        ),
-    >(
-        "SELECT id, name, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
-         FROM topics
-         ORDER BY name ASC",
-    )
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
-
-    let topics = rows
+    let topics = topics::list_admin(&state.db)
+        .await
+        .unwrap_or_default()
         .into_iter()
         .map(|r| TopicInfo {
-            id: r.0,
-            name: r.1,
-            prompt_template: r.2.unwrap_or_default(),
-            daily_card_count: r.3.unwrap_or(1).max(1) as u32,
-            daily_time_zone: r.4.unwrap_or_default(),
-            daily_update_time: r.5.unwrap_or_default(),
-            compression_level: r.6.unwrap_or_default(),
+            id: r.id,
+            name: r.name,
+            prompt_template: r.prompt_template.unwrap_or_default(),
+            daily_card_count: r.daily_card_count.unwrap_or(1).max(1) as u32,
+            daily_time_zone: r.daily_time_zone.unwrap_or_default(),
+            daily_update_time: r.daily_update_time.unwrap_or_default(),
+            compression_level: r.compression_level.unwrap_or_default(),
         })
         .collect();
     Json(topics)
@@ -583,19 +308,15 @@ pub struct TopicClassInfo {
 }
 
 pub async fn list_topic_classes(State(state): State<Arc<AppState>>) -> Json<Vec<TopicClassInfo>> {
-    let rows = sqlx::query_as::<_, (i64, String, String)>(
-        "SELECT id, name, tipcard_type FROM topic_classes ORDER BY name ASC",
-    )
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
-
     Json(
-        rows.into_iter()
+        topics::list_classes(&state.db)
+            .await
+            .unwrap_or_default()
+            .into_iter()
             .map(|r| TopicClassInfo {
-                id: r.0,
-                name: r.1,
-                tipcard_type: r.2,
+                id: r.id,
+                name: r.name,
+                tipcard_type: r.tipcard_type,
             })
             .collect(),
     )
@@ -609,35 +330,18 @@ pub struct TokenSpend {
 }
 
 pub async fn token_spend(State(state): State<Arc<AppState>>) -> Json<TokenSpend> {
-    let daily = sqlx::query_scalar::<_, i64>(
-        "SELECT COALESCE(SUM(total_tokens), 0)
-         FROM llm_token_usage
-         WHERE date(created_at) = date('now')",
-    )
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(0);
-    let monthly = sqlx::query_scalar::<_, i64>(
-        "SELECT COALESCE(SUM(total_tokens), 0)
-         FROM llm_token_usage
-         WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')",
-    )
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(0);
-    let total = sqlx::query_scalar::<_, i64>(
-        "SELECT COALESCE(SUM(total_tokens), 0)
-         FROM llm_token_usage",
-    )
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(0);
-
-    Json(TokenSpend {
-        daily,
-        monthly,
-        total,
-    })
+    match token_usage::aggregate_spend(&state.db).await {
+        Ok(spend) => Json(TokenSpend {
+            daily: spend.daily,
+            monthly: spend.monthly,
+            total: spend.total,
+        }),
+        Err(_) => Json(TokenSpend {
+            daily: 0,
+            monthly: 0,
+            total: 0,
+        }),
+    }
 }
 
 #[derive(Serialize)]
@@ -649,37 +353,20 @@ pub struct AppSummary {
 }
 
 pub async fn app_summary(State(state): State<Arc<AppState>>) -> Json<AppSummary> {
-    let now = chrono::Utc::now();
-    let topics = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM topics")
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or(0);
-    let total_cards = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tipcards")
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or(0);
-    let due_cards = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*)
-         FROM review_states r
-         JOIN tipcards t ON t.id = r.card_id
-         WHERE r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1)",
-    )
-    .bind(now)
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(0);
-    let active_cards =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM review_states WHERE status = 'active'")
-            .fetch_one(&state.db)
-            .await
-            .unwrap_or(0);
-
-    Json(AppSummary {
-        topics,
-        total_cards,
-        due_cards,
-        active_cards,
-    })
+    match topics::app_summary(&state.db, chrono::Utc::now()).await {
+        Ok(summary) => Json(AppSummary {
+            topics: summary.topics,
+            total_cards: summary.total_cards,
+            due_cards: summary.due_cards,
+            active_cards: summary.active_cards,
+        }),
+        Err(_) => Json(AppSummary {
+            topics: 0,
+            total_cards: 0,
+            due_cards: 0,
+            active_cards: 0,
+        }),
+    }
 }
 
 #[derive(Serialize)]
@@ -699,63 +386,24 @@ pub struct AppTopicInfo {
 }
 
 pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopicInfo>> {
-    let now = chrono::Utc::now();
-    let rows = sqlx::query_as::<
-        _,
-        (
-            i64,
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<i64>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            i64,
-            i64,
-            i64,
-        ),
-    >(
-        "SELECT top.id,
-                top.name,
-                tc.name AS class_name,
-                tc.tipcard_type,
-                top.prompt_template,
-                top.daily_card_count,
-                top.daily_time_zone,
-                top.daily_update_time,
-                top.compression_level,
-                COUNT(t.id) AS total_cards,
-                SUM(CASE WHEN r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1) THEN 1 ELSE 0 END) AS due_cards,
-                SUM(CASE WHEN r.status != 'active' THEN 1 ELSE 0 END) AS completed_cards
-         FROM topics top
-         LEFT JOIN topic_classes tc ON top.class_id = tc.id
-         LEFT JOIN tipcards t ON t.topic_id = top.id
-         LEFT JOIN review_states r ON r.card_id = t.id
-         GROUP BY top.id, top.name, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level, tc.name, tc.tipcard_type
-         ORDER BY due_cards DESC, top.name ASC",
-    )
-    .bind(now)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
-
     Json(
-        rows.into_iter()
+        topics::list_app_topics(&state.db, chrono::Utc::now())
+            .await
+            .unwrap_or_default()
+            .into_iter()
             .map(|r| AppTopicInfo {
-                id: r.0,
-                name: r.1,
-                class_name: r.2.unwrap_or_else(|| "default".to_string()),
-                tipcard_type: r.3.unwrap_or_else(|| "srs_tip".to_string()),
-                prompt_template: r.4.unwrap_or_default(),
-                daily_card_count: r.5.unwrap_or(1).max(1) as u32,
-                daily_time_zone: r.6.unwrap_or_default(),
-                daily_update_time: r.7.unwrap_or_default(),
-                compression_level: r.8.unwrap_or_default(),
-                total_cards: r.9,
-                due_cards: r.10,
-                completed_cards: r.11,
+                id: r.id,
+                name: r.name,
+                class_name: r.class_name,
+                tipcard_type: r.tipcard_type,
+                prompt_template: r.prompt_template,
+                daily_card_count: r.daily_card_count,
+                daily_time_zone: r.daily_time_zone,
+                daily_update_time: r.daily_update_time,
+                compression_level: r.compression_level,
+                total_cards: r.total_cards,
+                due_cards: r.due_cards,
+                completed_cards: r.completed_cards,
             })
             .collect(),
     )
@@ -775,25 +423,9 @@ pub async fn update_topic(
     State(state): State<Arc<AppState>>,
     Json(req): Json<UpdateTopicReq>,
 ) -> Result<Json<()>, (StatusCode, String)> {
-    let current = sqlx::query_as::<
-        _,
-        (
-            Option<String>,
-            Option<i64>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        ),
-    >(
-        "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
-         FROM topics
-         WHERE id = ?",
-    )
-    .bind(req.id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .ok_or_else(|| (StatusCode::NOT_FOUND, "Topic not found".to_string()))?;
+    let current = topics::get_settings(&state.db, req.id)
+        .await
+        .map_err(|err| err.into_status_body())?;
 
     let prompt_template = req
         .prompt_template
@@ -805,7 +437,7 @@ pub async fn update_topic(
                 Some(value)
             }
         })
-        .unwrap_or(current.0);
+        .unwrap_or(current.prompt_template);
     let daily_card_count = req
         .daily_card_count
         .map(|value| {
@@ -815,7 +447,7 @@ pub async fn update_topic(
                 Some(i64::from(value))
             }
         })
-        .unwrap_or(current.1);
+        .unwrap_or(current.daily_card_count);
     let daily_time_zone = req
         .daily_time_zone
         .map(|value| {
@@ -826,7 +458,7 @@ pub async fn update_topic(
                 Some(value)
             }
         })
-        .unwrap_or(current.2);
+        .unwrap_or(current.daily_time_zone);
     let daily_update_time = req
         .daily_update_time
         .map(|value| {
@@ -837,7 +469,7 @@ pub async fn update_topic(
                 Some(value)
             }
         })
-        .unwrap_or(current.3);
+        .unwrap_or(current.daily_update_time);
     let compression_level = req
         .compression_level
         .map(|value| {
@@ -852,22 +484,21 @@ pub async fn update_topic(
                 )
             }
         })
-        .unwrap_or(current.4);
+        .unwrap_or(current.compression_level);
 
-    sqlx::query(
-        "UPDATE topics
-         SET prompt_template = ?, daily_card_count = ?, daily_time_zone = ?, daily_update_time = ?, compression_level = ?
-         WHERE id = ?",
+    topics::update_settings(
+        &state.db,
+        req.id,
+        topics::TopicSettingsRecord {
+            prompt_template,
+            daily_card_count,
+            daily_time_zone,
+            daily_update_time,
+            compression_level,
+        },
     )
-    .bind(prompt_template)
-    .bind(daily_card_count)
-    .bind(daily_time_zone)
-    .bind(daily_update_time)
-    .bind(compression_level)
-    .bind(req.id)
-    .execute(&state.db)
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    .map_err(|err| err.into_status_body())?;
 
     Ok(Json(()))
 }
@@ -911,144 +542,42 @@ pub struct ListTipcardsQuery {
     pub tipcard_type: Option<String>,
 }
 
-fn escape_like(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
-}
-
-fn push_where(builder: &mut QueryBuilder<Sqlite>, has_where: &mut bool) {
-    if *has_where {
-        builder.push(" AND ");
-    } else {
-        builder.push(" WHERE ");
-        *has_where = true;
-    }
-}
-
 pub async fn list_tipcards(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ListTipcardsQuery>,
 ) -> Json<Vec<TipcardInfo>> {
-    let mut builder = QueryBuilder::<Sqlite>::new(
-        "SELECT t.id,
-                top.name AS topic_name,
-                COALESCE(t.title, '') AS title,
-                t.full_content,
-                t.compressed_content,
-                COALESCE(t.image_data, '[]') AS image_data,
-                COALESCE(CAST(t.created_at AS TEXT), '') AS created_at,
-                t.tipcard_type,
-                COALESCE(tc.name, 'default') AS topic_class,
-                COALESCE(r.status, CASE WHEN t.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) AS status,
-                COALESCE(CAST(r.next_review_at AS TEXT), '') AS next_review_at,
-                COALESCE(r.state_data, '') AS state_data,
-                COALESCE(t.pinned, 0) AS pinned
-         FROM tipcards t
-         JOIN topics top ON t.topic_id = top.id
-         LEFT JOIN topic_classes tc ON top.class_id = tc.id
-         LEFT JOIN review_states r ON r.card_id = t.id",
-    );
-
-    let mut has_where = false;
-    if let Some(q) = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
-        let pattern = format!("%{}%", escape_like(q));
-        push_where(&mut builder, &mut has_where);
-        builder
-            .push("(LOWER(top.name) LIKE LOWER(")
-            .push_bind(pattern.clone())
-            .push(") ESCAPE '\\' OR LOWER(COALESCE(t.title, '')) LIKE LOWER(")
-            .push_bind(pattern.clone())
-            .push(") ESCAPE '\\' OR LOWER(t.full_content) LIKE LOWER(")
-            .push_bind(pattern.clone())
-            .push(") ESCAPE '\\' OR LOWER(t.compressed_content) LIKE LOWER(")
-            .push_bind(pattern)
-            .push(") ESCAPE '\\')");
-    }
-    if let Some(status) = query
-        .status
-        .as_deref()
-        .map(str::trim)
-        .filter(|status| !status.is_empty() && *status != "all")
-    {
-        push_where(&mut builder, &mut has_where);
-        builder
-            .push("COALESCE(r.status, CASE WHEN t.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) = ")
-            .push_bind(status);
-    }
-    if let Some(topic) = query
-        .topic
-        .as_deref()
-        .map(str::trim)
-        .filter(|topic| !topic.is_empty())
-    {
-        push_where(&mut builder, &mut has_where);
-        builder.push("top.name = ").push_bind(topic);
-    }
-    if let Some(topic_class) = query
-        .topic_class
-        .as_deref()
-        .map(str::trim)
-        .filter(|topic_class| !topic_class.is_empty() && *topic_class != "all")
-    {
-        push_where(&mut builder, &mut has_where);
-        builder
-            .push("COALESCE(tc.name, 'default') = ")
-            .push_bind(topic_class);
-    }
-    if let Some(tipcard_type) = query
-        .tipcard_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|tipcard_type| !tipcard_type.is_empty() && *tipcard_type != "all")
-    {
-        push_where(&mut builder, &mut has_where);
-        builder.push("t.tipcard_type = ").push_bind(tipcard_type);
-    }
-    builder.push(" ORDER BY pinned DESC, t.created_at DESC LIMIT 500");
-
-    let rows = builder
-        .build_query_as::<(
-            i64,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            i64,
-        )>()
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
-
-    let cards = rows
-        .into_iter()
-        .map(|r| TipcardInfo {
-            id: r.0,
-            topic_name: r.1,
-            title: r.2,
-            full_content: r.3,
-            compressed_content: r.4,
-            image_data: serde_json::from_str::<Vec<String>>(&r.5).unwrap_or_default(),
-            created_at: r.6,
-            tipcard_type: r.7,
-            topic_class: r.8,
-            status: r.9,
-            next_review_at: r.10,
-            repeat_count: serde_json::from_str::<serde_json::Value>(&r.11)
-                .ok()
-                .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
-                .unwrap_or(0) as u32,
-            pinned: r.12 != 0,
-        })
-        .collect();
+    let cards = tipcards::list_filtered(
+        &state.db,
+        tipcards::TipcardFilter {
+            q: query.q,
+            status: query.status,
+            topic: query.topic,
+            topic_class: query.topic_class,
+            tipcard_type: query.tipcard_type,
+        },
+    )
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| TipcardInfo {
+        id: r.id,
+        topic_name: r.topic_name,
+        title: r.title,
+        full_content: r.full_content,
+        compressed_content: r.compressed_content,
+        image_data: serde_json::from_str::<Vec<String>>(&r.image_data).unwrap_or_default(),
+        created_at: r.created_at,
+        tipcard_type: r.tipcard_type,
+        topic_class: r.topic_class,
+        status: r.status,
+        next_review_at: r.next_review_at,
+        repeat_count: serde_json::from_str::<serde_json::Value>(&r.state_data)
+            .ok()
+            .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
+            .unwrap_or(0) as u32,
+        pinned: r.pinned,
+    })
+    .collect();
 
     Json(cards)
 }

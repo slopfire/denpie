@@ -1,10 +1,10 @@
 # Denpie
 
-A Rust-based backend service that generates, serves, and schedules daily tip cards using a intelligent scheduling system (SM-2 / FSRS). LLM content generation is powered by any OpenAI-compatible API endpoint (Gemini, OpenRouter, etc.) via `async-openai`.
+A Rust-based backend service that generates, serves, and schedules daily tip cards using SM-2 review scheduling. LLM content generation is powered by any OpenAI-compatible API endpoint (Gemini, OpenRouter, etc.) via `async-openai`.
 
 ## Features
 
-- **Intelligent Scheduling**: SM-2 and FSRS algorithms optimize tip delivery based on user review grades.
+- **Intelligent Scheduling**: SM-2 review intervals optimize tip delivery based on user review grades.
 - **Casual Cards**: Queue-style tips can be dismissed or acknowledged so clients can pull the next card immediately; acknowledged cards are scheduled.
 - **Repeatable Cards**: Re:word-style cards can be dismissed, repeated, memorized, or acknowledged; clients can advance after repeatable review actions, and repeated cards come back when due through scheduling.
 - **Topic Classes**: Topics belong to a card behavior class: casual, repeatable, or manual. 
@@ -53,11 +53,18 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 .
 ├── src/
 │   ├── main.rs        # Router setup, state, app initialization
-│   ├── api.rs         # Unified /api protobuf endpoint
+│   ├── api.rs         # Unified /api protobuf endpoint shim and current tip orchestration
+│   ├── auth.rs        # HTTP session transport and API key middleware wrapper
+│   ├── config/        # Typed settings and YAML load/save/update store
+│   ├── db/            # Repository modules for SQL-backed persistence
+│   ├── domain/        # Pure scheduling, review, and tipcard rules
+│   ├── error.rs       # Shared application error type and HTTP mapping
+│   ├── services/      # Settings and API key service orchestration
 │   ├── autoupdate.rs  # Optional in-process GitHub change watcher
 │   ├── llm.rs         # LLM wrappers (generate_new_card, compress_card, generate_card_title)
-│   └── srs.rs         # SM-2 and FSRS algorithm implementations
-├── schema.sql         # SQLite table definitions (applied automatically on startup)
+│   └── srs.rs         # SM-2 scheduling implementation
+├── migrations/        # SQL schema snapshots for database setup
+├── schema.sql         # SQLite schema reference kept for installs/tests
 ├── proto/
 │   └── denpie.proto # Protobuf schema for the unified API
 ├── templates/

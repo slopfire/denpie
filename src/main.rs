@@ -1,35 +1,30 @@
-use axum::{
-    routing::{get, post},
-    Router,
-};
-use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
-    SqlitePool,
-};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::fs;
-use tower_http::services::ServeDir;
 use tower_sessions::{Expiry, SessionManagerLayer};
 use tower_sessions_sqlx_store::SqliteStore;
 
 mod api;
+mod app;
 mod auth;
 mod autoupdate;
+mod config;
 mod context;
 mod dashboard;
+mod db;
+mod domain;
+mod error;
 mod llm;
+mod services;
 mod srs;
 #[cfg(test)]
 mod tests;
 
-pub struct AppState {
-    pub db: SqlitePool,
-    pub settings_path: PathBuf,
-    pub template_dir: PathBuf,
-}
+pub use app::{build_app, AppState};
+pub use db::migrations::apply_schema_migrations;
 
 #[tokio::main]
 async fn main() {
@@ -44,31 +39,11 @@ async fn main() {
         .expect("Failed to create data directory");
 
     let settings_path = data_dir.join("settings.yaml");
-    let settings_str = fs::read_to_string(&settings_path).await.unwrap_or_default();
-    let mut settings: serde_yaml::Value = serde_yaml::from_str(&settings_str)
-        .unwrap_or(serde_yaml::Value::Mapping(Default::default()));
-    if !settings.is_mapping() {
-        settings = serde_yaml::Value::Mapping(Default::default());
-    }
-    let admin_token = if let Some(token) = settings.get("admin_token").and_then(|v| v.as_str()) {
-        token.to_string()
-    } else {
-        use rand::Rng;
-        let token: String = rand::thread_rng()
-            .sample_iter(&rand::distributions::Alphanumeric)
-            .take(24)
-            .map(char::from)
-            .collect();
-        if let serde_yaml::Value::Mapping(ref mut map) = settings {
-            map.insert(
-                serde_yaml::Value::String("admin_token".to_string()),
-                serde_yaml::Value::String(token.clone()),
-            );
-        }
-        let out_str = serde_yaml::to_string(&settings).unwrap();
-        fs::write(&settings_path, out_str).await.unwrap();
-        token
-    };
+    let settings_store = config::SettingsStore::new(settings_path.clone());
+    let settings_service = services::settings::SettingsService::new(settings_store);
+    let admin_token = settings_service
+        .ensure_admin_token()
+        .expect("Failed to ensure admin token");
     //todo only on startup
     println!(">>> ADMIN SETUP TOKEN: {} <<<", admin_token);
 
@@ -87,18 +62,10 @@ async fn main() {
     let schema_path = std::env::var_os("DENPIE_SCHEMA_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("schema.sql"));
-    let schema = fs::read_to_string(&schema_path)
+    db::migrations::apply_schema_file(&pool, &schema_path)
         .await
-        .expect("Failed to read schema.sql");
-    for query in schema.split(';') {
-        if !query.trim().is_empty() {
-            sqlx::query(query)
-                .execute(&pool)
-                .await
-                .expect("Failed to execute schema");
-        }
-    }
-    apply_schema_migrations(&pool)
+        .expect("Failed to apply schema.sql");
+    db::migrations::apply_schema_migrations(&pool)
         .await
         .expect("Failed to apply schema migrations");
 
@@ -108,19 +75,24 @@ async fn main() {
         .await
         .expect("Failed to migrate session store");
 
+    let api_key_service = services::api_keys::ApiKeyService::new(pool.clone());
+    let review_service = services::review::ReviewService::new(pool.clone());
     let shared_state = Arc::new(AppState {
         db: pool,
         settings_path,
         template_dir: std::env::var_os("DENPIE_TEMPLATE_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("templates")),
+        settings: settings_service,
+        api_keys: api_key_service,
+        reviews: review_service,
     });
     autoupdate::spawn(shared_state.settings_path.clone());
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(false) // Set to true in prod with HTTPS
         .with_expiry(Expiry::OnInactivity(time::Duration::days(1)));
 
-    let app = build_app(shared_state, session_layer);
+    let app = app::build_app(shared_state, session_layer);
 
     let addr = std::env::var("DENPIE_BIND_ADDR")
         .ok()
@@ -129,142 +101,4 @@ async fn main() {
     println!("listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
-}
-
-pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send + Sync + 'static>(
-    shared_state: Arc<AppState>,
-    session_layer: SessionManagerLayer<S>,
-) -> Router {
-    let static_dir = std::env::var_os("DENPIE_STATIC_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("static"));
-
-    Router::new()
-        .route(
-            "/admin/settings",
-            get(dashboard::get_settings).post(dashboard::update_settings),
-        )
-        .route("/admin/autoupdate", post(dashboard::trigger_autoupdate))
-        .route(
-            "/admin/autoupdate/status",
-            get(dashboard::autoupdate_status),
-        )
-        .route(
-            "/admin/keys",
-            get(dashboard::list_api_keys)
-                .post(dashboard::create_api_key)
-                .delete(dashboard::delete_api_key),
-        )
-        .route("/admin/topics", get(dashboard::list_topics))
-        .route("/admin/topic-classes", get(dashboard::list_topic_classes))
-        .route("/admin/token-spend", get(dashboard::token_spend))
-        .route(
-            "/admin/tipcards",
-            get(dashboard::list_tipcards)
-                .patch(dashboard::pin_tipcard)
-                .delete(dashboard::delete_tipcard),
-        )
-        .route("/app/summary", get(dashboard::app_summary))
-        .route(
-            "/app/topics",
-            get(dashboard::app_topics)
-                .patch(dashboard::update_topic)
-                .delete(dashboard::delete_topic),
-        )
-        .route("/app/tips", post(dashboard::app_tips))
-        .route("/app/daily-refresh", post(dashboard::force_daily_refresh))
-        .route("/app/review", post(dashboard::app_review))
-        .route_layer(axum::middleware::from_fn(auth::require_session))
-        .nest_service("/static", ServeDir::new(static_dir))
-        .route("/", get(dashboard::app_index))
-        .route("/auth/login", post(auth::login))
-        .route("/api", post(api::unified_api))
-        .layer(session_layer)
-        .with_state(shared_state)
-}
-
-pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS llm_token_usage (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            model TEXT NOT NULL,
-            purpose TEXT NOT NULL,
-            prompt_tokens INTEGER NOT NULL DEFAULT 0,
-            completion_tokens INTEGER NOT NULL DEFAULT 0,
-            total_tokens INTEGER NOT NULL DEFAULT 0,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )",
-    )
-    .execute(pool)
-    .await?;
-
-    ensure_column(pool, "topics", "class_id", "INTEGER").await?;
-    ensure_column(pool, "topics", "prompt_template", "TEXT").await?;
-    ensure_column(pool, "topics", "daily_card_count", "INTEGER").await?;
-    ensure_column(pool, "topics", "daily_time_zone", "TEXT").await?;
-    ensure_column(pool, "topics", "daily_update_time", "TEXT").await?;
-    ensure_column(pool, "topics", "compression_level", "TEXT").await?;
-    ensure_column(
-        pool,
-        "tipcards",
-        "tipcard_type",
-        "TEXT NOT NULL DEFAULT 'srs_tip'",
-    )
-    .await?;
-    ensure_column(pool, "tipcards", "title", "TEXT").await?;
-    ensure_column(pool, "tipcards", "image_data", "TEXT NOT NULL DEFAULT '[]'").await?;
-    ensure_column(pool, "tipcards", "pinned", "INTEGER NOT NULL DEFAULT 0").await?;
-    ensure_column(
-        pool,
-        "review_states",
-        "status",
-        "TEXT NOT NULL DEFAULT 'active'",
-    )
-    .await?;
-    ensure_column(pool, "review_states", "daily_refreshed_at", "DATETIME").await?;
-
-    sqlx::query(
-        "INSERT OR IGNORE INTO topic_classes (name, tipcard_type) VALUES ('default', 'srs_tip')",
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        "UPDATE topics
-         SET class_id = (SELECT id FROM topic_classes WHERE name = 'default')
-         WHERE class_id IS NULL",
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query("UPDATE tipcards SET tipcard_type = 'srs_tip' WHERE tipcard_type IS NULL")
-        .execute(pool)
-        .await?;
-
-    sqlx::query("UPDATE review_states SET status = 'active' WHERE status IS NULL")
-        .execute(pool)
-        .await?;
-
-    Ok(())
-}
-
-async fn ensure_column(
-    pool: &SqlitePool,
-    table: &str,
-    column: &str,
-    definition: &str,
-) -> Result<(), sqlx::Error> {
-    let pragma = format!("PRAGMA table_info({table})");
-    let rows = sqlx::query(&pragma).fetch_all(pool).await?;
-    let exists = rows.iter().any(|row| {
-        use sqlx::Row;
-        row.try_get::<String, _>("name")
-            .map(|name| name == column)
-            .unwrap_or(false)
-    });
-    if !exists {
-        let statement = format!("ALTER TABLE {table} ADD COLUMN {column} {definition}");
-        sqlx::query(&statement).execute(pool).await?;
-    }
-    Ok(())
 }

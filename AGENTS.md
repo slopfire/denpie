@@ -3,7 +3,7 @@
 **Denpie** codebase. Primary context guide.
 
 ## Project Overview
-Backend service for daily tip cards using intelligent scheduling (FSRS, SM-2). Admin dashboard, API key auth, Gemini LLM tips via `async-openai`.
+Backend service for daily tip cards. Scheduling truth now SM-2. No claim real FSRS until code has real FSRS. Admin dashboard, API key auth, Gemini/OpenAI-compatible tips via `async-openai`.
 
 ## Technology Stack & Best Practices
 - **Language**: Rust (edition 2021)
@@ -12,6 +12,7 @@ Backend service for daily tip cards using intelligent scheduling (FSRS, SM-2). A
   - **CRITICAL**: Use safe query binding in SQLx. No SQL injection.
   - Review `schema.sql` for table structure (`api_keys`, `topics`, `tipcards`, `review_states`).
 - **Configuration**: YAML (`settings.yaml` for LLM parameters)
+- **Schema**: `migrations/` snapshots plus compatibility `schema.sql`; startup migration helpers live in `src/db/migrations.rs`.
 - **Async Runtime**: Tokio
 - **LLM Integration**: `async-openai` (Gemini endpoint)
 - **Frontend**: Tailwind CSS (Admin UI)
@@ -19,10 +20,14 @@ Backend service for daily tip cards using intelligent scheduling (FSRS, SM-2). A
 ## Architecture & File Mapping
 - **Design Paradigm**: Single-user, multi-client. Global scheduling state; multiple clients (desktop widget, Telegram bot) via API keys.
 - `src/main.rs`: Axum router, DI (State), DB pool, app init.
-- `src/api.rs`: API routes for `/tips`, `/review`. Reads `settings.yaml`.
-- `src/auth.rs`: Middleware for hashed API key verification (`client_name`).
-- `src/dashboard.rs`: SSR admin views; modifies `settings.yaml`, key generation.
-- `src/srs.rs`: SRS algorithm implementation.
+- `src/config/`: typed settings + YAML store. Raw YAML `Value` stay here, ugh.
+- `src/db/repositories/`: SQL lives here as refactor grows. Bind params, no injection nonsense.
+- `src/domain/`: scheduling/review/tipcard rules. No SQL/YAML.
+- `src/services/`: orchestration for settings and API keys, more services later.
+- `src/api.rs`: protobuf endpoint shim + remaining tip orchestration during refactor.
+- `src/auth.rs`: session middleware/login transport; API key verify through service.
+- `src/dashboard.rs`: browser handlers; settings/key calls through services.
+- `src/srs.rs`: SM-2 scheduling implementation.
 - `src/llm.rs`: LLM wrappers for Gemini API.
 
 ## Persona & Behavioral Rules (CRITICAL)

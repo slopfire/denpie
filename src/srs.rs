@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub enum Algorithm {
-    FSRS,
+    #[serde(rename = "SM2", alias = "FSRS", alias = "fsrs")]
     SM2,
 }
 
@@ -14,7 +14,6 @@ pub struct SrsState {
     pub ease_factor: f32,
     pub interval: u32,
     pub repetitions: u32,
-    // FSRS state would go here
 }
 
 impl Default for SrsState {
@@ -51,10 +50,6 @@ pub fn calculate_next_review(state: &mut SrsState, grade: u8) -> DateTime<Utc> {
             }
 
             Utc::now() + chrono::Duration::days(state.interval as i64)
-        }
-        Algorithm::FSRS => {
-            // Placeholder for FSRS logic using fsrs crate
-            Utc::now() + chrono::Duration::days(1)
         }
     }
 }
@@ -138,19 +133,6 @@ mod tests {
         // Then fail
         let _ = calculate_next_review(&mut state, 2);
         assert_eq!(state.repetitions, 0, "Grade 2 should reset repetitions");
-    }
-
-    #[test]
-    fn test_fsrs_placeholder_returns_future_date() {
-        let mut state = SrsState {
-            algorithm: Algorithm::FSRS,
-            ease_factor: 2.5,
-            interval: 0,
-            repetitions: 0,
-        };
-        let before = Utc::now();
-        let next = calculate_next_review(&mut state, 4);
-        assert!(next > before, "FSRS should return a future date");
     }
 
     #[test]

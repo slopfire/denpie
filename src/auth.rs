@@ -5,7 +5,6 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use sha2::Digest;
 use std::sync::Arc;
 use tower_sessions::Session;
 
@@ -21,18 +20,7 @@ pub async fn verify_api_key(
     if let Some(auth_value) = auth_header {
         let key = auth_value.to_str().map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-        let mut hasher = sha2::Sha256::new();
-        sha2::Digest::update(&mut hasher, key.as_bytes());
-        let key_hash = hex::encode(hasher.finalize());
-
-        let exists: Option<String> =
-            sqlx::query_scalar("SELECT client_name FROM api_keys WHERE key_hash = ?")
-                .bind(key_hash)
-                .fetch_optional(&state.db)
-                .await
-                .map_err(|_: sqlx::Error| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        if exists.is_some() {
+        if state.api_keys.verify(key).await.is_ok() {
             Ok(next.run(req).await)
         } else {
             Err(StatusCode::UNAUTHORIZED)
@@ -52,13 +40,11 @@ pub async fn login(
     session: Session,
     Json(req): Json<LoginReq>,
 ) -> Result<StatusCode, StatusCode> {
-    let settings_str = std::fs::read_to_string(&state.settings_path).unwrap_or_default();
-    let settings: serde_yaml::Value = serde_yaml::from_str(&settings_str)
-        .unwrap_or(serde_yaml::Value::Mapping(Default::default()));
-    let real_token = settings
-        .get("admin_token")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let settings = state
+        .settings
+        .get_settings()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let real_token = settings.admin_token;
 
     if req.admin_token == real_token && !real_token.is_empty() {
         session

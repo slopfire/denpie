@@ -1,6 +1,6 @@
 use axum::http::StatusCode;
 
-use crate::AppState;
+use crate::{db::repositories::tipcards, AppState};
 
 //todo
 const MAX_CONTEXT_TITLES: usize = 80;
@@ -40,29 +40,18 @@ pub async fn load_card_context(
     topic_id: i64,
     tipcard_type: &str,
 ) -> Result<CardContext, (StatusCode, String)> {
-    let rows = sqlx::query_as::<_, (String, String)>(
-        "SELECT COALESCE(NULLIF(t.title, ''), t.compressed_content) AS title,
-                COALESCE(r.status, 'active') AS status
-         FROM tipcards t
-         LEFT JOIN review_states r ON r.card_id = t.id
-         WHERE t.topic_id = ? AND t.tipcard_type = ?
-         ORDER BY t.created_at DESC, t.id DESC
-         LIMIT ?",
-    )
-    .bind(topic_id)
-    .bind(tipcard_type)
-    .bind(MAX_CONTEXT_TITLES as i64)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let rows =
+        tipcards::list_context_titles(&state.db, topic_id, tipcard_type, MAX_CONTEXT_TITLES as i64)
+            .await
+            .map_err(|err| err.into_status_body())?;
 
     let mut context = CardContext::default();
-    for (title, status) in rows {
-        let title = compact_title(&title);
+    for row in rows {
+        let title = compact_title(&row.title);
         if title.is_empty() {
             continue;
         }
-        if status == "dismissed" {
+        if row.status == "dismissed" {
             context.dismissed_titles.push(title);
         } else {
             context.existing_titles.push(title);
