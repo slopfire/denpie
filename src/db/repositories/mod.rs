@@ -1,4 +1,5 @@
 pub mod api_keys;
+pub mod passkeys;
 pub mod reviews;
 pub mod tipcards;
 pub mod token_usage;

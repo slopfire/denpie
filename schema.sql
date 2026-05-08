@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT,
     role TEXT NOT NULL DEFAULT 'user',
+    display_name TEXT,
+    avatar_data TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

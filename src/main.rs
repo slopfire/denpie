@@ -77,6 +77,19 @@ async fn main() {
 
     let api_key_service = services::api_keys::ApiKeyService::new(pool.clone());
     let review_service = services::review::ReviewService::new(pool.clone());
+
+    let rp_id = std::env::var("DENPIE_RP_ID").unwrap_or_else(|_| "localhost".to_string());
+    let rp_origin_str =
+        std::env::var("DENPIE_RP_ORIGIN").unwrap_or_else(|_| "http://localhost:3017".to_string());
+    let rp_origin = url::Url::parse(&rp_origin_str).expect("Invalid DENPIE_RP_ORIGIN");
+    let webauthn_builder = webauthn_rs::WebauthnBuilder::new(&rp_id, &rp_origin)
+        .expect("Invalid webauthn configuration");
+    let webauthn = Arc::new(
+        webauthn_builder
+            .build()
+            .expect("Invalid webauthn configuration"),
+    );
+
     let shared_state = Arc::new(AppState {
         db: pool,
         settings_path,
@@ -86,6 +99,7 @@ async fn main() {
         settings: settings_service,
         api_keys: api_key_service,
         reviews: review_service,
+        webauthn,
     });
     autoupdate::spawn(shared_state.settings_path.clone());
     let session_layer = SessionManagerLayer::new(session_store)

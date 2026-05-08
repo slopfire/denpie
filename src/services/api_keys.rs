@@ -23,6 +23,8 @@ impl ApiKeyService {
                 id: verified.user_id,
                 username: verified.username,
                 role: verified.role,
+                display_name: None, // API key auth doesn't usually need these
+                avatar_data: None,
             }
         })
     }

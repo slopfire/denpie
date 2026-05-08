@@ -28,6 +28,9 @@ sha2 = "0.10"
 time = "0.3.47"
 prost = "0.14.3"
 bytes = "1.11.1"
+webauthn-rs = { version = "0.6.1-dev", features = ["danger-allow-state-serialisation"] }
+url = "2.5"
+uuid = { version = "1.10", features = ["v5", "serde"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

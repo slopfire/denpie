@@ -1,11 +1,12 @@
 use axum::{
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use sqlx::SqlitePool;
 use std::{path::PathBuf, sync::Arc};
 use tower_http::services::ServeDir;
 use tower_sessions::SessionManagerLayer;
+use webauthn_rs::Webauthn;
 
 use crate::{api, auth, dashboard, services};
 
@@ -16,6 +17,7 @@ pub struct AppState {
     pub settings: services::settings::SettingsService,
     pub api_keys: services::api_keys::ApiKeyService,
     pub reviews: services::review::ReviewService,
+    pub webauthn: Arc<Webauthn>,
 }
 
 pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send + Sync + 'static>(
@@ -60,11 +62,17 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .route("/app/tips", post(dashboard::app_tips))
         .route("/app/daily-refresh", post(dashboard::force_daily_refresh))
         .route("/app/review", post(dashboard::app_review))
+        .route("/auth/passkeys", get(auth::list_passkeys))
+        .route("/auth/passkeys/:id", delete(auth::delete_passkey))
+        .route("/auth/passkeys/register/start", post(auth::register_start))
+        .route("/auth/passkeys/register/finish", post(auth::register_finish))
         .route_layer(axum::middleware::from_fn(auth::require_session))
         .nest_service("/static", ServeDir::new(static_dir))
         .route("/", get(dashboard::app_index))
-        .route("/auth/me", get(auth::me))
+        .route("/auth/me", get(auth::me).patch(auth::update_me).delete(auth::delete_me))
         .route("/auth/login", post(auth::login))
+        .route("/auth/passkeys/login/start", post(auth::login_passkey_start))
+        .route("/auth/passkeys/login/finish", post(auth::login_passkey_finish))
         .route("/auth/logout", post(auth::logout))
         .route("/auth/setup", post(auth::setup))
         .route("/api", post(api::unified_api))

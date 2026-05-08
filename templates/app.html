@@ -1253,6 +1253,13 @@
                     Login
                 </button>
                 <button
+                    id="passkey-login-btn"
+                    class="mt-2 w-full rounded-md border border-token px-3 py-2 font-medium flex items-center justify-center gap-2"
+                >
+                    <iconify-icon icon="radix-icons:lock-closed" class="radix-icon"></iconify-icon>
+                    Login with Passkey
+                </button>
+                <button
                     id="setup-btn"
                     class="mt-2 w-full rounded-md border px-3 py-2 font-medium"
                 >
@@ -2060,6 +2067,110 @@
                         class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3"
                     ></div>
                 </section>
+
+                <section id="view-account-settings" class="hidden-view">
+                    <h1 class="text-xl font-semibold tracking-tight mb-4">
+                        Account Settings
+                    </h1>
+                    <div class="max-w-5xl space-y-6">
+                        <form
+                            id="profile-form"
+                            class="surface border rounded-md p-4 space-y-4"
+                        >
+                            <h2 class="text-lg font-semibold">Profile</h2>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block card-kicker mb-2"
+                                        >Display Name</label
+                                    >
+                                    <input
+                                        id="profile-display-name"
+                                        class="w-full rounded-md border px-3 py-2"
+                                        placeholder="Your Name"
+                                    />
+                                </div>
+                                <div>
+                                    <label class="block card-kicker mb-2"
+                                        >Avatar Data (Data URI)</label
+                                    >
+                                    <input
+                                        id="profile-avatar-data"
+                                        class="w-full rounded-md border px-3 py-2"
+                                        placeholder="data:image/..."
+                                    />
+                                </div>
+                            </div>
+                            <button
+                                type="submit"
+                                class="rounded-md bg-primary-solid px-4 py-2 font-medium"
+                            >
+                                Update Profile
+                            </button>
+                        </form>
+
+                        <form
+                            id="password-form"
+                            class="surface border rounded-md p-4 space-y-4"
+                        >
+                            <h2 class="text-lg font-semibold">Security</h2>
+                            <div>
+                                <label class="block card-kicker mb-2"
+                                    >New Password</label
+                                >
+                                <input
+                                    id="profile-password"
+                                    type="password"
+                                    class="w-full rounded-md border px-3 py-2"
+                                    placeholder="Leave empty to keep current"
+                                />
+                            </div>
+                            <button
+                                type="submit"
+                                class="rounded-md bg-primary-solid px-4 py-2 font-medium"
+                            >
+                                Update Password
+                            </button>
+                        </form>
+
+                        <div class="surface border rounded-md p-4 space-y-4">
+                            <div class="flex items-center justify-between">
+                                <h2 class="text-lg font-semibold">Passkeys</h2>
+                                <button
+                                    id="add-passkey-btn"
+                                    class="rounded-md border border-token px-3 py-1 text-sm font-medium flex items-center gap-2"
+                                >
+                                    <iconify-icon
+                                        icon="radix-icons:plus"
+                                        class="radix-icon"
+                                    ></iconify-icon>
+                                    Add Passkey
+                                </button>
+                            </div>
+                            <div id="passkeys-list-container" class="space-y-2">
+                                <!-- Passkeys will be listed here -->
+                            </div>
+                        </div>
+
+                        <div
+                            class="surface border border-red-900/50 rounded-md p-4 space-y-4 bg-red-950/10"
+                        >
+                            <h2 class="text-lg font-semibold text-red-600">
+                                Danger Zone
+                            </h2>
+                            <p class="text-sm text-muted">
+                                Once you delete your account, there is no going
+                                back. All your cards, topics, and settings will
+                                be permanently removed.
+                            </p>
+                            <button
+                                id="delete-account-btn"
+                                class="rounded-md bg-red-600 hover:bg-red-700 px-4 py-2 font-medium text-white"
+                            >
+                                Delete Account
+                            </button>
+                        </div>
+                    </div>
+                </section>
             </main>
 
             <nav
@@ -2075,6 +2186,17 @@
                         aria-hidden="true"
                     ></iconify-icon
                     >Home
+                </button>
+                <button
+                    data-view="account-settings"
+                    class="nav-item flex flex-col items-center rounded-md px-3 py-2 text-xs font-medium"
+                >
+                    <iconify-icon
+                        icon="radix-icons:person"
+                        class="radix-icon"
+                        aria-hidden="true"
+                    ></iconify-icon
+                    >Account
                 </button>
                 <button
                     data-view="flow"
@@ -3011,14 +3133,24 @@
             }
 
             function renderAccount() {
-                const username = state.user?.username || "Account";
+                const username =
+                    state.user?.display_name ||
+                    state.user?.username ||
+                    "Account";
                 const role = state.user?.role || "user";
                 $("account-name").textContent = username;
                 $("account-role").textContent = role;
-                $("account-avatar").textContent =
-                    username.trim().charAt(0).toUpperCase() || "?";
-            }
 
+                const avatar = $("account-avatar");
+                if (state.user?.avatar_data) {
+                    avatar.innerHTML = `<img src="${state.user.avatar_data}" class="h-full w-full rounded-full object-cover" />`;
+                    avatar.classList.remove("bg-primary-solid");
+                } else {
+                    avatar.textContent =
+                        username.trim().charAt(0).toUpperCase() || "?";
+                    avatar.classList.add("bg-primary-solid");
+                }
+            }
             async function loadCurrentUser() {
                 state.user = await api("/auth/me");
                 renderAccount();
@@ -3058,8 +3190,173 @@
                     );
                 if (view === "flow") renderFlow();
                 if (view === "archive") renderArchive();
+                if (view === "account-settings") renderAccountSettings();
             }
 
+            async function renderAccountSettings() {
+                const user = state.user || (await api("/auth/me"));
+                $("profile-display-name").value = user.display_name || "";
+                $("profile-avatar-data").value = user.avatar_data || "";
+                $("profile-password").value = "";
+                renderPasskeys();
+            }
+
+            async function renderPasskeys() {
+                const passkeys = await api("/auth/passkeys");
+                const list = $("passkeys-list-container");
+                list.innerHTML =
+                    passkeys.length === 0
+                        ? '<div class="text-sm text-muted py-2">No passkeys registered.</div>'
+                        : passkeys
+                              .map(
+                                  (pk) => `
+                       <div class="flex items-center justify-between p-2 rounded-md bg-surface-muted border border-token">
+                           <div class="flex items-center gap-2">
+                               <iconify-icon icon="radix-icons:lock-closed" class="text-muted"></iconify-icon>
+                               <span class="text-sm font-medium">Passkey ${pk.name}</span>
+                           </div>
+                           <button onclick="window.deletePasskey('${pk.id}')" class="text-red-500 hover:text-red-600 p-1">
+                               <iconify-icon icon="radix-icons:trash" class="radix-icon"></iconify-icon>
+                           </button>
+                       </div>
+                   `,
+                              )
+                              .join("");
+            }
+
+            window.deletePasskey = async function (id) {
+                if (!confirm("Delete this passkey?")) return;
+                try {
+                    await api(`/auth/passkeys/${id}`, { method: "DELETE" });
+                    toast("Passkey deleted");
+                    renderPasskeys();
+                } catch (err) {
+                    toast(err.message);
+                }
+            };
+
+            function bufferToBase64(buffer) {
+                return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+                    .replace(/\+/g, "-")
+                    .replace(/\//g, "_")
+                    .replace(/=/g, "");
+            }
+
+            function base64ToBuffer(base64) {
+                const bin = atob(
+                    base64.replace(/-/g, "+").replace(/_/g, "/"),
+                );
+                const len = bin.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = bin.charCodeAt(i);
+                }
+                return bytes.buffer;
+            }
+
+            async function addPasskey() {
+                try {
+                    const challenge = await api(
+                        "/auth/passkeys/register/start",
+                        { method: "POST" },
+                    );
+
+                    // Convert base64 fields to buffers
+                    challenge.publicKey.challenge = base64ToBuffer(
+                        challenge.publicKey.challenge,
+                    );
+                    challenge.publicKey.user.id = base64ToBuffer(
+                        challenge.publicKey.user.id,
+                    );
+                    if (challenge.publicKey.excludeCredentials) {
+                        challenge.publicKey.excludeCredentials.forEach(
+                            (c) => (c.id = base64ToBuffer(c.id)),
+                        );
+                    }
+
+                    const credential = await navigator.credentials.create({
+                        publicKey: challenge.publicKey,
+                    });
+
+                    const response = {
+                        id: credential.id,
+                        rawId: bufferToBase64(credential.rawId),
+                        type: credential.type,
+                        response: {
+                            attestationObject: bufferToBase64(
+                                credential.response.attestationObject,
+                            ),
+                            clientDataJSON: bufferToBase64(
+                                credential.response.clientDataJSON,
+                            ),
+                        },
+                    };
+
+                    await api("/auth/passkeys/register/finish", {
+                        method: "POST",
+                        body: JSON.stringify(response),
+                    });
+
+                    toast("Passkey added");
+                    renderPasskeys();
+                } catch (err) {
+                    toast(err.message);
+                }
+            }
+
+            async function loginWithPasskey() {
+                try {
+                    const challenge = await api("/auth/passkeys/login/start", {
+                        method: "POST",
+                    });
+
+                    challenge.publicKey.challenge = base64ToBuffer(
+                        challenge.publicKey.challenge,
+                    );
+                    if (challenge.publicKey.allowCredentials) {
+                        challenge.publicKey.allowCredentials.forEach(
+                            (c) => (c.id = base64ToBuffer(c.id)),
+                        );
+                    }
+
+                    const assertion = await navigator.credentials.get({
+                        publicKey: challenge.publicKey,
+                    });
+
+                    const response = {
+                        id: assertion.id,
+                        rawId: bufferToBase64(assertion.rawId),
+                        type: assertion.type,
+                        response: {
+                            authenticatorData: bufferToBase64(
+                                assertion.response.authenticatorData,
+                            ),
+                            clientDataJSON: bufferToBase64(
+                                assertion.response.clientDataJSON,
+                            ),
+                            signature: bufferToBase64(
+                                assertion.response.signature,
+                            ),
+                            userHandle: assertion.response.userHandle
+                                ? bufferToBase64(
+                                      assertion.response.userHandle,
+                                  )
+                                : null,
+                        },
+                    };
+
+                    await api("/auth/passkeys/login/finish", {
+                        method: "POST",
+                        body: JSON.stringify(response),
+                    });
+
+                    setAuthed(true);
+                    loadCurrentUser();
+                    toast("Logged in with passkey");
+                } catch (err) {
+                    toast(err.message);
+                }
+            }
             function cardKindFromType(tipcardType) {
                 if (tipcardType === "casual_tip") return "casual";
                 if (tipcardType === "manual_tip") return "manual";
@@ -4759,7 +5056,7 @@
                 });
                 $("account-settings-btn").addEventListener("click", () => {
                     closeAccountMenu();
-                    setView("settings");
+                    setView("account-settings");
                 });
                 $("account-refresh-btn").addEventListener("click", () =>
                     refreshAll()
@@ -4947,6 +5244,68 @@
                         $("login-error").textContent = "Setup failed.";
                     }
                 });
+
+                $("passkey-login-btn").addEventListener("click", () =>
+                    loginWithPasskey(),
+                );
+
+                $("profile-form").addEventListener("submit", async (event) => {
+                    event.preventDefault();
+                    try {
+                        const user = await api("/auth/me", {
+                            method: "PATCH",
+                            body: JSON.stringify({
+                                display_name: $("profile-display-name").value,
+                                avatar_data: $("profile-avatar-data").value,
+                            }),
+                        });
+                        state.user = user;
+                        renderAccount();
+                        toast("Profile updated");
+                    } catch (err) {
+                        toast(err.message);
+                    }
+                });
+
+                $("password-form").addEventListener("submit", async (event) => {
+                    event.preventDefault();
+                    const password = $("profile-password").value;
+                    if (!password) {
+                        toast("Enter a new password");
+                        return;
+                    }
+                    try {
+                        await api("/auth/me", {
+                            method: "PATCH",
+                            body: JSON.stringify({ password }),
+                        });
+                        $("profile-password").value = "";
+                        toast("Password updated");
+                    } catch (err) {
+                        toast(err.message);
+                    }
+                });
+
+                $("add-passkey-btn").addEventListener("click", () =>
+                    addPasskey(),
+                );
+
+                $("delete-account-btn").addEventListener("click", async () => {
+                    if (
+                        !confirm(
+                            "ARE YOU SURE? This will permanently delete your account and ALL your data. This cannot be undone.",
+                        )
+                    )
+                        return;
+                    try {
+                        await api("/auth/me", { method: "DELETE" });
+                        setAuthed(false);
+                        toast("Account deleted");
+                    } catch (err) {
+                        toast(err.message);
+                    }
+                });
+
                 $("login-password").addEventListener("keydown", (event) => {
                     if (event.key === "Enter") $("login-btn").click();
                 });
