@@ -1,6 +1,6 @@
 use crate::{
     api, autoupdate, config,
-    db::repositories::{tipcards, token_usage, topics},
+    db::repositories::{tipcards, token_usage, topics, user_settings},
     llm, AppState,
 };
 use axum::{
@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
+use tower_sessions::Session;
 
 pub async fn app_index(State(state): State<Arc<AppState>>) -> Response {
     match fs::read_to_string(state.template_dir.join("app.html")) {
@@ -48,10 +49,30 @@ pub struct SettingsRes {
     max_active_cards: u64,
 }
 
-pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRes> {
-    let settings = state.settings.get_settings().unwrap_or_default();
+pub async fn get_settings(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+) -> Json<SettingsRes> {
+    let user = match crate::auth::current_user(&state, &session).await {
+        Ok(user) => user,
+        Err(_) => {
+            return Json(settings_response(config::Settings::default(), false));
+        }
+    };
+    let defaults = state.settings.get_settings().unwrap_or_default();
+    let mut settings = user_settings::get(&state.db, &user.id, defaults)
+        .await
+        .unwrap_or_default();
+    if user.role != "admin" {
+        settings.autoupdate_enabled = false;
+        settings.autoupdate_command.clear();
+    }
 
-    Json(SettingsRes {
+    Json(settings_response(settings, user.role == "admin"))
+}
+
+fn settings_response(settings: config::Settings, show_autoupdate: bool) -> SettingsRes {
+    SettingsRes {
         server_version: env!("CARGO_PKG_VERSION").to_string(),
         build_sha: option_env!("DENPIE_BUILD_SHA")
             .unwrap_or("unknown")
@@ -68,16 +89,36 @@ pub async fn get_settings(State(state): State<Arc<AppState>>) -> Json<SettingsRe
         color_scheme: settings.color_scheme,
         transparency: settings.transparency,
         blur_intensity: settings.blur_intensity,
-        autoupdate_enabled: settings.autoupdate_enabled,
-        autoupdate_repo: settings.autoupdate_repo,
-        autoupdate_branch: settings.autoupdate_branch,
-        autoupdate_check_interval_secs: settings.autoupdate_check_interval_secs,
-        autoupdate_command: settings.autoupdate_command,
-        autoupdate_last_seen_sha: settings.autoupdate_last_seen_sha,
+        autoupdate_enabled: show_autoupdate && settings.autoupdate_enabled,
+        autoupdate_repo: if show_autoupdate {
+            settings.autoupdate_repo
+        } else {
+            String::new()
+        },
+        autoupdate_branch: if show_autoupdate {
+            settings.autoupdate_branch
+        } else {
+            String::new()
+        },
+        autoupdate_check_interval_secs: if show_autoupdate {
+            settings.autoupdate_check_interval_secs
+        } else {
+            0
+        },
+        autoupdate_command: if show_autoupdate {
+            settings.autoupdate_command
+        } else {
+            String::new()
+        },
+        autoupdate_last_seen_sha: if show_autoupdate {
+            settings.autoupdate_last_seen_sha
+        } else {
+            String::new()
+        },
         daily_time_zone: settings.daily_time_zone,
         daily_update_time: settings.daily_update_time,
         max_active_cards: settings.max_active_cards,
-    })
+    }
 }
 
 #[derive(Deserialize)]
@@ -107,9 +148,14 @@ pub struct UpdateSettingsReq {
 
 pub async fn update_settings(
     State(state): State<Arc<AppState>>,
+    session: Session,
     Json(req): Json<UpdateSettingsReq>,
 ) -> Json<()> {
-    let _ = state.settings.update_settings(config::SettingsPatch {
+    let user = match crate::auth::current_user(&state, &session).await {
+        Ok(user) => user,
+        Err(_) => return Json(()),
+    };
+    let patch = config::SettingsPatch {
         model: req.model,
         compress_model: req.compress_model,
         template: req.template,
@@ -131,7 +177,29 @@ pub async fn update_settings(
         daily_time_zone: req.daily_time_zone,
         daily_update_time: req.daily_update_time,
         max_active_cards: req.max_active_cards,
-    });
+    };
+    if user.role == "admin"
+        && (patch.autoupdate_enabled.is_some()
+            || patch.autoupdate_repo.is_some()
+            || patch.autoupdate_branch.is_some()
+            || patch.autoupdate_check_interval_secs.is_some()
+            || patch.autoupdate_command.is_some())
+    {
+        let _ = state.settings.update_settings(config::SettingsPatch {
+            autoupdate_enabled: patch.autoupdate_enabled.clone(),
+            autoupdate_repo: patch.autoupdate_repo.clone(),
+            autoupdate_branch: patch.autoupdate_branch.clone(),
+            autoupdate_check_interval_secs: patch.autoupdate_check_interval_secs,
+            autoupdate_command: patch.autoupdate_command.clone(),
+            ..Default::default()
+        });
+    }
+    let defaults = state.settings.get_settings().unwrap_or_default();
+    let current = user_settings::get(&state.db, &user.id, defaults)
+        .await
+        .unwrap_or_default();
+    let updated = current.apply_patch(patch);
+    let _ = user_settings::upsert(&state.db, &user.id, &updated).await;
 
     Json(())
 }
@@ -145,7 +213,12 @@ pub struct TriggerAutoupdateRes {
     build_sha: String,
 }
 
-pub async fn trigger_autoupdate(State(state): State<Arc<AppState>>) -> Response {
+pub async fn trigger_autoupdate(State(state): State<Arc<AppState>>, session: Session) -> Response {
+    match crate::auth::current_user(&state, &session).await {
+        Ok(user) if user.role == "admin" => {}
+        Ok(_) => return (StatusCode::FORBIDDEN, "Admin only").into_response(),
+        Err(err) => return err.into_response(),
+    }
     match autoupdate::trigger_manual(&state.settings_path).await {
         Ok(result) => {
             if result.should_exit_for_restart {
@@ -171,7 +244,19 @@ pub async fn trigger_autoupdate(State(state): State<Arc<AppState>>) -> Response 
 
 pub async fn autoupdate_status(
     State(state): State<Arc<AppState>>,
+    session: Session,
 ) -> Json<autoupdate::UpdateStatus> {
+    match crate::auth::current_user(&state, &session).await {
+        Ok(user) if user.role == "admin" => {}
+        _ => {
+            return Json(autoupdate::UpdateStatus {
+                phase: "forbidden".to_string(),
+                message: "Admin only".to_string(),
+                target_sha: String::new(),
+                updated_at: String::new(),
+            })
+        }
+    }
     Json(autoupdate::read_status(&state.settings_path))
 }
 
@@ -182,14 +267,19 @@ pub struct CreateKeyReq {
 
 pub async fn create_api_key(
     State(state): State<Arc<AppState>>,
+    session: Session,
     req: Option<Json<CreateKeyReq>>,
 ) -> Json<String> {
+    let user = match crate::auth::current_user(&state, &session).await {
+        Ok(user) => user,
+        Err(_) => return Json(String::new()),
+    };
     let client_name = req
         .and_then(|Json(r)| r.client_name)
         .unwrap_or_else(|| "default_client".to_string());
     let api_key = state
         .api_keys
-        .create(Some(client_name))
+        .create(&user.id, Some(client_name))
         .await
         .unwrap_or_default();
 
@@ -203,10 +293,17 @@ pub struct ApiKeyInfo {
     pub created_at: String,
 }
 
-pub async fn list_api_keys(State(state): State<Arc<AppState>>) -> Json<Vec<ApiKeyInfo>> {
+pub async fn list_api_keys(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+) -> Json<Vec<ApiKeyInfo>> {
+    let user = match crate::auth::current_user(&state, &session).await {
+        Ok(user) => user,
+        Err(_) => return Json(Vec::new()),
+    };
     let keys = state
         .api_keys
-        .list()
+        .list(&user.id)
         .await
         .unwrap_or_default()
         .into_iter()
@@ -227,9 +324,14 @@ pub struct DeleteKeyReq {
 
 pub async fn delete_api_key(
     State(state): State<Arc<AppState>>,
+    session: Session,
     Json(req): Json<DeleteKeyReq>,
 ) -> StatusCode {
-    if state.api_keys.delete(req.id).await.is_ok() {
+    let user = match crate::auth::current_user(&state, &session).await {
+        Ok(user) => user,
+        Err(_) => return StatusCode::UNAUTHORIZED,
+    };
+    if state.api_keys.delete(&user.id, req.id).await.is_ok() {
         StatusCode::OK
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
@@ -250,22 +352,29 @@ pub struct PinTipcardReq {
 
 pub async fn pin_tipcard(
     State(state): State<Arc<AppState>>,
+    session: Session,
     Json(req): Json<PinTipcardReq>,
 ) -> Result<Json<()>, (StatusCode, String)> {
+    let user = crate::auth::current_user(&state, &session).await?;
     if let Some(pinned) = req.pinned {
-        api::set_tipcard_pinned(&state, req.id, pinned).await?;
+        api::set_tipcard_pinned(&state, &user.id, req.id, pinned).await?;
     }
     if let Some(image_data) = req.image_data {
-        api::set_tipcard_images(&state, req.id, image_data).await?;
+        api::set_tipcard_images(&state, &user.id, req.id, image_data).await?;
     }
     Ok(Json(()))
 }
 
 pub async fn delete_tipcard(
     State(state): State<Arc<AppState>>,
+    session: Session,
     Json(req): Json<DeleteTipcardReq>,
 ) -> StatusCode {
-    match tipcards::delete_with_review(&state.db, req.id).await {
+    let user = match crate::auth::current_user(&state, &session).await {
+        Ok(user) => user,
+        Err(_) => return StatusCode::UNAUTHORIZED,
+    };
+    match tipcards::delete_with_review(&state.db, &user.id, req.id).await {
         Ok(()) => StatusCode::OK,
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
@@ -283,8 +392,15 @@ pub struct TopicInfo {
     pub compression_level: String,
 }
 
-pub async fn list_topics(State(state): State<Arc<AppState>>) -> Json<Vec<TopicInfo>> {
-    let topics = topics::list_admin(&state.db)
+pub async fn list_topics(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+) -> Json<Vec<TopicInfo>> {
+    let user = match crate::auth::current_user(&state, &session).await {
+        Ok(user) => user,
+        Err(_) => return Json(Vec::new()),
+    };
+    let topics = topics::list_admin(&state.db, &user.id)
         .await
         .unwrap_or_default()
         .into_iter()
@@ -309,8 +425,18 @@ pub struct TokenSpend {
     pub total: i64,
 }
 
-pub async fn token_spend(State(state): State<Arc<AppState>>) -> Json<TokenSpend> {
-    match token_usage::aggregate_spend(&state.db).await {
+pub async fn token_spend(State(state): State<Arc<AppState>>, session: Session) -> Json<TokenSpend> {
+    let user = match crate::auth::current_user(&state, &session).await {
+        Ok(user) => user,
+        Err(_) => {
+            return Json(TokenSpend {
+                daily: 0,
+                monthly: 0,
+                total: 0,
+            })
+        }
+    };
+    match token_usage::aggregate_spend(&state.db, &user.id).await {
         Ok(spend) => Json(TokenSpend {
             daily: spend.daily,
             monthly: spend.monthly,
@@ -332,8 +458,19 @@ pub struct AppSummary {
     pub active_cards: i64,
 }
 
-pub async fn app_summary(State(state): State<Arc<AppState>>) -> Json<AppSummary> {
-    match topics::app_summary(&state.db, chrono::Utc::now()).await {
+pub async fn app_summary(State(state): State<Arc<AppState>>, session: Session) -> Json<AppSummary> {
+    let user = match crate::auth::current_user(&state, &session).await {
+        Ok(user) => user,
+        Err(_) => {
+            return Json(AppSummary {
+                topics: 0,
+                total_cards: 0,
+                due_cards: 0,
+                active_cards: 0,
+            })
+        }
+    };
+    match topics::app_summary(&state.db, &user.id, chrono::Utc::now()).await {
         Ok(summary) => Json(AppSummary {
             topics: summary.topics,
             total_cards: summary.total_cards,
@@ -364,9 +501,16 @@ pub struct AppTopicInfo {
     pub compression_level: String,
 }
 
-pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopicInfo>> {
+pub async fn app_topics(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+) -> Json<Vec<AppTopicInfo>> {
+    let user = match crate::auth::current_user(&state, &session).await {
+        Ok(user) => user,
+        Err(_) => return Json(Vec::new()),
+    };
     Json(
-        topics::list_app_topics(&state.db, chrono::Utc::now())
+        topics::list_app_topics(&state.db, &user.id, chrono::Utc::now())
             .await
             .unwrap_or_default()
             .into_iter()
@@ -399,9 +543,11 @@ pub struct UpdateTopicReq {
 
 pub async fn update_topic(
     State(state): State<Arc<AppState>>,
+    session: Session,
     Json(req): Json<UpdateTopicReq>,
 ) -> Result<Json<()>, (StatusCode, String)> {
-    let current = topics::get_settings(&state.db, req.id)
+    let user = crate::auth::current_user(&state, &session).await?;
+    let current = topics::get_settings(&state.db, &user.id, req.id)
         .await
         .map_err(|err| err.into_status_body())?;
 
@@ -466,6 +612,7 @@ pub async fn update_topic(
 
     topics::update_settings(
         &state.db,
+        &user.id,
         req.id,
         topics::TopicSettingsRecord {
             prompt_template,
@@ -488,9 +635,11 @@ pub struct DeleteTopicReq {
 
 pub async fn delete_topic(
     State(state): State<Arc<AppState>>,
+    session: Session,
     Json(req): Json<DeleteTopicReq>,
 ) -> Result<Json<()>, (StatusCode, String)> {
-    api::delete_topic_by_id(&state, req.id).await?;
+    let user = crate::auth::current_user(&state, &session).await?;
+    api::delete_topic_by_id(&state, &user.id, req.id).await?;
     Ok(Json(()))
 }
 
@@ -520,10 +669,16 @@ pub struct ListTipcardsQuery {
 
 pub async fn list_tipcards(
     State(state): State<Arc<AppState>>,
+    session: Session,
     Query(query): Query<ListTipcardsQuery>,
 ) -> Json<Vec<TipcardInfo>> {
+    let user = match crate::auth::current_user(&state, &session).await {
+        Ok(user) => user,
+        Err(_) => return Json(Vec::new()),
+    };
     let cards = tipcards::list_filtered(
         &state.db,
+        &user.id,
         tipcards::TipcardFilter {
             q: query.q,
             status: query.status,
@@ -558,24 +713,32 @@ pub async fn list_tipcards(
 
 pub async fn app_tips(
     State(state): State<Arc<AppState>>,
+    session: Session,
     Json(req): Json<api::TipsJsonRequest>,
 ) -> Result<Json<Vec<api::TipCardJson>>, (StatusCode, String)> {
-    api::build_tips(&state, req).await.map(Json)
+    let user = crate::auth::current_user(&state, &session).await?;
+    api::build_tips(&state, &user.id, req).await.map(Json)
 }
 
 pub async fn app_review(
     State(state): State<Arc<AppState>>,
+    session: Session,
     Json(req): Json<api::ReviewJsonRequest>,
 ) -> Result<Json<()>, (StatusCode, String)> {
+    let user = crate::auth::current_user(&state, &session).await?;
     let grade = req.grade.unwrap_or(3).min(5);
     let action = req.action.unwrap_or_default();
-    api::apply_review(&state, req.card_id, grade, &action).await?;
+    api::apply_review(&state, &user.id, req.card_id, grade, &action).await?;
     Ok(Json(()))
 }
 
 pub async fn force_daily_refresh(
     State(state): State<Arc<AppState>>,
+    session: Session,
     Json(req): Json<api::ForceDailyRefreshRequest>,
 ) -> Result<Json<api::ForceDailyRefreshResponse>, (StatusCode, String)> {
-    api::force_daily_refresh(&state, req).await.map(Json)
+    let user = crate::auth::current_user(&state, &session).await?;
+    api::force_daily_refresh(&state, &user.id, req)
+        .await
+        .map(Json)
 }

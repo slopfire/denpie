@@ -18,8 +18,14 @@ impl ReviewService {
         Self { pool }
     }
 
-    pub async fn apply_review(&self, card_id: i64, grade: u8, action: &str) -> AppResult<()> {
-        let row = reviews::load_for_card(&self.pool, card_id).await?;
+    pub async fn apply_review(
+        &self,
+        user_id: &str,
+        card_id: i64,
+        grade: u8,
+        action: &str,
+    ) -> AppResult<()> {
+        let row = reviews::load_for_card(&self.pool, user_id, card_id).await?;
 
         if domain::tipcard::is_queue_tipcard(&row.tipcard_type)
             || row.tipcard_type == "repeatable_tip"
@@ -87,8 +93,15 @@ impl ReviewService {
                 }
             };
 
-            reviews::update_queue_state(&self.pool, card_id, new_state_json, status, next_review)
-                .await?;
+            reviews::update_queue_state(
+                &self.pool,
+                user_id,
+                card_id,
+                new_state_json,
+                status,
+                next_review,
+            )
+            .await?;
             return Ok(());
         }
 
@@ -101,6 +114,7 @@ impl ReviewService {
             })?;
         let next_review = domain::review::next_review(&mut scheduling_state, grade);
         let new_state_json = serde_json::to_string(&scheduling_state)?;
-        reviews::update_review_schedule(&self.pool, card_id, new_state_json, next_review).await
+        reviews::update_review_schedule(&self.pool, user_id, card_id, new_state_json, next_review)
+            .await
     }
 }

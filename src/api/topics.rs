@@ -7,10 +7,11 @@ use super::{
 
 pub(crate) async fn get_or_create_topic(
     state: &AppState,
+    user_id: &str,
     topic_name: &str,
     requested_type: &str,
 ) -> ApiResult<TopicInfo> {
-    topics::get_or_create_topic(&state.db, topic_name, requested_type)
+    topics::get_or_create_topic(&state.db, user_id, topic_name, requested_type)
         .await
         .map(Into::into)
         .map_err(|err| err.into_status_body())
@@ -18,9 +19,10 @@ pub(crate) async fn get_or_create_topic(
 
 pub(crate) async fn update_topic_prompt(
     state: &AppState,
+    user_id: &str,
     req: pb::UpdateTopicRequest,
 ) -> ApiResult<()> {
-    let current = topics::get_settings(&state.db, req.id)
+    let current = topics::get_settings(&state.db, user_id, req.id)
         .await
         .map_err(|err| err.into_status_body())?;
 
@@ -59,6 +61,7 @@ pub(crate) async fn update_topic_prompt(
 
     topics::update_settings(
         &state.db,
+        user_id,
         req.id,
         topics::TopicSettingsRecord {
             prompt_template,
@@ -72,8 +75,8 @@ pub(crate) async fn update_topic_prompt(
     .map_err(|err| err.into_status_body())
 }
 
-pub async fn delete_topic_by_id(state: &AppState, id: i64) -> ApiResult<()> {
-    topics::delete_cascade(&state.db, id)
+pub async fn delete_topic_by_id(state: &AppState, user_id: &str, id: i64) -> ApiResult<()> {
+    topics::delete_cascade(&state.db, user_id, id)
         .await
         .map_err(|err| err.into_status_body())
 }

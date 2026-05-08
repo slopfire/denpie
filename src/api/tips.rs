@@ -2,7 +2,7 @@ use axum::http::StatusCode;
 
 use crate::{
     context,
-    db::repositories::{tipcards, token_usage, topics},
+    db::repositories::{tipcards, token_usage, topics, user_settings},
     domain, llm, AppState,
 };
 
@@ -17,7 +17,11 @@ use super::{
     },
 };
 
-pub async fn build_tips(state: &AppState, query: TipsJsonRequest) -> ApiResult<Vec<TipCardJson>> {
+pub async fn build_tips(
+    state: &AppState,
+    user_id: &str,
+    query: TipsJsonRequest,
+) -> ApiResult<Vec<TipCardJson>> {
     let count = query.count.unwrap_or(1).max(1);
     let topics_list: Vec<&str> = query.topics.split(',').collect();
     let mut responses = Vec::new();
@@ -39,16 +43,19 @@ pub async fn build_tips(state: &AppState, query: TipsJsonRequest) -> ApiResult<V
         .filter(|id| *id > 0)
         .collect();
 
-    let settings = state
+    let defaults = state
         .settings
         .get_settings()
+        .map_err(|err| err.into_status_body())?;
+    let settings = user_settings::get(&state.db, user_id, defaults)
+        .await
         .map_err(|err| err.into_status_body())?;
     let llm_reasoning = llm::ReasoningConfig::new(settings.llm_reasoning_effort.clone());
     let llm_compress_reasoning =
         llm::ReasoningConfig::new(settings.llm_compress_reasoning_effort.clone());
     let llm_compression_level =
         llm::CompressionLevel::from_setting(&settings.llm_compression_level);
-    let mut active_room = active_card_room(state, settings.max_active_cards).await?;
+    let mut active_room = active_card_room(state, user_id, settings.max_active_cards).await?;
 
     for topic_name in topics_list.into_iter().take(count as usize) {
         let topic_name = topic_name.trim();
@@ -56,7 +63,7 @@ pub async fn build_tips(state: &AppState, query: TipsJsonRequest) -> ApiResult<V
             continue;
         }
 
-        let topic = get_or_create_topic(state, topic_name, &requested_type).await?;
+        let topic = get_or_create_topic(state, user_id, topic_name, &requested_type).await?;
         if topic.tipcard_type == "custom_tip" {
             return Err((
                 StatusCode::BAD_REQUEST,
@@ -81,6 +88,7 @@ pub async fn build_tips(state: &AppState, query: TipsJsonRequest) -> ApiResult<V
             };
             create_manual_tipcard(
                 state,
+                user_id,
                 topic_name,
                 &topic,
                 manual_content.clone(),
@@ -101,6 +109,7 @@ pub async fn build_tips(state: &AppState, query: TipsJsonRequest) -> ApiResult<V
 
         let due_cards = tipcards::find_due_topic_cards(
             &state.db,
+            user_id,
             topic.id,
             &topic.tipcard_type,
             &exclude_card_ids,
@@ -129,6 +138,7 @@ pub async fn build_tips(state: &AppState, query: TipsJsonRequest) -> ApiResult<V
             );
             let daily_cards = tipcards::find_daily_topic_cards(
                 &state.db,
+                user_id,
                 topic.id,
                 &topic.tipcard_type,
                 daily_window_start,
@@ -155,6 +165,7 @@ pub async fn build_tips(state: &AppState, query: TipsJsonRequest) -> ApiResult<V
             for _ in 0..cards_to_generate {
                 generate_tipcard(
                     state,
+                    user_id,
                     topic_name,
                     &topic,
                     &settings.prompt_template,
@@ -174,6 +185,7 @@ pub async fn build_tips(state: &AppState, query: TipsJsonRequest) -> ApiResult<V
         } else if active_room.map_or(true, |room| room > 0) {
             generate_tipcard(
                 state,
+                user_id,
                 topic_name,
                 &topic,
                 &settings.prompt_template,
@@ -197,6 +209,7 @@ pub async fn build_tips(state: &AppState, query: TipsJsonRequest) -> ApiResult<V
 
 pub async fn force_daily_refresh(
     state: &AppState,
+    user_id: &str,
     req: ForceDailyRefreshRequest,
 ) -> ApiResult<ForceDailyRefreshResponse> {
     let topic_names: Vec<String> = req
@@ -212,7 +225,7 @@ pub async fn force_daily_refresh(
     let all_generated_topics = topic_names.is_empty() && requested_type.trim().is_empty();
 
     let targets: Vec<(TopicInfo, String)> = if all_generated_topics {
-        topics::list_generated_targets(&state.db)
+        topics::list_generated_targets(&state.db, user_id)
             .await
             .map_err(|err| err.into_status_body())?
             .into_iter()
@@ -227,7 +240,7 @@ pub async fn force_daily_refresh(
         }
         let mut targets = Vec::new();
         for topic_name in topic_names {
-            let topic = get_or_create_topic(state, &topic_name, &requested_type).await?;
+            let topic = get_or_create_topic(state, user_id, &topic_name, &requested_type).await?;
             targets.push((topic.clone(), topic.tipcard_type.clone()));
         }
         targets
@@ -239,6 +252,7 @@ pub async fn force_daily_refresh(
 
 pub(crate) async fn create_custom_tipcard(
     state: &AppState,
+    user_id: &str,
     req: pb::CustomTipcardRequest,
 ) -> ApiResult<TipCardJson> {
     let topic_name = req.topic.trim();
@@ -267,10 +281,17 @@ pub(crate) async fn create_custom_tipcard(
         title.chars().take(96).collect::<String>()
     };
 
-    let topic = get_or_create_topic(state, topic_name, "custom_tip").await?;
-    let card_id = tipcards::create_custom(&state.db, topic.id, &title, &full_tip, &compressed_tip)
-        .await
-        .map_err(|err| err.into_status_body())?;
+    let topic = get_or_create_topic(state, user_id, topic_name, "custom_tip").await?;
+    let card_id = tipcards::create_custom(
+        &state.db,
+        user_id,
+        topic.id,
+        &title,
+        &full_tip,
+        &compressed_tip,
+    )
+    .await
+    .map_err(|err| err.into_status_body())?;
 
     Ok(tip_response_json(
         card_id,
@@ -285,6 +306,7 @@ pub(crate) async fn create_custom_tipcard(
 
 async fn generate_tipcard(
     state: &AppState,
+    user_id: &str,
     topic_name: &str,
     topic: &TopicInfo,
     template: &str,
@@ -304,11 +326,12 @@ async fn generate_tipcard(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(template);
-    let card_context = context::load_card_context(state, topic.id, &topic.tipcard_type).await?;
+    let card_context =
+        context::load_card_context(state, user_id, topic.id, &topic.tipcard_type).await?;
     let prompt = context::render_generation_prompt(topic_name, template, &card_context);
     let full_res =
         llm::generate_new_card(llm_model, &prompt, llm_api_key, llm_base_url, llm_reasoning).await;
-    record_llm_token_usage(state, llm_model, "generate_card", &full_res.usage).await?;
+    record_llm_token_usage(state, user_id, llm_model, "generate_card", &full_res.usage).await?;
     let full_tip = full_res.content;
     let compression_level = topic
         .compression_level
@@ -328,6 +351,7 @@ async fn generate_tipcard(
     .await;
     record_llm_token_usage(
         state,
+        user_id,
         llm_compress_model,
         "compress_card",
         &compressed_res.usage,
@@ -345,6 +369,7 @@ async fn generate_tipcard(
     .await;
     record_llm_token_usage(
         state,
+        user_id,
         llm_compress_model,
         "generate_title",
         &title_res.usage,
@@ -354,6 +379,7 @@ async fn generate_tipcard(
 
     let card_id = tipcards::create_generated(
         &state.db,
+        user_id,
         topic.id,
         &topic.tipcard_type,
         &card_title,
@@ -378,6 +404,7 @@ async fn generate_tipcard(
 
 async fn create_manual_tipcard(
     state: &AppState,
+    user_id: &str,
     topic_name: &str,
     topic: &TopicInfo,
     full_tip: String,
@@ -389,6 +416,7 @@ async fn create_manual_tipcard(
     let image_data_json = image_data_json(&image_data)?;
     let card_id = tipcards::create_manual(
         &state.db,
+        user_id,
         topic.id,
         &topic.tipcard_type,
         &title,
@@ -414,11 +442,12 @@ async fn create_manual_tipcard(
 
 async fn record_llm_token_usage(
     state: &AppState,
+    user_id: &str,
     model: &str,
     purpose: &str,
     usage: &llm::TokenUsage,
 ) -> ApiResult<()> {
-    token_usage::insert(&state.db, model, purpose, usage)
+    token_usage::insert(&state.db, user_id, model, purpose, usage)
         .await
         .map_err(|err| err.into_status_body())
 }

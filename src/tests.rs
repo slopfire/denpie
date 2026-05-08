@@ -9,6 +9,8 @@ mod tests {
     use tokio::fs;
     use tower_sessions::{MemoryStore, SessionManagerLayer};
 
+    const TEST_USER_ID: &str = "usr_test_admin";
+
     async fn setup_db() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
             .connect("sqlite::memory:")
@@ -23,6 +25,16 @@ mod tests {
             }
         }
         apply_schema_migrations(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT OR IGNORE INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)",
+        )
+        .bind(TEST_USER_ID)
+        .bind("admin")
+        .bind("")
+        .bind("admin")
+        .execute(&pool)
+        .await
+        .unwrap();
         pool
     }
 
@@ -62,6 +74,22 @@ mod tests {
             .cookie_store(true)
             .build()
             .unwrap();
+
+        let setup = client
+            .post(format!("{base_url}/auth/setup"))
+            .json(&serde_json::json!({
+                "admin_token": test_token,
+                "username": "admin",
+                "password": "test_password_123"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            setup.status().is_success() || setup.status() == reqwest::StatusCode::CONFLICT,
+            "setup status {}",
+            setup.status()
+        );
 
         (base_url, client)
     }
@@ -124,6 +152,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_topic_names_can_repeat_across_users() {
+        let db = setup_db().await;
+        sqlx::query("INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)")
+            .bind("usr_other")
+            .bind("other")
+            .bind("")
+            .bind("user")
+            .execute(&db)
+            .await
+            .unwrap();
+
+        crate::db::repositories::topics::get_or_create_topic(
+            &db,
+            TEST_USER_ID,
+            "rust",
+            "repeatable_tip",
+        )
+        .await
+        .unwrap();
+        crate::db::repositories::topics::get_or_create_topic(
+            &db,
+            "usr_other",
+            "rust",
+            "repeatable_tip",
+        )
+        .await
+        .unwrap();
+
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM topics WHERE name = 'rust'")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_legacy_global_topic_unique_index_is_removed() {
+        let db = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE topics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                tipcard_type TEXT NOT NULL DEFAULT 'repeatable_tip'
+            )",
+        )
+        .execute(&db)
+        .await
+        .unwrap();
+        sqlx::query("CREATE TABLE tipcards (id INTEGER PRIMARY KEY AUTOINCREMENT, topic_id INTEGER NOT NULL, full_content TEXT NOT NULL, compressed_content TEXT NOT NULL)")
+            .execute(&db)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE review_states (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id INTEGER NOT NULL UNIQUE, algorithm_used TEXT NOT NULL, state_data TEXT NOT NULL, next_review_at DATETIME NOT NULL)")
+            .execute(&db)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, key_hash TEXT NOT NULL UNIQUE, client_name TEXT NOT NULL)")
+            .execute(&db)
+            .await
+            .unwrap();
+        apply_schema_migrations(&db).await.unwrap();
+        sqlx::query("INSERT INTO users (id, username, password_hash, role) VALUES ('u1', 'u1', '', 'admin'), ('u2', 'u2', '', 'user')")
+            .execute(&db)
+            .await
+            .unwrap();
+        crate::db::repositories::topics::get_or_create_topic(&db, "u1", "rust", "repeatable_tip")
+            .await
+            .unwrap();
+        crate::db::repositories::topics::get_or_create_topic(&db, "u2", "rust", "repeatable_tip")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
     async fn test_legacy_api_routes_are_removed() {
         let (url, client) = spawn_test_server().await;
         let routes = [
@@ -152,7 +257,7 @@ mod tests {
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         let body = response.text().await.unwrap();
         assert!(body.contains("Denpie"));
-        assert!(body.contains("admin-token"));
+        assert!(body.contains("login-username"));
         assert!(body.contains("/app/tips"));
     }
 
@@ -642,7 +747,7 @@ mod tests {
             manual_image_data: None,
         };
 
-        let first = crate::api::build_tips(&state, request.clone())
+        let first = crate::api::build_tips(&state, TEST_USER_ID, request.clone())
             .await
             .unwrap();
         assert_eq!(first.len(), 1);
@@ -661,7 +766,7 @@ mod tests {
         .await
         .unwrap();
 
-        let automatic_refresh = crate::api::build_tips(&state, request.clone())
+        let automatic_refresh = crate::api::build_tips(&state, TEST_USER_ID, request.clone())
             .await
             .unwrap();
         assert_eq!(automatic_refresh.len(), 1);
@@ -674,6 +779,7 @@ mod tests {
 
         let forced = crate::api::force_daily_refresh(
             &state,
+            TEST_USER_ID,
             crate::api::ForceDailyRefreshRequest {
                 topics: "rust".into(),
 
@@ -684,7 +790,7 @@ mod tests {
         .unwrap();
         assert_eq!(forced.refreshed_cards, 0);
 
-        let after_force = crate::api::build_tips(&state, request.clone())
+        let after_force = crate::api::build_tips(&state, TEST_USER_ID, request.clone())
             .await
             .unwrap();
         assert_eq!(after_force.len(), 1);
@@ -692,6 +798,7 @@ mod tests {
 
         let fresh = crate::api::build_tips(
             &state,
+            TEST_USER_ID,
             crate::api::TipsJsonRequest {
                 exclude_card_ids: Some(vec![first_id]),
                 ..request
@@ -1155,18 +1262,20 @@ mod tests {
         let db = setup_db().await;
         let state = make_state(db, settings_path);
 
-        let topic_id = sqlx::query("INSERT INTO topics (name, tipcard_type) VALUES (?, ?)")
-            .bind("spanish")
-            .bind("repeatable_tip")
-            .execute(&state.db)
-            .await
-            .unwrap()
-            .last_insert_rowid();
+        let topic_id = sqlx::query(
+            "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', ?, ?)",
+        )
+        .bind("spanish")
+        .bind("repeatable_tip")
+        .execute(&state.db)
+        .await
+        .unwrap()
+        .last_insert_rowid();
 
         let mut visible_ids = Vec::new();
         for label in ["one", "two"] {
             let card_id = sqlx::query(
-                "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', ?, ?, ?, ?, ?)",
             )
             .bind(topic_id)
             .bind("repeatable_tip")
@@ -1190,12 +1299,13 @@ mod tests {
             visible_ids.push(card_id);
         }
 
-        crate::api::apply_review(&state, visible_ids[0], 3, "repeat")
+        crate::api::apply_review(&state, TEST_USER_ID, visible_ids[0], 3, "repeat")
             .await
             .unwrap();
 
         let replacement = crate::api::build_tips(
             &state,
+            TEST_USER_ID,
             crate::api::TipsJsonRequest {
                 count: Some(1),
                 topics: "spanish".into(),
@@ -1226,15 +1336,17 @@ mod tests {
         let db = setup_db().await;
         let state = make_state(db, settings_path);
 
-        let topic_id = sqlx::query("INSERT INTO topics (name, tipcard_type) VALUES (?, ?)")
-            .bind("spanish")
-            .bind("repeatable_tip")
-            .execute(&state.db)
-            .await
-            .unwrap()
-            .last_insert_rowid();
+        let topic_id = sqlx::query(
+            "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', ?, ?)",
+        )
+        .bind("spanish")
+        .bind("repeatable_tip")
+        .execute(&state.db)
+        .await
+        .unwrap()
+        .last_insert_rowid();
         let card_id = sqlx::query(
-            "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', ?, ?, ?, ?, ?)",
         )
         .bind(topic_id)
         .bind("repeatable_tip")
@@ -1256,12 +1368,13 @@ mod tests {
         .await
         .unwrap();
 
-        crate::api::set_tipcard_pinned(&state, card_id, true)
+        crate::api::set_tipcard_pinned(&state, TEST_USER_ID, card_id, true)
             .await
             .unwrap();
 
         let cards = crate::api::build_tips(
             &state,
+            TEST_USER_ID,
             crate::api::TipsJsonRequest {
                 count: Some(1),
                 topics: "spanish".into(),
@@ -1293,15 +1406,17 @@ mod tests {
         let db = setup_db().await;
         let state = make_state(db, settings_path);
 
-        let topic_id = sqlx::query("INSERT INTO topics (name, tipcard_type) VALUES (?, ?)")
-            .bind("spanish")
-            .bind("repeatable_tip")
-            .execute(&state.db)
-            .await
-            .unwrap()
-            .last_insert_rowid();
+        let topic_id = sqlx::query(
+            "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', ?, ?)",
+        )
+        .bind("spanish")
+        .bind("repeatable_tip")
+        .execute(&state.db)
+        .await
+        .unwrap()
+        .last_insert_rowid();
         let card_id = sqlx::query(
-            "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', ?, ?, ?, ?, ?)",
         )
         .bind(topic_id)
         .bind("repeatable_tip")
@@ -1325,6 +1440,7 @@ mod tests {
 
         let due_cards = crate::api::build_tips(
             &state,
+            TEST_USER_ID,
             crate::api::TipsJsonRequest {
                 count: Some(1),
                 topics: "spanish".into(),
@@ -1343,6 +1459,7 @@ mod tests {
 
         let err = match crate::api::build_tips(
             &state,
+            TEST_USER_ID,
             crate::api::TipsJsonRequest {
                 count: Some(1),
                 topics: "manual".into(),
@@ -1372,15 +1489,17 @@ mod tests {
         let db = setup_db().await;
         let state = make_state(db, settings_path);
 
-        let topic_id = sqlx::query("INSERT INTO topics (name, tipcard_type) VALUES (?, ?)")
-            .bind("spanish")
-            .bind("repeatable_tip")
-            .execute(&state.db)
-            .await
-            .unwrap()
-            .last_insert_rowid();
+        let topic_id = sqlx::query(
+            "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', ?, ?)",
+        )
+        .bind("spanish")
+        .bind("repeatable_tip")
+        .execute(&state.db)
+        .await
+        .unwrap()
+        .last_insert_rowid();
         let card_id = sqlx::query(
-            "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', ?, ?, ?, ?, ?)",
         )
         .bind(topic_id)
         .bind("repeatable_tip")
@@ -1403,7 +1522,7 @@ mod tests {
         .unwrap();
 
         let before = chrono::Utc::now();
-        crate::api::apply_review(&state, card_id, 1, "repeat")
+        crate::api::apply_review(&state, TEST_USER_ID, card_id, 1, "repeat")
             .await
             .unwrap();
 
@@ -1432,15 +1551,17 @@ mod tests {
         let db = setup_db().await;
         let state = make_state(db, settings_path);
 
-        let topic_id = sqlx::query("INSERT INTO topics (name, tipcard_type) VALUES (?, ?)")
-            .bind("rust")
-            .bind("casual_tip")
-            .execute(&state.db)
-            .await
-            .unwrap()
-            .last_insert_rowid();
+        let topic_id = sqlx::query(
+            "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', ?, ?)",
+        )
+        .bind("rust")
+        .bind("casual_tip")
+        .execute(&state.db)
+        .await
+        .unwrap()
+        .last_insert_rowid();
         let card_id = sqlx::query(
-            "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', ?, ?, ?, ?, ?)",
         )
         .bind(topic_id)
         .bind("casual_tip")
@@ -1463,7 +1584,7 @@ mod tests {
         .unwrap();
 
         let before = chrono::Utc::now();
-        crate::api::apply_review(&state, card_id, 3, "acknowledge")
+        crate::api::apply_review(&state, TEST_USER_ID, card_id, 3, "acknowledge")
             .await
             .unwrap();
 
@@ -1491,13 +1612,15 @@ mod tests {
         let db = setup_db().await;
         let state = make_state(db, settings_path);
 
-        let topic_id = sqlx::query("INSERT INTO topics (name, tipcard_type) VALUES (?, ?)")
-            .bind("spanish")
-            .bind("repeatable_tip")
-            .execute(&state.db)
-            .await
-            .unwrap()
-            .last_insert_rowid();
+        let topic_id = sqlx::query(
+            "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', ?, ?)",
+        )
+        .bind("spanish")
+        .bind("repeatable_tip")
+        .execute(&state.db)
+        .await
+        .unwrap()
+        .last_insert_rowid();
 
         let now = chrono::Utc::now();
         let mut card_ids = Vec::new();
@@ -1506,7 +1629,7 @@ mod tests {
             ("known", 2_u32, now - chrono::Duration::minutes(5)),
         ] {
             let card_id = sqlx::query(
-                "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', ?, ?, ?, ?, ?)",
             )
             .bind(topic_id)
             .bind("repeatable_tip")
@@ -1532,6 +1655,7 @@ mod tests {
 
         let tips = crate::api::build_tips(
             &state,
+            TEST_USER_ID,
             crate::api::TipsJsonRequest {
                 count: Some(1),
                 topics: "spanish".into(),
@@ -1718,6 +1842,7 @@ mod tests {
 
         let tips = crate::api::build_tips(
             &state,
+            TEST_USER_ID,
             crate::api::TipsJsonRequest {
                 count: Some(1),
                 topics: "rust".into(),
@@ -1746,7 +1871,7 @@ mod tests {
         );
 
         let replacement = "data:image/webp;base64,UklGRg==".to_string();
-        crate::api::set_tipcard_images(&state, tips[0].id, vec![replacement.clone()])
+        crate::api::set_tipcard_images(&state, TEST_USER_ID, tips[0].id, vec![replacement.clone()])
             .await
             .unwrap();
         let updated: String = sqlx::query_scalar("SELECT image_data FROM tipcards WHERE id = ?")

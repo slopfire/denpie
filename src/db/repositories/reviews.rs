@@ -9,14 +9,19 @@ pub struct ReviewStateRecord {
     pub tipcard_type: String,
 }
 
-pub async fn load_for_card(pool: &SqlitePool, card_id: i64) -> AppResult<ReviewStateRecord> {
+pub async fn load_for_card(
+    pool: &SqlitePool,
+    user_id: &str,
+    card_id: i64,
+) -> AppResult<ReviewStateRecord> {
     let row = sqlx::query_as::<_, (String, String)>(
         "SELECT r.state_data, top.tipcard_type
          FROM review_states r
          JOIN tipcards t ON t.id = r.card_id
          JOIN topics top ON t.topic_id = top.id
-         WHERE r.card_id = ?",
+         WHERE t.user_id = ? AND r.card_id = ?",
     )
+    .bind(user_id)
     .bind(card_id)
     .fetch_optional(pool)
     .await?
@@ -30,18 +35,22 @@ pub async fn load_for_card(pool: &SqlitePool, card_id: i64) -> AppResult<ReviewS
 
 pub async fn update_queue_state(
     pool: &SqlitePool,
+    user_id: &str,
     card_id: i64,
     state_data: String,
     status: String,
     next_review_at: DateTime<Utc>,
 ) -> AppResult<()> {
     sqlx::query(
-        "UPDATE review_states SET state_data = ?, status = ?, next_review_at = ? WHERE card_id = ?",
+        "UPDATE review_states
+         SET state_data = ?, status = ?, next_review_at = ?
+         WHERE card_id IN (SELECT id FROM tipcards WHERE id = ? AND user_id = ?)",
     )
     .bind(state_data)
     .bind(status)
     .bind(next_review_at)
     .bind(card_id)
+    .bind(user_id)
     .execute(pool)
     .await?;
     Ok(())
@@ -49,15 +58,21 @@ pub async fn update_queue_state(
 
 pub async fn update_review_schedule(
     pool: &SqlitePool,
+    user_id: &str,
     card_id: i64,
     state_data: String,
     next_review_at: DateTime<Utc>,
 ) -> AppResult<()> {
-    sqlx::query("UPDATE review_states SET state_data = ?, next_review_at = ? WHERE card_id = ?")
-        .bind(state_data)
-        .bind(next_review_at)
-        .bind(card_id)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "UPDATE review_states
+         SET state_data = ?, next_review_at = ?
+         WHERE card_id IN (SELECT id FROM tipcards WHERE id = ? AND user_id = ?)",
+    )
+    .bind(state_data)
+    .bind(next_review_at)
+    .bind(card_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
     Ok(())
 }

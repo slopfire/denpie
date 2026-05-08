@@ -1216,23 +1216,47 @@
                         <h1 class="text-xl font-semibold tracking-tight">
                             Denpie
                         </h1>
-                        <p class="text-sm text-muted">Admin token required</p>
+                        <p class="text-sm text-muted">Username and password</p>
                     </div>
                 </div>
-                <label class="block card-kicker mb-2" for="admin-token"
-                    >Admin Token</label
+                <label class="block card-kicker mb-2" for="login-username"
+                    >Username</label
                 >
                 <input
-                    id="admin-token"
+                    id="login-username"
+                    type="text"
+                    class="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                    autocomplete="username"
+                />
+                <label class="mt-3 block card-kicker mb-2" for="login-password"
+                    >Password</label
+                >
+                <input
+                    id="login-password"
                     type="password"
                     class="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)]"
                     autocomplete="current-password"
+                />
+                <label class="mt-3 block card-kicker mb-2" for="setup-token"
+                    >Setup Token</label
+                >
+                <input
+                    id="setup-token"
+                    type="password"
+                    class="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                    autocomplete="one-time-code"
                 />
                 <button
                     id="login-btn"
                     class="mt-4 w-full rounded-md bg-primary-solid px-3 py-2 font-medium"
                 >
                     Login
+                </button>
+                <button
+                    id="setup-btn"
+                    class="mt-2 w-full rounded-md border px-3 py-2 font-medium"
+                >
+                    Create Admin User
                 </button>
                 <p
                     id="login-error"
@@ -1327,25 +1351,76 @@
                         >
                     </button>
                 </div>
-                <label class="block card-kicker mb-2" for="theme-select-side"
-                    >Color Scheme</label
-                >
-                <div class="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2">
-                    <select
-                        id="theme-select-side"
-                        class="theme-select w-full rounded-md border px-3 py-2 text-sm"
-                    ></select>
+                <div class="relative">
                     <button
-                        id="refresh-btn"
-                        class="h-10 w-10 shrink-0 rounded-md border border-token p-0 hover:opacity-80"
-                        title="Refresh"
+                        id="account-menu-btn"
+                        class="w-full rounded-md border border-token p-2 hover:opacity-90 flex items-center gap-2 text-left"
+                        title="Account"
                     >
+                        <span
+                            id="account-avatar"
+                            class="h-8 w-8 shrink-0 rounded-full bg-primary-solid flex items-center justify-center text-sm font-semibold"
+                            >?</span
+                        >
+                        <span class="min-w-0 flex-1">
+                            <span
+                                id="account-name"
+                                class="block truncate text-sm font-semibold"
+                                >Account</span
+                            >
+                            <span
+                                id="account-role"
+                                class="block truncate text-xs text-muted"
+                                >User</span
+                            >
+                        </span>
                         <iconify-icon
-                            icon="radix-icons:reload"
-                            class="radix-icon"
+                            icon="radix-icons:chevron-up"
+                            class="radix-icon shrink-0"
                             aria-hidden="true"
                         ></iconify-icon>
                     </button>
+                    <div
+                        id="account-menu"
+                        class="hidden absolute bottom-12 left-0 right-0 z-50 surface border rounded-md p-1 shadow-lg"
+                    >
+                        <button
+                            id="account-settings-btn"
+                            type="button"
+                            class="w-full rounded px-3 py-2 text-sm text-left hover:bg-[var(--surface-muted)] flex items-center gap-2"
+                        >
+                            <iconify-icon
+                                icon="radix-icons:person"
+                                class="radix-icon"
+                                aria-hidden="true"
+                            ></iconify-icon>
+                            <span>Account Settings</span>
+                        </button>
+                        <button
+                            id="account-refresh-btn"
+                            type="button"
+                            class="w-full rounded px-3 py-2 text-sm text-left hover:bg-[var(--surface-muted)] flex items-center gap-2"
+                        >
+                            <iconify-icon
+                                icon="radix-icons:reload"
+                                class="radix-icon"
+                                aria-hidden="true"
+                            ></iconify-icon>
+                            <span>Refresh</span>
+                        </button>
+                        <button
+                            id="logout-btn"
+                            type="button"
+                            class="w-full rounded px-3 py-2 text-sm text-left hover:bg-[var(--surface-muted)] flex items-center gap-2"
+                        >
+                            <iconify-icon
+                                icon="radix-icons:exit"
+                                class="radix-icon"
+                                aria-hidden="true"
+                            ></iconify-icon>
+                            <span>Logout</span>
+                        </button>
+                    </div>
                 </div>
             </nav>
 
@@ -1721,6 +1796,15 @@
                             </div>
                         </div>
                         <div>
+                            <label class="block card-kicker mb-2" for="theme-select-settings"
+                                >Color Scheme</label
+                            >
+                            <select
+                                id="theme-select-settings"
+                                class="theme-select w-full rounded-md border px-3 py-2"
+                            ></select>
+                        </div>
+                        <div>
                             <label class="block card-kicker mb-2"
                                 >Transparency</label
                             >
@@ -2063,6 +2147,7 @@
                 buildSha: "",
                 now: new Date(),
                 softRefreshTimer: null,
+                user: null,
             };
             const themes = [
                 ["shadcn", "Shadcn Dark"],
@@ -2919,8 +3004,42 @@
 
             function setAuthed(authed) {
                 state.authed = authed;
+                if (!authed) state.user = null;
                 $("login-panel").classList.toggle("hidden", authed);
                 $("app-shell").classList.toggle("hidden", !authed);
+                renderAccount();
+            }
+
+            function renderAccount() {
+                const username = state.user?.username || "Account";
+                const role = state.user?.role || "user";
+                $("account-name").textContent = username;
+                $("account-role").textContent = role;
+                $("account-avatar").textContent =
+                    username.trim().charAt(0).toUpperCase() || "?";
+            }
+
+            async function loadCurrentUser() {
+                state.user = await api("/auth/me");
+                renderAccount();
+            }
+
+            function closeAccountMenu() {
+                $("account-menu").classList.add("hidden");
+            }
+
+            function toggleAccountMenu() {
+                $("account-menu").classList.toggle("hidden");
+            }
+
+            async function logout() {
+                await api("/auth/logout", { method: "POST" });
+                setAuthed(false);
+                state.summary = null;
+                state.topics = [];
+                state.archiveCards = [];
+                state.keys = [];
+                closeAccountMenu();
             }
 
             function setView(view) {
@@ -4634,12 +4753,28 @@
                         renderFlow();
                     }
                 });
-                $("refresh-btn").addEventListener("click", () =>
+                $("account-menu-btn").addEventListener("click", (event) => {
+                    event.stopPropagation();
+                    toggleAccountMenu();
+                });
+                $("account-settings-btn").addEventListener("click", () => {
+                    closeAccountMenu();
+                    setView("settings");
+                });
+                $("account-refresh-btn").addEventListener("click", () =>
                     refreshAll()
                         .then(refreshDailyCasualCards)
                         .then(() => toast("Refreshed"))
                         .catch((err) => toast(err.message)),
                 );
+                $("logout-btn").addEventListener("click", () =>
+                    logout().catch((err) => toast(err.message)),
+                );
+                document.addEventListener("click", (event) => {
+                    if (!event.target.closest("#account-menu, #account-menu-btn")) {
+                        closeAccountMenu();
+                    }
+                });
                 $("force-daily-refresh-btn").addEventListener("click", () =>
                     forceDailyRefresh().catch((err) => toast(err.message)),
                 );
@@ -4781,20 +4916,42 @@
                         await api("/auth/login", {
                             method: "POST",
                             body: JSON.stringify({
-                                admin_token: $("admin-token").value,
+                                username: $("login-username").value,
+                                password: $("login-password").value,
                             }),
                         });
+                        await loadCurrentUser();
                         setAuthed(true);
                         await refreshAll();
                         await refreshDailyCasualCards();
                     } catch (err) {
-                        $("login-error").textContent = "Bad token.";
+                        $("login-error").textContent = "Bad username or password.";
                     }
                 });
-                $("admin-token").addEventListener("keydown", (event) => {
+                $("setup-btn").addEventListener("click", async () => {
+                    $("login-error").textContent = "";
+                    try {
+                        await api("/auth/setup", {
+                            method: "POST",
+                            body: JSON.stringify({
+                                admin_token: $("setup-token").value,
+                                username: $("login-username").value,
+                                password: $("login-password").value,
+                            }),
+                        });
+                        await loadCurrentUser();
+                        setAuthed(true);
+                        await refreshAll();
+                        await refreshDailyCasualCards();
+                    } catch (err) {
+                        $("login-error").textContent = "Setup failed.";
+                    }
+                });
+                $("login-password").addEventListener("keydown", (event) => {
                     if (event.key === "Enter") $("login-btn").click();
                 });
                 try {
+                    await loadCurrentUser();
                     await refreshAll();
                     setAuthed(true);
                     await refreshDailyCasualCards();

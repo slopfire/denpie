@@ -50,7 +50,7 @@ pub struct TopicSettingsRecord {
     pub compression_level: Option<String>,
 }
 
-pub async fn list_admin(pool: &SqlitePool) -> AppResult<Vec<TopicRecord>> {
+pub async fn list_admin(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<TopicRecord>> {
     let rows = sqlx::query_as::<
         _,
         (
@@ -66,8 +66,10 @@ pub async fn list_admin(pool: &SqlitePool) -> AppResult<Vec<TopicRecord>> {
     >(
         "SELECT id, name, tipcard_type, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
          FROM topics
+         WHERE user_id = ?
          ORDER BY name ASC",
     )
+    .bind(user_id)
     .fetch_all(pool)
     .await?;
 
@@ -86,15 +88,19 @@ pub async fn list_admin(pool: &SqlitePool) -> AppResult<Vec<TopicRecord>> {
         .collect())
 }
 
-pub async fn list_names(pool: &SqlitePool) -> AppResult<Vec<String>> {
-    Ok(
-        sqlx::query_scalar::<_, String>("SELECT name FROM topics ORDER BY name ASC")
-            .fetch_all(pool)
-            .await?,
+pub async fn list_names(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<String>> {
+    Ok(sqlx::query_scalar::<_, String>(
+        "SELECT name FROM topics WHERE user_id = ? ORDER BY name ASC",
     )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?)
 }
 
-pub async fn list_generated_targets(pool: &SqlitePool) -> AppResult<Vec<(TopicRecord, String)>> {
+pub async fn list_generated_targets(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> AppResult<Vec<(TopicRecord, String)>> {
     let rows = sqlx::query_as::<
         _,
         (
@@ -110,8 +116,9 @@ pub async fn list_generated_targets(pool: &SqlitePool) -> AppResult<Vec<(TopicRe
     >(
         "SELECT id, name, tipcard_type, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
          FROM topics
-         WHERE tipcard_type NOT IN ('manual_tip', 'custom_tip')",
+         WHERE user_id = ? AND tipcard_type NOT IN ('manual_tip', 'custom_tip')",
     )
+    .bind(user_id)
     .fetch_all(pool)
     .await?;
 
@@ -138,17 +145,19 @@ pub async fn list_generated_targets(pool: &SqlitePool) -> AppResult<Vec<(TopicRe
 
 pub async fn get_or_create_topic(
     pool: &SqlitePool,
+    user_id: &str,
     topic_name: &str,
     requested_type: &str,
 ) -> AppResult<TopicRecord> {
-    if let Some(topic) = get_topic(pool, topic_name).await? {
+    if let Some(topic) = get_topic(pool, user_id, topic_name).await? {
         // If type differs, we could update it, but for now just return
         return Ok(topic);
     }
 
     let tipcard_type = tipcard::normalize_tipcard_type(requested_type, topic_name);
 
-    match sqlx::query("INSERT INTO topics (name, tipcard_type) VALUES (?, ?)")
+    match sqlx::query("INSERT INTO topics (user_id, name, tipcard_type) VALUES (?, ?, ?)")
+        .bind(user_id)
         .bind(topic_name)
         .bind(&tipcard_type)
         .execute(pool)
@@ -164,30 +173,33 @@ pub async fn get_or_create_topic(
             daily_update_time: None,
             compression_level: None,
         }),
-        Err(insert_error) => get_topic(pool, topic_name)
+        Err(insert_error) => get_topic(pool, user_id, topic_name)
             .await?
             .ok_or_else(|| AppError::Db(insert_error)),
     }
 }
 
-pub async fn delete_cascade(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_cascade(pool: &SqlitePool, user_id: &str, id: i64) -> AppResult<()> {
     let mut tx = pool.begin().await?;
 
     sqlx::query(
         "DELETE FROM review_states
-         WHERE card_id IN (SELECT id FROM tipcards WHERE topic_id = ?)",
+         WHERE card_id IN (SELECT id FROM tipcards WHERE topic_id = ? AND user_id = ?)",
     )
     .bind(id)
+    .bind(user_id)
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query("DELETE FROM tipcards WHERE topic_id = ?")
+    sqlx::query("DELETE FROM tipcards WHERE topic_id = ? AND user_id = ?")
         .bind(id)
+        .bind(user_id)
         .execute(&mut *tx)
         .await?;
 
-    let result = sqlx::query("DELETE FROM topics WHERE id = ?")
+    let result = sqlx::query("DELETE FROM topics WHERE id = ? AND user_id = ?")
         .bind(id)
+        .bind(user_id)
         .execute(&mut *tx)
         .await?;
 
@@ -199,7 +211,11 @@ pub async fn delete_cascade(pool: &SqlitePool, id: i64) -> AppResult<()> {
     Ok(())
 }
 
-pub async fn get_settings(pool: &SqlitePool, id: i64) -> AppResult<TopicSettingsRecord> {
+pub async fn get_settings(
+    pool: &SqlitePool,
+    user_id: &str,
+    id: i64,
+) -> AppResult<TopicSettingsRecord> {
     let row = sqlx::query_as::<
         _,
         (
@@ -212,9 +228,10 @@ pub async fn get_settings(pool: &SqlitePool, id: i64) -> AppResult<TopicSettings
     >(
         "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
          FROM topics
-         WHERE id = ?",
+         WHERE id = ? AND user_id = ?",
     )
     .bind(id)
+    .bind(user_id)
     .fetch_optional(pool)
     .await?
     .ok_or_else(|| AppError::NotFound("Topic not found".to_string()))?;
@@ -230,13 +247,14 @@ pub async fn get_settings(pool: &SqlitePool, id: i64) -> AppResult<TopicSettings
 
 pub async fn update_settings(
     pool: &SqlitePool,
+    user_id: &str,
     id: i64,
     settings: TopicSettingsRecord,
 ) -> AppResult<()> {
     sqlx::query(
         "UPDATE topics
          SET prompt_template = ?, daily_card_count = ?, daily_time_zone = ?, daily_update_time = ?, compression_level = ?
-         WHERE id = ?",
+         WHERE id = ? AND user_id = ?",
     )
     .bind(settings.prompt_template)
     .bind(settings.daily_card_count)
@@ -244,32 +262,46 @@ pub async fn update_settings(
     .bind(settings.daily_update_time)
     .bind(settings.compression_level)
     .bind(id)
+    .bind(user_id)
     .execute(pool)
     .await?;
 
     Ok(())
 }
 
-pub async fn app_summary(pool: &SqlitePool, now: DateTime<Utc>) -> AppResult<AppSummaryRecord> {
-    let topics = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM topics")
+pub async fn app_summary(
+    pool: &SqlitePool,
+    user_id: &str,
+    now: DateTime<Utc>,
+) -> AppResult<AppSummaryRecord> {
+    let topics = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM topics WHERE user_id = ?")
+        .bind(user_id)
         .fetch_one(pool)
         .await?;
-    let total_cards = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tipcards")
-        .fetch_one(pool)
-        .await?;
+    let total_cards =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tipcards WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?;
     let due_cards = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*)
          FROM review_states r
          JOIN tipcards t ON t.id = r.card_id
-         WHERE r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1)",
+         WHERE t.user_id = ? AND r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1)",
     )
+    .bind(user_id)
     .bind(now)
     .fetch_one(pool)
     .await?;
-    let active_cards =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM review_states WHERE status = 'active'")
-            .fetch_one(pool)
-            .await?;
+    let active_cards = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)
+         FROM review_states r
+         JOIN tipcards t ON t.id = r.card_id
+         WHERE t.user_id = ? AND r.status = 'active'",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
 
     Ok(AppSummaryRecord {
         topics,
@@ -281,6 +313,7 @@ pub async fn app_summary(pool: &SqlitePool, now: DateTime<Utc>) -> AppResult<App
 
 pub async fn list_app_topics(
     pool: &SqlitePool,
+    user_id: &str,
     now: DateTime<Utc>,
 ) -> AppResult<Vec<AppTopicRecord>> {
     let rows = sqlx::query_as::<
@@ -313,10 +346,12 @@ pub async fn list_app_topics(
          FROM topics top
          LEFT JOIN tipcards t ON t.topic_id = top.id
          LEFT JOIN review_states r ON r.card_id = t.id
+         WHERE top.user_id = ?
          GROUP BY top.id, top.name, top.tipcard_type, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level
          ORDER BY due_cards DESC, top.name ASC",
     )
     .bind(now)
+    .bind(user_id)
     .fetch_all(pool)
     .await?;
 
@@ -338,7 +373,11 @@ pub async fn list_app_topics(
         .collect())
 }
 
-async fn get_topic(pool: &SqlitePool, topic_name: &str) -> AppResult<Option<TopicRecord>> {
+async fn get_topic(
+    pool: &SqlitePool,
+    user_id: &str,
+    topic_name: &str,
+) -> AppResult<Option<TopicRecord>> {
     let row = sqlx::query_as::<
         _,
         (
@@ -353,8 +392,9 @@ async fn get_topic(pool: &SqlitePool, topic_name: &str) -> AppResult<Option<Topi
     >(
         "SELECT id, tipcard_type, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
          FROM topics
-         WHERE name = ?",
+         WHERE user_id = ? AND name = ?",
     )
+    .bind(user_id)
     .bind(topic_name)
     .fetch_optional(pool)
     .await?;

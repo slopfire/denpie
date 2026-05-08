@@ -45,25 +45,34 @@ pub struct CardContextTitleRecord {
     pub status: String,
 }
 
-pub async fn delete_with_review(pool: &SqlitePool, id: i64) -> AppResult<()> {
+pub async fn delete_with_review(pool: &SqlitePool, user_id: &str, id: i64) -> AppResult<()> {
     let mut tx = pool.begin().await?;
 
-    sqlx::query("DELETE FROM review_states WHERE card_id = ?")
+    sqlx::query(
+        "DELETE FROM review_states
+         WHERE card_id IN (SELECT id FROM tipcards WHERE id = ? AND user_id = ?)",
+    )
+    .bind(id)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
+    let result = sqlx::query("DELETE FROM tipcards WHERE id = ? AND user_id = ?")
         .bind(id)
+        .bind(user_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("DELETE FROM tipcards WHERE id = ?")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("Tipcard not found".to_string()));
+    }
     tx.commit().await?;
     Ok(())
 }
 
-pub async fn set_pinned(pool: &SqlitePool, id: i64, pinned: bool) -> AppResult<()> {
-    let result = sqlx::query("UPDATE tipcards SET pinned = ? WHERE id = ?")
+pub async fn set_pinned(pool: &SqlitePool, user_id: &str, id: i64, pinned: bool) -> AppResult<()> {
+    let result = sqlx::query("UPDATE tipcards SET pinned = ? WHERE id = ? AND user_id = ?")
         .bind(if pinned { 1 } else { 0 })
         .bind(id)
+        .bind(user_id)
         .execute(pool)
         .await?;
     if result.rows_affected() == 0 {
@@ -72,10 +81,16 @@ pub async fn set_pinned(pool: &SqlitePool, id: i64, pinned: bool) -> AppResult<(
     Ok(())
 }
 
-pub async fn set_images(pool: &SqlitePool, id: i64, image_data_json: String) -> AppResult<()> {
-    let result = sqlx::query("UPDATE tipcards SET image_data = ? WHERE id = ?")
+pub async fn set_images(
+    pool: &SqlitePool,
+    user_id: &str,
+    id: i64,
+    image_data_json: String,
+) -> AppResult<()> {
+    let result = sqlx::query("UPDATE tipcards SET image_data = ? WHERE id = ? AND user_id = ?")
         .bind(image_data_json)
         .bind(id)
+        .bind(user_id)
         .execute(pool)
         .await?;
 
@@ -86,7 +101,7 @@ pub async fn set_images(pool: &SqlitePool, id: i64, image_data_json: String) -> 
     Ok(())
 }
 
-pub async fn list_admin(pool: &SqlitePool) -> AppResult<Vec<TipcardInfoRecord>> {
+pub async fn list_admin(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<TipcardInfoRecord>> {
     let rows = sqlx::query_as::<
         _,
         (
@@ -115,8 +130,10 @@ pub async fn list_admin(pool: &SqlitePool) -> AppResult<Vec<TipcardInfoRecord>> 
          FROM tipcards t
          JOIN topics top ON t.topic_id = top.id
          LEFT JOIN review_states r ON r.card_id = t.id
+         WHERE t.user_id = ?
          ORDER BY pinned DESC, t.created_at DESC",
     )
+    .bind(user_id)
     .fetch_all(pool)
     .await?;
 
@@ -141,6 +158,7 @@ pub async fn list_admin(pool: &SqlitePool) -> AppResult<Vec<TipcardInfoRecord>> 
 
 pub async fn list_filtered(
     pool: &SqlitePool,
+    user_id: &str,
     filter: TipcardFilter,
 ) -> AppResult<Vec<TipcardInfoRecord>> {
     let mut builder = QueryBuilder::<Sqlite>::new(
@@ -162,6 +180,8 @@ pub async fn list_filtered(
     );
 
     let mut has_where = false;
+    push_where(&mut builder, &mut has_where);
+    builder.push("t.user_id = ").push_bind(user_id);
     if let Some(q) = filter.q.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
         let pattern = format!("%{}%", escape_like(q));
         push_where(&mut builder, &mut has_where);
@@ -246,6 +266,7 @@ pub async fn list_filtered(
 
 pub async fn find_daily_topic_cards(
     pool: &SqlitePool,
+    user_id: &str,
     topic_id: i64,
     tipcard_type: &str,
     daily_window_start: DateTime<Utc>,
@@ -257,8 +278,10 @@ pub async fn find_daily_topic_cards(
         SELECT t.id, t.full_content, t.compressed_content, COALESCE(t.pinned, 0), COALESCE(t.image_data, '[]')
         FROM tipcards t
         JOIN review_states r ON t.id = r.card_id
-        WHERE t.topic_id = ",
+        WHERE t.user_id = ",
     );
+    daily_query.push_bind(user_id);
+    daily_query.push(" AND t.topic_id = ");
     daily_query.push_bind(topic_id);
     daily_query.push(" AND t.tipcard_type = ");
     daily_query.push_bind(tipcard_type);
@@ -280,6 +303,7 @@ pub async fn find_daily_topic_cards(
 
 pub async fn find_due_topic_cards(
     pool: &SqlitePool,
+    user_id: &str,
     topic_id: i64,
     tipcard_type: &str,
     exclude_card_ids: &[i64],
@@ -291,8 +315,10 @@ pub async fn find_due_topic_cards(
         SELECT t.id, t.full_content, t.compressed_content, COALESCE(t.pinned, 0), COALESCE(t.image_data, '[]')
         FROM tipcards t
         JOIN review_states r ON t.id = r.card_id
-        WHERE t.topic_id = ",
+        WHERE t.user_id = ",
     );
+    due_query.push_bind(user_id);
+    due_query.push(" AND t.topic_id = ");
     due_query.push_bind(topic_id);
     due_query.push(" AND t.tipcard_type = ");
     due_query.push_bind(tipcard_type);
@@ -318,16 +344,21 @@ pub async fn find_due_topic_cards(
     card_rows(pool, due_query).await
 }
 
-pub async fn active_card_count(pool: &SqlitePool) -> AppResult<i64> {
-    Ok(
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM review_states WHERE status = 'active'")
-            .fetch_one(pool)
-            .await?,
+pub async fn active_card_count(pool: &SqlitePool, user_id: &str) -> AppResult<i64> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)
+         FROM review_states r
+         JOIN tipcards t ON t.id = r.card_id
+         WHERE t.user_id = ? AND r.status = 'active'",
     )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?)
 }
 
 pub async fn create_generated(
     pool: &SqlitePool,
+    user_id: &str,
     topic_id: i64,
     tipcard_type: &str,
     title: &str,
@@ -335,8 +366,9 @@ pub async fn create_generated(
     compressed_content: &str,
 ) -> AppResult<i64> {
     let card_id = sqlx::query(
-        "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?, ?)",
     )
+    .bind(user_id)
     .bind(topic_id)
     .bind(tipcard_type)
     .bind(title)
@@ -356,6 +388,7 @@ pub async fn create_generated(
 
 pub async fn create_manual(
     pool: &SqlitePool,
+    user_id: &str,
     topic_id: i64,
     tipcard_type: &str,
     title: &str,
@@ -364,8 +397,9 @@ pub async fn create_manual(
     image_data_json: &str,
 ) -> AppResult<i64> {
     let card_id = sqlx::query(
-        "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content, image_data) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content, image_data) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
+    .bind(user_id)
     .bind(topic_id)
     .bind(tipcard_type)
     .bind(title)
@@ -392,14 +426,16 @@ pub async fn create_manual(
 
 pub async fn create_custom(
     pool: &SqlitePool,
+    user_id: &str,
     topic_id: i64,
     title: &str,
     full_content: &str,
     compressed_content: &str,
 ) -> AppResult<i64> {
     Ok(sqlx::query(
-        "INSERT INTO tipcards (topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, 'custom_tip', ?, ?, ?)",
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, 'custom_tip', ?, ?, ?)",
     )
+    .bind(user_id)
     .bind(topic_id)
     .bind(title)
     .bind(full_content)
@@ -411,6 +447,7 @@ pub async fn create_custom(
 
 pub async fn list_context_titles(
     pool: &SqlitePool,
+    user_id: &str,
     topic_id: i64,
     tipcard_type: &str,
     limit: i64,
@@ -420,10 +457,11 @@ pub async fn list_context_titles(
                 COALESCE(r.status, 'active') AS status
          FROM tipcards t
          LEFT JOIN review_states r ON r.card_id = t.id
-         WHERE t.topic_id = ? AND t.tipcard_type = ?
+         WHERE t.user_id = ? AND t.topic_id = ? AND t.tipcard_type = ?
          ORDER BY t.created_at DESC, t.id DESC
          LIMIT ?",
     )
+    .bind(user_id)
     .bind(topic_id)
     .bind(tipcard_type)
     .bind(limit)

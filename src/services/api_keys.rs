@@ -1,6 +1,7 @@
 use sqlx::SqlitePool;
 
 use crate::{
+    auth::AuthUser,
     db::repositories::api_keys::{self, ApiKeyInfo},
     error::AppResult,
 };
@@ -15,19 +16,26 @@ impl ApiKeyService {
         Self { pool }
     }
 
-    pub async fn verify(&self, api_key: &str) -> AppResult<String> {
-        api_keys::verify(&self.pool, api_key).await
+    pub async fn verify(&self, api_key: &str) -> AppResult<AuthUser> {
+        api_keys::verify(&self.pool, api_key).await.map(|verified| {
+            let _ = verified.client_name;
+            AuthUser {
+                id: verified.user_id,
+                username: verified.username,
+                role: verified.role,
+            }
+        })
     }
 
-    pub async fn create(&self, client_name: Option<String>) -> AppResult<String> {
-        api_keys::create(&self.pool, client_name).await
+    pub async fn create(&self, user_id: &str, client_name: Option<String>) -> AppResult<String> {
+        api_keys::create(&self.pool, user_id, client_name).await
     }
 
-    pub async fn list(&self) -> AppResult<Vec<ApiKeyInfo>> {
-        api_keys::list(&self.pool).await
+    pub async fn list(&self, user_id: &str) -> AppResult<Vec<ApiKeyInfo>> {
+        api_keys::list(&self.pool, user_id).await
     }
 
-    pub async fn delete(&self, id: i64) -> AppResult<()> {
-        api_keys::delete(&self.pool, id).await
+    pub async fn delete(&self, user_id: &str, id: i64) -> AppResult<()> {
+        api_keys::delete(&self.pool, user_id, id).await
     }
 }

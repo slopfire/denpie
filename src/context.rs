@@ -37,13 +37,19 @@ impl CardContext {
 //todo compressed???
 pub async fn load_card_context(
     state: &AppState,
+    user_id: &str,
     topic_id: i64,
     tipcard_type: &str,
 ) -> Result<CardContext, (StatusCode, String)> {
-    let rows =
-        tipcards::list_context_titles(&state.db, topic_id, tipcard_type, MAX_CONTEXT_TITLES as i64)
-            .await
-            .map_err(|err| err.into_status_body())?;
+    let rows = tipcards::list_context_titles(
+        &state.db,
+        user_id,
+        topic_id,
+        tipcard_type,
+        MAX_CONTEXT_TITLES as i64,
+    )
+    .await
+    .map_err(|err| err.into_status_body())?;
 
     let mut context = CardContext::default();
     for row in rows {

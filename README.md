@@ -8,24 +8,24 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Casual Cards**: Queue-style tips can be dismissed or acknowledged so clients can pull the next card immediately; acknowledged cards are scheduled.
 - **Repeatable Cards**: Re:word-style cards can be dismissed, repeated, memorized, or acknowledged; clients can advance after repeatable review actions, and repeated cards come back when due through scheduling.
 - **Topic Classes**: Topics belong to a card behavior class: casual, repeatable, or manual. 
-- **Daily Topic Cards**: Each topic/type returns a configurable number of stable cards, with per-topic overrides for count and card refresh time. Unpinned current cards stay active across automatic daily refreshes; force-refresh adds fresh cards without touching current cards. The browser dashboard uses the global time zone setting.
+- **Daily Topic Cards**: Each topic/type returns a configurable number of stable cards, with per-topic overrides for count and card refresh time. Unpinned current cards stay active across automatic daily refreshes; force-refresh adds fresh cards without touching current cards. The browser dashboard uses the current user's default time zone setting.
 - **Forced Card Refresh**: The settings screen can pull fresh generated cards for every generated topic while keeping current cards untouched; protobuf clients can target selected topics and request fresh cards by excluding visible card IDs.
 - **Pinned Tipcards**: Any active card can be pinned from the control panel or API so it stays visible in a separate top section until unpinned.
 - **Tipcard Images**: Manual cards can be saved with attached images, and existing cards can receive or clear image attachments from the browser control panel.
 - **Archive Search**: The browser archive can search card titles, topics, full text, compressed text, classes, and statuses, with status filters for active, acknowledged, memorized, dismissed, and custom cards.
 - **Custom Tipcards**: External workflows can submit grey `custom_tip` cards for summaries or reminders without adding scheduling review state.
-- **Active Card Limit**: A global max-active-cards setting can stop new card creation while still allowing due and pinned cards to be reviewed.
-- **Any OpenAI-Compatible LLM**: Configure the API key, base URL, and model through the protobuf API — no hardcoded vendor lock-in.
-- **Token Spend Counters**: The browser dashboard tracks OpenAI-compatible `usage.total_tokens` for daily, monthly, and lifetime LLM calls.
-- **Unified Protobuf API**: `POST /api` manages tips, reviews, settings, keys, topics, topic deletion, card pinning, cards, and summary counts with one full-access API key.
+- **Active Card Limit**: A per-user max-active-cards setting can stop new card creation while still allowing due and pinned cards to be reviewed.
+- **Any OpenAI-Compatible LLM**: Configure each user's API key, base URL, and model through the protobuf API or browser dashboard — no hardcoded vendor lock-in.
+- **Token Spend Counters**: The browser dashboard tracks OpenAI-compatible `usage.total_tokens` for the current user's daily, monthly, and lifetime LLM calls.
+- **Unified Protobuf API**: `POST /api` manages tips, reviews, settings, keys, topics, topic deletion, card pinning, cards, and summary counts. The API key owner determines the data scope.
 - **Root Control Page**: `/` serves a shadcn-inspired browser control panel with direct Radix icons that talks to the same protobuf API, with readable shadcn dark destructive controls, compact mobile stats, stable per-card loading skeletons, compact/full card text controls, searchable archive filters, a remembered grid/column flow layout switch, readable-width list expansion, title-row fullscreen card viewing, and touch-friendly card reordering with edge auto-scroll.
 - **Single Dashboard Surface**: The browser dashboard is served only at `/`;
 - **CSS-Only Motion**: The control page uses fast page-entry, card-entry, and compact-to-full tipcard animations with reduced-motion support.
 - **Markdown Tipcards**: API responses keep the original raw markdown-capable text so clients can render it however they need.
 - **Optional Server Self-Updates**: Disabled by default. The systemd install includes a root-owned updater timer; enabling it through the API polls GitHub, rebuilds from the configured repository branch, installs the new binary, schema, templates, and static assets, and restarts the service.
-- **Bootstrap Admin Token**: On first startup the server generates and prints an admin token. Use it only with `bootstrap_api_key` to create a full-access API key.
+- **Bootstrap Admin Token**: On first startup the server generates and prints an admin token. Use it only to create the first admin user and, after setup, to bootstrap an API key for that admin user.
 - **Protobuf API**: The only public API is a single protobuf request/response envelope for both client and admin operations.
-- **Single-User, Multi-Client**: One user's scheduling state is shared across all clients (desktop widget, Telegram bot, etc.) via per-client API keys.
+- **Multi-User, Multi-Client**: Each user has isolated topics, cards, review state, LLM settings, token spend, and API keys. A user's scheduling state is shared across that user's clients (desktop widget, Telegram bot, etc.).
 - **SQLite Database**: Lightweight persistence via `sqlx` with compile-time query validation.
 
 ## Screenshots
@@ -99,47 +99,43 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    ```
    The server starts on `http://127.0.0.1:3017` by default. On the first run it will:
    - Create `denpie.db` and apply `schema.sql` automatically.
-   - Generate and print a one-time admin token to the console.
+   - Generate and print a setup admin token to the console.
 
-4. **Open the root page** at `http://127.0.0.1:3017/`, or call `POST /api` directly. Use `bootstrap_api_key` with the printed `admin_token` to create the first `sk_live_*` full-access key.
+4. **Create the first admin user** from the root page at `http://127.0.0.1:3017/`. Enter a username, password, and the printed setup token, then click **Create Admin User**. Existing single-user data, settings, and API keys from an older database are assigned to this first setup user.
 
-5. **Configure your LLM** through `POST /api` with `update_settings`:
+5. **Create an API key** from the browser dashboard, or call `POST /api` with `bootstrap_api_key` after setup. `bootstrap_api_key` uses the printed `admin_token` and creates a key owned by the first admin user.
+
+6. **Configure your LLM** through the browser dashboard or `POST /api` with `update_settings`:
    - **LLM Model** — e.g. `google/gemini-2.5-pro` or `openai/gpt-4o`
    - **LLM API Key** — your provider API key
    - **LLM Base URL** — e.g. `https://openrouter.ai/api/v1` or `https://generativelanguage.googleapis.com/v1beta/openai`
    - **Prompt Template** — use `{topic}` as the placeholder; `{context}`, `{existing_cards}`, and `{dismissed_cards}` can place prior card titles explicitly
 
-   Each topic can also define its own prompt, daily card count, and card refresh time with `update_topic`; the browser dashboard uses the global time zone setting. Topics can be deleted from the browser control panel or with `delete_topic`; deleting a topic also deletes its cards and review state. The browser control panel has a class switcher for Casual, Repeatable, and Manual cards; Manual cards are saved from user-entered text and do not call the LLM. In Manual mode, Tab or Enter moves from the title field straight to the card text; in the card text, Enter saves the card and Shift+Enter inserts a newline. External systems can use `submit_custom_tipcard` to store `custom_tip` cards for summaries and reminders; these cards return `topic_class = "custom"` and do not create scheduling review state. Active cards can be pinned so they remain in a separate top section even before their next review time; unpinning returns them to normal scheduling. Use **Force Daily Refresh** in settings to pull fresh generated cards without moving, dismissing, or rescheduling current cards; protobuf clients can use `force_daily_refresh` for generated topic targeting and then request tips with visible card IDs in `exclude_card_ids`. Set **Max Active Cards** to stop creating new cards once active review state reaches that number; `0` means unlimited, and existing due/pinned cards remain available. Empty topic prompts and time fields fall back to the global settings. When a new generated card is created, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
+   Each topic can also define its own prompt, daily card count, and card refresh time with `update_topic`; the browser dashboard uses the current user's default time zone setting. Topics can be deleted from the browser control panel or with `delete_topic`; deleting a topic also deletes its cards and review state for that user. The browser control panel has a class switcher for Casual, Repeatable, and Manual cards; Manual cards are saved from user-entered text and do not call the LLM. In Manual mode, Tab or Enter moves from the title field straight to the card text; in the card text, Enter saves the card and Shift+Enter inserts a newline. External systems can use `submit_custom_tipcard` to store `custom_tip` cards for summaries and reminders; these cards return `topic_class = "custom"` and do not create scheduling review state. Active cards can be pinned so they remain in a separate top section even before their next review time; unpinning returns them to normal scheduling. Use **Force Daily Refresh** in settings to pull fresh generated cards without moving, dismissing, or rescheduling current cards; protobuf clients can use `force_daily_refresh` for generated topic targeting and then request tips with visible card IDs in `exclude_card_ids`. Set **Max Active Cards** to stop creating new cards once your active review state reaches that number; `0` means unlimited, and existing due/pinned cards remain available. Empty topic prompts and time fields fall back to your user settings. When a new generated card is created, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
 
-6. **Use the API key** in `ApiRequest.auth` for every operation except `bootstrap_api_key`.
+7. **Use the API key** in `ApiRequest.auth` for every operation except `bootstrap_api_key`. All reads and writes are scoped to the user that owns the key.
+
+## User Model
+
+Denpie stores all users in the same SQLite database, but user data is isolated by `user_id`. Topics, tipcards, review states, API keys, token usage, and user settings are all scoped to the authenticated user. Topic names only need to be unique within one user account, so two users can both have a `rust` topic without sharing cards.
+
+Browser authentication uses username/password sessions. API authentication stays wire-compatible: clients continue to send an API key in `ApiRequest.auth`, and the server resolves the key owner internally. The setup token is only for bootstrap; normal browser login uses the username and password.
 
 ## Configuration (`settings.yaml`)
 
-All runtime configuration lives in `settings.yaml` and is managed through the protobuf API. **Do not commit this file** — it contains your LLM API key and admin token.
+Global server bootstrap and autoupdate configuration lives in `settings.yaml`. Per-user LLM, prompt, UI, daily schedule, and active-card-limit settings live in SQLite. **Do not commit `settings.yaml`** — it contains the setup token and server update settings.
 
 | Key | Description | Default |
 |---|---|---|
-| `admin_token` | Bootstrap token for creating the first API key | Auto-generated on first run |
-| `llm_model` | Model identifier string | `google/gemini-3.1-flash` |
-| `llm_compress_model` | Model identifier string for compressed summaries and generated card titles | `google/gemini-3.1-flash-lite-preview` |
-| `llm_reasoning_effort` | Reasoning effort for generated tips: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh` | `none` |
-| `llm_compression_level` | Compression preset for compact cards: `light`, `balanced`, `strong`, or `ultra`; each preset also selects compression/title reasoning effort | `balanced` |
-| `llm_compress_reasoning_effort` | Backward-compatible stored compression/title reasoning effort; new settings writes derive it from `llm_compression_level` | `low` |
-| `prompt_template` | Tip generation prompt (`{topic}` placeholder); defaults to a practical 180-260 word card prompt with examples and caveats | See `llm::DEFAULT_PROMPT_TEMPLATE` |
-| `llm_api_key` | API key for the LLM provider | *(empty — set via API)* |
-| `llm_base_url` | Base URL for the OpenAI-compatible API | `https://openrouter.ai/api/v1` |
-| `llm_compress_base_url` | Base URL for compression requests; defaults to `llm_base_url` when missing | `https://openrouter.ai/api/v1` |
-| `color_scheme` | Client color scheme preference for external clients. Browser themes include `shadcn`, `shadcn-light`, `carbonfox`, `ayu`, `solarized-light`, `solarized-dark`, `amoled`, and `slate`. | `shadcn` |
-| `transparency` | Browser interface transparency coverage: `none`, `low`, `medium`, or `full`. Higher values apply transparent glass styling to more component types. | `medium` |
-| `blur_intensity` | Browser interface glass blur strength: `none`, `low`, `medium`, or `full` | `medium` |
-| `daily_time_zone` | Default IANA time zone or fixed `UTC+n` offset used for daily topic-card refresh windows | `UTC` |
-| `daily_update_time` | Default local `HH:MM` card refresh time when each topic can receive new daily cards | `00:00` |
+| `admin_token` | Setup token for creating the first admin user and bootstrapping an admin-owned API key | Auto-generated on first run |
 | `autoupdate_enabled` | Enable GitHub commit polling and server self-updates | `false` |
 | `autoupdate_repo` | GitHub repository in `owner/repo` form, or a GitHub URL | `slopfire/denpie` |
 | `autoupdate_branch` | Branch or ref checked through the GitHub commits API | `master` |
 | `autoupdate_check_interval_secs` | Poll interval in seconds; values below 60 are clamped to 60 | `3600` |
 | `autoupdate_command` | Optional local shell command for non-systemd server updates after a new commit is detected | *(empty)* |
 | `autoupdate_last_seen_sha` | Last GitHub commit SHA recorded by the updater | *(empty)* |
+
+Per-user settings stored in SQLite include `llm_model`, `llm_compress_model`, `prompt_template`, `llm_api_key`, LLM base URLs, reasoning/compression settings, browser theme/blur choices, `daily_time_zone`, `daily_update_time`, and `max_active_cards`.
 
 ### Server Self-Updates
 

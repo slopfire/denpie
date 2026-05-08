@@ -7,8 +7,11 @@ use crate::{
 
 use super::{pb, types::ApiResult};
 
-pub(crate) async fn list_admin_topics_pb(state: &AppState) -> ApiResult<pb::AdminTopics> {
-    let rows = topics::list_admin(&state.db)
+pub(crate) async fn list_admin_topics_pb(
+    state: &AppState,
+    user_id: &str,
+) -> ApiResult<pb::AdminTopics> {
+    let rows = topics::list_admin(&state.db, user_id)
         .await
         .map_err(|err| err.into_status_body())?;
 
@@ -28,8 +31,8 @@ pub(crate) async fn list_admin_topics_pb(state: &AppState) -> ApiResult<pb::Admi
     })
 }
 
-pub(crate) async fn list_tipcards_pb(state: &AppState) -> ApiResult<pb::Tipcards> {
-    let rows = tipcards::list_admin(&state.db)
+pub(crate) async fn list_tipcards_pb(state: &AppState, user_id: &str) -> ApiResult<pb::Tipcards> {
+    let rows = tipcards::list_admin(&state.db, user_id)
         .await
         .map_err(|err| err.into_status_body())?;
 
@@ -55,8 +58,8 @@ pub(crate) async fn list_tipcards_pb(state: &AppState) -> ApiResult<pb::Tipcards
     })
 }
 
-pub(crate) async fn app_summary_pb(state: &AppState) -> ApiResult<pb::AppSummary> {
-    let summary = topics::app_summary(&state.db, Utc::now())
+pub(crate) async fn app_summary_pb(state: &AppState, user_id: &str) -> ApiResult<pb::AppSummary> {
+    let summary = topics::app_summary(&state.db, user_id, Utc::now())
         .await
         .map_err(|err| err.into_status_body())?;
 
@@ -68,8 +71,8 @@ pub(crate) async fn app_summary_pb(state: &AppState) -> ApiResult<pb::AppSummary
     })
 }
 
-pub(crate) async fn app_topics_pb(state: &AppState) -> ApiResult<pb::AppTopics> {
-    let rows = topics::list_app_topics(&state.db, Utc::now())
+pub(crate) async fn app_topics_pb(state: &AppState, user_id: &str) -> ApiResult<pb::AppTopics> {
+    let rows = topics::list_app_topics(&state.db, user_id, Utc::now())
         .await
         .map_err(|err| err.into_status_body())?;
 

@@ -2,7 +2,7 @@ use axum::{body::Bytes, extract::State, http::StatusCode, response::Response};
 use prost::Message;
 use std::sync::Arc;
 
-use crate::{db::repositories::topics, AppState};
+use crate::AppState;
 
 use super::{
     admin::{app_summary_pb, app_topics_pb, list_admin_topics_pb, list_tipcards_pb},
@@ -36,7 +36,18 @@ pub async fn unified_api(
             if settings.admin_token.is_empty() || req.admin_token != settings.admin_token {
                 return Err((StatusCode::UNAUTHORIZED, "Invalid admin token".to_string()));
             }
-            let api_key = create_raw_api_key(&state, Some(req.client_name)).await?;
+            let admin = crate::db::repositories::users::first_admin(&state.db)
+                .await
+                .map_err(|err| err.into_status_body())?;
+            let user_id = if let Some(admin) = admin {
+                admin.id
+            } else {
+                return Err((
+                    StatusCode::CONFLICT,
+                    "Setup required before bootstrapping API keys".to_string(),
+                ));
+            };
+            let api_key = create_raw_api_key(&state, &user_id, Some(req.client_name)).await?;
             pb::ApiResponse {
                 result: Some(pb::api_response::Result::ApiKeyCreated(pb::ApiKeyCreated {
                     api_key,
@@ -44,8 +55,8 @@ pub async fn unified_api(
             }
         }
         other => {
-            require_api_key(&state, &request.auth).await?;
-            handle_authenticated_op(&state, other).await?
+            let user = require_api_key(&state, &request.auth).await?;
+            handle_authenticated_op(&state, &user, other).await?
         }
     };
 
@@ -54,12 +65,14 @@ pub async fn unified_api(
 
 async fn handle_authenticated_op(
     state: &AppState,
+    user: &crate::auth::AuthUser,
     op: pb::api_request::Op,
 ) -> Result<pb::ApiResponse, (StatusCode, String)> {
     match op {
         pb::api_request::Op::Tips(query) => {
             let responses = build_tips(
                 state,
+                &user.id,
                 TipsJsonRequest {
                     count: Some(query.count as u32),
                     topics: query.topics,
@@ -81,7 +94,7 @@ async fn handle_authenticated_op(
             })
         }
         pb::api_request::Op::SubmitCustomTipcard(req) => {
-            let card = create_custom_tipcard(state, req).await?;
+            let card = create_custom_tipcard(state, &user.id, req).await?;
             Ok(pb::ApiResponse {
                 result: Some(pb::api_response::Result::Tips(pb::TipsResponse {
                     tips: vec![tip_to_pb(card)],
@@ -91,6 +104,7 @@ async fn handle_authenticated_op(
         pb::api_request::Op::ForceDailyRefresh(req) => {
             let result = force_daily_refresh(
                 state,
+                &user.id,
                 ForceDailyRefreshRequest {
                     topics: req.topics,
                     tipcard_type: Some(req.tipcard_type),
@@ -106,11 +120,18 @@ async fn handle_authenticated_op(
             })
         }
         pb::api_request::Op::Review(payload) => {
-            apply_review(state, payload.card_id, payload.grade as u8, &payload.action).await?;
+            apply_review(
+                state,
+                &user.id,
+                payload.card_id,
+                payload.grade as u8,
+                &payload.action,
+            )
+            .await?;
             Ok(empty_response())
         }
         pb::api_request::Op::GetTopics(_) => {
-            let rows = topics::list_names(&state.db)
+            let rows = crate::db::repositories::topics::list_names(&state.db, &user.id)
                 .await
                 .map_err(|err| err.into_status_body())?;
             Ok(pb::ApiResponse {
@@ -120,14 +141,16 @@ async fn handle_authenticated_op(
             })
         }
         pb::api_request::Op::GetSettings(_) => Ok(pb::ApiResponse {
-            result: Some(pb::api_response::Result::Settings(current_settings(state))),
+            result: Some(pb::api_response::Result::Settings(
+                current_settings(state, &user.id).await?,
+            )),
         }),
         pb::api_request::Op::UpdateSettings(req) => {
-            update_settings_file(state, req)?;
+            update_settings_file(state, &user.id, req).await?;
             Ok(empty_response())
         }
         pb::api_request::Op::CreateApiKey(req) => {
-            let api_key = create_raw_api_key(state, Some(req.client_name)).await?;
+            let api_key = create_raw_api_key(state, &user.id, Some(req.client_name)).await?;
             Ok(pb::ApiResponse {
                 result: Some(pb::api_response::Result::ApiKeyCreated(pb::ApiKeyCreated {
                     api_key,
@@ -136,47 +159,47 @@ async fn handle_authenticated_op(
         }
         pb::api_request::Op::ListApiKeys(_) => Ok(pb::ApiResponse {
             result: Some(pb::api_response::Result::ApiKeys(
-                list_api_keys_pb(state).await?,
+                list_api_keys_pb(state, &user.id).await?,
             )),
         }),
         pb::api_request::Op::DeleteApiKey(req) => {
-            delete_api_key_by_id(state, req.id).await?;
+            delete_api_key_by_id(state, &user.id, req.id).await?;
             Ok(empty_response())
         }
         pb::api_request::Op::ListAdminTopics(_) => Ok(pb::ApiResponse {
             result: Some(pb::api_response::Result::AdminTopics(
-                list_admin_topics_pb(state).await?,
+                list_admin_topics_pb(state, &user.id).await?,
             )),
         }),
         pb::api_request::Op::ListTipcards(_) => Ok(pb::ApiResponse {
             result: Some(pb::api_response::Result::Tipcards(
-                list_tipcards_pb(state).await?,
+                list_tipcards_pb(state, &user.id).await?,
             )),
         }),
         pb::api_request::Op::DeleteTipcard(req) => {
-            delete_tipcard_by_id(state, req.id).await?;
+            delete_tipcard_by_id(state, &user.id, req.id).await?;
             Ok(empty_response())
         }
         pb::api_request::Op::PinTipcard(req) => {
-            set_tipcard_pinned(state, req.id, req.pinned).await?;
+            set_tipcard_pinned(state, &user.id, req.id, req.pinned).await?;
             Ok(empty_response())
         }
         pb::api_request::Op::DeleteTopic(req) => {
-            delete_topic_by_id(state, req.id).await?;
+            delete_topic_by_id(state, &user.id, req.id).await?;
             Ok(empty_response())
         }
         pb::api_request::Op::GetSummary(_) => Ok(pb::ApiResponse {
             result: Some(pb::api_response::Result::Summary(
-                app_summary_pb(state).await?,
+                app_summary_pb(state, &user.id).await?,
             )),
         }),
         pb::api_request::Op::ListAppTopics(_) => Ok(pb::ApiResponse {
             result: Some(pb::api_response::Result::AppTopics(
-                app_topics_pb(state).await?,
+                app_topics_pb(state, &user.id).await?,
             )),
         }),
         pb::api_request::Op::UpdateTopic(req) => {
-            update_topic_prompt(state, req).await?;
+            update_topic_prompt(state, &user.id, req).await?;
             Ok(empty_response())
         }
         pb::api_request::Op::BootstrapApiKey(_) => unreachable!(),

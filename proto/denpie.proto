@@ -46,6 +46,8 @@ message GetTopicsResponse {
 message Empty {}
 
 message ApiRequest {
+    // API key for all operations except bootstrap_api_key. The key owner
+    // determines which user's topics, cards, settings, and keys are visible.
     string auth = 1;
 
     oneof op {
@@ -88,6 +90,8 @@ message ApiResponse {
 }
 
 message BootstrapApiKeyRequest {
+    // Setup token printed by the server. This only works after a setup admin
+    // user exists; the created key belongs to the first admin user.
     string admin_token = 1;
     string client_name = 2;
 }

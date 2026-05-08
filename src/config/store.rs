@@ -225,6 +225,56 @@ impl Settings {
                 .unwrap_or(0),
         })
     }
+
+    pub fn apply_patch(mut self, patch: SettingsPatch) -> Self {
+        if let Some(value) = patch.model {
+            self.llm_model = value;
+        }
+        if let Some(value) = patch.compress_model {
+            self.llm_compress_model = value;
+        }
+        if let Some(value) = patch.template {
+            self.prompt_template = value;
+        }
+        if let Some(value) = patch.api_key {
+            self.llm_api_key = value;
+        }
+        if let Some(value) = patch.base_url {
+            self.llm_base_url = value;
+        }
+        if let Some(value) = patch.compress_base_url {
+            self.llm_compress_base_url = value;
+        }
+        if let Some(value) = patch.reasoning_effort {
+            self.llm_reasoning_effort = value;
+        }
+        if let Some(value) = patch.compression_level {
+            let level = llm::CompressionLevel::from_setting(&value);
+            self.llm_compression_level = level.as_setting().to_string();
+            self.llm_compress_reasoning_effort = level.reasoning_effort().to_string();
+        } else if let Some(value) = patch.compress_reasoning_effort {
+            self.llm_compress_reasoning_effort = value;
+        }
+        if let Some(value) = patch.color_scheme {
+            self.color_scheme = value;
+        }
+        if let Some(value) = patch.transparency.or(patch.ui_blur) {
+            self.transparency = value;
+        }
+        if let Some(value) = patch.blur_intensity {
+            self.blur_intensity = value;
+        }
+        if let Some(value) = patch.daily_time_zone {
+            self.daily_time_zone = value;
+        }
+        if let Some(value) = patch.daily_update_time {
+            self.daily_update_time = value;
+        }
+        if let Some(value) = patch.max_active_cards {
+            self.max_active_cards = value;
+        }
+        self
+    }
 }
 
 impl Default for Settings {
