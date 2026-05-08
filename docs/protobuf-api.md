@@ -58,7 +58,7 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 
 ## Daily Topic Retrieval
 
-`tips` is topic-aware. For each requested SRS topic/type, the server first returns due active cards. If none are due, it returns existing cards created in the current daily refresh window up to that topic's daily card count. New cards are generated only until that per-topic daily count is satisfied.
+`tips` is topic-aware. For each requested scheduled topic/type, the server first returns due active cards. If none are due, it returns existing cards created in the current daily refresh window up to that topic's daily card count. New cards are generated only until that per-topic daily count is satisfied.
 
 Daily card refresh windows use `settings.daily_time_zone` (IANA name such as `UTC`, `Asia/Vladivostok`, or `America/New_York`; fixed offsets such as `UTC+10` are also accepted) and `settings.daily_update_time` (`HH:MM`, default `00:00`). Each topic can override count/time with `update_topic.daily_card_count`, `update_topic.daily_time_zone`, and `update_topic.daily_update_time`. Invalid values fall back to `UTC`, midnight, and one card.
 
@@ -94,7 +94,7 @@ Set `Settings.compression_level` with `update_settings.compression_level` to cho
 
 ## Pinning Cards
 
-Pinning is a scheduling override for active cards. A pinned card remains visible in the control panel's separate top section and is returned ahead of normal scheduled cards even when `next_review_at` is in the future. Reviews still update the card's SRS state and next scheduled review time; unpinning restores normal due-date behavior.
+Pinning is a scheduling override for active cards. A pinned card remains visible in the control panel's separate top section and is returned ahead of normal scheduled cards even when `next_review_at` is in the future. Reviews still update the card's scheduling state and next scheduled review time; unpinning restores normal due-date behavior.
 
 ```proto
 ApiRequest {

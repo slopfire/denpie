@@ -43,7 +43,6 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
                 .delete(dashboard::delete_api_key),
         )
         .route("/admin/topics", get(dashboard::list_topics))
-        .route("/admin/topic-classes", get(dashboard::list_topic_classes))
         .route("/admin/token-spend", get(dashboard::token_spend))
         .route(
             "/admin/tipcards",

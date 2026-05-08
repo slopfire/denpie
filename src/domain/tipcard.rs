@@ -2,7 +2,6 @@ use axum::http::StatusCode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TipcardType {
-    Srs,
     Casual,
     Repeatable,
     Manual,
@@ -16,13 +15,13 @@ impl TipcardType {
             "repeatable_tip" => Self::Repeatable,
             "manual_tip" => Self::Manual,
             "custom_tip" => Self::Custom,
-            _ => Self::Srs,
+            "srs_tip" => Self::Repeatable,
+            _ => Self::Repeatable,
         }
     }
 
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Srs => "srs_tip",
             Self::Casual => "casual_tip",
             Self::Repeatable => "repeatable_tip",
             Self::Manual => "manual_tip",
@@ -31,11 +30,11 @@ impl TipcardType {
     }
 
     pub fn is_queue(self) -> bool {
-        matches!(self, Self::Casual | Self::Repeatable | Self::Manual)
+        matches!(self, Self::Casual | Self::Manual)
     }
 
     pub fn is_generated(self) -> bool {
-        matches!(self, Self::Srs | Self::Casual | Self::Repeatable)
+        matches!(self, Self::Casual | Self::Repeatable)
     }
 }
 
@@ -45,14 +44,14 @@ pub fn normalize_tipcard_type(value: &str, class_name: &str) -> String {
         "repeatable" | "repeatable_tip" | "reword" | "re:word" => "repeatable_tip".to_string(),
         "manual" | "manual_tip" => "manual_tip".to_string(),
         "custom" | "custom_tip" => "custom_tip".to_string(),
-        "srs" | "srs_tip" => "srs_tip".to_string(),
+        "srs" | "srs_tip" => "repeatable_tip".to_string(),
         "" if matches!(class_name.trim(), "casual" | "casual_tip") => "casual_tip".to_string(),
         "" if matches!(class_name.trim(), "repeatable" | "reword" | "re:word") => {
             "repeatable_tip".to_string()
         }
         "" if matches!(class_name.trim(), "manual" | "manual_tip") => "manual_tip".to_string(),
         "" if matches!(class_name.trim(), "custom" | "custom_tip") => "custom_tip".to_string(),
-        _ => TipcardType::Srs.as_str().to_string(),
+        _ => TipcardType::Repeatable.as_str().to_string(),
     }
 }
 

@@ -275,6 +275,7 @@ pub async fn delete_tipcard(
 pub struct TopicInfo {
     pub id: i64,
     pub name: String,
+    pub tipcard_type: String,
     pub prompt_template: String,
     pub daily_card_count: u32,
     pub daily_time_zone: String,
@@ -290,6 +291,7 @@ pub async fn list_topics(State(state): State<Arc<AppState>>) -> Json<Vec<TopicIn
         .map(|r| TopicInfo {
             id: r.id,
             name: r.name,
+            tipcard_type: r.tipcard_type,
             prompt_template: r.prompt_template.unwrap_or_default(),
             daily_card_count: r.daily_card_count.unwrap_or(1).max(1) as u32,
             daily_time_zone: r.daily_time_zone.unwrap_or_default(),
@@ -298,28 +300,6 @@ pub async fn list_topics(State(state): State<Arc<AppState>>) -> Json<Vec<TopicIn
         })
         .collect();
     Json(topics)
-}
-
-#[derive(Serialize)]
-pub struct TopicClassInfo {
-    pub id: i64,
-    pub name: String,
-    pub tipcard_type: String,
-}
-
-pub async fn list_topic_classes(State(state): State<Arc<AppState>>) -> Json<Vec<TopicClassInfo>> {
-    Json(
-        topics::list_classes(&state.db)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|r| TopicClassInfo {
-                id: r.id,
-                name: r.name,
-                tipcard_type: r.tipcard_type,
-            })
-            .collect(),
-    )
 }
 
 #[derive(Serialize)]
@@ -373,7 +353,6 @@ pub async fn app_summary(State(state): State<Arc<AppState>>) -> Json<AppSummary>
 pub struct AppTopicInfo {
     pub id: i64,
     pub name: String,
-    pub class_name: String,
     pub tipcard_type: String,
     pub prompt_template: String,
     pub total_cards: i64,
@@ -394,7 +373,6 @@ pub async fn app_topics(State(state): State<Arc<AppState>>) -> Json<Vec<AppTopic
             .map(|r| AppTopicInfo {
                 id: r.id,
                 name: r.name,
-                class_name: r.class_name,
                 tipcard_type: r.tipcard_type,
                 prompt_template: r.prompt_template,
                 daily_card_count: r.daily_card_count,
@@ -526,7 +504,6 @@ pub struct TipcardInfo {
     pub image_data: Vec<String>,
     pub created_at: String,
     pub tipcard_type: String,
-    pub topic_class: String,
     pub status: String,
     pub next_review_at: String,
     pub repeat_count: u32,
@@ -538,7 +515,6 @@ pub struct ListTipcardsQuery {
     pub q: Option<String>,
     pub status: Option<String>,
     pub topic: Option<String>,
-    pub topic_class: Option<String>,
     pub tipcard_type: Option<String>,
 }
 
@@ -552,7 +528,6 @@ pub async fn list_tipcards(
             q: query.q,
             status: query.status,
             topic: query.topic,
-            topic_class: query.topic_class,
             tipcard_type: query.tipcard_type,
         },
     )
@@ -568,7 +543,6 @@ pub async fn list_tipcards(
         image_data: serde_json::from_str::<Vec<String>>(&r.image_data).unwrap_or_default(),
         created_at: r.created_at,
         tipcard_type: r.tipcard_type,
-        topic_class: r.topic_class,
         status: r.status,
         next_review_at: r.next_review_at,
         repeat_count: serde_json::from_str::<serde_json::Value>(&r.state_data)

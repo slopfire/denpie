@@ -405,7 +405,9 @@
                 color: hsl(var(--primary-foreground));
             }
             .bg-primary-solid {
-                background: hsl(var(--primary-hsl) / var(--glass-primary-alpha));
+                background: hsl(
+                    var(--primary-hsl) / var(--glass-primary-alpha)
+                );
                 color: hsl(var(--primary-foreground));
                 backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
                 -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
@@ -668,7 +670,8 @@
                 text-align: left;
                 font-size: 0.875rem;
             }
-            .shadcn-select button.shadcn-select-option:has(.radix-icon):not(.nav-item) {
+            .shadcn-select
+                button.shadcn-select-option:has(.radix-icon):not(.nav-item) {
                 display: grid;
                 justify-content: stretch;
             }
@@ -1001,7 +1004,9 @@
                 -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
             }
             .nav-item.active {
-                background: hsl(var(--secondary-hsl) / var(--glass-muted-alpha));
+                background: hsl(
+                    var(--secondary-hsl) / var(--glass-muted-alpha)
+                );
                 color: hsl(var(--secondary-foreground));
                 border-color: hsl(var(--border-hsl));
                 box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
@@ -1062,7 +1067,9 @@
                 align-items: center;
                 border-radius: 999px;
                 border: 1px solid hsl(var(--border-hsl));
-                background: hsl(var(--secondary-hsl) / var(--glass-muted-alpha));
+                background: hsl(
+                    var(--secondary-hsl) / var(--glass-muted-alpha)
+                );
                 color: hsl(var(--secondary-foreground));
                 padding: 0.125rem 0.5rem;
                 font-size: 0.6875rem;
@@ -1090,7 +1097,9 @@
                 align-items: center;
                 justify-content: center;
                 border: 1px solid hsl(var(--border-hsl));
-                background: hsl(var(--secondary-hsl) / var(--glass-muted-alpha));
+                background: hsl(
+                    var(--secondary-hsl) / var(--glass-muted-alpha)
+                );
                 color: hsl(var(--secondary-foreground));
                 backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
                 -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
@@ -1941,7 +1950,9 @@
                             >
                                 <option value="all">All status</option>
                                 <option value="active">Active</option>
-                                <option value="acknowledged">Acknowledged</option>
+                                <option value="acknowledged">
+                                    Acknowledged
+                                </option>
                                 <option value="memorized">Memorized</option>
                                 <option value="dismissed">Dismissed</option>
                                 <option value="custom">Custom</option>
@@ -2145,8 +2156,14 @@
                     const triggerRect = trigger.getBoundingClientRect();
                     const spaceBelow = window.innerHeight - triggerRect.bottom;
                     const spaceAbove = triggerRect.top;
-                    const menuHeight = Math.min(menu.scrollHeight, window.innerHeight * 0.52);
-                    if (spaceBelow < menuHeight + 12 && spaceAbove > spaceBelow) {
+                    const menuHeight = Math.min(
+                        menu.scrollHeight,
+                        window.innerHeight * 0.52,
+                    );
+                    if (
+                        spaceBelow < menuHeight + 12 &&
+                        spaceAbove > spaceBelow
+                    ) {
                         menu.classList.add("opens-up");
                     }
                 }
@@ -2182,7 +2199,9 @@
             function renderShadcnSelectOptions(select, menu) {
                 menu.innerHTML = Array.from(select.options)
                     .map(
-                        (option) => `<button type="button" role="option" class="shadcn-select-option" data-value="${escapeHtml(option.value)}">
+                        (
+                            option,
+                        ) => `<button type="button" role="option" class="shadcn-select-option" data-value="${escapeHtml(option.value)}">
                             <span class="shadcn-select-option-check">${radixIcon("check")}</span>
                             <span class="shadcn-select-label">${escapeHtml(selectOptionLabel(option))}</span>
                         </button>`,
@@ -2238,9 +2257,7 @@
                 select.after(wrapper);
                 select._shadcnSelect = wrapper;
 
-                const trigger = wrapper.querySelector(
-                    ".shadcn-select-trigger",
-                );
+                const trigger = wrapper.querySelector(".shadcn-select-trigger");
                 const menu = wrapper.querySelector(".shadcn-select-menu");
                 renderShadcnSelectOptions(select, menu);
                 syncShadcnSelect(select);
@@ -2265,7 +2282,9 @@
             }
 
             function enhanceAllShadcnSelects() {
-                document.querySelectorAll("select").forEach(enhanceShadcnSelect);
+                document
+                    .querySelectorAll("select")
+                    .forEach(enhanceShadcnSelect);
             }
 
             function readFileAsDataUrl(file) {
@@ -2870,12 +2889,10 @@
                 const selected = normalizeTheme(theme);
                 document.documentElement.dataset.theme = selected;
                 localStorage.setItem("denpie-theme", selected);
-                document
-                    .querySelectorAll(".theme-select")
-                    .forEach((select) => {
-                        select.value = selected;
-                        syncShadcnSelect(select);
-                    });
+                document.querySelectorAll(".theme-select").forEach((select) => {
+                    select.value = selected;
+                    syncShadcnSelect(select);
+                });
             }
 
             function applyTransparency(transparency) {
@@ -3060,7 +3077,6 @@
                     card.full_content,
                     card.compressed_content,
                     card.tipcard_type,
-                    card.topic_class,
                     card.status,
                 ]
                     .filter(Boolean)
@@ -3073,8 +3089,7 @@
                 const status = state.archiveStatus || "all";
                 return orderedCards().filter((card) => {
                     const cardStatus = card.status || "active";
-                    if (status !== "all" && cardStatus !== status)
-                        return false;
+                    if (status !== "all" && cardStatus !== status) return false;
                     if (!query) return true;
                     return query
                         .split(/\s+/)
@@ -3282,7 +3297,8 @@
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <button class="border border-token p-1" title="Load topic" onclick="loadTopic(decodeURIComponent('${encodeURIComponent(topic.name)}'), decodeURIComponent('${encodeURIComponent(topic.class_name)}'), decodeURIComponent('${encodeURIComponent(topic.tipcard_type)}'))">
+              <button class="border border-token p-1" title="Load topic" onclick="loadTopic(decodeURIComponent('${encodeURIComponent(topic.name)}'), decodeURIComponent('${encodeURIComponent(topic.tipcard_type)}'))">
+
                 ${radixIcon("play")}
               </button>
               <button class="border border-token p-1" title="Delete topic" onclick="deleteTopic(${topic.id}, decodeURIComponent('${encodeURIComponent(topic.name)}'))">
@@ -3938,7 +3954,7 @@
         ${renderCardImages(card)}
         <div class="text-sm leading-6 markdown-content">${renderMarkdown(card.full_content)}</div>
         <div class="mt-3 grid gap-1 text-xs text-muted">
-          <p>${escapeHtml(card.created_at || card.topic_class || "")}</p>
+          <p>${escapeHtml(card.created_at || "")}</p>
           <p>Next rewind: ${escapeHtml(formatNextRewind(card))}</p>
         </div>
       </article>`,
@@ -4123,7 +4139,7 @@
                     method: "POST",
                     body: JSON.stringify({
                         topics: topic,
-                        topic_class: cardKindFromType(tipcardType),
+
                         tipcard_type: tipcardType,
                         count: 1,
                         exclude_card_ids: excludeCardIds,
@@ -4160,7 +4176,7 @@
                         method: "POST",
                         body: JSON.stringify({
                             topics: slot.topic,
-                            topic_class: cardKindFromType(tipcardType),
+
                             tipcard_type: tipcardType,
                             count: 1,
                             manual_content:
@@ -4449,7 +4465,7 @@
                             method: "POST",
                             body: JSON.stringify({
                                 topics: topic.name,
-                                topic_class: topic.class_name,
+
                                 tipcard_type: topic.tipcard_type,
                                 count: 1,
                                 exclude_card_ids: excludeIdsForTopic(topic),
@@ -4661,15 +4677,18 @@
                         toast(err.message);
                     }
                 });
-                $("blur-intensity-input").addEventListener("change", async () => {
-                    applyBlurIntensity($("blur-intensity-input").value);
-                    if (!state.authed) return;
-                    try {
-                        await saveSettings();
-                    } catch (err) {
-                        toast(err.message);
-                    }
-                });
+                $("blur-intensity-input").addEventListener(
+                    "change",
+                    async () => {
+                        applyBlurIntensity($("blur-intensity-input").value);
+                        if (!state.authed) return;
+                        try {
+                            await saveSettings();
+                        } catch (err) {
+                            toast(err.message);
+                        }
+                    },
+                );
                 $("autoupdate-trigger-btn").addEventListener(
                     "click",
                     async () => {

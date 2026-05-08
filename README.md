@@ -53,7 +53,8 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 .
 ├── src/
 │   ├── main.rs        # Router setup, state, app initialization
-│   ├── api.rs         # Unified /api protobuf endpoint shim and current tip orchestration
+│   ├── api.rs         # Public API module exports
+│   ├── api/           # Protobuf transport, request types, tip generation, and admin helpers
 │   ├── auth.rs        # HTTP session transport and API key middleware wrapper
 │   ├── config/        # Typed settings and YAML load/save/update store
 │   ├── db/            # Repository modules for SQL-backed persistence
@@ -62,7 +63,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 │   ├── services/      # Settings and API key service orchestration
 │   ├── autoupdate.rs  # Optional in-process GitHub change watcher
 │   ├── llm.rs         # LLM wrappers (generate_new_card, compress_card, generate_card_title)
-│   └── srs.rs         # SM-2 scheduling implementation
+│   └── scheduling/   # Scheduling algorithms, currently SM-2
 ├── migrations/        # SQL schema snapshots for database setup
 ├── schema.sql         # SQLite schema reference kept for installs/tests
 ├── proto/

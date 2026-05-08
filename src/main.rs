@@ -18,8 +18,8 @@ mod db;
 mod domain;
 mod error;
 mod llm;
+mod scheduling;
 mod services;
-mod srs;
 #[cfg(test)]
 mod tests;
 

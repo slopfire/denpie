@@ -7,16 +7,10 @@ use crate::{
 };
 
 #[derive(Clone, Debug)]
-pub struct TopicClassRecord {
-    pub id: i64,
-    pub name: String,
-    pub tipcard_type: String,
-}
-
-#[derive(Clone, Debug)]
 pub struct TopicRecord {
     pub id: i64,
     pub name: String,
+    pub tipcard_type: String,
     pub prompt_template: Option<String>,
     pub daily_card_count: Option<i64>,
     pub daily_time_zone: Option<String>,
@@ -36,7 +30,6 @@ pub struct AppSummaryRecord {
 pub struct AppTopicRecord {
     pub id: i64,
     pub name: String,
-    pub class_name: String,
     pub tipcard_type: String,
     pub prompt_template: String,
     pub daily_card_count: u32,
@@ -63,6 +56,7 @@ pub async fn list_admin(pool: &SqlitePool) -> AppResult<Vec<TopicRecord>> {
         (
             i64,
             String,
+            String,
             Option<String>,
             Option<i64>,
             Option<String>,
@@ -70,7 +64,7 @@ pub async fn list_admin(pool: &SqlitePool) -> AppResult<Vec<TopicRecord>> {
             Option<String>,
         ),
     >(
-        "SELECT id, name, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
+        "SELECT id, name, tipcard_type, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
          FROM topics
          ORDER BY name ASC",
     )
@@ -82,28 +76,12 @@ pub async fn list_admin(pool: &SqlitePool) -> AppResult<Vec<TopicRecord>> {
         .map(|row| TopicRecord {
             id: row.0,
             name: row.1,
-            prompt_template: row.2,
-            daily_card_count: row.3,
-            daily_time_zone: row.4,
-            daily_update_time: row.5,
-            compression_level: row.6,
-        })
-        .collect())
-}
-
-pub async fn list_classes(pool: &SqlitePool) -> AppResult<Vec<TopicClassRecord>> {
-    let rows = sqlx::query_as::<_, (i64, String, String)>(
-        "SELECT id, name, tipcard_type FROM topic_classes ORDER BY name ASC",
-    )
-    .fetch_all(pool)
-    .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(|row| TopicClassRecord {
-            id: row.0,
-            name: row.1,
             tipcard_type: row.2,
+            prompt_template: row.3,
+            daily_card_count: row.4,
+            daily_time_zone: row.5,
+            daily_update_time: row.6,
+            compression_level: row.7,
         })
         .collect())
 }
@@ -122,18 +100,17 @@ pub async fn list_generated_targets(pool: &SqlitePool) -> AppResult<Vec<(TopicRe
         (
             i64,
             String,
+            String,
             Option<String>,
             Option<i64>,
             Option<String>,
             Option<String>,
             Option<String>,
-            String,
         ),
     >(
-        "SELECT top.id, top.name, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level, tc.tipcard_type
-         FROM topics top
-         JOIN topic_classes tc ON tc.id = top.class_id
-         WHERE tc.tipcard_type NOT IN ('manual_tip', 'custom_tip')",
+        "SELECT id, name, tipcard_type, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
+         FROM topics
+         WHERE tipcard_type NOT IN ('manual_tip', 'custom_tip')",
     )
     .fetch_all(pool)
     .await?;
@@ -141,87 +118,53 @@ pub async fn list_generated_targets(pool: &SqlitePool) -> AppResult<Vec<(TopicRe
     Ok(rows
         .into_iter()
         .map(|row| {
+            let tipcard_type = row.2.clone();
             (
                 TopicRecord {
                     id: row.0,
                     name: row.1,
-                    prompt_template: row.2,
-                    daily_card_count: row.3,
-                    daily_time_zone: row.4,
-                    daily_update_time: row.5,
-                    compression_level: row.6,
+                    tipcard_type: row.2,
+                    prompt_template: row.3,
+                    daily_card_count: row.4,
+                    daily_time_zone: row.5,
+                    daily_update_time: row.6,
+                    compression_level: row.7,
                 },
-                row.7,
+                tipcard_type,
             )
         })
         .collect())
 }
 
-pub async fn get_or_create_class(
-    pool: &SqlitePool,
-    class_name: &str,
-    requested_type: &str,
-) -> AppResult<TopicClassRecord> {
-    let name = if class_name.trim().is_empty() {
-        "default"
-    } else {
-        class_name.trim()
-    };
-
-    if let Some(row) = sqlx::query_as::<_, (i64, String)>(
-        "SELECT id, tipcard_type FROM topic_classes WHERE name = ?",
-    )
-    .bind(name)
-    .fetch_optional(pool)
-    .await?
-    {
-        return Ok(TopicClassRecord {
-            id: row.0,
-            name: name.to_string(),
-            tipcard_type: row.1,
-        });
-    }
-
-    let tipcard_type = tipcard::normalize_tipcard_type(requested_type, name);
-    let id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
-        .bind(name)
-        .bind(&tipcard_type)
-        .execute(pool)
-        .await?
-        .last_insert_rowid();
-
-    Ok(TopicClassRecord {
-        id,
-        name: name.to_string(),
-        tipcard_type,
-    })
-}
-
 pub async fn get_or_create_topic(
     pool: &SqlitePool,
     topic_name: &str,
-    class_id: i64,
+    requested_type: &str,
 ) -> AppResult<TopicRecord> {
-    if let Some(topic) = get_topic(pool, topic_name, class_id).await? {
+    if let Some(topic) = get_topic(pool, topic_name).await? {
+        // If type differs, we could update it, but for now just return
         return Ok(topic);
     }
 
-    match sqlx::query("INSERT INTO topics (name, class_id) VALUES (?, ?)")
+    let tipcard_type = tipcard::normalize_tipcard_type(requested_type, topic_name);
+
+    match sqlx::query("INSERT INTO topics (name, tipcard_type) VALUES (?, ?)")
         .bind(topic_name)
-        .bind(class_id)
+        .bind(&tipcard_type)
         .execute(pool)
         .await
     {
         Ok(result) => Ok(TopicRecord {
             id: result.last_insert_rowid(),
             name: topic_name.to_string(),
+            tipcard_type,
             prompt_template: None,
             daily_card_count: None,
             daily_time_zone: None,
             daily_update_time: None,
             compression_level: None,
         }),
-        Err(insert_error) => get_topic(pool, topic_name, class_id)
+        Err(insert_error) => get_topic(pool, topic_name)
             .await?
             .ok_or_else(|| AppError::Db(insert_error)),
     }
@@ -345,8 +288,7 @@ pub async fn list_app_topics(
         (
             i64,
             String,
-            Option<String>,
-            Option<String>,
+            String,
             Option<String>,
             Option<i64>,
             Option<String>,
@@ -359,8 +301,7 @@ pub async fn list_app_topics(
     >(
         "SELECT top.id,
                 top.name,
-                tc.name AS class_name,
-                tc.tipcard_type,
+                top.tipcard_type,
                 top.prompt_template,
                 top.daily_card_count,
                 top.daily_time_zone,
@@ -370,10 +311,9 @@ pub async fn list_app_topics(
                 SUM(CASE WHEN r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1) THEN 1 ELSE 0 END) AS due_cards,
                 SUM(CASE WHEN r.status != 'active' THEN 1 ELSE 0 END) AS completed_cards
          FROM topics top
-         LEFT JOIN topic_classes tc ON top.class_id = tc.id
          LEFT JOIN tipcards t ON t.topic_id = top.id
          LEFT JOIN review_states r ON r.card_id = t.id
-         GROUP BY top.id, top.name, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level, tc.name, tc.tipcard_type
+         GROUP BY top.id, top.name, top.tipcard_type, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level
          ORDER BY due_cards DESC, top.name ASC",
     )
     .bind(now)
@@ -385,29 +325,25 @@ pub async fn list_app_topics(
         .map(|row| AppTopicRecord {
             id: row.0,
             name: row.1,
-            class_name: row.2.unwrap_or_else(|| "default".to_string()),
-            tipcard_type: row.3.unwrap_or_else(|| "srs_tip".to_string()),
-            prompt_template: row.4.unwrap_or_default(),
-            daily_card_count: row.5.unwrap_or(1).max(1) as u32,
-            daily_time_zone: row.6.unwrap_or_default(),
-            daily_update_time: row.7.unwrap_or_default(),
-            compression_level: row.8.unwrap_or_default(),
-            total_cards: row.9,
-            due_cards: row.10,
-            completed_cards: row.11,
+            tipcard_type: row.2,
+            prompt_template: row.3.unwrap_or_default(),
+            daily_card_count: row.4.unwrap_or(1).max(1) as u32,
+            daily_time_zone: row.5.unwrap_or_default(),
+            daily_update_time: row.6.unwrap_or_default(),
+            compression_level: row.7.unwrap_or_default(),
+            total_cards: row.8,
+            due_cards: row.9,
+            completed_cards: row.10,
         })
         .collect())
 }
 
-async fn get_topic(
-    pool: &SqlitePool,
-    topic_name: &str,
-    class_id: i64,
-) -> AppResult<Option<TopicRecord>> {
+async fn get_topic(pool: &SqlitePool, topic_name: &str) -> AppResult<Option<TopicRecord>> {
     let row = sqlx::query_as::<
         _,
         (
             i64,
+            String,
             Option<String>,
             Option<i64>,
             Option<String>,
@@ -415,22 +351,22 @@ async fn get_topic(
             Option<String>,
         ),
     >(
-        "SELECT id, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
+        "SELECT id, tipcard_type, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
          FROM topics
-         WHERE name = ? AND class_id = ?",
+         WHERE name = ?",
     )
     .bind(topic_name)
-    .bind(class_id)
     .fetch_optional(pool)
     .await?;
 
     Ok(row.map(|row| TopicRecord {
         id: row.0,
         name: topic_name.to_string(),
-        prompt_template: row.1,
-        daily_card_count: row.2,
-        daily_time_zone: row.3,
-        daily_update_time: row.4,
-        compression_level: row.5,
+        tipcard_type: row.1,
+        prompt_template: row.2,
+        daily_card_count: row.3,
+        daily_time_zone: row.4,
+        daily_update_time: row.5,
+        compression_level: row.6,
     }))
 }

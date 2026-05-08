@@ -5,18 +5,18 @@ package denpie;
 message TipsQuery {
     uint64 count = 1;
     string topics = 2; // comma separated
-    string topic_class = 3; // optional, defaults to "default"
-    string tipcard_type = 4; // optional class type: "srs_tip", "casual_tip", "repeatable_tip", or "manual_tip"
-    repeated int64 exclude_card_ids = 5; // optional: suppress cards already visible in a client flow
-    string manual_content = 6; // required when tipcard_type is "manual_tip"
-    string manual_compressed_content = 7; // optional compact text for manual cards
+    string tipcard_type = 4; // optional: "repeatable_tip", "casual_tip", or "manual_tip"
+    repeated int64 exclude_card_ids = 5;
+    string manual_content = 6;
+    string manual_compressed_content = 7;
+    reserved 3; // was topic_class
 }
 
 message CustomTipcardRequest {
     string topic = 1;
     string full_content = 2;
-    string compressed_content = 3; // optional compact text; defaults to full_content
-    string title = 4; // optional display/search title
+    string compressed_content = 3;
+    string title = 4;
 }
 
 message TipCardResponse {
@@ -24,9 +24,9 @@ message TipCardResponse {
     string topic = 2;
     string full_content = 3;
     string compressed_content = 4;
-    string topic_class = 5;
     string tipcard_type = 6;
     bool pinned = 7;
+    reserved 5; // was topic_class
 }
 
 message TipsResponse {
@@ -35,35 +35,24 @@ message TipsResponse {
 
 message ReviewPayload {
     int64 card_id = 1;
-    uint32 grade = 2; // 0-5
-    string action = 3; // optional: "acknowledge", "repeat", "memorize", or "dismiss" for queue cards
+    uint32 grade = 2;
+    string action = 3;
 }
 
 message GetTopicsResponse {
     repeated string topics = 1;
 }
 
-message TopicClass {
-    int64 id = 1;
-    string name = 2;
-    string tipcard_type = 3;
-}
-
-message GetTopicClassesResponse {
-    repeated TopicClass classes = 1;
-}
-
 message Empty {}
 
 message ApiRequest {
-    string auth = 1; // raw sk_live_* API key for every operation except bootstrap_api_key
+    string auth = 1;
 
     oneof op {
         BootstrapApiKeyRequest bootstrap_api_key = 2;
         TipsQuery tips = 3;
         ReviewPayload review = 4;
         Empty get_topics = 5;
-        Empty get_topic_classes = 6;
         Empty get_settings = 7;
         UpdateSettingsRequest update_settings = 8;
         CreateApiKeyRequest create_api_key = 9;
@@ -88,7 +77,6 @@ message ApiResponse {
         TipsResponse tips = 2;
         Empty ok = 3;
         GetTopicsResponse topics = 4;
-        GetTopicClassesResponse topic_classes = 5;
         Settings settings = 6;
         ApiKeys api_keys = 7;
         AdminTopics admin_topics = 8;
@@ -190,11 +178,11 @@ message TipcardInfo {
     string compressed_content = 4;
     string created_at = 5;
     string tipcard_type = 6;
-    string topic_class = 7;
     string status = 8;
     string next_review_at = 9;
     uint32 repeat_count = 10;
     bool pinned = 11;
+    reserved 7; // was topic_class
 }
 
 message Tipcards {
@@ -211,7 +199,6 @@ message AppSummary {
 message AppTopicInfo {
     int64 id = 1;
     string name = 2;
-    string class_name = 3;
     string tipcard_type = 4;
     string prompt_template = 5;
     int64 total_cards = 6;
@@ -221,6 +208,7 @@ message AppTopicInfo {
     string daily_time_zone = 10;
     string daily_update_time = 11;
     string compression_level = 12;
+    reserved 3; // was class_name
 }
 
 message AppTopics {
@@ -242,9 +230,9 @@ message PinTipcardRequest {
 }
 
 message ForceDailyRefreshRequest {
-    string topics = 1; // comma separated; empty with empty class/type refreshes all generated topics
-    string topic_class = 2; // optional, defaults to "default"
-    string tipcard_type = 3; // optional class type: "srs_tip", "casual_tip", or "repeatable_tip"
+    string topics = 1; // comma separated
+    string tipcard_type = 3; // optional: "repeatable_tip" or "casual_tip"
+    reserved 2; // was topic_class
 }
 
 message ForceDailyRefreshResponse {

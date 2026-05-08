@@ -7,30 +7,21 @@ CREATE TABLE IF NOT EXISTS api_keys (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS topic_classes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    tipcard_type TEXT NOT NULL DEFAULT 'srs_tip',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS topics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    class_id INTEGER,
+    name TEXT NOT NULL UNIQUE,
+    tipcard_type TEXT NOT NULL DEFAULT 'repeatable_tip',
     prompt_template TEXT,
     daily_card_count INTEGER,
     daily_time_zone TEXT,
     daily_update_time TEXT,
-    compression_level TEXT,
-    UNIQUE(name, class_id),
-    FOREIGN KEY(class_id) REFERENCES topic_classes(id)
+    compression_level TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tipcards (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     topic_id INTEGER NOT NULL,
-    tipcard_type TEXT NOT NULL DEFAULT 'srs_tip',
+    tipcard_type TEXT NOT NULL DEFAULT 'repeatable_tip',
     title TEXT,
     full_content TEXT NOT NULL,
     compressed_content TEXT NOT NULL,

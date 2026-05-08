@@ -11,9 +11,10 @@ pub struct ReviewStateRecord {
 
 pub async fn load_for_card(pool: &SqlitePool, card_id: i64) -> AppResult<ReviewStateRecord> {
     let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT r.state_data, t.tipcard_type
+        "SELECT r.state_data, top.tipcard_type
          FROM review_states r
          JOIN tipcards t ON t.id = r.card_id
+         JOIN topics top ON t.topic_id = top.id
          WHERE r.card_id = ?",
     )
     .bind(card_id)
@@ -46,7 +47,7 @@ pub async fn update_queue_state(
     Ok(())
 }
 
-pub async fn update_srs_state(
+pub async fn update_review_schedule(
     pool: &SqlitePool,
     card_id: i64,
     state_data: String,

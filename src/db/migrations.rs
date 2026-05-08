@@ -27,6 +27,13 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
     .await?;
 
     ensure_column(pool, "topics", "class_id", "INTEGER").await?;
+    ensure_column(
+        pool,
+        "topics",
+        "tipcard_type",
+        "TEXT NOT NULL DEFAULT 'repeatable_tip'",
+    )
+    .await?;
     ensure_column(pool, "topics", "prompt_template", "TEXT").await?;
     ensure_column(pool, "topics", "daily_card_count", "INTEGER").await?;
     ensure_column(pool, "topics", "daily_time_zone", "TEXT").await?;
@@ -36,7 +43,7 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
         pool,
         "tipcards",
         "tipcard_type",
-        "TEXT NOT NULL DEFAULT 'srs_tip'",
+        "TEXT NOT NULL DEFAULT 'repeatable_tip'",
     )
     .await?;
     ensure_column(pool, "tipcards", "title", "TEXT").await?;
@@ -51,21 +58,16 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
     .await?;
     ensure_column(pool, "review_states", "daily_refreshed_at", "DATETIME").await?;
 
-    sqlx::query(
-        "INSERT OR IGNORE INTO topic_classes (name, tipcard_type) VALUES ('default', 'srs_tip')",
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
+    // Migrate tipcard_type from classes to topics if topics.tipcard_type is default and class exists
+    let _ = sqlx::query(
         "UPDATE topics
-         SET class_id = (SELECT id FROM topic_classes WHERE name = 'default')
-         WHERE class_id IS NULL",
+         SET tipcard_type = (SELECT tipcard_type FROM topic_classes WHERE id = topics.class_id)
+         WHERE class_id IS NOT NULL AND (tipcard_type IS NULL OR tipcard_type = 'repeatable_tip')",
     )
     .execute(pool)
-    .await?;
+    .await;
 
-    sqlx::query("UPDATE tipcards SET tipcard_type = 'srs_tip' WHERE tipcard_type IS NULL")
+    sqlx::query("UPDATE tipcards SET tipcard_type = 'repeatable_tip' WHERE tipcard_type IS NULL OR tipcard_type = 'srs_tip'")
         .execute(pool)
         .await?;
 

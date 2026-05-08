@@ -24,7 +24,8 @@ Backend service for daily tip cards. Scheduling truth now SM-2. No claim real FS
 - `src/db/repositories/`: SQL lives here as refactor grows. Bind params, no injection nonsense.
 - `src/domain/`: scheduling/review/tipcard rules. No SQL/YAML.
 - `src/services/`: orchestration for settings and API keys, more services later.
-- `src/api.rs`: protobuf endpoint shim + remaining tip orchestration during refactor.
+- `src/api.rs`: API module exports. Small.
+- `src/api/`: protobuf transport, request types, tip generation, admin/topic/tipcard helpers.
 - `src/auth.rs`: session middleware/login transport; API key verify through service.
 - `src/dashboard.rs`: browser handlers; settings/key calls through services.
 - `src/srs.rs`: SM-2 scheduling implementation.

@@ -236,8 +236,7 @@ mod tests {
                 crate::api::pb::TipsQuery {
                     count: 1,
                     topics: "rust".into(),
-                    topic_class: "default".into(),
-                    tipcard_type: "srs_tip".into(),
+                    tipcard_type: "repeatable_tip".into(),
                     exclude_card_ids: vec![],
                     manual_content: "".into(),
                     manual_compressed_content: "".into(),
@@ -275,7 +274,6 @@ mod tests {
                     crate::api::pb::TipsQuery {
                         count: 1,
                         topics: "rust".into(),
-                        topic_class: "casual".into(),
                         tipcard_type: "casual_tip".into(),
                         exclude_card_ids: vec![],
                         manual_content: "".into(),
@@ -292,7 +290,6 @@ mod tests {
             other => panic!("unexpected response: {:?}", other),
         };
         assert_eq!(first.topic, "rust");
-        assert_eq!(first.topic_class, "casual");
         assert_eq!(first.tipcard_type, "casual_tip");
 
         let review = post_api(
@@ -348,8 +345,7 @@ mod tests {
                     crate::api::pb::TipsQuery {
                         count: 1,
                         topics: "rust".into(),
-                        topic_class: "default".into(),
-                        tipcard_type: "srs_tip".into(),
+                        tipcard_type: "repeatable_tip".into(),
                         exclude_card_ids: vec![],
                         manual_content: "".into(),
                         manual_compressed_content: "".into(),
@@ -437,8 +433,7 @@ mod tests {
                     crate::api::pb::TipsQuery {
                         count: 1,
                         topics: "rust".into(),
-                        topic_class: "default".into(),
-                        tipcard_type: "srs_tip".into(),
+                        tipcard_type: "repeatable_tip".into(),
                         exclude_card_ids: vec![],
                         manual_content: "".into(),
                         manual_compressed_content: "".into(),
@@ -496,8 +491,7 @@ mod tests {
         let tips_query = crate::api::pb::TipsQuery {
             count: 1,
             topics: "rust".into(),
-            topic_class: "default".into(),
-            tipcard_type: "srs_tip".into(),
+            tipcard_type: "repeatable_tip".into(),
             exclude_card_ids: vec![],
             manual_content: "".into(),
             manual_compressed_content: "".into(),
@@ -530,7 +524,7 @@ mod tests {
                 op: Some(crate::api::pb::api_request::Op::ForceDailyRefresh(
                     crate::api::pb::ForceDailyRefreshRequest {
                         topics: "".into(),
-                        topic_class: "".into(),
+
                         tipcard_type: "".into(),
                     },
                 )),
@@ -640,8 +634,8 @@ mod tests {
         let request = crate::api::TipsJsonRequest {
             count: Some(1),
             topics: "rust".into(),
-            topic_class: Some("default".into()),
-            tipcard_type: Some("srs_tip".into()),
+
+            tipcard_type: Some("repeatable_tip".into()),
             exclude_card_ids: None,
             manual_content: None,
             manual_compressed_content: None,
@@ -682,8 +676,8 @@ mod tests {
             &state,
             crate::api::ForceDailyRefreshRequest {
                 topics: "rust".into(),
-                topic_class: Some("default".into()),
-                tipcard_type: Some("srs_tip".into()),
+
+                tipcard_type: Some("repeatable_tip".into()),
             },
         )
         .await
@@ -728,7 +722,7 @@ mod tests {
                     crate::api::pb::TipsQuery {
                         count: 1,
                         topics: "rust".into(),
-                        topic_class: "repeatable".into(),
+
                         tipcard_type: "repeatable_tip".into(),
                         exclude_card_ids: vec![],
                         manual_content: "".into(),
@@ -808,7 +802,7 @@ mod tests {
                     crate::api::pb::TipsQuery {
                         count: 1,
                         topics: "rust".into(),
-                        topic_class: "repeatable".into(),
+
                         tipcard_type: "repeatable_tip".into(),
                         exclude_card_ids: vec![],
                         manual_content: "".into(),
@@ -907,7 +901,7 @@ mod tests {
                     crate::api::pb::TipsQuery {
                         count: 1,
                         topics: "rust".into(),
-                        topic_class: "".into(),
+
                         tipcard_type: "".into(),
                         exclude_card_ids: vec![],
                         manual_content: "".into(),
@@ -932,7 +926,7 @@ mod tests {
                     crate::api::pb::TipsQuery {
                         count: 1,
                         topics: "rust".into(),
-                        topic_class: "".into(),
+
                         tipcard_type: "".into(),
                         exclude_card_ids: vec![],
                         manual_content: "".into(),
@@ -958,7 +952,7 @@ mod tests {
         let tips_query = crate::api::pb::TipsQuery {
             count: 1,
             topics: "rust".into(),
-            topic_class: "".into(),
+
             tipcard_type: "".into(),
             exclude_card_ids: vec![],
             manual_content: "".into(),
@@ -1055,7 +1049,7 @@ mod tests {
         let tips_query = crate::api::pb::TipsQuery {
             count: 3,
             topics: "rust, python, go".into(),
-            topic_class: "".into(),
+
             tipcard_type: "".into(),
             exclude_card_ids: vec![],
             manual_content: "".into(),
@@ -1093,7 +1087,6 @@ mod tests {
         let tips_query = crate::api::pb::TipsQuery {
             count: 1,
             topics: "spanish".into(),
-            topic_class: "re:word".into(),
             tipcard_type: "repeatable_tip".into(),
             exclude_card_ids: vec![],
             manual_content: "".into(),
@@ -1115,7 +1108,6 @@ mod tests {
             other => panic!("unexpected response: {:?}", other),
         };
         assert_eq!(first_resp.tips.len(), 1);
-        assert_eq!(first_resp.tips[0].topic_class, "re:word");
         assert_eq!(first_resp.tips[0].tipcard_type, "repeatable_tip");
         let first_id = first_resp.tips[0].id;
 
@@ -1163,16 +1155,9 @@ mod tests {
         let db = setup_db().await;
         let state = make_state(db, settings_path);
 
-        let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
-            .bind("repeatable")
-            .bind("repeatable_tip")
-            .execute(&state.db)
-            .await
-            .unwrap()
-            .last_insert_rowid();
-        let topic_id = sqlx::query("INSERT INTO topics (name, class_id) VALUES (?, ?)")
+        let topic_id = sqlx::query("INSERT INTO topics (name, tipcard_type) VALUES (?, ?)")
             .bind("spanish")
-            .bind(class_id)
+            .bind("repeatable_tip")
             .execute(&state.db)
             .await
             .unwrap()
@@ -1214,7 +1199,7 @@ mod tests {
             crate::api::TipsJsonRequest {
                 count: Some(1),
                 topics: "spanish".into(),
-                topic_class: Some("repeatable".into()),
+
                 tipcard_type: Some("repeatable_tip".into()),
                 exclude_card_ids: Some(visible_ids.clone()),
                 manual_content: None,
@@ -1241,16 +1226,9 @@ mod tests {
         let db = setup_db().await;
         let state = make_state(db, settings_path);
 
-        let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
-            .bind("repeatable")
-            .bind("repeatable_tip")
-            .execute(&state.db)
-            .await
-            .unwrap()
-            .last_insert_rowid();
-        let topic_id = sqlx::query("INSERT INTO topics (name, class_id) VALUES (?, ?)")
+        let topic_id = sqlx::query("INSERT INTO topics (name, tipcard_type) VALUES (?, ?)")
             .bind("spanish")
-            .bind(class_id)
+            .bind("repeatable_tip")
             .execute(&state.db)
             .await
             .unwrap()
@@ -1287,7 +1265,7 @@ mod tests {
             crate::api::TipsJsonRequest {
                 count: Some(1),
                 topics: "spanish".into(),
-                topic_class: Some("repeatable".into()),
+
                 tipcard_type: Some("repeatable_tip".into()),
                 exclude_card_ids: None,
                 manual_content: None,
@@ -1315,16 +1293,9 @@ mod tests {
         let db = setup_db().await;
         let state = make_state(db, settings_path);
 
-        let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
-            .bind("repeatable")
-            .bind("repeatable_tip")
-            .execute(&state.db)
-            .await
-            .unwrap()
-            .last_insert_rowid();
-        let topic_id = sqlx::query("INSERT INTO topics (name, class_id) VALUES (?, ?)")
+        let topic_id = sqlx::query("INSERT INTO topics (name, tipcard_type) VALUES (?, ?)")
             .bind("spanish")
-            .bind(class_id)
+            .bind("repeatable_tip")
             .execute(&state.db)
             .await
             .unwrap()
@@ -1357,7 +1328,7 @@ mod tests {
             crate::api::TipsJsonRequest {
                 count: Some(1),
                 topics: "spanish".into(),
-                topic_class: Some("repeatable".into()),
+
                 tipcard_type: Some("repeatable_tip".into()),
                 exclude_card_ids: None,
                 manual_content: None,
@@ -1375,7 +1346,7 @@ mod tests {
             crate::api::TipsJsonRequest {
                 count: Some(1),
                 topics: "manual".into(),
-                topic_class: Some("manual".into()),
+
                 tipcard_type: Some("manual_tip".into()),
                 exclude_card_ids: None,
                 manual_content: Some("new manual".into()),
@@ -1401,16 +1372,9 @@ mod tests {
         let db = setup_db().await;
         let state = make_state(db, settings_path);
 
-        let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
-            .bind("repeatable")
-            .bind("repeatable_tip")
-            .execute(&state.db)
-            .await
-            .unwrap()
-            .last_insert_rowid();
-        let topic_id = sqlx::query("INSERT INTO topics (name, class_id) VALUES (?, ?)")
+        let topic_id = sqlx::query("INSERT INTO topics (name, tipcard_type) VALUES (?, ?)")
             .bind("spanish")
-            .bind(class_id)
+            .bind("repeatable_tip")
             .execute(&state.db)
             .await
             .unwrap()
@@ -1454,8 +1418,8 @@ mod tests {
         let state_json: serde_json::Value = serde_json::from_str(&state_data).unwrap();
         assert_eq!(status, "active");
         assert_eq!(state_json["repeats"], 1);
-        assert_eq!(state_json["srs_state"]["repetitions"], 0);
-        assert_eq!(state_json["srs_state"]["interval"], 1);
+        assert_eq!(state_json["scheduling_state"]["repetitions"], 0);
+        assert_eq!(state_json["scheduling_state"]["interval"], 1);
         assert!(next_review_at > before);
     }
 
@@ -1468,16 +1432,9 @@ mod tests {
         let db = setup_db().await;
         let state = make_state(db, settings_path);
 
-        let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
-            .bind("casual")
-            .bind("casual_tip")
-            .execute(&state.db)
-            .await
-            .unwrap()
-            .last_insert_rowid();
-        let topic_id = sqlx::query("INSERT INTO topics (name, class_id) VALUES (?, ?)")
+        let topic_id = sqlx::query("INSERT INTO topics (name, tipcard_type) VALUES (?, ?)")
             .bind("rust")
-            .bind(class_id)
+            .bind("casual_tip")
             .execute(&state.db)
             .await
             .unwrap()
@@ -1520,8 +1477,8 @@ mod tests {
             .unwrap();
         let state_json: serde_json::Value = serde_json::from_str(&state_data).unwrap();
         assert_eq!(status, "active");
-        assert_eq!(state_json["srs_state"]["repetitions"], 1);
-        assert_eq!(state_json["srs_state"]["interval"], 1);
+        assert_eq!(state_json["scheduling_state"]["repetitions"], 1);
+        assert_eq!(state_json["scheduling_state"]["interval"], 1);
         assert!(next_review_at > before);
     }
 
@@ -1534,16 +1491,9 @@ mod tests {
         let db = setup_db().await;
         let state = make_state(db, settings_path);
 
-        let class_id = sqlx::query("INSERT INTO topic_classes (name, tipcard_type) VALUES (?, ?)")
-            .bind("repeatable")
-            .bind("repeatable_tip")
-            .execute(&state.db)
-            .await
-            .unwrap()
-            .last_insert_rowid();
-        let topic_id = sqlx::query("INSERT INTO topics (name, class_id) VALUES (?, ?)")
+        let topic_id = sqlx::query("INSERT INTO topics (name, tipcard_type) VALUES (?, ?)")
             .bind("spanish")
-            .bind(class_id)
+            .bind("repeatable_tip")
             .execute(&state.db)
             .await
             .unwrap()
@@ -1585,7 +1535,7 @@ mod tests {
             crate::api::TipsJsonRequest {
                 count: Some(1),
                 topics: "spanish".into(),
-                topic_class: Some("repeatable".into()),
+
                 tipcard_type: Some("repeatable_tip".into()),
                 exclude_card_ids: None,
                 manual_content: None,
@@ -1608,7 +1558,7 @@ mod tests {
         let tips_query = crate::api::pb::TipsQuery {
             count: 1,
             topics: "rust".into(),
-            topic_class: "casual".into(),
+
             tipcard_type: "casual_tip".into(),
             exclude_card_ids: vec![],
             manual_content: "".into(),
@@ -1630,7 +1580,6 @@ mod tests {
             other => panic!("unexpected response: {:?}", other),
         };
         assert_eq!(first_resp.tips.len(), 1);
-        assert_eq!(first_resp.tips[0].topic_class, "casual");
         assert_eq!(first_resp.tips[0].tipcard_type, "casual_tip");
         let first_id = first_resp.tips[0].id;
 
@@ -1712,7 +1661,6 @@ mod tests {
         let tips_query = crate::api::pb::TipsQuery {
             count: 1,
             topics: "rust".into(),
-            topic_class: "manual".into(),
             tipcard_type: "manual_tip".into(),
             exclude_card_ids: vec![],
             manual_content: "Borrow checker: one mutable borrow or many immutable borrows.".into(),
@@ -1734,7 +1682,6 @@ mod tests {
             other => panic!("unexpected response: {:?}", other),
         };
         assert_eq!(tips_resp.tips.len(), 1);
-        assert_eq!(tips_resp.tips[0].topic_class, "manual");
         assert_eq!(tips_resp.tips[0].tipcard_type, "manual_tip");
         assert_eq!(
             tips_resp.tips[0].full_content,
@@ -1774,7 +1721,7 @@ mod tests {
             crate::api::TipsJsonRequest {
                 count: Some(1),
                 topics: "rust".into(),
-                topic_class: Some("manual".into()),
+
                 tipcard_type: Some("manual_tip".into()),
                 exclude_card_ids: None,
                 manual_content: Some("Manual card with image".into()),
@@ -1843,7 +1790,6 @@ mod tests {
         assert_eq!(tips_resp.tips.len(), 1);
         let card = &tips_resp.tips[0];
         assert_eq!(card.topic, "email summary");
-        assert_eq!(card.topic_class, "custom");
         assert_eq!(card.tipcard_type, "custom_tip");
         assert_eq!(card.compressed_content, "Digest 09:00");
 
@@ -1856,7 +1802,6 @@ mod tests {
                     crate::api::pb::TipsQuery {
                         count: 1,
                         topics: "email summary".into(),
-                        topic_class: "custom".into(),
                         tipcard_type: "custom_tip".into(),
                         exclude_card_ids: vec![],
                         manual_content: "".into(),

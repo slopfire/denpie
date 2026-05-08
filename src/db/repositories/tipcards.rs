@@ -4,7 +4,6 @@ use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use crate::{
     domain::review::RepeatableState,
     error::{AppError, AppResult},
-    srs::{Algorithm, SrsState},
 };
 
 #[derive(Clone, Debug)]
@@ -26,7 +25,6 @@ pub struct TipcardInfoRecord {
     pub image_data: String,
     pub created_at: String,
     pub tipcard_type: String,
-    pub topic_class: String,
     pub status: String,
     pub next_review_at: String,
     pub state_data: String,
@@ -38,7 +36,6 @@ pub struct TipcardFilter {
     pub q: Option<String>,
     pub status: Option<String>,
     pub topic: Option<String>,
-    pub topic_class: Option<String>,
     pub tipcard_type: Option<String>,
 }
 
@@ -102,7 +99,6 @@ pub async fn list_admin(pool: &SqlitePool) -> AppResult<Vec<TipcardInfoRecord>> 
             String,
             String,
             String,
-            String,
             i64,
         ),
     >(
@@ -111,15 +107,13 @@ pub async fn list_admin(pool: &SqlitePool) -> AppResult<Vec<TipcardInfoRecord>> 
                 t.full_content,
                 t.compressed_content,
                 COALESCE(CAST(t.created_at AS TEXT), '') AS created_at,
-                t.tipcard_type,
-                COALESCE(tc.name, 'default') AS topic_class,
-                COALESCE(r.status, CASE WHEN t.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) AS status,
+                top.tipcard_type,
+                COALESCE(r.status, CASE WHEN top.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) AS status,
                 COALESCE(CAST(r.next_review_at AS TEXT), '') AS next_review_at,
                 COALESCE(r.state_data, '') AS state_data,
                 COALESCE(t.pinned, 0) AS pinned
          FROM tipcards t
          JOIN topics top ON t.topic_id = top.id
-         LEFT JOIN topic_classes tc ON top.class_id = tc.id
          LEFT JOIN review_states r ON r.card_id = t.id
          ORDER BY pinned DESC, t.created_at DESC",
     )
@@ -137,11 +131,10 @@ pub async fn list_admin(pool: &SqlitePool) -> AppResult<Vec<TipcardInfoRecord>> 
             image_data: "[]".to_string(),
             created_at: row.4,
             tipcard_type: row.5,
-            topic_class: row.6,
-            status: row.7,
-            next_review_at: row.8,
-            state_data: row.9,
-            pinned: row.10 != 0,
+            status: row.6,
+            next_review_at: row.7,
+            state_data: row.8,
+            pinned: row.9 != 0,
         })
         .collect())
 }
@@ -158,15 +151,13 @@ pub async fn list_filtered(
                 t.compressed_content,
                 COALESCE(t.image_data, '[]') AS image_data,
                 COALESCE(CAST(t.created_at AS TEXT), '') AS created_at,
-                t.tipcard_type,
-                COALESCE(tc.name, 'default') AS topic_class,
-                COALESCE(r.status, CASE WHEN t.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) AS status,
+                top.tipcard_type,
+                COALESCE(r.status, CASE WHEN top.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) AS status,
                 COALESCE(CAST(r.next_review_at AS TEXT), '') AS next_review_at,
                 COALESCE(r.state_data, '') AS state_data,
                 COALESCE(t.pinned, 0) AS pinned
          FROM tipcards t
          JOIN topics top ON t.topic_id = top.id
-         LEFT JOIN topic_classes tc ON top.class_id = tc.id
          LEFT JOIN review_states r ON r.card_id = t.id",
     );
 
@@ -193,7 +184,7 @@ pub async fn list_filtered(
     {
         push_where(&mut builder, &mut has_where);
         builder
-            .push("COALESCE(r.status, CASE WHEN t.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) = ")
+            .push("COALESCE(r.status, CASE WHEN top.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) = ")
             .push_bind(status);
     }
     if let Some(topic) = filter
@@ -205,17 +196,6 @@ pub async fn list_filtered(
         push_where(&mut builder, &mut has_where);
         builder.push("top.name = ").push_bind(topic);
     }
-    if let Some(topic_class) = filter
-        .topic_class
-        .as_deref()
-        .map(str::trim)
-        .filter(|topic_class| !topic_class.is_empty() && *topic_class != "all")
-    {
-        push_where(&mut builder, &mut has_where);
-        builder
-            .push("COALESCE(tc.name, 'default') = ")
-            .push_bind(topic_class);
-    }
     if let Some(tipcard_type) = filter
         .tipcard_type
         .as_deref()
@@ -223,14 +203,13 @@ pub async fn list_filtered(
         .filter(|tipcard_type| !tipcard_type.is_empty() && *tipcard_type != "all")
     {
         push_where(&mut builder, &mut has_where);
-        builder.push("t.tipcard_type = ").push_bind(tipcard_type);
+        builder.push("top.tipcard_type = ").push_bind(tipcard_type);
     }
     builder.push(" ORDER BY pinned DESC, t.created_at DESC LIMIT 500");
 
     let rows = builder
         .build_query_as::<(
             i64,
-            String,
             String,
             String,
             String,
@@ -257,11 +236,10 @@ pub async fn list_filtered(
             image_data: row.5,
             created_at: row.6,
             tipcard_type: row.7,
-            topic_class: row.8,
-            status: row.9,
-            next_review_at: row.10,
-            state_data: row.11,
-            pinned: row.12 != 0,
+            status: row.8,
+            next_review_at: row.9,
+            state_data: row.10,
+            pinned: row.11 != 0,
         })
         .collect())
 }
@@ -368,15 +346,9 @@ pub async fn create_generated(
     .await?
     .last_insert_rowid();
 
-    let (state_json, algo) = if crate::domain::tipcard::is_queue_tipcard(tipcard_type) {
-        (serde_json::to_string(&RepeatableState::default())?, "sm2")
-    } else {
-        let init_state = SrsState::default();
-        let algo = match init_state.algorithm {
-            Algorithm::SM2 => "sm2",
-        };
-        (serde_json::to_string(&init_state)?, algo)
-    };
+    let state = RepeatableState::default();
+    let algo = state.scheduling_state.algorithm.storage_name();
+    let state_json = serde_json::to_string(&state)?;
 
     create_review_state(pool, card_id, algo, state_json, Utc::now()).await?;
     Ok(card_id)
@@ -407,7 +379,10 @@ pub async fn create_manual(
     create_review_state(
         pool,
         card_id,
-        "manual",
+        RepeatableState::default()
+            .scheduling_state
+            .algorithm
+            .storage_name(),
         serde_json::to_string(&RepeatableState::default())?,
         Utc::now(),
     )
