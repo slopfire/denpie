@@ -72,6 +72,8 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
         "DATETIME DEFAULT CURRENT_TIMESTAMP",
     )
     .await?;
+    ensure_column(pool, "users", "display_name", "TEXT").await?;
+    ensure_column(pool, "users", "avatar_data", "TEXT").await?;
     ensure_column(pool, "api_keys", "user_id", "TEXT").await?;
     ensure_column(pool, "topics", "class_id", "INTEGER").await?;
     ensure_column(pool, "topics", "user_id", "TEXT").await?;

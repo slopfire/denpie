@@ -196,8 +196,7 @@ pub async fn setup(
     let user_id = new_user_id();
     let role = if users::count(&state.db)
         .await
-        .map_err(|err| err.into_status_body())?
-        == 0
+        .map_err(|err| err.into_status_body())? == 0
     {
         "admin"
     } else {

@@ -30,7 +30,7 @@ mod tests {
         )
         .bind(TEST_USER_ID)
         .bind("admin")
-        .bind("")
+        .bind("$argon2id$v=19$m=65536,t=3,p=4$vYeSOJhiAbCZq6BNzhy5QA$GZ91eZlkhpmtBYSas36hb50QqbHOL5FofnhBDFBklHM")
         .bind("admin")
         .execute(&pool)
         .await
@@ -67,7 +67,12 @@ mod tests {
         let base_url = format!("http://{}", addr);
 
         tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap();
         });
 
         let client = reqwest::Client::builder()
@@ -85,11 +90,29 @@ mod tests {
             .send()
             .await
             .unwrap();
-        assert!(
-            setup.status().is_success() || setup.status() == reqwest::StatusCode::CONFLICT,
-            "setup status {}",
-            setup.status()
-        );
+
+        if setup.status() == reqwest::StatusCode::CONFLICT {
+            let login = client
+                .post(format!("{base_url}/auth/login"))
+                .json(&serde_json::json!({
+                    "username": "admin",
+                    "password": "test_password_123"
+                }))
+                .send()
+                .await
+                .unwrap();
+            assert!(
+                login.status().is_success(),
+                "login status after conflict {}",
+                login.status()
+            );
+        } else {
+            assert!(
+                setup.status().is_success(),
+                "setup status {}",
+                setup.status()
+            );
+        }
 
         (base_url, client)
     }
@@ -101,6 +124,14 @@ mod tests {
 
     fn make_state(db: SqlitePool, settings_path: PathBuf) -> AppState {
         let settings_store = crate::config::SettingsStore::new(settings_path.clone());
+        let rp_id = "localhost";
+        let rp_origin = url::Url::parse("http://localhost:3017").unwrap();
+        let webauthn = Arc::new(
+            webauthn_rs::WebauthnBuilder::new(rp_id, &rp_origin)
+                .unwrap()
+                .build()
+                .unwrap(),
+        );
         AppState {
             api_keys: crate::services::api_keys::ApiKeyService::new(db.clone()),
             settings: crate::services::settings::SettingsService::new(settings_store),
@@ -108,6 +139,7 @@ mod tests {
             db,
             settings_path,
             template_dir: PathBuf::from("templates"),
+            webauthn,
         }
     }
 
@@ -1997,5 +2029,43 @@ mod tests {
             }
             other => panic!("unexpected response: {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn test_update_me_profile() {
+        let (url, client) = spawn_test_server().await;
+
+        let avatar = "data:image/png;base64,iVBORw0KGgo=".to_string();
+        let update = client
+            .patch(format!("{url}/auth/me"))
+            .json(&serde_json::json!({
+                "display_name": "New Name",
+                "avatar_data": avatar
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(update.status(), reqwest::StatusCode::OK);
+
+        let me = client.get(format!("{url}/auth/me")).send().await.unwrap();
+        assert_eq!(me.status(), reqwest::StatusCode::OK);
+        let user: serde_json::Value = me.json().await.unwrap();
+        assert_eq!(user["display_name"], "New Name");
+        assert_eq!(user["avatar_data"], avatar);
+    }
+
+    #[tokio::test]
+    async fn test_update_me_invalid_avatar() {
+        let (url, client) = spawn_test_server().await;
+
+        let update = client
+            .patch(format!("{url}/auth/me"))
+            .json(&serde_json::json!({
+                "avatar_data": "not a data uri"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(update.status(), reqwest::StatusCode::BAD_REQUEST);
     }
 }

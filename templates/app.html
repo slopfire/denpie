@@ -2091,12 +2091,44 @@
                                 </div>
                                 <div>
                                     <label class="block card-kicker mb-2"
-                                        >Avatar Data (Data URI)</label
+                                        >Avatar</label
                                     >
+                                    <div class="flex items-center gap-4">
+                                        <div
+                                            id="profile-avatar-preview"
+                                            class="h-16 w-16 shrink-0 rounded-full bg-primary-solid flex items-center justify-center text-xl font-semibold overflow-hidden"
+                                        >
+                                            ?
+                                        </div>
+                                        <div class="flex-1 space-y-2">
+                                            <label
+                                                class="inline-flex items-center gap-2 rounded-md border border-token px-3 py-2 text-sm font-medium cursor-pointer hover:bg-[var(--surface-muted)]"
+                                            >
+                                                <iconify-icon
+                                                    icon="radix-icons:image"
+                                                    class="radix-icon"
+                                                    aria-hidden="true"
+                                                ></iconify-icon>
+                                                <span>Choose Image</span>
+                                                <input
+                                                    id="profile-avatar-input"
+                                                    type="file"
+                                                    accept="image/*"
+                                                    class="hidden"
+                                                />
+                                            </label>
+                                            <button
+                                                id="profile-avatar-remove"
+                                                type="button"
+                                                class="block text-xs text-red-500 hover:underline"
+                                            >
+                                                Remove avatar
+                                            </button>
+                                        </div>
+                                    </div>
                                     <input
                                         id="profile-avatar-data"
-                                        class="w-full rounded-md border px-3 py-2"
-                                        placeholder="data:image/..."
+                                        type="hidden"
                                     />
                                 </div>
                             </div>
@@ -3198,7 +3230,24 @@
                 $("profile-display-name").value = user.display_name || "";
                 $("profile-avatar-data").value = user.avatar_data || "";
                 $("profile-password").value = "";
+                renderAvatarPreview(user.avatar_data);
                 renderPasskeys();
+            }
+
+            function renderAvatarPreview(dataUri) {
+                const preview = $("profile-avatar-preview");
+                if (dataUri) {
+                    preview.innerHTML = `<img src="${dataUri}" class="h-full w-full object-cover" />`;
+                    preview.classList.remove("bg-primary-solid");
+                } else {
+                    const name =
+                        $("profile-display-name").value ||
+                        state.user?.username ||
+                        "?";
+                    preview.textContent =
+                        name.trim().charAt(0).toUpperCase() || "?";
+                    preview.classList.add("bg-primary-solid");
+                }
             }
 
             async function renderPasskeys() {
@@ -5265,6 +5314,30 @@
                     } catch (err) {
                         toast(err.message);
                     }
+                });
+
+                $("profile-avatar-input").addEventListener(
+                    "change",
+                    async (event) => {
+                        const file = event.target.files[0];
+                        if (!file) return;
+                        if (file.size > 2 * 1024 * 1024) {
+                            toast("Image too large (max 2MB)");
+                            return;
+                        }
+                        try {
+                            const dataUri = await readFileAsDataUrl(file);
+                            $("profile-avatar-data").value = dataUri;
+                            renderAvatarPreview(dataUri);
+                        } catch (err) {
+                            toast("Failed to read image");
+                        }
+                    },
+                );
+
+                $("profile-avatar-remove").addEventListener("click", () => {
+                    $("profile-avatar-data").value = "";
+                    renderAvatarPreview("");
                 });
 
                 $("password-form").addEventListener("submit", async (event) => {
