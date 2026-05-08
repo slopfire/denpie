@@ -99,6 +99,15 @@ pub async fn update_me(
 ) -> Result<Json<AuthUser>, (StatusCode, String)> {
     let auth_user = current_user(&state, &session).await?;
 
+    if let Some(avatar) = &req.avatar_data {
+        if !avatar.starts_with("data:image/") {
+            return Err((StatusCode::BAD_REQUEST, "Avatar must be an image data URI".to_string()));
+        }
+        if avatar.len() > 2 * 1024 * 1024 {
+            return Err((StatusCode::PAYLOAD_TOO_LARGE, "Avatar data too large (max 2MB)".to_string()));
+        }
+    }
+
     let password_hash = if let Some(pwd) = &req.password {
         if pwd.len() < 8 {
             return Err((StatusCode::BAD_REQUEST, "Password too short".to_string()));

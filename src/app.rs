@@ -4,6 +4,7 @@ use axum::{
 };
 use sqlx::SqlitePool;
 use std::{path::PathBuf, sync::Arc};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::services::ServeDir;
 use tower_sessions::SessionManagerLayer;
 use webauthn_rs::Webauthn;
@@ -28,7 +29,16 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("static"));
 
-    Router::new()
+    let governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(2)
+            .burst_size(10)
+            .finish()
+            .unwrap(),
+    );
+
+    // Keep the protected routes the same
+    let protected_routes = Router::new()
         .route(
             "/admin/settings",
             get(dashboard::get_settings).post(dashboard::update_settings),
@@ -66,15 +76,22 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .route("/auth/passkeys/:id", delete(auth::delete_passkey))
         .route("/auth/passkeys/register/start", post(auth::register_start))
         .route("/auth/passkeys/register/finish", post(auth::register_finish))
-        .route_layer(axum::middleware::from_fn(auth::require_session))
+        .route_layer(axum::middleware::from_fn(auth::require_session));
+
+    let auth_routes = Router::new()
+        .route("/me", get(auth::me).patch(auth::update_me).delete(auth::delete_me))
+        .route("/login", post(auth::login))
+        .route("/passkeys/login/start", post(auth::login_passkey_start))
+        .route("/passkeys/login/finish", post(auth::login_passkey_finish))
+        .route("/logout", post(auth::logout))
+        .route("/setup", post(auth::setup))
+        .layer(GovernorLayer { config: governor_conf.clone() });
+
+    Router::new()
+        .merge(protected_routes)
+        .nest("/auth", auth_routes)
         .nest_service("/static", ServeDir::new(static_dir))
         .route("/", get(dashboard::app_index))
-        .route("/auth/me", get(auth::me).patch(auth::update_me).delete(auth::delete_me))
-        .route("/auth/login", post(auth::login))
-        .route("/auth/passkeys/login/start", post(auth::login_passkey_start))
-        .route("/auth/passkeys/login/finish", post(auth::login_passkey_finish))
-        .route("/auth/logout", post(auth::logout))
-        .route("/auth/setup", post(auth::setup))
         .route("/api", post(api::unified_api))
         .layer(session_layer)
         .with_state(shared_state)

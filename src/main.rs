@@ -102,8 +102,10 @@ async fn main() {
         webauthn,
     });
     autoupdate::spawn(shared_state.settings_path.clone());
+    let is_prod = std::env::var("DENPIE_PROD").is_ok();
     let session_layer = SessionManagerLayer::new(session_store)
-        .with_secure(false) // Set to true in prod with HTTPS
+        .with_secure(is_prod)
+        .with_same_site(tower_sessions::cookie::SameSite::Strict)
         .with_expiry(Expiry::OnInactivity(time::Duration::days(1)));
 
     let app = app::build_app(shared_state, session_layer);
@@ -114,5 +116,5 @@ async fn main() {
         .unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 3017)));
     println!("listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
 }
