@@ -83,7 +83,10 @@ async fn main() {
         std::env::var("DENPIE_RP_ORIGIN").unwrap_or_else(|_| "http://localhost:3017".to_string());
     let rp_origin = url::Url::parse(&rp_origin_str).expect("Invalid DENPIE_RP_ORIGIN");
     let webauthn_builder = webauthn_rs::WebauthnBuilder::new(&rp_id, &rp_origin)
-        .expect("Invalid webauthn configuration");
+        .expect("Invalid webauthn configuration")
+        .append_allowed_origin(&url::Url::parse("https://denpie.com").unwrap())
+        .append_allowed_origin(&url::Url::parse("https://www.denpie.com").unwrap());
+    
     let webauthn = Arc::new(
         webauthn_builder
             .build()
