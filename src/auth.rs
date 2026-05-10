@@ -335,7 +335,7 @@ pub async fn login_passkey_start(
 ) -> Result<Json<RequestChallengeResponse>, (StatusCode, String)> {
     let (rcr, auth_state) = state
         .webauthn
-        .start_passkey_authentication(&[])
+        .start_discoverable_authentication()
         .map_err(|err: WebauthnError| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
     session
@@ -351,30 +351,30 @@ pub async fn login_passkey_finish(
     session: Session,
     Json(auth): Json<PublicKeyCredential>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let auth_state: PasskeyAuthentication =
+    let auth_state: DiscoverableAuthentication =
         session.get("auth_state").await.unwrap_or(None).ok_or((
             StatusCode::BAD_REQUEST,
             "Missing authentication state".to_string(),
         ))?;
     session
-        .remove::<PasskeyAuthentication>("auth_state")
+        .remove::<DiscoverableAuthentication>("auth_state")
         .await
         .ok();
-
-    let _auth_result = state
-        .webauthn
-        .finish_passkey_authentication(&auth, &auth_state)
-        .map_err(|err: WebauthnError| (StatusCode::UNAUTHORIZED, err.to_string()))?;
 
     // Find user by credential ID instead of UUID for now, as it's easier to map
     let cred_id =
         base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &auth.id)
             .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid ID".to_string()))?;
 
-    let (user_id, _) = passkeys::find_by_id(&state.db, &cred_id)
+    let (user_id, passkey) = passkeys::find_by_id(&state.db, &cred_id)
         .await
         .map_err(|err| err.into_status_body())?
         .ok_or((StatusCode::UNAUTHORIZED, "Passkey not found".to_string()))?;
+
+    let _auth_result = state
+        .webauthn
+        .finish_discoverable_authentication(&auth, auth_state, &[passkey.into()])
+        .map_err(|err: WebauthnError| (StatusCode::UNAUTHORIZED, err.to_string()))?;
 
     session
         .insert("user_id", user_id)

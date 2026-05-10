@@ -3329,6 +3329,11 @@
                         );
                     }
 
+                    // Enforce resident key (discoverable credential) for passwordless login
+                    challenge.publicKey.authenticatorSelection = challenge.publicKey.authenticatorSelection || {};
+                    challenge.publicKey.authenticatorSelection.residentKey = "required";
+                    challenge.publicKey.authenticatorSelection.requireResidentKey = true;
+
                     const credential = await navigator.credentials.create({
                         publicKey: challenge.publicKey,
                     });
