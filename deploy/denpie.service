@@ -9,6 +9,9 @@ User=denpie
 Group=denpie
 WorkingDirectory=/var/lib/denpie
 Environment=DENPIE_BIND_ADDR=127.0.0.1:3017
+Environment=DENPIE_RP_ID=denpie.com
+Environment=DENPIE_RP_ORIGIN=https://denpie.com
+Environment=DENPIE_PROD=true
 Environment=DENPIE_DATA_DIR=/var/lib/denpie
 Environment=DENPIE_SCHEMA_PATH=/usr/local/share/denpie/schema.sql
 Environment=DENPIE_TEMPLATE_DIR=/usr/local/share/denpie/templates

@@ -5,6 +5,8 @@ APP_NAME="denpie"
 SERVICE_USER="${SERVICE_USER:-denpie}"
 SERVICE_GROUP="${SERVICE_GROUP:-$SERVICE_USER}"
 BIND_ADDR="${BIND_ADDR:-127.0.0.1:3017}"
+RP_ID="${RP_ID:-denpie.com}"
+RP_ORIGIN="${RP_ORIGIN:-https://denpie.com}"
 BIN_DIR="${BIN_DIR:-/usr/local/bin}"
 SHARE_DIR="${SHARE_DIR:-/usr/local/share/$APP_NAME}"
 DATA_DIR="${DATA_DIR:-/var/lib/$APP_NAME}"
@@ -19,6 +21,8 @@ Usage: ./install.sh [install|uninstall|print-service]
 
 Environment overrides:
   BIND_ADDR       listen address for systemd service (default: 127.0.0.1:3017)
+  RP_ID           WebAuthn relying party ID for passkeys (default: denpie.com)
+  RP_ORIGIN       WebAuthn relying party origin for passkeys (default: https://denpie.com)
   BIN_DIR         binary install directory (default: /usr/local/bin)
   SHARE_DIR       schema install directory (default: /usr/local/share/denpie)
   DATA_DIR        runtime data directory (default: /var/lib/denpie)
@@ -100,6 +104,8 @@ write_service() {
         -e "s|^Group=.*|Group=$SERVICE_GROUP|" \
         -e "s|^WorkingDirectory=.*|WorkingDirectory=$DATA_DIR|" \
         -e "s|^Environment=DENPIE_BIND_ADDR=.*|Environment=DENPIE_BIND_ADDR=$BIND_ADDR|" \
+        -e "s|^Environment=DENPIE_RP_ID=.*|Environment=DENPIE_RP_ID=$RP_ID|" \
+        -e "s|^Environment=DENPIE_RP_ORIGIN=.*|Environment=DENPIE_RP_ORIGIN=$RP_ORIGIN|" \
         -e "s|^Environment=DENPIE_DATA_DIR=.*|Environment=DENPIE_DATA_DIR=$DATA_DIR|" \
         -e "s|^Environment=DENPIE_SCHEMA_PATH=.*|Environment=DENPIE_SCHEMA_PATH=$SHARE_DIR/schema.sql|" \
         -e "s|^Environment=DENPIE_TEMPLATE_DIR=.*|Environment=DENPIE_TEMPLATE_DIR=$SHARE_DIR/templates|" \
@@ -191,6 +197,7 @@ install_app() {
     echo "Installed $APP_NAME"
     echo "URL: http://$BIND_ADDR/"
     echo "API: http://$BIND_ADDR/api"
+    echo "Passkey origin: $RP_ORIGIN"
     echo "Logs: journalctl -u $APP_NAME -f"
     echo "Data: $DATA_DIR"
 }
@@ -215,7 +222,11 @@ case "$ACTION" in
         uninstall_app
         ;;
     print-service)
-        sed "s|127.0.0.1:3017|$BIND_ADDR|g" deploy/denpie.service
+        sed \
+            -e "s|127.0.0.1:3017|$BIND_ADDR|g" \
+            -e "s|^Environment=DENPIE_RP_ID=.*|Environment=DENPIE_RP_ID=$RP_ID|" \
+            -e "s|^Environment=DENPIE_RP_ORIGIN=.*|Environment=DENPIE_RP_ORIGIN=$RP_ORIGIN|" \
+            deploy/denpie.service
         ;;
     -h|--help|help)
         usage

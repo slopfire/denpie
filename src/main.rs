@@ -78,15 +78,20 @@ async fn main() {
     let api_key_service = services::api_keys::ApiKeyService::new(pool.clone());
     let review_service = services::review::ReviewService::new(pool.clone());
 
-    let rp_id = std::env::var("DENPIE_RP_ID").unwrap_or_else(|_| "localhost".to_string());
     let rp_origin_str =
         std::env::var("DENPIE_RP_ORIGIN").unwrap_or_else(|_| "http://localhost:3017".to_string());
     let rp_origin = url::Url::parse(&rp_origin_str).expect("Invalid DENPIE_RP_ORIGIN");
+    let rp_id = std::env::var("DENPIE_RP_ID").unwrap_or_else(|_| {
+        rp_origin
+            .host_str()
+            .expect("DENPIE_RP_ORIGIN must include a host")
+            .to_string()
+    });
     let webauthn_builder = webauthn_rs::WebauthnBuilder::new(&rp_id, &rp_origin)
         .expect("Invalid webauthn configuration")
         .append_allowed_origin(&url::Url::parse("https://denpie.com").unwrap())
         .append_allowed_origin(&url::Url::parse("https://www.denpie.com").unwrap());
-    
+
     let webauthn = Arc::new(
         webauthn_builder
             .build()

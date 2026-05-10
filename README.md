@@ -167,6 +167,8 @@ The server can run from the project directory with defaults, or from an installe
 | Variable | Description | Default |
 |---|---|---|
 | `DENPIE_BIND_ADDR` | Listen address and port | `127.0.0.1:3017` |
+| `DENPIE_RP_ID` | WebAuthn relying party ID for passkeys. Must be the public site host or a registrable parent domain of it. | host from `DENPIE_RP_ORIGIN` |
+| `DENPIE_RP_ORIGIN` | Public HTTPS origin used for passkey registration and login. | `http://localhost:3017` |
 | `DENPIE_DATA_DIR` | Directory for `settings.yaml` and `denpie.db` | current directory |
 | `DENPIE_SCHEMA_PATH` | Path to `schema.sql` | `schema.sql` in the current directory |
 | `DENPIE_TEMPLATE_DIR` | Directory containing `app.html` | `templates` in the current directory |
@@ -176,6 +178,8 @@ Example:
 
 ```bash
 DENPIE_BIND_ADDR=127.0.0.1:3017 \
+DENPIE_RP_ID=denpie.com \
+DENPIE_RP_ORIGIN=https://denpie.com \
 DENPIE_DATA_DIR=/var/lib/denpie \
 DENPIE_SCHEMA_PATH=/usr/local/share/denpie/schema.sql \
 DENPIE_TEMPLATE_DIR=/usr/local/share/denpie/templates \
@@ -211,6 +215,12 @@ Set a different loopback port during install when needed:
 
 ```bash
 BIND_ADDR=127.0.0.1:3010 ./install.sh
+```
+
+Set a different public passkey domain during install when needed:
+
+```bash
+RP_ID=example.com RP_ORIGIN=https://example.com ./install.sh
 ```
 
 The generated admin token is printed in the service logs on first startup:
