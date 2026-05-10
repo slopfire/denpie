@@ -680,7 +680,7 @@ mod tests {
                 }
                 other => panic!("unexpected response: {:?}", other),
             };
-        assert_eq!(refreshed_cards, 0);
+        assert_eq!(refreshed_cards, 1);
 
         let second_response = post_api(
             &url,
@@ -820,13 +820,13 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(forced.refreshed_cards, 0);
+        assert_eq!(forced.refreshed_cards, 1);
 
         let after_force = crate::api::build_tips(&state, TEST_USER_ID, request.clone())
             .await
             .unwrap();
         assert_eq!(after_force.len(), 1);
-        assert_eq!(after_force[0].id, first_id);
+        assert_ne!(after_force[0].id, first_id);
 
         let fresh = crate::api::build_tips(
             &state,
@@ -840,6 +840,43 @@ mod tests {
         .unwrap();
         assert_eq!(fresh.len(), 1);
         assert_ne!(fresh[0].id, first_id);
+        assert_eq!(fresh[0].id, after_force[0].id);
+        let card_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tipcards")
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+        assert_eq!(card_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_server_daily_refresh_runs_once_per_window() {
+        let settings_path = unique_settings_path();
+        fs::write(&settings_path, "{}").await.unwrap();
+        let db = setup_db().await;
+        let state = Arc::new(make_state(db, settings_path));
+
+        crate::api::build_tips(
+            &state,
+            TEST_USER_ID,
+            crate::api::TipsJsonRequest {
+                count: Some(1),
+                topics: "rust".into(),
+                tipcard_type: Some("repeatable_tip".into()),
+                exclude_card_ids: None,
+                manual_content: None,
+                manual_compressed_content: None,
+                manual_image_data: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let first_refresh = crate::api::refresh_due_daily_topics(&state).await.unwrap();
+        assert_eq!(first_refresh, 1);
+
+        let second_refresh = crate::api::refresh_due_daily_topics(&state).await.unwrap();
+        assert_eq!(second_refresh, 0);
+
         let card_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tipcards")
             .fetch_one(&state.db)
             .await

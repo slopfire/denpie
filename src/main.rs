@@ -13,6 +13,7 @@ mod auth;
 mod autoupdate;
 mod config;
 mod context;
+mod daily_refresh;
 mod dashboard;
 mod db;
 mod domain;
@@ -110,6 +111,7 @@ async fn main() {
         webauthn,
     });
     autoupdate::spawn(shared_state.settings_path.clone());
+    daily_refresh::spawn(shared_state.clone());
     let is_prod = std::env::var("DENPIE_PROD").is_ok();
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(is_prod)
@@ -124,5 +126,10 @@ async fn main() {
         .unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 3017)));
     println!("listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }

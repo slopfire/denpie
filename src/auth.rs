@@ -101,10 +101,16 @@ pub async fn update_me(
 
     if let Some(avatar) = &req.avatar_data {
         if !avatar.starts_with("data:image/") {
-            return Err((StatusCode::BAD_REQUEST, "Avatar must be an image data URI".to_string()));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Avatar must be an image data URI".to_string(),
+            ));
         }
         if avatar.len() > 2 * 1024 * 1024 {
-            return Err((StatusCode::PAYLOAD_TOO_LARGE, "Avatar data too large (max 2MB)".to_string()));
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Avatar data too large (max 2MB)".to_string(),
+            ));
         }
     }
 
@@ -196,7 +202,8 @@ pub async fn setup(
     let user_id = new_user_id();
     let role = if users::count(&state.db)
         .await
-        .map_err(|err| err.into_status_body())? == 0
+        .map_err(|err| err.into_status_body())?
+        == 0
     {
         "admin"
     } else {
@@ -301,12 +308,14 @@ pub async fn register_finish(
     Json(reg): Json<RegisterPublicKeyCredential>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let user = current_user(&state, &session).await?;
-    let reg_state: PasskeyRegistration = session
-        .get("reg_state")
+    let reg_state: PasskeyRegistration = session.get("reg_state").await.unwrap_or(None).ok_or((
+        StatusCode::BAD_REQUEST,
+        "Missing registration state".to_string(),
+    ))?;
+    session
+        .remove::<PasskeyRegistration>("reg_state")
         .await
-        .unwrap_or(None)
-        .ok_or((StatusCode::BAD_REQUEST, "Missing registration state".to_string()))?;
-    session.remove::<PasskeyRegistration>("reg_state").await.ok();
+        .ok();
 
     let passkey = state
         .webauthn
@@ -342,12 +351,15 @@ pub async fn login_passkey_finish(
     session: Session,
     Json(auth): Json<PublicKeyCredential>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let auth_state: PasskeyAuthentication = session
-        .get("auth_state")
+    let auth_state: PasskeyAuthentication =
+        session.get("auth_state").await.unwrap_or(None).ok_or((
+            StatusCode::BAD_REQUEST,
+            "Missing authentication state".to_string(),
+        ))?;
+    session
+        .remove::<PasskeyAuthentication>("auth_state")
         .await
-        .unwrap_or(None)
-        .ok_or((StatusCode::BAD_REQUEST, "Missing authentication state".to_string()))?;
-    session.remove::<PasskeyAuthentication>("auth_state").await.ok();
+        .ok();
 
     let _auth_result = state
         .webauthn
@@ -355,11 +367,9 @@ pub async fn login_passkey_finish(
         .map_err(|err: WebauthnError| (StatusCode::UNAUTHORIZED, err.to_string()))?;
 
     // Find user by credential ID instead of UUID for now, as it's easier to map
-    let cred_id = base64::Engine::decode(
-        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-        &auth.id,
-    )
-    .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid ID".to_string()))?;
+    let cred_id =
+        base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &auth.id)
+            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid ID".to_string()))?;
 
     let (user_id, _) = passkeys::find_by_id(&state.db, &cred_id)
         .await

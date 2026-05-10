@@ -63,6 +63,21 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
     .execute(pool)
     .await?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS daily_refresh_runs (
+            user_id TEXT NOT NULL,
+            topic_id INTEGER NOT NULL,
+            tipcard_type TEXT NOT NULL,
+            window_start DATETIME NOT NULL,
+            refreshed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(user_id, topic_id, tipcard_type),
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(topic_id) REFERENCES topics(id)
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     ensure_column(pool, "users", "password_hash", "TEXT").await?;
     ensure_column(pool, "users", "role", "TEXT NOT NULL DEFAULT 'user'").await?;
     ensure_column(
@@ -139,6 +154,11 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
         .await?;
     sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_llm_token_usage_user_id ON llm_token_usage(user_id)",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_daily_refresh_runs_user_id ON daily_refresh_runs(user_id)",
     )
     .execute(pool)
     .await?;

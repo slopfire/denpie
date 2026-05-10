@@ -75,17 +75,25 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .route("/auth/passkeys", get(auth::list_passkeys))
         .route("/auth/passkeys/:id", delete(auth::delete_passkey))
         .route("/auth/passkeys/register/start", post(auth::register_start))
-        .route("/auth/passkeys/register/finish", post(auth::register_finish))
+        .route(
+            "/auth/passkeys/register/finish",
+            post(auth::register_finish),
+        )
         .route_layer(axum::middleware::from_fn(auth::require_session));
 
     let auth_routes = Router::new()
-        .route("/me", get(auth::me).patch(auth::update_me).delete(auth::delete_me))
+        .route(
+            "/me",
+            get(auth::me).patch(auth::update_me).delete(auth::delete_me),
+        )
         .route("/login", post(auth::login))
         .route("/passkeys/login/start", post(auth::login_passkey_start))
         .route("/passkeys/login/finish", post(auth::login_passkey_finish))
         .route("/logout", post(auth::logout))
         .route("/setup", post(auth::setup))
-        .layer(GovernorLayer { config: governor_conf.clone() });
+        .layer(GovernorLayer {
+            config: governor_conf.clone(),
+        });
 
     Router::new()
         .merge(protected_routes)

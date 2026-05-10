@@ -2,7 +2,7 @@ use axum::http::StatusCode;
 
 use crate::{
     context,
-    db::repositories::{tipcards, token_usage, topics, user_settings},
+    db::repositories::{daily_refresh, tipcards, token_usage, topics, user_settings, users},
     domain, llm, AppState,
 };
 
@@ -212,6 +212,72 @@ pub async fn force_daily_refresh(
     user_id: &str,
     req: ForceDailyRefreshRequest,
 ) -> ApiResult<ForceDailyRefreshResponse> {
+    let targets = force_refresh_targets(state, user_id, req).await?;
+    let refreshed_cards = generate_fresh_daily_cards(state, user_id, &targets).await?;
+    Ok(ForceDailyRefreshResponse { refreshed_cards })
+}
+
+pub async fn refresh_due_daily_topics(state: &AppState) -> ApiResult<u64> {
+    let user_ids = users::list_ids(&state.db)
+        .await
+        .map_err(|err| err.into_status_body())?;
+    let mut refreshed_cards = 0;
+
+    for user_id in user_ids {
+        let defaults = state
+            .settings
+            .get_settings()
+            .map_err(|err| err.into_status_body())?;
+        let settings = user_settings::get(&state.db, &user_id, defaults)
+            .await
+            .map_err(|err| err.into_status_body())?;
+        let targets = topics::list_generated_targets(&state.db, &user_id)
+            .await
+            .map_err(|err| err.into_status_body())?;
+
+        for (topic, tipcard_type) in targets {
+            let topic_info = TopicInfo::from(topic.clone());
+            let window_start = domain::scheduling::topic_daily_window_start(
+                &topic_info,
+                &settings.daily_time_zone,
+                &settings.daily_update_time,
+            );
+            let window_start_key = window_start
+                .naive_utc()
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string();
+            let last_window =
+                daily_refresh::last_window_start(&state.db, &user_id, topic.id, &tipcard_type)
+                    .await
+                    .map_err(|err| err.into_status_body())?;
+            if last_window.as_deref() == Some(window_start_key.as_str()) {
+                continue;
+            }
+
+            let refreshed =
+                generate_fresh_daily_cards(state, &user_id, &[(topic_info, topic.name.clone())])
+                    .await?;
+            daily_refresh::mark_window_refreshed(
+                &state.db,
+                &user_id,
+                topic.id,
+                &tipcard_type,
+                window_start,
+            )
+            .await
+            .map_err(|err| err.into_status_body())?;
+            refreshed_cards += refreshed;
+        }
+    }
+
+    Ok(refreshed_cards)
+}
+
+async fn force_refresh_targets(
+    state: &AppState,
+    user_id: &str,
+    req: ForceDailyRefreshRequest,
+) -> ApiResult<Vec<(TopicInfo, String)>> {
     let topic_names: Vec<String> = req
         .topics
         .split(',')
@@ -224,12 +290,15 @@ pub async fn force_daily_refresh(
         .unwrap_or_else(|| "repeatable_tip".to_string());
     let all_generated_topics = topic_names.is_empty() && requested_type.trim().is_empty();
 
-    let targets: Vec<(TopicInfo, String)> = if all_generated_topics {
+    let targets = if all_generated_topics {
         topics::list_generated_targets(&state.db, user_id)
             .await
             .map_err(|err| err.into_status_body())?
             .into_iter()
-            .map(|(topic, tipcard_type)| (topic.into(), tipcard_type))
+            .map(|(topic, _)| {
+                let name = topic.name.clone();
+                (topic.into(), name)
+            })
             .collect()
     } else {
         if !domain::tipcard::TipcardType::from_setting(&requested_type).is_generated() {
@@ -241,13 +310,62 @@ pub async fn force_daily_refresh(
         let mut targets = Vec::new();
         for topic_name in topic_names {
             let topic = get_or_create_topic(state, user_id, &topic_name, &requested_type).await?;
-            targets.push((topic.clone(), topic.tipcard_type.clone()));
+            targets.push((topic, topic_name));
         }
         targets
     };
+    Ok(targets)
+}
 
-    let _target_count = targets.len();
-    Ok(ForceDailyRefreshResponse { refreshed_cards: 0 })
+async fn generate_fresh_daily_cards(
+    state: &AppState,
+    user_id: &str,
+    targets: &[(TopicInfo, String)],
+) -> ApiResult<u64> {
+    if targets.is_empty() {
+        return Ok(0);
+    }
+
+    let defaults = state
+        .settings
+        .get_settings()
+        .map_err(|err| err.into_status_body())?;
+    let settings = user_settings::get(&state.db, user_id, defaults)
+        .await
+        .map_err(|err| err.into_status_body())?;
+    let llm_reasoning = llm::ReasoningConfig::new(settings.llm_reasoning_effort.clone());
+    let llm_compress_reasoning =
+        llm::ReasoningConfig::new(settings.llm_compress_reasoning_effort.clone());
+    let llm_compression_level =
+        llm::CompressionLevel::from_setting(&settings.llm_compression_level);
+    let mut active_room = active_card_room(state, user_id, settings.max_active_cards).await?;
+    let mut responses = Vec::new();
+
+    for (topic, topic_name) in targets {
+        if matches!(active_room, Some(0)) {
+            break;
+        }
+        generate_tipcard(
+            state,
+            user_id,
+            topic_name,
+            topic,
+            &settings.prompt_template,
+            &settings.llm_model,
+            &settings.llm_api_key,
+            &settings.llm_base_url,
+            &llm_reasoning,
+            &settings.llm_compress_model,
+            &settings.llm_compress_base_url,
+            llm_compression_level,
+            &llm_compress_reasoning,
+            &mut responses,
+        )
+        .await?;
+        decrement_room(&mut active_room);
+    }
+
+    Ok(responses.len() as u64)
 }
 
 pub(crate) async fn create_custom_tipcard(

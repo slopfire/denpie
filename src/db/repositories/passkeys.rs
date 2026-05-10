@@ -41,11 +41,16 @@ pub async fn delete(pool: &SqlitePool, user_id: &str, passkey_id: &[u8]) -> AppR
     Ok(())
 }
 
-pub async fn find_by_id(pool: &SqlitePool, passkey_id: &[u8]) -> AppResult<Option<(String, Passkey)>> {
-    let row = sqlx::query_as::<_, (String, String)>("SELECT user_id, passkey FROM passkeys WHERE passkey_id = ?")
-        .bind(passkey_id)
-        .fetch_optional(pool)
-        .await?;
+pub async fn find_by_id(
+    pool: &SqlitePool,
+    passkey_id: &[u8],
+) -> AppResult<Option<(String, Passkey)>> {
+    let row = sqlx::query_as::<_, (String, String)>(
+        "SELECT user_id, passkey FROM passkeys WHERE passkey_id = ?",
+    )
+    .bind(passkey_id)
+    .fetch_optional(pool)
+    .await?;
 
     if let Some(row) = row {
         let passkey: Passkey = serde_json::from_str(&row.1)?;

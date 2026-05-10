@@ -4871,46 +4871,6 @@
                 }
             }
 
-            async function refreshDailyCasualCards() {
-                const today = new Date().toISOString().slice(0, 10);
-                const staleCasualCards = state.archiveCards.filter(
-                    (card) =>
-                        card.tipcard_type === "casual_tip" &&
-                        (card.status || "active") === "active" &&
-                        String(card.created_at || "").slice(0, 10) !== today,
-                );
-                if (!staleCasualCards.length) return;
-
-                state.refreshingFlow = true;
-                renderFlow();
-                try {
-                    for (const card of staleCasualCards) {
-                        await api("/app/review", {
-                            method: "POST",
-                            body: JSON.stringify({
-                                card_id: card.id,
-                                action: "dismiss",
-                                grade: 3,
-                            }),
-                        });
-                        const replacementCards =
-                            await pullReplacementCard(card);
-                        insertCardOrderAfter(
-                            card.id,
-                            replacementCards.map((item) => item.id),
-                        );
-                        removeCardLocal(card.id);
-                        mergeCardsIntoArchive(replacementCards);
-                        renderCardsAndSummary();
-                    }
-                    scheduleSoftRefresh();
-                    toast("Casual cards refreshed");
-                } finally {
-                    state.refreshingFlow = false;
-                    renderFlow();
-                }
-            }
-
             async function forceDailyRefresh() {
                 const button = $("force-daily-refresh-btn");
                 button.disabled = true;
@@ -4918,67 +4878,12 @@
                 renderFlow();
                 try {
                     await saveSettings();
-                    const latestTopics = await api("/app/topics");
-                    const refreshTopics = latestTopics.filter(
-                        (topic) =>
-                            !["manual_tip", "custom_tip"].includes(
-                                topic.tipcard_type,
-                            ),
-                    );
-                    if (!refreshTopics.length) {
-                        toast("No generated topics to refresh");
-                        return;
-                    }
-                    state.topics = latestTopics;
-                    const excludeIdsForTopic = (topic) =>
-                        state.archiveCards
-                            .filter((card) => {
-                                const cardTopic = String(
-                                    card.topic_name || card.topic || "",
-                                ).toLowerCase();
-                                return (
-                                    cardTopic ===
-                                        String(topic.name).toLowerCase() &&
-                                    card.tipcard_type === topic.tipcard_type
-                                );
-                            })
-                            .map((card) => Number(card.id))
-                            .filter(Boolean);
-                    const requests = refreshTopics.map((topic) =>
-                        api("/app/tips", {
-                            method: "POST",
-                            body: JSON.stringify({
-                                topics: topic.name,
-
-                                tipcard_type: topic.tipcard_type,
-                                count: 1,
-                                exclude_card_ids: excludeIdsForTopic(topic),
-                            }),
-                        }),
-                    );
-                    const results = await Promise.allSettled(requests);
-                    results
-                        .filter((result) => result.status === "fulfilled")
-                        .forEach((result) =>
-                            mergeCardsIntoArchive(result.value),
-                        );
-                    const loadedCount = results.reduce(
-                        (sum, result) =>
-                            sum +
-                            (result.status === "fulfilled"
-                                ? result.value.length
-                                : 0),
-                        0,
-                    );
+                    const result = await api("/app/daily-refresh", {
+                        method: "POST",
+                        body: JSON.stringify({ topics: "", tipcard_type: "" }),
+                    });
                     await refreshAll();
-                    const failedCount = results.filter(
-                        (result) => result.status === "rejected",
-                    ).length;
-                    toast(
-                        failedCount
-                            ? `${loadedCount} fresh card(s), ${failedCount} topic(s) failed`
-                            : `${loadedCount} fresh card(s) loaded`,
-                    );
+                    toast(`${result.refreshed_cards || 0} fresh card(s) loaded`);
                 } finally {
                     button.disabled = false;
                     state.refreshingFlow = false;
@@ -5128,7 +5033,6 @@
                 });
                 $("account-refresh-btn").addEventListener("click", () =>
                     refreshAll()
-                        .then(refreshDailyCasualCards)
                         .then(() => toast("Refreshed"))
                         .catch((err) => toast(err.message)),
                 );
@@ -5288,7 +5192,6 @@
                         await loadCurrentUser();
                         setAuthed(true);
                         await refreshAll();
-                        await refreshDailyCasualCards();
                     } catch (err) {
                         $("login-error").textContent = "Bad username or password.";
                     }
@@ -5307,7 +5210,6 @@
                         await loadCurrentUser();
                         setAuthed(true);
                         await refreshAll();
-                        await refreshDailyCasualCards();
                     } catch (err) {
                         $("login-error").textContent = "Setup failed.";
                     }
@@ -5405,7 +5307,6 @@
                     await loadCurrentUser();
                     setAuthed(true);
                     await refreshAll();
-                    await refreshDailyCasualCards();
                 } catch (err) {
                     setAuthed(false);
                 }

@@ -13,7 +13,7 @@ mod types;
 
 pub use reviews::apply_review;
 pub use tipcards::{set_tipcard_images, set_tipcard_pinned};
-pub use tips::{build_tips, force_daily_refresh};
+pub use tips::{build_tips, force_daily_refresh, refresh_due_daily_topics};
 pub use topics::delete_topic_by_id;
 pub use transport::unified_api;
 pub use types::{

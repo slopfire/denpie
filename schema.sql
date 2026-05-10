@@ -90,6 +90,17 @@ CREATE TABLE IF NOT EXISTS user_settings (
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS daily_refresh_runs (
+    user_id TEXT NOT NULL,
+    topic_id INTEGER NOT NULL,
+    tipcard_type TEXT NOT NULL,
+    window_start DATETIME NOT NULL,
+    refreshed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(user_id, topic_id, tipcard_type),
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    FOREIGN KEY(topic_id) REFERENCES topics(id)
+);
+
 CREATE TABLE IF NOT EXISTS passkeys (
     passkey_id BLOB PRIMARY KEY,
     user_id TEXT NOT NULL,

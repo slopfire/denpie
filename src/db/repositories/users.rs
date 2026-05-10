@@ -18,6 +18,14 @@ pub async fn count(pool: &SqlitePool) -> AppResult<i64> {
         .await?)
 }
 
+pub async fn list_ids(pool: &SqlitePool) -> AppResult<Vec<String>> {
+    Ok(
+        sqlx::query_scalar::<_, String>("SELECT id FROM users ORDER BY created_at ASC")
+            .fetch_all(pool)
+            .await?,
+    )
+}
+
 pub async fn has_unowned_rows(pool: &SqlitePool) -> AppResult<bool> {
     let api_keys = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM api_keys WHERE user_id IS NULL OR user_id = ''",
@@ -109,7 +117,17 @@ pub async fn find_by_id(pool: &SqlitePool, id: &str) -> AppResult<UserRecord> {
 }
 
 pub async fn first_admin(pool: &SqlitePool) -> AppResult<Option<UserRecord>> {
-    let row = sqlx::query_as::<_, (String, String, Option<String>, String, Option<String>, Option<String>)>(
+    let row = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
         "SELECT id, username, password_hash, role, display_name, avatar_data
          FROM users
          WHERE role = 'admin'
@@ -203,10 +221,12 @@ pub async fn delete(pool: &SqlitePool, id: &str) -> AppResult<()> {
         .bind(id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("DELETE FROM review_states WHERE card_id IN (SELECT id FROM tipcards WHERE user_id = ?)")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "DELETE FROM review_states WHERE card_id IN (SELECT id FROM tipcards WHERE user_id = ?)",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM tipcards WHERE user_id = ?")
         .bind(id)
         .execute(&mut *tx)
