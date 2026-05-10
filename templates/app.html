@@ -723,9 +723,11 @@
                 border-radius: 8px;
             }
             .flow-card {
-                animation: card-enter 130ms cubic-bezier(0.2, 0, 0, 1);
                 transform-origin: top center;
                 will-change: transform;
+            }
+            .flow-card-enter {
+                animation: card-enter 130ms cubic-bezier(0.2, 0, 0, 1);
             }
             .card-drag-handle {
                 cursor: grab;
@@ -749,8 +751,6 @@
                 overflow: hidden;
             }
             .flow-card.is-fullscreen {
-                animation: fullscreen-card-enter 160ms
-                    cubic-bezier(0.2, 0, 0, 1);
                 background: hsl(var(--card));
                 backdrop-filter: none;
                 -webkit-backdrop-filter: none;
@@ -758,6 +758,10 @@
                 left: 0;
                 max-height: 100vh;
                 overflow-y: auto;
+            }
+            .fullscreen-card-enter {
+                animation: fullscreen-card-enter 160ms
+                    cubic-bezier(0.2, 0, 0, 1);
             }
             [data-transparency="full"] .flow-card.is-fullscreen {
                 background: hsl(var(--card) / var(--glass-card-alpha));
@@ -2289,6 +2293,7 @@
                 loadingSlots: [],
                 loadingSlotSeq: 0,
                 loadingCardIds: new Set(),
+                seenFlowCardIds: new Set(),
                 refreshingFlow: false,
                 cardOrder: JSON.parse(
                     localStorage.getItem("denpie-card-order") ||
@@ -2298,6 +2303,7 @@
                 draggingCardId: null,
                 expandedCardIds: new Set(),
                 fullscreenCardId: null,
+                renderedFullscreenCardId: null,
                 buildSha: "",
                 now: new Date(),
                 softRefreshTimer: null,
@@ -4077,9 +4083,15 @@
                     listMode,
                 );
                 $("flow-list-btn").classList.toggle("text-primary", listMode);
+                const currentRenderCardIds = new Set();
                 const renderFlowItem = (item) => {
                     if (item.type === "loading") return skeletonCard(listMode);
                     const card = item.card;
+                    const cardId = Number(card.id);
+                    const shouldAnimate =
+                        !state.seenFlowCardIds.has(cardId) &&
+                        state.fullscreenCardId !== cardId;
+                    currentRenderCardIds.add(cardId);
                     const typeLabel = cardBadgeLabel(card);
                     const lineClass =
                         card.tipcard_type === "casual_tip"
@@ -4101,6 +4113,9 @@
                         !hasCompact;
                     const fullscreen =
                         state.fullscreenCardId === Number(card.id);
+                    const shouldAnimateFullscreen =
+                        fullscreen &&
+                        state.renderedFullscreenCardId !== Number(card.id);
                     const displayedText =
                         expanded || fullscreen ? fullText : compactText;
                     const textHtml = renderCardTextHtml(
@@ -4113,10 +4128,10 @@
                     const shouldUseCompactCardHeight =
                         !listMode && !fullscreen && !expanded;
                     const articleClass = fullscreen
-                        ? "flow-card is-fullscreen surface border fixed top-0 right-0 bottom-0 z-[70] overflow-hidden flex flex-col"
+                        ? `flow-card is-fullscreen ${shouldAnimateFullscreen ? "fullscreen-card-enter" : ""} surface border fixed top-0 right-0 bottom-0 z-[70] overflow-hidden flex flex-col`
                         : listMode
-                          ? "flow-card flow-card-list surface border relative overflow-hidden flex flex-col lg:flex-row"
-                          : `flow-card surface border relative overflow-hidden ${shouldUseCompactCardHeight ? "min-h-[240px]" : ""} flex flex-col`;
+                          ? `flow-card ${shouldAnimate ? "flow-card-enter" : ""} flow-card-list surface border relative overflow-hidden flex flex-col lg:flex-row`
+                          : `flow-card ${shouldAnimate ? "flow-card-enter" : ""} surface border relative overflow-hidden ${shouldUseCompactCardHeight ? "min-h-[240px]" : ""} flex flex-col`;
                     const contentClass = listMode
                         ? "text-base leading-7"
                         : "text-base leading-7 flex-1";
@@ -4152,6 +4167,10 @@
                 );
                 $("pinned-flow-grid").innerHTML = pinnedHtml.join("");
                 $("flow-grid").innerHTML = [...skeletons, ...cardHtml].join("");
+                currentRenderCardIds.forEach((id) =>
+                    state.seenFlowCardIds.add(id),
+                );
+                state.renderedFullscreenCardId = state.fullscreenCardId;
                 bindFlowDrag();
             }
 
@@ -5384,8 +5403,8 @@
                 });
                 try {
                     await loadCurrentUser();
-                    await refreshAll();
                     setAuthed(true);
+                    await refreshAll();
                     await refreshDailyCasualCards();
                 } catch (err) {
                     setAuthed(false);
