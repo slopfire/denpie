@@ -724,10 +724,13 @@
             }
             .flow-card {
                 transform-origin: top center;
-                will-change: transform;
+                content-visibility: auto;
+                contain-intrinsic-size: 1px 300px;
+                contain: layout style paint;
             }
             .flow-card-enter {
                 animation: card-enter 130ms cubic-bezier(0.2, 0, 0, 1);
+                will-change: transform, opacity;
             }
             .card-drag-handle {
                 cursor: grab;
@@ -2289,6 +2292,9 @@
                 keys: [],
                 currentView: "dashboard",
                 flowLayout: savedFlowLayout(),
+                flowPage: 1,
+                archivePage: 1,
+                cardsPerPage: 20,
                 authed: false,
                 loadingSlots: [],
                 loadingSlotSeq: 0,
@@ -2309,6 +2315,7 @@
                 softRefreshTimer: null,
                 user: null,
             };
+            window.flowCardCache = new Map();
             const themes = [
                 ["shadcn", "Shadcn Dark"],
                 ["shadcn-light", "Shadcn Light"],
@@ -2735,7 +2742,9 @@
                 return restoreTokens(renderBasic(text));
             }
 
+            const markdownCache = new Map();
             function renderMarkdown(value) {
+                if (markdownCache.has(value)) return markdownCache.get(value);
                 const lines = String(value ?? "")
                     .replace(/\r\n?/g, "\n")
                     .split("\n");
@@ -2834,7 +2843,9 @@
 
                 if (inCode) flushCode();
                 flushBlocks();
-                return html.join("");
+                const result = html.join("");
+                markdownCache.set(value, result);
+                return result;
             }
 
             function toast(message) {
@@ -3214,6 +3225,7 @@
 
             function setView(view) {
                 state.currentView = view;
+                clearOrderedCardsCache();
                 document
                     .querySelectorAll('[id^="view-"]')
                     .forEach((el) => el.classList.add("hidden-view"));
@@ -3476,11 +3488,13 @@
                     "denpie-card-order",
                     JSON.stringify(state.cardOrder),
                 );
+                clearOrderedCardsCache();
             }
 
             function setFlowLayout(layout) {
                 state.flowLayout = layout === "list" ? "list" : "grid";
                 localStorage.setItem("denpie-flow-layout", state.flowLayout);
+                clearOrderedCardsCache();
                 renderFlow();
             }
 
@@ -3517,11 +3531,18 @@
                 saveCardOrder();
             }
 
+            let orderedCardsCache = null;
+            function clearOrderedCardsCache() {
+                orderedCardsCache = null;
+                window.flowCardCache?.clear();
+            }
+
             function orderedCards() {
+                if (orderedCardsCache) return orderedCardsCache;
                 const order = new Map(
                     state.cardOrder.map((id, index) => [Number(id), index]),
                 );
-                return [...state.archiveCards].sort((a, b) => {
+                const result = [...state.archiveCards].sort((a, b) => {
                     if (Boolean(a.pinned) !== Boolean(b.pinned))
                         return a.pinned ? -1 : 1;
                     const aOrder = order.has(a.id)
@@ -3535,14 +3556,33 @@
                         String(a.created_at || ""),
                     );
                 });
+                orderedCardsCache = result;
+                return result;
             }
 
             function orderedFlowCards() {
-                return orderedCards().filter(
-                    (card) =>
-                        (card.status || "active") === "active" &&
-                        (card.pinned || isCardDue(card)),
-                );
+                const now = state.now.getTime();
+                return orderedCards().filter((card) => {
+                    if ((card.status || "active") !== "active") return false;
+                    if (card.pinned) return true;
+                    if (!card.__nextReviewTime) {
+                        const raw = String(card.next_review_at || "").trim();
+                        if (!raw) {
+                            card.__nextReviewTime = 0;
+                        } else {
+                            const isoish = raw.includes("T")
+                                ? raw
+                                : raw.replace(" ", "T");
+                            const normalized =
+                                /(?:Z|[+-]\d{2}:?\d{2})$/.test(isoish)
+                                    ? isoish
+                                    : `${isoish}Z`;
+                            card.__nextReviewTime =
+                                new Date(normalized).getTime() || 0;
+                        }
+                    }
+                    return card.__nextReviewTime <= now;
+                });
             }
 
             function searchableCardText(card) {
@@ -3990,7 +4030,7 @@
         <button onclick="copyCardText(${card.id})" data-copy-card-id="${card.id}" class="card-copy-btn border border-token p-2" title="Copy text">${radixIcon("clipboard-copy")}</button>`;
             }
 
-            function renderFlow() {
+            function renderFlow(appendOnly = false) {
                 const cards = orderedFlowCards();
                 const pinnedCards = cards.filter((card) =>
                     Boolean(card.pinned),
@@ -4093,6 +4133,18 @@
                     if (item.type === "loading") return skeletonCard(listMode);
                     const card = item.card;
                     const cardId = Number(card.id);
+                    const expanded =
+                        state.expandedCardIds.has(cardId) ||
+                        !String(card.compressed_content || "").trim() ||
+                        String(card.compressed_content || "").trim() ===
+                            String(card.full_content || "").trim();
+                    const fullscreen = state.fullscreenCardId === cardId;
+                    const cacheKey = `card-${cardId}-${expanded}-${fullscreen}-${listMode}-${state.seenFlowCardIds.has(cardId)}`;
+                    if (window.flowCardCache?.has(cacheKey)) {
+                        currentRenderCardIds.add(cardId);
+                        return window.flowCardCache.get(cacheKey);
+                    }
+
                     const shouldAnimate =
                         !state.seenFlowCardIds.has(cardId) &&
                         state.fullscreenCardId !== cardId;
@@ -4113,11 +4165,6 @@
                     ).trim();
                     const hasCompact =
                         compactText && compactText !== fullText.trim();
-                    const expanded =
-                        state.expandedCardIds.has(Number(card.id)) ||
-                        !hasCompact;
-                    const fullscreen =
-                        state.fullscreenCardId === Number(card.id);
                     const shouldAnimateFullscreen =
                         fullscreen &&
                         state.renderedFullscreenCardId !== Number(card.id);
@@ -4140,7 +4187,7 @@
                     const contentClass = listMode
                         ? "text-base leading-7"
                         : "text-base leading-7 flex-1";
-                    return `<article class="${articleClass}" data-card-id="${card.id}">
+                    const result = `<article class="${articleClass}" data-card-id="${card.id}">
           <div class="absolute top-0 left-0 w-1 h-full ${lineClass}"></div>
           <div class="p-4 flex flex-col flex-1">
             <div class="flex justify-between items-start gap-3 border-b border-token pb-3 mb-4">
@@ -4161,17 +4208,53 @@
             <div class="mt-5 pt-4 border-t border-token flex gap-2">${cardActions(card)}${cardContentControls(card)}</div>
           </div>
         </article>`;
+                    if (!window.flowCardCache) window.flowCardCache = new Map();
+                    window.flowCardCache.set(cacheKey, result);
+                    return result;
                 };
-                const pinnedHtml = pinnedCards.map((card) =>
-                    renderFlowItem({ type: "card", card }),
-                );
-                const cardHtml = flowItems.map(renderFlowItem);
-                const skeletons = Array.from(
-                    { length: state.refreshingFlow ? 1 : 0 },
-                    () => skeletonCard(listMode),
-                );
-                $("pinned-flow-grid").innerHTML = pinnedHtml.join("");
-                $("flow-grid").innerHTML = [...skeletons, ...cardHtml].join("");
+
+                if (!appendOnly) {
+                    const pinnedHtml = pinnedCards.map((card) =>
+                        renderFlowItem({ type: "card", card }),
+                    );
+                    $("pinned-flow-grid").innerHTML = pinnedHtml.join("");
+                }
+
+                const start = appendOnly
+                    ? (state.flowPage - 1) * state.cardsPerPage
+                    : 0;
+                const end = state.flowPage * state.cardsPerPage;
+                const visibleItems = flowItems.slice(start, end);
+                const cardHtml = visibleItems.map(renderFlowItem).join("");
+                const hasMore = flowItems.length > end;
+
+                const loadMoreHtml = hasMore
+                    ? `<div class="load-more-container col-span-full flex justify-center py-8">
+          <button onclick="state.flowPage++; renderFlow(true)" class="rounded-md border border-token px-6 py-2 font-medium hover:bg-surface-muted transition-colors">
+            Load More Cards
+          </button>
+        </div>`
+                    : "";
+
+                if (appendOnly) {
+                    const grid = $("flow-grid");
+                    const existingLoadMore = grid.querySelector(
+                        ".load-more-container",
+                    );
+                    if (existingLoadMore) existingLoadMore.remove();
+                    grid.insertAdjacentHTML(
+                        "beforeend",
+                        cardHtml + loadMoreHtml,
+                    );
+                } else {
+                    const skeletons = Array.from(
+                        { length: state.refreshingFlow ? 1 : 0 },
+                        () => skeletonCard(listMode),
+                    );
+                    $("flow-grid").innerHTML =
+                        [...skeletons].join("") + cardHtml + loadMoreHtml;
+                }
+
                 currentRenderCardIds.forEach((id) =>
                     state.seenFlowCardIds.add(id),
                 );
@@ -4416,7 +4499,7 @@
                     `<div class="surface border p-4 text-muted">No keys yet.</div>`;
             }
 
-            function renderArchive() {
+            function renderArchive(appendOnly = false) {
                 const cards = archiveFilteredCards();
                 const total = state.archiveCards.length;
                 const queryActive =
@@ -4425,10 +4508,24 @@
                 $("archive-count").textContent = queryActive
                     ? `${cards.length} of ${total} cards`
                     : `${total} cards`;
-                $("archive-list").innerHTML =
-                    cards
-                        .map(
-                            (card) => `<article class="surface border p-4">
+
+                const start = appendOnly
+                    ? (state.archivePage - 1) * state.cardsPerPage
+                    : 0;
+                const end = state.archivePage * state.cardsPerPage;
+                const visibleCards = cards.slice(start, end);
+                const hasMore = cards.length > end;
+                const loadMoreHtml = hasMore
+                    ? `<div class="load-more-container col-span-full flex justify-center py-8">
+          <button onclick="state.archivePage++; renderArchive(true)" class="rounded-md border border-token px-6 py-2 font-medium hover:bg-surface-muted transition-colors">
+            Load More Archive
+          </button>
+        </div>`
+                    : "";
+
+                const cardHtml = visibleCards
+                    .map(
+                        (card) => `<article class="surface border p-4">
         <div class="flex justify-between gap-3 mb-3">
           <div>
             <div class="font-semibold">${escapeHtml(card.title || card.topic_name || card.topic)}</div>
@@ -4447,9 +4544,25 @@
           <p>Next rewind: ${escapeHtml(formatNextRewind(card))}</p>
         </div>
       </article>`,
-                        )
-                        .join("") ||
-                    `<div class="surface border p-4 text-muted">${queryActive ? "No matching cards." : "No cards yet."}</div>`;
+                    )
+                    .join("");
+
+                if (appendOnly) {
+                    const grid = $("archive-list");
+                    const existingLoadMore = grid.querySelector(
+                        ".load-more-container",
+                    );
+                    if (existingLoadMore) existingLoadMore.remove();
+                    grid.insertAdjacentHTML(
+                        "beforeend",
+                        cardHtml + loadMoreHtml,
+                    );
+                } else {
+                    $("archive-list").innerHTML =
+                        cardHtml +
+                        loadMoreHtml ||
+                        `<div class="surface border p-4 text-muted">${queryActive ? "No matching cards." : "No cards yet."}</div>`;
+                }
             }
 
             async function refreshAll() {
@@ -4469,6 +4582,7 @@
                 state.keys = keys;
                 state.buildSha = settings.build_sha || "";
                 state.now = new Date();
+                clearOrderedCardsCache();
                 syncCardOrder();
                 renderStats();
                 renderTokenSpend();
@@ -4992,6 +5106,49 @@
                 $("flow-list-btn").addEventListener("click", () => {
                     setFlowLayout("list");
                 });
+
+                let scrollTimeout;
+                window.addEventListener("scroll", () => {
+                    if (scrollTimeout) return;
+                    scrollTimeout = setTimeout(() => {
+                        scrollTimeout = null;
+                        const threshold = 1200;
+                        const scrollPos = window.innerHeight + window.scrollY;
+                        const bodyHeight = document.body.offsetHeight;
+                        if (bodyHeight - scrollPos < threshold) {
+                            if (state.currentView === "flow") {
+                                const cards = orderedFlowCards();
+                                if (
+                                    state.flowPage * state.cardsPerPage <
+                                    cards.length + 50
+                                ) {
+                                    const oldPage = state.flowPage;
+                                    state.flowPage = Math.max(
+                                        state.flowPage,
+                                        Math.ceil(scrollPos / 1000) + 1,
+                                    );
+                                    if (state.flowPage > oldPage)
+                                        renderFlow(true);
+                                }
+                            } else if (state.currentView === "archive") {
+                                const cards = archiveFilteredCards();
+                                if (
+                                    state.archivePage * state.cardsPerPage <
+                                    cards.length + 50
+                                ) {
+                                    const oldPage = state.archivePage;
+                                    state.archivePage = Math.max(
+                                        state.archivePage,
+                                        Math.ceil(scrollPos / 1000) + 1,
+                                    );
+                                    if (state.archivePage > oldPage)
+                                        renderArchive(true);
+                                }
+                            }
+                        }
+                    }, 80);
+                });
+
                 $("tips-topics").addEventListener("keydown", (event) => {
                     const shouldFocusManualContent =
                         $("tips-type").value === "manual_tip" &&
