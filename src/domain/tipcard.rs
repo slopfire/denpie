@@ -39,6 +39,7 @@ impl TipcardType {
     }
 }
 
+// todo huuuuh
 pub fn normalize_tipcard_type(value: &str, class_name: &str) -> String {
     match value.trim() {
         "casual" | "casual_tip" => "casual_tip".to_string(),
