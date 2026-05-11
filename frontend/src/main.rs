@@ -2,6 +2,8 @@
 mod components;
 mod app;
 mod state;
+mod passkeys;
+mod markdown;
 
 use app::App;
 

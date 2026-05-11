@@ -83,7 +83,7 @@ pub fn sidebar(props: &SidebarProps) -> Html {
                     <iconify-icon icon="radix-icons:chevron-up" class="radix-icon shrink-0" aria-hidden="true"></iconify-icon>
                 </button>
                 <div id="account-menu" class={classes!("absolute", "bottom-12", "left-0", "right-0", "z-50", "surface", "border", "rounded-md", "p-1", "shadow-lg", (!*menu_open).then_some("hidden"))}>
-                    <button id="account-settings-btn" onclick={on_nav(View::Settings, props.on_navigate.clone())} type="button" class="w-full rounded px-3 py-2 text-sm text-left hover:bg-[var(--surface-muted)] flex items-center gap-2">
+                    <button id="account-settings-btn" onclick={on_nav(View::AccountSettings, props.on_navigate.clone())} type="button" class="w-full rounded px-3 py-2 text-sm text-left hover:bg-[var(--surface-muted)] flex items-center gap-2">
                         <iconify-icon icon="radix-icons:person" class="radix-icon" aria-hidden="true"></iconify-icon>
                         <span>{"Account Settings"}</span>
                     </button>

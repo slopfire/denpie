@@ -8,6 +8,7 @@ use crate::components::login::LoginPanel;
 use crate::components::settings::Settings;
 use crate::components::sidebar::Sidebar;
 use crate::components::unified_flow::UnifiedFlow;
+use crate::components::account::AccountSettings;
 
 #[derive(Clone, PartialEq, Default)]
 pub enum View {
@@ -17,6 +18,7 @@ pub enum View {
     Settings,
     Keys,
     Archive,
+    AccountSettings,
 }
 
 #[function_component(App)]
@@ -60,6 +62,7 @@ pub fn app() -> Html {
                                 View::Flow => html! { <UnifiedFlow /> },
                                 View::Settings => html! { <Settings /> },
                                 View::Keys => html! { <ApiKeys /> },
+                                View::AccountSettings => html! { <AccountSettings /> },
                                 View::Archive => html! { <div class="p-10 text-center text-muted">{"Archive View (Coming Soon)"}</div> },
                             }
                         }
