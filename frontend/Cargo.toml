@@ -12,3 +12,4 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 web-sys = { version = "0.3", features = ["HtmlInputElement", "HtmlSelectElement", "Window", "Document", "Element", "EventTarget", "Storage", "FileList", "File", "HtmlTextAreaElement"] }
 wasm-bindgen-futures = "0.4"
+gloo-timers = "0.4.0"

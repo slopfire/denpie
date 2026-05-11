@@ -1,5 +1,7 @@
-use yew::prelude::*;
 use crate::app::View;
+use crate::state::{AppAction, AppState};
+use gloo_net::http::Request;
+use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct SidebarProps {
@@ -9,6 +11,7 @@ pub struct SidebarProps {
 
 #[function_component(Sidebar)]
 pub fn sidebar(props: &SidebarProps) -> Html {
+    let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
     let menu_open = use_state(|| false);
 
     let on_nav = |view: View, cb: Callback<View>| {
@@ -18,6 +21,33 @@ pub fn sidebar(props: &SidebarProps) -> Html {
     let toggle_menu = {
         let menu_open = menu_open.clone();
         Callback::from(move |_| menu_open.set(!*menu_open))
+    };
+
+    let logout = {
+        let app_state = app_state.clone();
+        Callback::from(move |_| {
+            let app_state = app_state.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                if Request::post("/auth/logout").send().await.is_ok() {
+                    app_state.dispatch(AppAction::SetAuthed(false));
+                    app_state.dispatch(AppAction::SetUser(None));
+                    app_state.dispatch(AppAction::ShowToast("Logged out".to_string()));
+                    let state_clone = app_state.clone();
+                    gloo_timers::callback::Timeout::new(2400, move || {
+                        state_clone.dispatch(AppAction::HideToast);
+                    }).forget();
+                }
+            });
+        })
+    };
+
+    let user = app_state.user.clone();
+    let username = user.as_ref().map(|u| u.display_name.clone().unwrap_or(u.username.clone())).unwrap_or_else(|| "Account".to_string());
+    let role = user.as_ref().map(|u| u.role.clone()).unwrap_or_else(|| "User".to_string());
+    let avatar_content = if let Some(Some(avatar)) = user.as_ref().map(|u| u.avatar_data.clone()) {
+        html! { <img src={avatar} class="h-full w-full rounded-full object-cover" /> }
+    } else {
+        html! { {username.chars().next().unwrap_or('?').to_uppercase().to_string()} }
     };
 
     html! {
@@ -45,15 +75,15 @@ pub fn sidebar(props: &SidebarProps) -> Html {
             
             <div class="relative">
                 <button id="account-menu-btn" onclick={toggle_menu} class="w-full rounded-md border border-token p-2 hover:opacity-90 flex items-center gap-2 text-left" title="Account">
-                    <span id="account-avatar" class="h-8 w-8 shrink-0 rounded-full bg-primary-solid flex items-center justify-center text-sm font-semibold">{"?"}</span>
+                    <span id="account-avatar" class={classes!("h-8", "w-8", "shrink-0", "rounded-full", "flex", "items-center", "justify-center", "text-sm", "font-semibold", (user.as_ref().map(|u| u.avatar_data.is_none()).unwrap_or(true)).then_some("bg-primary-solid"))}>{avatar_content}</span>
                     <span class="min-w-0 flex-1">
-                        <span id="account-name" class="block truncate text-sm font-semibold">{"Account"}</span>
-                        <span id="account-role" class="block truncate text-xs text-muted">{"User"}</span>
+                        <span id="account-name" class="block truncate text-sm font-semibold">{username}</span>
+                        <span id="account-role" class="block truncate text-xs text-muted">{role}</span>
                     </span>
                     <iconify-icon icon="radix-icons:chevron-up" class="radix-icon shrink-0" aria-hidden="true"></iconify-icon>
                 </button>
                 <div id="account-menu" class={classes!("absolute", "bottom-12", "left-0", "right-0", "z-50", "surface", "border", "rounded-md", "p-1", "shadow-lg", (!*menu_open).then_some("hidden"))}>
-                    <button id="account-settings-btn" type="button" class="w-full rounded px-3 py-2 text-sm text-left hover:bg-[var(--surface-muted)] flex items-center gap-2">
+                    <button id="account-settings-btn" onclick={on_nav(View::Settings, props.on_navigate.clone())} type="button" class="w-full rounded px-3 py-2 text-sm text-left hover:bg-[var(--surface-muted)] flex items-center gap-2">
                         <iconify-icon icon="radix-icons:person" class="radix-icon" aria-hidden="true"></iconify-icon>
                         <span>{"Account Settings"}</span>
                     </button>
@@ -61,7 +91,7 @@ pub fn sidebar(props: &SidebarProps) -> Html {
                         <iconify-icon icon="radix-icons:reload" class="radix-icon" aria-hidden="true"></iconify-icon>
                         <span>{"Refresh"}</span>
                     </button>
-                    <button id="logout-btn" type="button" class="w-full rounded px-3 py-2 text-sm text-left hover:bg-[var(--surface-muted)] flex items-center gap-2">
+                    <button id="logout-btn" onclick={logout} type="button" class="w-full rounded px-3 py-2 text-sm text-left hover:bg-[var(--surface-muted)] flex items-center gap-2">
                         <iconify-icon icon="radix-icons:exit" class="radix-icon" aria-hidden="true"></iconify-icon>
                         <span>{"Logout"}</span>
                     </button>
