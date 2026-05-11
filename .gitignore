@@ -14,3 +14,7 @@ settings.yaml
 .sqlx/
 __pycache__/
 denpie_pb2.py
+
+# Frontend
+frontend/dist/
+frontend/.trunk/

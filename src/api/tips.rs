@@ -182,7 +182,7 @@ pub async fn build_tips(
                 .await?;
                 decrement_room(&mut active_room);
             }
-        } else if active_room.map_or(true, |room| room > 0) {
+        } else if active_room.is_none_or(|room| room > 0) {
             generate_tipcard(
                 state,
                 user_id,

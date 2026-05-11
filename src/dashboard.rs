@@ -6,21 +6,13 @@ use crate::{
 use axum::{
     extract::{Query, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Response},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_sessions::Session;
-
-pub async fn app_index(State(state): State<Arc<AppState>>) -> Response {
-    match fs::read_to_string(state.template_dir.join("app.html")) {
-        Ok(html) => Html(html).into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Client template missing").into_response(),
-    }
-}
 
 #[derive(Serialize)]
 pub struct SettingsRes {
@@ -186,7 +178,7 @@ pub async fn update_settings(
             || patch.autoupdate_command.is_some())
     {
         let _ = state.settings.update_settings(config::SettingsPatch {
-            autoupdate_enabled: patch.autoupdate_enabled.clone(),
+            autoupdate_enabled: patch.autoupdate_enabled,
             autoupdate_repo: patch.autoupdate_repo.clone(),
             autoupdate_branch: patch.autoupdate_branch.clone(),
             autoupdate_check_interval_secs: patch.autoupdate_check_interval_secs,

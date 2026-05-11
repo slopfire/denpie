@@ -28,6 +28,9 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
     let static_dir = std::env::var_os("DENPIE_STATIC_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("static"));
+    let frontend_dist = std::env::var_os("DENPIE_FRONTEND_DIST")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("frontend/dist"));
 
     let governor_conf = Arc::new(
         GovernorConfigBuilder::default()
@@ -39,6 +42,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
 
     // Keep the protected routes the same
     let protected_routes = Router::new()
+
         .route(
             "/admin/settings",
             get(dashboard::get_settings).post(dashboard::update_settings),
@@ -95,12 +99,15 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
             config: governor_conf.clone(),
         });
 
+    let frontend_serve = ServeDir::new(frontend_dist.clone())
+        .fallback(tower_http::services::ServeFile::new(frontend_dist.join("index.html")));
+
     Router::new()
         .merge(protected_routes)
         .nest("/auth", auth_routes)
         .nest_service("/static", ServeDir::new(static_dir))
-        .route("/", get(dashboard::app_index))
         .route("/api", post(api::unified_api))
+        .fallback_service(frontend_serve)
         .layer(session_layer)
         .with_state(shared_state)
 }
