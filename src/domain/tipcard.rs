@@ -8,6 +8,7 @@ pub enum TipcardType {
     Custom,
 }
 
+// todo huh
 impl TipcardType {
     pub fn from_setting(value: &str) -> Self {
         match value.trim() {
