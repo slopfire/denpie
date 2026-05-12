@@ -18,11 +18,11 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Any OpenAI-Compatible LLM**: Configure each user's API key, base URL, and model through the protobuf API or browser dashboard — no hardcoded vendor lock-in.
 - **Token Spend Counters**: The browser dashboard tracks OpenAI-compatible `usage.total_tokens` for the current user's daily, monthly, and lifetime LLM calls.
 - **Unified Protobuf API**: `POST /api` manages tips, reviews, settings, keys, topics, topic deletion, card pinning, cards, and summary counts. The API key owner determines the data scope.
-- **Root Control Page**: `/` serves a shadcn-inspired browser control panel with direct Radix icons that talks to the same protobuf API, with readable shadcn dark destructive controls, compact mobile stats, stable per-card loading skeletons, compact/full card text controls, searchable archive filters, a remembered grid/column flow layout switch, readable-width list expansion, title-row fullscreen card viewing, and touch-friendly card reordering with edge auto-scroll.
+- **Root Control Page**: `/` serves a shadcn-inspired browser control panel with direct Radix icons that talks to the same protobuf API, with readable shadcn dark destructive controls, compact mobile stats, stable per-card loading skeletons, compact/full card text controls, searchable archive filters, a remembered grid/column flow layout switch, readable-width list expansion, solid Unified Flow cards when more than eight cards are visible, title-row fullscreen card viewing, old-template-compatible tipcard actions, and touch-friendly card reordering with edge auto-scroll.
 - **Single Dashboard Surface**: The browser dashboard is served only at `/`;
 - **CSS-Only Motion**: The control page uses fast page-entry, card-entry, and compact-to-full tipcard animations with reduced-motion support.
 - **Markdown Tipcards**: API responses keep the original raw markdown-capable text so clients can render it however they need.
-- **Optional Server Self-Updates**: Disabled by default. The systemd install includes a root-owned updater timer; enabling it through the API polls GitHub, rebuilds from the configured repository branch, installs the new binary, schema, templates, and static assets, and restarts the service.
+- **Optional Server Self-Updates**: Disabled by default. The systemd install includes a root-owned updater timer; enabling it through the API polls GitHub, rebuilds from the configured repository branch, installs the new binary, schema, frontend assets, and static assets, and restarts the service.
 - **Bootstrap Admin Token**: On first startup the server generates and prints an admin token. Use it only to create the first admin user and, after setup, to bootstrap an API key for that admin user.
 - **Protobuf API**: The only public API is a single protobuf request/response envelope for both client and admin operations.
 - **Multi-User, Multi-Client**: Each user has isolated topics, cards, review state, LLM settings, token spend, and API keys. A user's scheduling state is shared across that user's clients (desktop widget, Telegram bot, etc.).
@@ -68,8 +68,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 ├── schema.sql         # SQLite schema reference kept for installs/tests
 ├── proto/
 │   └── denpie.proto # Protobuf schema for the unified API
-├── templates/
-│   └── app.html       # Root control page using /api
+├── frontend/          # Yew/WebAssembly browser dashboard
 ├── static/
 │   └── assets/        # Browser dashboard images and static files
 ├── docs/              # API documentation
@@ -95,8 +94,12 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 
 3. **Run the server:**
    ```bash
+   cd frontend
+   trunk build
+   cd ..
    cargo run
    ```
+   For backend-only development, `cargo run` still works if `frontend/dist` already exists.
    The server starts on `http://127.0.0.1:3017` by default. On the first run it will:
    - Create `denpie.db` and apply `schema.sql` automatically.
    - Generate and print a setup admin token to the console.
@@ -171,7 +174,7 @@ The server can run from the project directory with defaults, or from an installe
 | `DENPIE_RP_ORIGIN` | Public HTTPS origin used for passkey registration and login. | `http://localhost:3017` |
 | `DENPIE_DATA_DIR` | Directory for `settings.yaml` and `denpie.db` | current directory |
 | `DENPIE_SCHEMA_PATH` | Path to `schema.sql` | `schema.sql` in the current directory |
-| `DENPIE_TEMPLATE_DIR` | Directory containing `app.html` | `templates` in the current directory |
+| `DENPIE_FRONTEND_DIST` | Directory containing the built Yew frontend | `frontend/dist` in the current directory |
 | `DENPIE_STATIC_DIR` | Directory served at `/static` | `static` in the current directory |
 
 Example:
@@ -182,7 +185,7 @@ DENPIE_RP_ID=denpie.com \
 DENPIE_RP_ORIGIN=https://denpie.com \
 DENPIE_DATA_DIR=/var/lib/denpie \
 DENPIE_SCHEMA_PATH=/usr/local/share/denpie/schema.sql \
-DENPIE_TEMPLATE_DIR=/usr/local/share/denpie/templates \
+DENPIE_FRONTEND_DIST=/usr/local/share/denpie/frontend/dist \
 DENPIE_STATIC_DIR=/usr/local/share/denpie/static \
 denpie
 ```

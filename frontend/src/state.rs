@@ -47,7 +47,10 @@ impl Reducible for AppState {
             }
             .into(),
             AppAction::ShowToast(message) => AppState {
-                toast: ToastMessage { message, show: true },
+                toast: ToastMessage {
+                    message,
+                    show: true,
+                },
                 ..(*self).clone()
             }
             .into(),

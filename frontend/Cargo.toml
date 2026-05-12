@@ -8,11 +8,13 @@ yew = { version = "0.21.0", features = ["csr"] }
 yew-router = "0.18.0"
 gloo-net = "0.3.1"
 wasm-bindgen = "0.2"
+js-sys = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-web-sys = { version = "0.3", features = ["HtmlInputElement", "HtmlSelectElement", "Window", "Document", "Element", "EventTarget", "Storage", "FileList", "File", "HtmlTextAreaElement", "DragEvent", "DataTransfer"] }
+web-sys = { version = "0.3", features = ["HtmlElement", "HtmlInputElement", "HtmlSelectElement", "Window", "Document", "Element", "DomTokenList", "EventTarget", "Storage", "FileList", "File", "HtmlTextAreaElement", "DragEvent", "DataTransfer", "Navigator", "Clipboard"] }
 wasm-bindgen-futures = "0.4"
 gloo-timers = "0.4.0"
+gloo-file = "0.3.0"
 regex = "1.12.3"
 lazy_static = "1.5.0"
 gloo-storage = "0.4.0"

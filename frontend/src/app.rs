@@ -1,30 +1,48 @@
 use crate::state::{AppAction, AppState, UserProfile};
 use gloo_net::http::Request;
 use yew::prelude::*;
+use yew_router::prelude::*;
 
+use crate::components::account::AccountSettings;
 use crate::components::api_keys::ApiKeys;
+use crate::components::archive::Archive;
 use crate::components::dashboard::Dashboard;
 use crate::components::login::LoginPanel;
 use crate::components::settings::Settings;
 use crate::components::sidebar::Sidebar;
 use crate::components::unified_flow::UnifiedFlow;
-use crate::components::account::AccountSettings;
 
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, Routable, PartialEq)]
 pub enum View {
-    #[default]
+    #[at("/")]
     Dashboard,
+    #[at("/flow")]
     Flow,
+    #[at("/settings")]
     Settings,
+    #[at("/keys")]
     Keys,
+    #[at("/archive")]
     Archive,
+    #[at("/account")]
     AccountSettings,
+    #[not_found]
+    #[at("/404")]
+    NotFound,
 }
 
 #[function_component(App)]
 pub fn app() -> Html {
+    html! {
+        <BrowserRouter>
+            <AppRoot />
+        </BrowserRouter>
+    }
+}
+
+#[function_component(AppRoot)]
+fn app_root() -> Html {
     let app_state = use_reducer(AppState::default);
-    let view = use_state(|| View::Dashboard);
 
     {
         let app_state = app_state.clone();
@@ -43,30 +61,14 @@ pub fn app() -> Html {
         });
     }
 
-    let on_navigate = {
-        let view = view.clone();
-        Callback::from(move |new_view: View| view.set(new_view))
-    };
-
     html! {
         <ContextProvider<UseReducerHandle<AppState>> context={app_state.clone()}>
             if !app_state.authed {
                 <LoginPanel />
             } else {
                 <div id="app-shell" class="min-h-screen">
-                    <Sidebar current_view={(*view).clone()} on_navigate={on_navigate} />
-                    <main class="lg:ml-56 px-4 sm:px-6 lg:px-6 py-5 pb-20 max-w-none">
-                        {
-                            match *view {
-                                View::Dashboard => html! { <Dashboard /> },
-                                View::Flow => html! { <UnifiedFlow /> },
-                                View::Settings => html! { <Settings /> },
-                                View::Keys => html! { <ApiKeys /> },
-                                View::AccountSettings => html! { <AccountSettings /> },
-                                View::Archive => html! { <div class="p-10 text-center text-muted">{"Archive View (Coming Soon)"}</div> },
-                            }
-                        }
-                    </main>
+                    <Switch<View> render={switch_shell} />
+                    <MobileNav />
                 </div>
             }
 
@@ -74,5 +76,58 @@ pub fn app() -> Html {
                 { &app_state.toast.message }
             </div>
         </ContextProvider<UseReducerHandle<AppState>>>
+    }
+}
+
+fn switch_shell(view: View) -> Html {
+    let current = if view == View::NotFound {
+        View::Dashboard
+    } else {
+        view
+    };
+    html! {
+        <>
+            <Sidebar current_view={current.clone()} />
+            <main class="lg:ml-56 px-4 sm:px-6 lg:px-6 py-5 pb-20 max-w-none">
+                {
+                    match current {
+                        View::Dashboard | View::NotFound => html! { <Dashboard /> },
+                        View::Flow => html! { <UnifiedFlow /> },
+                        View::Settings => html! { <Settings /> },
+                        View::Keys => html! { <ApiKeys /> },
+                        View::Archive => html! { <Archive /> },
+                        View::AccountSettings => html! { <AccountSettings /> },
+                    }
+                }
+            </main>
+        </>
+    }
+}
+
+#[function_component(MobileNav)]
+fn mobile_nav() -> Html {
+    html! {
+        <nav class="lg:hidden fixed bottom-0 inset-x-0 z-50 surface border-t grid grid-cols-5 px-2 py-2">
+            <Link<View> to={View::Dashboard} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
+                <iconify-icon icon="radix-icons:dashboard" class="radix-icon block mx-auto"></iconify-icon>
+                <span>{"Home"}</span>
+            </Link<View>>
+            <Link<View> to={View::Flow} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
+                <iconify-icon icon="radix-icons:loop" class="radix-icon block mx-auto"></iconify-icon>
+                <span>{"Flow"}</span>
+            </Link<View>>
+            <Link<View> to={View::Archive} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
+                <iconify-icon icon="radix-icons:archive" class="radix-icon block mx-auto"></iconify-icon>
+                <span>{"Archive"}</span>
+            </Link<View>>
+            <Link<View> to={View::Settings} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
+                <iconify-icon icon="radix-icons:gear" class="radix-icon block mx-auto"></iconify-icon>
+                <span>{"Settings"}</span>
+            </Link<View>>
+            <Link<View> to={View::Keys} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
+                <iconify-icon icon="radix-icons:lock-closed" class="radix-icon block mx-auto"></iconify-icon>
+                <span>{"Keys"}</span>
+            </Link<View>>
+        </nav>
     }
 }

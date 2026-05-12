@@ -190,11 +190,11 @@ impl Settings {
             llm_base_url: base_url.clone(),
             llm_compress_base_url: string(settings, "llm_compress_base_url", &base_url),
             llm_reasoning_effort: string(settings, "llm_reasoning_effort", "none"),
-            llm_compress_reasoning_effort: settings
-                .get("llm_compress_reasoning_effort")
-                .and_then(Value::as_str)
-                .unwrap_or_else(|| compression_level.reasoning_effort())
-                .to_string(),
+            llm_compress_reasoning_effort: string(
+                settings,
+                "llm_compress_reasoning_effort",
+                "none",
+            ),
             llm_compression_level: compression_level.as_setting().to_string(),
             color_scheme: string(settings, "color_scheme", "shadcn"),
             transparency: settings
@@ -218,7 +218,7 @@ impl Settings {
             autoupdate_command: string(settings, "autoupdate_command", ""),
             autoupdate_last_seen_sha: string(settings, "autoupdate_last_seen_sha", ""),
             daily_time_zone: string(settings, "daily_time_zone", "UTC"),
-            daily_update_time: string(settings, "daily_update_time", "00:00"),
+            daily_update_time: string(settings, "daily_update_time", "03:00"),
             max_active_cards: settings
                 .get("max_active_cards")
                 .and_then(Value::as_u64)
@@ -326,8 +326,11 @@ mod tests {
         let settings = Settings::from_value(&Value::Mapping(Mapping::new())).unwrap();
         assert_eq!(settings.llm_model, "google/gemini-3.1-flash");
         assert_eq!(settings.llm_base_url, "https://openrouter.ai/api/v1");
+        assert_eq!(settings.llm_reasoning_effort, "none");
+        assert_eq!(settings.llm_compress_reasoning_effort, "none");
+        assert_eq!(settings.llm_compression_level, "strong");
         assert_eq!(settings.daily_time_zone, "UTC");
-        assert_eq!(settings.daily_update_time, "00:00");
+        assert_eq!(settings.daily_update_time, "03:00");
         assert_eq!(settings.max_active_cards, 0);
     }
 

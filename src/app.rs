@@ -1,4 +1,5 @@
 use axum::{
+    http::StatusCode,
     routing::{delete, get, post},
     Router,
 };
@@ -14,7 +15,6 @@ use crate::{api, auth, dashboard, services};
 pub struct AppState {
     pub db: SqlitePool,
     pub settings_path: PathBuf,
-    pub template_dir: PathBuf,
     pub settings: services::settings::SettingsService,
     pub api_keys: services::api_keys::ApiKeyService,
     pub reviews: services::review::ReviewService,
@@ -42,7 +42,6 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
 
     // Keep the protected routes the same
     let protected_routes = Router::new()
-
         .route(
             "/admin/settings",
             get(dashboard::get_settings).post(dashboard::update_settings),
@@ -99,15 +98,25 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
             config: governor_conf.clone(),
         });
 
-    let frontend_serve = ServeDir::new(frontend_dist.clone())
-        .fallback(tower_http::services::ServeFile::new(frontend_dist.join("index.html")));
+    let frontend_serve = ServeDir::new(frontend_dist.clone()).fallback(
+        tower_http::services::ServeFile::new(frontend_dist.join("index.html")),
+    );
 
     Router::new()
         .merge(protected_routes)
         .nest("/auth", auth_routes)
         .nest_service("/static", ServeDir::new(static_dir))
         .route("/api", post(api::unified_api))
+        .route("/tips", post(not_found))
+        .route("/review", post(not_found))
+        .route("/topics", get(not_found))
+        .route("/topic-classes", get(not_found))
+        .route("/admin", get(not_found))
         .fallback_service(frontend_serve)
         .layer(session_layer)
         .with_state(shared_state)
+}
+
+async fn not_found() -> StatusCode {
+    StatusCode::NOT_FOUND
 }

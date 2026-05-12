@@ -65,35 +65,50 @@ pub fn api_keys() -> Html {
 
             wasm_bindgen_futures::spawn_local(async move {
                 let req = CreateKeyReq {
-                    client_name: if key_name.is_empty() { None } else { Some(key_name) },
+                    client_name: if key_name.is_empty() {
+                        None
+                    } else {
+                        Some(key_name)
+                    },
                 };
-                match Request::post("/admin/keys").json(&req).unwrap().send().await {
+                match Request::post("/admin/keys")
+                    .json(&req)
+                    .unwrap()
+                    .send()
+                    .await
+                {
                     Ok(res) if res.ok() => {
                         if let Ok(key) = res.json::<String>().await {
                             new_key.set(Some(key));
                             app_state.dispatch(AppAction::ShowToast("Key generated".to_string()));
                             refresh_keys.emit(());
-                            
+
                             let state_clone = app_state.clone();
                             gloo_timers::callback::Timeout::new(2400, move || {
                                 state_clone.dispatch(AppAction::HideToast);
-                            }).forget();
+                            })
+                            .forget();
                         }
                     }
                     Ok(res) => {
-                        let msg = res.text().await.unwrap_or_else(|_| "Failed to generate key".to_string());
+                        let msg = res
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "Failed to generate key".to_string());
                         app_state.dispatch(AppAction::ShowToast(msg));
                         let state_clone = app_state.clone();
                         gloo_timers::callback::Timeout::new(2400, move || {
                             state_clone.dispatch(AppAction::HideToast);
-                        }).forget();
+                        })
+                        .forget();
                     }
                     Err(e) => {
                         app_state.dispatch(AppAction::ShowToast(e.to_string()));
                         let state_clone = app_state.clone();
                         gloo_timers::callback::Timeout::new(2400, move || {
                             state_clone.dispatch(AppAction::HideToast);
-                        }).forget();
+                        })
+                        .forget();
                     }
                 }
             });
@@ -104,18 +119,29 @@ pub fn api_keys() -> Html {
         let app_state = app_state.clone();
         let refresh_keys = refresh_keys.clone();
         Callback::from(move |_| {
-            if web_sys::window().unwrap().confirm_with_message("Delete this API key?").unwrap() {
+            if web_sys::window()
+                .unwrap()
+                .confirm_with_message("Delete this API key?")
+                .unwrap()
+            {
                 let app_state = app_state.clone();
                 let refresh_keys = refresh_keys.clone();
                 wasm_bindgen_futures::spawn_local(async move {
                     let req = DeleteKeyReq { id };
-                    if Request::delete("/admin/keys").json(&req).unwrap().send().await.is_ok() {
+                    if Request::delete("/admin/keys")
+                        .json(&req)
+                        .unwrap()
+                        .send()
+                        .await
+                        .is_ok()
+                    {
                         app_state.dispatch(AppAction::ShowToast("Key deleted".to_string()));
                         refresh_keys.emit(());
                         let state_clone = app_state.clone();
                         gloo_timers::callback::Timeout::new(2400, move || {
                             state_clone.dispatch(AppAction::HideToast);
-                        }).forget();
+                        })
+                        .forget();
                     }
                 });
             }
@@ -129,10 +155,10 @@ pub fn api_keys() -> Html {
                     {"API Keys"}
                 </h1>
                 <form id="key-form" onsubmit={on_submit} class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                    <input 
-                        id="key-name" 
-                        class="min-w-0 rounded-md border px-4 py-2 sm:w-56" 
-                        placeholder="desktop_widget" 
+                    <input
+                        id="key-name"
+                        class="min-w-0 rounded-md border px-4 py-2 sm:w-56"
+                        placeholder="desktop_widget"
                         aria-label="API key client name"
                         value={(*key_name_input).clone()}
                         oninput={Callback::from(move |e: InputEvent| {
@@ -147,7 +173,7 @@ pub fn api_keys() -> Html {
                     </button>
                 </form>
             </div>
-            
+
             if let Some(key) = &*new_key {
                 <div id="new-key-box" class="surface border rounded-md p-4 mb-4">
                     <div class="card-kicker mb-2">{"New key"}</div>

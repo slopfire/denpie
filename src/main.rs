@@ -102,9 +102,6 @@ async fn main() {
     let shared_state = Arc::new(AppState {
         db: pool,
         settings_path,
-        template_dir: std::env::var_os("DENPIE_TEMPLATE_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("templates")),
         settings: settings_service,
         api_keys: api_key_service,
         reviews: review_service,

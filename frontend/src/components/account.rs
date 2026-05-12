@@ -1,5 +1,7 @@
+use crate::api::toast;
 use crate::passkeys::registerPasskey;
 use crate::state::{AppAction, AppState, UserProfile};
+use gloo_file::{callbacks::FileReader, File};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use web_sys::HtmlInputElement;
@@ -23,9 +25,22 @@ pub fn account_settings() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
     let passkeys = use_state(|| Vec::<PasskeyInfo>::new());
 
-    let display_name = use_state(|| app_state.user.as_ref().and_then(|u| u.display_name.clone()).unwrap_or_default());
-    let avatar_data = use_state(|| app_state.user.as_ref().and_then(|u| u.avatar_data.clone()).unwrap_or_default());
+    let display_name = use_state(|| {
+        app_state
+            .user
+            .as_ref()
+            .and_then(|u| u.display_name.clone())
+            .unwrap_or_default()
+    });
+    let avatar_data = use_state(|| {
+        app_state
+            .user
+            .as_ref()
+            .and_then(|u| u.avatar_data.clone())
+            .unwrap_or_default()
+    });
     let password = use_state(String::new);
+    let avatar_reader = use_state(|| None::<FileReader>);
 
     let refresh_passkeys = {
         let passkeys = passkeys.clone();
@@ -72,19 +87,11 @@ pub fn account_settings() -> Html {
                     if res.ok() {
                         if let Ok(user) = res.json::<UserProfile>().await {
                             app_state.dispatch(AppAction::SetUser(Some(user)));
-                            app_state.dispatch(AppAction::ShowToast("Profile updated".to_string()));
-                            let state_clone = app_state.clone();
-                            gloo_timers::callback::Timeout::new(2400, move || {
-                                state_clone.dispatch(AppAction::HideToast);
-                            }).forget();
+                            toast(&app_state, "Profile updated");
                         }
                     } else {
                         let err = res.text().await.unwrap_or_default();
-                        app_state.dispatch(AppAction::ShowToast(err));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        }).forget();
+                        toast(&app_state, err);
                     }
                 }
             });
@@ -98,27 +105,24 @@ pub fn account_settings() -> Html {
             let app_state = app_state.clone();
             let refresh_passkeys = refresh_passkeys.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let challenge_res = match Request::post("/auth/passkeys/register/start").send().await {
-                    Ok(r) if r.ok() => r.text().await.unwrap_or_default(),
-                    _ => {
-                        app_state.dispatch(AppAction::ShowToast("Failed to start passkey registration".to_string()));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        }).forget();
-                        return;
-                    }
-                };
+                let challenge_res =
+                    match Request::post("/auth/passkeys/register/start").send().await {
+                        Ok(r) if r.ok() => r.text().await.unwrap_or_default(),
+                        _ => {
+                            toast(&app_state, "Failed to start passkey registration");
+                            return;
+                        }
+                    };
 
                 let credential_json = match registerPasskey(&challenge_res).await {
                     Ok(val) => val.as_string().unwrap_or_default(),
                     Err(e) => {
-                        let err_msg = if let Some(err) = e.as_string() { err } else { "Passkey error".to_string() };
-                        app_state.dispatch(AppAction::ShowToast(err_msg));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        }).forget();
+                        let err_msg = if let Some(err) = e.as_string() {
+                            err
+                        } else {
+                            "Passkey error".to_string()
+                        };
+                        toast(&app_state, err_msg);
                         return;
                     }
                 };
@@ -131,20 +135,12 @@ pub fn account_settings() -> Html {
                     .await
                 {
                     Ok(res) if res.ok() => {
-                        app_state.dispatch(AppAction::ShowToast("Passkey added".to_string()));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        }).forget();
+                        toast(&app_state, "Passkey added");
                         refresh_passkeys.emit(());
                     }
                     Ok(res) => {
                         let err = res.text().await.unwrap_or_default();
-                        app_state.dispatch(AppAction::ShowToast(err));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        }).forget();
+                        toast(&app_state, err);
                     }
                     Err(_) => {}
                 }
@@ -156,18 +152,76 @@ pub fn account_settings() -> Html {
         let app_state = app_state.clone();
         let refresh_passkeys = refresh_passkeys.clone();
         Callback::from(move |_| {
-            if web_sys::window().unwrap().confirm_with_message("Delete this passkey?").unwrap() {
+            if web_sys::window()
+                .unwrap()
+                .confirm_with_message("Delete this passkey?")
+                .unwrap()
+            {
                 let app_state = app_state.clone();
                 let refresh_passkeys = refresh_passkeys.clone();
                 let id = id.clone();
                 wasm_bindgen_futures::spawn_local(async move {
-                    if Request::delete(&format!("/auth/passkeys/{}", id)).send().await.is_ok() {
-                        app_state.dispatch(AppAction::ShowToast("Passkey deleted".to_string()));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        }).forget();
+                    if Request::delete(&format!("/auth/passkeys/{}", id))
+                        .send()
+                        .await
+                        .is_ok()
+                    {
+                        toast(&app_state, "Passkey deleted");
                         refresh_passkeys.emit(());
+                    }
+                });
+            }
+        })
+    };
+
+    let on_avatar_file = {
+        let avatar_data = avatar_data.clone();
+        let avatar_reader = avatar_reader.clone();
+        Callback::from(move |e: Event| {
+            let Some(input) = e.target_dyn_into::<HtmlInputElement>() else {
+                return;
+            };
+            let Some(files) = input.files() else {
+                return;
+            };
+            let Some(file) = files.get(0) else {
+                return;
+            };
+            let avatar_data = avatar_data.clone();
+            let reader = gloo_file::callbacks::read_as_data_url(&File::from(file), move |result| {
+                if let Ok(data) = result {
+                    avatar_data.set(data);
+                }
+            });
+            avatar_reader.set(Some(reader));
+        })
+    };
+
+    let on_delete_account = {
+        let app_state = app_state.clone();
+        Callback::from(move |_| {
+            if web_sys::window()
+                .and_then(|w| {
+                    w.confirm_with_message("Delete this account and all data?")
+                        .ok()
+                })
+                .unwrap_or(false)
+            {
+                let app_state = app_state.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    match Request::delete("/auth/me").send().await {
+                        Ok(res) if res.ok() => {
+                            app_state.dispatch(AppAction::SetAuthed(false));
+                            app_state.dispatch(AppAction::SetUser(None));
+                            toast(&app_state, "Account deleted");
+                        }
+                        Ok(res) => toast(
+                            &app_state,
+                            res.text()
+                                .await
+                                .unwrap_or_else(|_| "Failed to delete account".to_string()),
+                        ),
+                        Err(err) => toast(&app_state, err.to_string()),
                     }
                 });
             }
@@ -197,14 +251,24 @@ pub fn account_settings() -> Html {
                         <input value={(*display_name).clone()} oninput={Callback::from({let d = display_name.clone(); move |e: InputEvent| if let Some(t) = e.target_dyn_into::<HtmlInputElement>() { d.set(t.value()); }})} class="w-full rounded-md border px-3 py-2" placeholder="Leave blank to use username" />
                     </div>
                     <div>
-                        <label class="block card-kicker mb-2">{"Avatar (Data URI)"}</label>
-                        <input value={(*avatar_data).clone()} oninput={Callback::from({let a = avatar_data.clone(); move |e: InputEvent| if let Some(t) = e.target_dyn_into::<HtmlInputElement>() { a.set(t.value()); }})} class="w-full rounded-md border px-3 py-2" placeholder="data:image/png;base64,..." />
+                        <label class="block card-kicker mb-2">{"Avatar"}</label>
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <label class="rounded-md border border-token px-3 py-2 font-medium cursor-pointer inline-flex items-center gap-2">
+                                <iconify-icon icon="radix-icons:image" class="radix-icon"></iconify-icon>
+                                <span>{"Upload"}</span>
+                                <input type="file" accept="image/*" class="hidden" onchange={on_avatar_file} />
+                            </label>
+                            <button type="button" class="rounded-md border border-token px-3 py-2 font-medium" onclick={Callback::from({ let avatar_data = avatar_data.clone(); move |_| avatar_data.set(String::new()) })}>{"Remove"}</button>
+                        </div>
                     </div>
                     <div>
                         <label class="block card-kicker mb-2">{"Change Password"}</label>
                         <input value={(*password).clone()} oninput={Callback::from({let p = password.clone(); move |e: InputEvent| if let Some(t) = e.target_dyn_into::<HtmlInputElement>() { p.set(t.value()); }})} type="password" class="w-full rounded-md border px-3 py-2" placeholder="Leave blank to keep current password" />
                     </div>
-                    <button type="submit" class="rounded-md bg-primary-solid px-4 py-2 font-medium">{"Save Profile"}</button>
+                    <div class="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+                        <button type="submit" class="rounded-md bg-primary-solid px-4 py-2 font-medium">{"Save Profile"}</button>
+                        <button type="button" onclick={on_delete_account} class="rounded-md border border-token px-4 py-2 font-medium text-danger">{"Delete Account"}</button>
+                    </div>
                 </form>
 
                 <div class="surface border rounded-md p-4 space-y-4">

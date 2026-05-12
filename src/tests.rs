@@ -138,7 +138,6 @@ mod tests {
             reviews: crate::services::review::ReviewService::new(db.clone()),
             db,
             settings_path,
-            template_dir: PathBuf::from("templates"),
             webauthn,
         }
     }
@@ -289,8 +288,8 @@ mod tests {
         assert_eq!(response.status(), reqwest::StatusCode::OK);
         let body = response.text().await.unwrap();
         assert!(body.contains("Denpie"));
-        assert!(body.contains("login-username"));
-        assert!(body.contains("/app/tips"));
+        assert!(body.contains("modulepreload"));
+        assert!(body.contains(".wasm"));
     }
 
     #[tokio::test]

@@ -142,11 +142,8 @@ pub async fn update_settings(
     State(state): State<Arc<AppState>>,
     session: Session,
     Json(req): Json<UpdateSettingsReq>,
-) -> Json<()> {
-    let user = match crate::auth::current_user(&state, &session).await {
-        Ok(user) => user,
-        Err(_) => return Json(()),
-    };
+) -> Result<Json<()>, (StatusCode, String)> {
+    let user = crate::auth::current_user(&state, &session).await?;
     let patch = config::SettingsPatch {
         model: req.model,
         compress_model: req.compress_model,
@@ -177,23 +174,28 @@ pub async fn update_settings(
             || patch.autoupdate_check_interval_secs.is_some()
             || patch.autoupdate_command.is_some())
     {
-        let _ = state.settings.update_settings(config::SettingsPatch {
-            autoupdate_enabled: patch.autoupdate_enabled,
-            autoupdate_repo: patch.autoupdate_repo.clone(),
-            autoupdate_branch: patch.autoupdate_branch.clone(),
-            autoupdate_check_interval_secs: patch.autoupdate_check_interval_secs,
-            autoupdate_command: patch.autoupdate_command.clone(),
-            ..Default::default()
-        });
+        state
+            .settings
+            .update_settings(config::SettingsPatch {
+                autoupdate_enabled: patch.autoupdate_enabled,
+                autoupdate_repo: patch.autoupdate_repo.clone(),
+                autoupdate_branch: patch.autoupdate_branch.clone(),
+                autoupdate_check_interval_secs: patch.autoupdate_check_interval_secs,
+                autoupdate_command: patch.autoupdate_command.clone(),
+                ..Default::default()
+            })
+            .map_err(|err| err.into_status_body())?;
     }
     let defaults = state.settings.get_settings().unwrap_or_default();
     let current = user_settings::get(&state.db, &user.id, defaults)
         .await
         .unwrap_or_default();
     let updated = current.apply_patch(patch);
-    let _ = user_settings::upsert(&state.db, &user.id, &updated).await;
+    user_settings::upsert(&state.db, &user.id, &updated)
+        .await
+        .map_err(|err| err.into_status_body())?;
 
-    Json(())
+    Ok(Json(()))
 }
 
 #[derive(Serialize)]

@@ -1,5 +1,7 @@
-use crate::state::{AppAction, AppState};
+use crate::api::toast;
+use crate::state::AppState;
 use gloo_net::http::Request;
+use gloo_timers::callback::Timeout;
 use serde::{Deserialize, Serialize};
 use web_sys::{HtmlInputElement, HtmlSelectElement, HtmlTextAreaElement};
 use yew::prelude::*;
@@ -37,10 +39,75 @@ struct ForceDailyRefreshRequest {
     tipcard_type: Option<String>,
 }
 
+#[derive(Deserialize, Clone, PartialEq, Default)]
+struct TriggerAutoupdateRes {
+    message: String,
+    restarting: bool,
+    updating: bool,
+    target_sha: Option<String>,
+    build_sha: String,
+}
+
+#[derive(Deserialize, Clone, PartialEq, Default)]
+struct AutoupdateStatus {
+    phase: String,
+    message: String,
+    target_sha: String,
+    updated_at: String,
+}
+
+fn apply_appearance(settings: &SettingsRes) {
+    if let Some(window) = web_sys::window() {
+        if let Some(document) = window.document() {
+            if let Some(html) = document.document_element() {
+                let _ = html.set_attribute("data-theme", &settings.color_scheme);
+                let _ = html.set_attribute("data-transparency", &settings.transparency);
+                let _ = html.set_attribute("data-blur-intensity", &settings.blur_intensity);
+            }
+        }
+    }
+}
+
+fn save_settings_now(
+    app_state: UseReducerHandle<AppState>,
+    status: UseStateHandle<String>,
+    settings: SettingsRes,
+) {
+    status.set("Saving...".to_string());
+    wasm_bindgen_futures::spawn_local(async move {
+        match Request::post("/admin/settings")
+            .json(&settings)
+            .unwrap()
+            .send()
+            .await
+        {
+            Ok(res) if res.ok() => {
+                status.set("Saved".to_string());
+            }
+            Ok(res) => {
+                let message = res
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Failed to save settings".to_string());
+                status.set("Save failed".to_string());
+                toast(&app_state, message);
+            }
+            Err(err) => {
+                status.set("Save failed".to_string());
+                toast(&app_state, err.to_string());
+            }
+        }
+    });
+}
+
 #[function_component(Settings)]
 pub fn settings() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
     let settings = use_state(|| None::<SettingsRes>);
+    let update_status = use_state(|| None::<AutoupdateStatus>);
+    let update_result = use_state(|| None::<TriggerAutoupdateRes>);
+    let save_status = use_state(String::new);
+    let save_timer = use_mut_ref(|| None::<Timeout>);
 
     {
         let settings = settings.clone();
@@ -48,6 +115,7 @@ pub fn settings() -> Html {
             wasm_bindgen_futures::spawn_local(async move {
                 if let Ok(res) = Request::get("/admin/settings").send().await {
                     if let Ok(data) = res.json::<SettingsRes>().await {
+                        apply_appearance(&data);
                         settings.set(Some(data));
                     }
                 }
@@ -59,28 +127,29 @@ pub fn settings() -> Html {
     let on_submit = {
         let app_state = app_state.clone();
         let settings = settings.clone();
+        let save_status = save_status.clone();
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
-            let app_state = app_state.clone();
             if let Some(s) = (*settings).clone() {
-                wasm_bindgen_futures::spawn_local(async move {
-                    if let Ok(res) = Request::post("/admin/settings").json(&s).unwrap().send().await {
-                        if res.ok() {
-                            app_state.dispatch(AppAction::ShowToast("Settings saved".to_string()));
-                            let state_clone = app_state.clone();
-                            gloo_timers::callback::Timeout::new(2400, move || {
-                                state_clone.dispatch(AppAction::HideToast);
-                            }).forget();
-                        } else {
-                            app_state.dispatch(AppAction::ShowToast("Failed to save".to_string()));
-                            let state_clone = app_state.clone();
-                            gloo_timers::callback::Timeout::new(2400, move || {
-                                state_clone.dispatch(AppAction::HideToast);
-                            }).forget();
-                        }
-                    }
-                });
+                save_settings_now(app_state.clone(), save_status.clone(), s);
             }
+        })
+    };
+
+    let schedule_save = {
+        let app_state = app_state.clone();
+        let save_status = save_status.clone();
+        let save_timer = save_timer.clone();
+        Callback::from(move |next: SettingsRes| {
+            save_status.set("Unsaved changes".to_string());
+            if let Some(timer) = save_timer.borrow_mut().take() {
+                timer.cancel();
+            }
+            let app_state = app_state.clone();
+            let save_status = save_status.clone();
+            *save_timer.borrow_mut() = Some(Timeout::new(550, move || {
+                save_settings_now(app_state, save_status, next);
+            }));
         })
     };
 
@@ -93,19 +162,16 @@ pub fn settings() -> Html {
                     topics: String::new(),
                     tipcard_type: None,
                 };
-                if let Ok(res) = Request::post("/app/daily-refresh").json(&req).unwrap().send().await {
+                if let Ok(res) = Request::post("/app/daily-refresh")
+                    .json(&req)
+                    .unwrap()
+                    .send()
+                    .await
+                {
                     if res.ok() {
-                        app_state.dispatch(AppAction::ShowToast("Force refresh triggered".to_string()));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        }).forget();
+                        toast(&app_state, "Force refresh triggered");
                     } else {
-                        app_state.dispatch(AppAction::ShowToast("Failed to refresh".to_string()));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        }).forget();
+                        toast(&app_state, "Failed to refresh");
                     }
                 }
             });
@@ -114,22 +180,30 @@ pub fn settings() -> Html {
 
     let on_check_server = {
         let app_state = app_state.clone();
+        let update_status = update_status.clone();
+        let update_result = update_result.clone();
         Callback::from(move |_| {
             let app_state = app_state.clone();
+            let update_status = update_status.clone();
+            let update_result = update_result.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 if let Ok(res) = Request::post("/admin/autoupdate").send().await {
                     if res.ok() {
-                        app_state.dispatch(AppAction::ShowToast("Autoupdate checked".to_string()));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        }).forget();
+                        if let Ok(result) = res.json::<TriggerAutoupdateRes>().await {
+                            toast(&app_state, result.message.clone());
+                            update_result.set(Some(result));
+                        } else {
+                            toast(&app_state, "Autoupdate checked");
+                        }
+                        if let Ok(status_res) =
+                            Request::get("/admin/autoupdate/status").send().await
+                        {
+                            if let Ok(status) = status_res.json::<AutoupdateStatus>().await {
+                                update_status.set(Some(status));
+                            }
+                        }
                     } else {
-                        app_state.dispatch(AppAction::ShowToast("Failed to check updates".to_string()));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        }).forget();
+                        toast(&app_state, "Failed to check updates");
                     }
                 }
             });
@@ -140,6 +214,7 @@ pub fn settings() -> Html {
 
     let on_input = |field: &'static str| {
         let settings = settings.clone();
+        let schedule_save = schedule_save.clone();
         Callback::from(move |e: InputEvent| {
             if let Some(target) = e.target_dyn_into::<HtmlInputElement>() {
                 if let Some(mut current) = (*settings).clone() {
@@ -151,13 +226,19 @@ pub fn settings() -> Html {
                         "compress_base_url" => current.compress_base_url = target.value(),
                         "daily_time_zone" => current.daily_time_zone = target.value(),
                         "daily_update_time" => current.daily_update_time = target.value(),
-                        "max_active_cards" => current.max_active_cards = target.value().parse().unwrap_or(0),
+                        "max_active_cards" => {
+                            current.max_active_cards = target.value().parse().unwrap_or(0)
+                        }
                         "autoupdate_repo" => current.autoupdate_repo = target.value(),
                         "autoupdate_branch" => current.autoupdate_branch = target.value(),
-                        "autoupdate_check_interval_secs" => current.autoupdate_check_interval_secs = target.value().parse().unwrap_or(60),
+                        "autoupdate_check_interval_secs" => {
+                            current.autoupdate_check_interval_secs =
+                                target.value().parse().unwrap_or(60)
+                        }
                         _ => {}
                     }
-                    settings.set(Some(current));
+                    settings.set(Some(current.clone()));
+                    schedule_save.emit(current);
                 }
             }
         })
@@ -165,13 +246,15 @@ pub fn settings() -> Html {
 
     let on_checkbox = |field: &'static str| {
         let settings = settings.clone();
+        let schedule_save = schedule_save.clone();
         Callback::from(move |e: InputEvent| {
             if let Some(target) = e.target_dyn_into::<HtmlInputElement>() {
                 if let Some(mut current) = (*settings).clone() {
                     if field == "autoupdate_enabled" {
                         current.autoupdate_enabled = target.checked();
                     }
-                    settings.set(Some(current));
+                    settings.set(Some(current.clone()));
+                    schedule_save.emit(current);
                 }
             }
         })
@@ -179,35 +262,34 @@ pub fn settings() -> Html {
 
     let on_select = |field: &'static str| {
         let settings = settings.clone();
+        let schedule_save = schedule_save.clone();
         Callback::from(move |e: Event| {
             if let Some(target) = e.target_dyn_into::<HtmlSelectElement>() {
                 if let Some(mut current) = (*settings).clone() {
                     match field {
                         "reasoning_effort" => current.reasoning_effort = target.value(),
-                        "compress_reasoning_effort" => current.compress_reasoning_effort = target.value(),
+                        "compress_reasoning_effort" => {
+                            current.compress_reasoning_effort = target.value()
+                        }
                         "compression_level" => current.compression_level = target.value(),
                         "color_scheme" => {
                             current.color_scheme = target.value();
-                            if let Some(window) = web_sys::window() {
-                                if let Some(document) = window.document() {
-                                    if let Some(html) = document.document_element() {
-                                        let _ = html.set_attribute("data-theme", &current.color_scheme);
-                                    }
-                                }
-                            }
-                        },
+                        }
                         "transparency" => current.transparency = target.value(),
                         "blur_intensity" => current.blur_intensity = target.value(),
                         _ => {}
                     }
-                    settings.set(Some(current));
+                    apply_appearance(&current);
+                    settings.set(Some(current.clone()));
+                    schedule_save.emit(current);
                 }
             }
         })
     };
-    
+
     let on_textarea = |field: &'static str| {
         let settings = settings.clone();
+        let schedule_save = schedule_save.clone();
         Callback::from(move |e: InputEvent| {
             if let Some(target) = e.target_dyn_into::<HtmlTextAreaElement>() {
                 if let Some(mut current) = (*settings).clone() {
@@ -216,7 +298,8 @@ pub fn settings() -> Html {
                         "autoupdate_command" => current.autoupdate_command = target.value(),
                         _ => {}
                     }
-                    settings.set(Some(current));
+                    settings.set(Some(current.clone()));
+                    schedule_save.emit(current);
                 }
             }
         })
@@ -228,6 +311,9 @@ pub fn settings() -> Html {
                 {"Settings"}
             </h1>
             <form id="settings-form" onsubmit={on_submit} class="surface border rounded-md p-4 max-w-5xl space-y-5">
+                if !save_status.is_empty() {
+                    <div class="text-sm text-muted">{(*save_status).clone()}</div>
+                }
                 <div>
                     <label class="block card-kicker mb-2">{"LLM Model"}</label>
                     <input id="model-input" oninput={on_input("model")} value={s.model.clone()} class="w-full rounded-md border px-3 py-2" />
@@ -366,9 +452,24 @@ pub fn settings() -> Html {
                             <span>{"Check Server Now"}</span>
                         </button>
                     </div>
+                    if let Some(result) = (*update_result).clone() {
+                        <div class="muted-surface rounded-md p-3 text-sm">
+                            <div class="font-medium">{result.message}</div>
+                            <div class="text-xs text-muted mt-1">{format!("Build: {}{}", result.build_sha, result.target_sha.map(|sha| format!(" -> {}", sha)).unwrap_or_default())}</div>
+                        </div>
+                    }
+                    if let Some(status) = (*update_status).clone() {
+                        <div id="autoupdate-progress" class="muted-surface rounded-md p-3 space-y-2">
+                            <div class="flex items-center justify-between gap-3 card-kicker">
+                                <span>{status.phase}</span>
+                                <span>{status.updated_at}</span>
+                            </div>
+                            <div class="text-sm">{status.message}</div>
+                        </div>
+                    }
                 </div>
                 <button type="submit" class="rounded-md bg-primary-solid px-5 py-3 font-medium">
-                    {"Save Settings"}
+                    {"Save Now"}
                 </button>
             </form>
         </section>

@@ -1,6 +1,12 @@
-use yew::prelude::*;
+use crate::api::toast;
+use crate::app::View;
+use crate::state::AppState;
 use gloo_net::http::Request;
-use serde::Deserialize;
+use gloo_storage::{LocalStorage, Storage};
+use serde::{Deserialize, Serialize};
+use web_sys::{HtmlInputElement, HtmlSelectElement, HtmlTextAreaElement};
+use yew::prelude::*;
+use yew_router::prelude::*;
 
 #[derive(Deserialize, Clone, PartialEq)]
 pub struct AppSummary {
@@ -32,11 +38,30 @@ pub struct AppTopicInfo {
     pub compression_level: String,
 }
 
+#[derive(Serialize)]
+struct UpdateTopicReq {
+    id: i64,
+    prompt_template: Option<String>,
+    daily_card_count: Option<u32>,
+    daily_time_zone: Option<String>,
+    daily_update_time: Option<String>,
+    compression_level: Option<String>,
+}
+
+#[derive(Serialize)]
+struct DeleteTopicReq {
+    id: i64,
+}
+
 #[function_component(Dashboard)]
 pub fn dashboard() -> Html {
+    let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
+    let navigator = use_navigator();
     let summary = use_state(|| None::<AppSummary>);
     let token_spend = use_state(|| None::<TokenSpend>);
     let topics = use_state(Vec::<AppTopicInfo>::new);
+    let search = use_state(String::new);
+    let editing = use_state(|| None::<AppTopicInfo>);
 
     {
         let summary = summary.clone();
@@ -64,6 +89,31 @@ pub fn dashboard() -> Html {
         });
     }
 
+    let refresh_topics = {
+        let topics = topics.clone();
+        Callback::from(move |_| {
+            let topics = topics.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Ok(res) = Request::get("/app/topics").send().await {
+                    if let Ok(data) = res.json::<Vec<AppTopicInfo>>().await {
+                        topics.set(data);
+                    }
+                }
+            });
+        })
+    };
+
+    let filtered_topics: Vec<_> = topics
+        .iter()
+        .filter(|topic| {
+            let q = search.to_lowercase();
+            q.is_empty()
+                || topic.name.to_lowercase().contains(&q)
+                || topic.tipcard_type.to_lowercase().contains(&q)
+        })
+        .cloned()
+        .collect();
+
     html! {
         <section id="view-dashboard">
             <div class="mb-4">
@@ -74,7 +124,7 @@ pub fn dashboard() -> Html {
                     {"Cards, topics, and queue state from local server."}
                 </p>
             </div>
-            
+
             <div class="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3 mb-3 sm:mb-4" id="stats-grid">
                 { if let Some(s) = &*summary {
                     html! {
@@ -131,8 +181,30 @@ pub fn dashboard() -> Html {
                     {"Active Topics"}
                 </h2>
                 <div class="flex gap-2">
-                    <input id="topic-search" class="rounded-md border px-4 py-2 w-full sm:w-72" placeholder="Find topic" aria-label="Find topic" />
-                    <button class="nav-shortcut rounded-md bg-primary-solid px-3 py-2 font-semibold">
+                    <input
+                        id="topic-search"
+                        class="rounded-md border px-4 py-2 w-full sm:w-72"
+                        placeholder="Find topic"
+                        aria-label="Find topic"
+                        value={(*search).clone()}
+                        oninput={Callback::from({ let search = search.clone(); move |e: InputEvent| {
+                            if let Some(target) = e.target_dyn_into::<HtmlInputElement>() {
+                                search.set(target.value());
+                            }
+                        }})}
+                    />
+                    <button
+                        type="button"
+                        class="nav-shortcut rounded-md bg-primary-solid px-3 py-2 font-semibold"
+                        onclick={Callback::from({
+                            let navigator = navigator.clone();
+                            move |_| {
+                                if let Some(nav) = navigator.clone() {
+                                    nav.push(&View::Flow);
+                                }
+                            }
+                        })}
+                    >
                         <iconify-icon icon="radix-icons:plus" class="radix-icon" aria-hidden="true"></iconify-icon>
                     </button>
                 </div>
@@ -140,25 +212,203 @@ pub fn dashboard() -> Html {
 
             <div id="topics-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
                 {
-                    if topics.is_empty() {
+                    if filtered_topics.is_empty() {
                         html! { <div class="col-span-full surface border rounded-md p-10 text-center text-muted">{"No topics found."}</div> }
                     } else {
                         html! {
-                            for topics.iter().map(|t| html! {
+                            for filtered_topics.iter().map(|t| {
+                                let topic_for_edit = t.clone();
+                                let topic_for_load = t.clone();
+                                let topic_for_delete = t.clone();
+                                html! {
                                 <div class="surface border rounded-md p-4 flex flex-col">
                                     <div class="flex justify-between items-start mb-2">
                                         <h3 class="font-semibold text-lg truncate">{&t.name}</h3>
                                         <span class="badge">{&t.tipcard_type}</span>
                                     </div>
-                                    <div class="text-sm text-muted mt-auto">
+                                    <div class="text-sm text-muted">
                                         {format!("{} due / {} total", t.due_cards, t.total_cards)}
                                     </div>
+                                    <div class="mt-3 grid grid-cols-3 gap-2">
+                                        <button
+                                            type="button"
+                                            class="rounded-md border border-token px-2 py-1.5 text-xs font-medium"
+                                            onclick={Callback::from({
+                                                let navigator = navigator.clone();
+                                                move |_| {
+                                                    let _ = LocalStorage::set("denpie_prefill_topic", &topic_for_load.name);
+                                                    let _ = LocalStorage::set("denpie_prefill_type", &topic_for_load.tipcard_type);
+                                                    if let Some(nav) = navigator.clone() {
+                                                        nav.push(&View::Flow);
+                                                    }
+                                                }
+                                            })}
+                                        >
+                                            {"Load"}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="rounded-md border border-token px-2 py-1.5 text-xs font-medium"
+                                            onclick={Callback::from({
+                                                let editing = editing.clone();
+                                                move |_| editing.set(Some(topic_for_edit.clone()))
+                                            })}
+                                        >
+                                            {"Edit"}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="rounded-md border border-token px-2 py-1.5 text-xs font-medium text-danger"
+                                            onclick={Callback::from({
+                                                let app_state = app_state.clone();
+                                                let refresh_topics = refresh_topics.clone();
+                                                move |_| {
+                                                    let app_state = app_state.clone();
+                                                    let refresh_topics = refresh_topics.clone();
+                                                    let topic = topic_for_delete.clone();
+                                                    if web_sys::window().and_then(|w| w.confirm_with_message(&format!("Delete topic {} and its cards?", topic.name)).ok()).unwrap_or(false) {
+                                                        wasm_bindgen_futures::spawn_local(async move {
+                                                            let req = DeleteTopicReq { id: topic.id };
+                                                            match Request::delete("/app/topics").json(&req).unwrap().send().await {
+                                                                Ok(res) if res.ok() => {
+                                                                    toast(&app_state, "Topic deleted");
+                                                                    refresh_topics.emit(());
+                                                                }
+                                                                Ok(res) => toast(&app_state, res.text().await.unwrap_or_else(|_| "Failed to delete topic".to_string())),
+                                                                Err(err) => toast(&app_state, err.to_string()),
+                                                            }
+                                                        });
+                                                    }
+                                                }
+                                            })}
+                                        >
+                                            {"Delete"}
+                                        </button>
+                                    </div>
                                 </div>
+                                }
                             })
                         }
                     }
                 }
             </div>
+
+            if let Some(topic) = (*editing).clone() {
+                <TopicEditor topic={topic} on_close={Callback::from({
+                    let editing = editing.clone();
+                    move |_| editing.set(None)
+                })} on_saved={Callback::from({
+                    let editing = editing.clone();
+                    let refresh_topics = refresh_topics.clone();
+                    move |_| {
+                        editing.set(None);
+                        refresh_topics.emit(());
+                    }
+                })} />
+            }
         </section>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+struct TopicEditorProps {
+    topic: AppTopicInfo,
+    on_close: Callback<()>,
+    on_saved: Callback<()>,
+}
+
+#[function_component(TopicEditor)]
+fn topic_editor(props: &TopicEditorProps) -> Html {
+    let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
+    let prompt_template = use_state(|| props.topic.prompt_template.clone());
+    let daily_card_count = use_state(|| props.topic.daily_card_count.to_string());
+    let daily_time_zone = use_state(|| props.topic.daily_time_zone.clone());
+    let daily_update_time = use_state(|| props.topic.daily_update_time.clone());
+    let compression_level = use_state(|| props.topic.compression_level.clone());
+
+    let on_submit = {
+        let app_state = app_state.clone();
+        let on_saved = props.on_saved.clone();
+        let topic_id = props.topic.id;
+        let prompt_template = prompt_template.clone();
+        let daily_card_count = daily_card_count.clone();
+        let daily_time_zone = daily_time_zone.clone();
+        let daily_update_time = daily_update_time.clone();
+        let compression_level = compression_level.clone();
+        Callback::from(move |e: SubmitEvent| {
+            e.prevent_default();
+            let app_state = app_state.clone();
+            let on_saved = on_saved.clone();
+            let req = UpdateTopicReq {
+                id: topic_id,
+                prompt_template: Some((*prompt_template).clone()),
+                daily_card_count: Some(daily_card_count.parse().unwrap_or(0)),
+                daily_time_zone: Some((*daily_time_zone).clone()),
+                daily_update_time: Some((*daily_update_time).clone()),
+                compression_level: Some((*compression_level).clone()),
+            };
+            wasm_bindgen_futures::spawn_local(async move {
+                match Request::patch("/app/topics")
+                    .json(&req)
+                    .unwrap()
+                    .send()
+                    .await
+                {
+                    Ok(res) if res.ok() => {
+                        toast(&app_state, "Topic saved");
+                        on_saved.emit(());
+                    }
+                    Ok(res) => toast(
+                        &app_state,
+                        res.text()
+                            .await
+                            .unwrap_or_else(|_| "Failed to save topic".to_string()),
+                    ),
+                    Err(err) => toast(&app_state, err.to_string()),
+                }
+            });
+        })
+    };
+
+    html! {
+        <div class="fixed inset-0 z-[80] bg-black/60 p-4 flex items-center justify-center">
+            <form onsubmit={on_submit} class="surface border rounded-md w-full max-w-2xl p-4 space-y-4">
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <h2 class="text-lg font-semibold">{format!("Topic: {}", props.topic.name)}</h2>
+                        <p class="text-sm text-muted">{&props.topic.tipcard_type}</p>
+                    </div>
+                    <button type="button" class="border border-token rounded-md px-2 py-1" onclick={let on_close = props.on_close.clone(); Callback::from(move |_| on_close.emit(()))}>{"Close"}</button>
+                </div>
+                <div>
+                    <label class="block card-kicker mb-2">{"Prompt Template"}</label>
+                    <textarea value={(*prompt_template).clone()} oninput={Callback::from({ let state = prompt_template.clone(); move |e: InputEvent| if let Some(t) = e.target_dyn_into::<HtmlTextAreaElement>() { state.set(t.value()); }})} class="w-full rounded-md border px-3 py-2 h-24 resize-y"></textarea>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block card-kicker mb-2">{"Daily Card Count"}</label>
+                        <input value={(*daily_card_count).clone()} oninput={Callback::from({ let state = daily_card_count.clone(); move |e: InputEvent| if let Some(t) = e.target_dyn_into::<HtmlInputElement>() { state.set(t.value()); }})} type="number" min="0" class="w-full rounded-md border px-3 py-2" />
+                    </div>
+                    <div>
+                        <label class="block card-kicker mb-2">{"Compression Level"}</label>
+                        <select value={(*compression_level).clone()} onchange={Callback::from({ let state = compression_level.clone(); move |e: Event| if let Some(t) = e.target_dyn_into::<HtmlSelectElement>() { state.set(t.value()); }})} class="w-full rounded-md border px-3 py-2">
+                            <option value="light">{"Light"}</option>
+                            <option value="balanced">{"Balanced"}</option>
+                            <option value="strong">{"Strong"}</option>
+                            <option value="ultra">{"Ultra"}</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block card-kicker mb-2">{"Time Zone"}</label>
+                        <input value={(*daily_time_zone).clone()} oninput={Callback::from({ let state = daily_time_zone.clone(); move |e: InputEvent| if let Some(t) = e.target_dyn_into::<HtmlInputElement>() { state.set(t.value()); }})} class="w-full rounded-md border px-3 py-2" />
+                    </div>
+                    <div>
+                        <label class="block card-kicker mb-2">{"Update Time"}</label>
+                        <input value={(*daily_update_time).clone()} oninput={Callback::from({ let state = daily_update_time.clone(); move |e: InputEvent| if let Some(t) = e.target_dyn_into::<HtmlInputElement>() { state.set(t.value()); }})} type="time" class="w-full rounded-md border px-3 py-2" />
+                    </div>
+                </div>
+                <button type="submit" class="rounded-md bg-primary-solid px-4 py-2 font-medium">{"Save Topic"}</button>
+            </form>
+        </div>
     }
 }

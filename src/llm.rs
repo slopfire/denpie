@@ -14,7 +14,7 @@ Aim for 180-260 words. Markdown is allowed. Avoid filler, hype, and invented fac
 
 const MIN_COMPRESS_CHARS: usize = 420;
 const MIN_COMPRESS_WORDS: usize = 70;
-pub const DEFAULT_COMPRESSION_LEVEL: &str = "balanced";
+pub const DEFAULT_COMPRESSION_LEVEL: &str = "strong";
 
 #[derive(Clone, Debug, Default)]
 pub struct TokenUsage {
