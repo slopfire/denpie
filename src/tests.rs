@@ -1,13 +1,11 @@
-#[cfg(test)]
-mod tests {
-    use crate::{apply_schema_migrations, build_app, AppState};
-    use prost::Message;
-    use sqlx::sqlite::SqlitePoolOptions;
-    use sqlx::SqlitePool;
-    use std::path::PathBuf;
-    use std::sync::Arc;
-    use tokio::fs;
-    use tower_sessions::{MemoryStore, SessionManagerLayer};
+use crate::{apply_schema_migrations, build_app, AppState};
+use prost::Message;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::fs;
+use tower_sessions::{MemoryStore, SessionManagerLayer};
 
     const TEST_USER_ID: &str = "usr_test_admin";
 
@@ -2104,4 +2102,3 @@ mod tests {
             .unwrap();
         assert_eq!(update.status(), reqwest::StatusCode::BAD_REQUEST);
     }
-}

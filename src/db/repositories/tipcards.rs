@@ -386,26 +386,30 @@ pub async fn create_generated(
     Ok(card_id)
 }
 
+pub struct CreateManualParams<'a> {
+    pub user_id: &'a str,
+    pub topic_id: i64,
+    pub tipcard_type: &'a str,
+    pub title: &'a str,
+    pub full_content: &'a str,
+    pub compressed_content: &'a str,
+    pub image_data_json: &'a str,
+}
+
 pub async fn create_manual(
     pool: &SqlitePool,
-    user_id: &str,
-    topic_id: i64,
-    tipcard_type: &str,
-    title: &str,
-    full_content: &str,
-    compressed_content: &str,
-    image_data_json: &str,
+    params: CreateManualParams<'_>,
 ) -> AppResult<i64> {
     let card_id = sqlx::query(
         "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content, image_data) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
-    .bind(user_id)
-    .bind(topic_id)
-    .bind(tipcard_type)
-    .bind(title)
-    .bind(full_content)
-    .bind(compressed_content)
-    .bind(image_data_json)
+    .bind(params.user_id)
+    .bind(params.topic_id)
+    .bind(params.tipcard_type)
+    .bind(params.title)
+    .bind(params.full_content)
+    .bind(params.compressed_content)
+    .bind(params.image_data_json)
     .execute(pool)
     .await?
     .last_insert_rowid();

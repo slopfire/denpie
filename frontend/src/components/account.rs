@@ -23,7 +23,7 @@ struct UpdateMeReq {
 #[function_component(AccountSettings)]
 pub fn account_settings() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
-    let passkeys = use_state(|| Vec::<PasskeyInfo>::new());
+    let passkeys = use_state(Vec::<PasskeyInfo>::new);
 
     let display_name = use_state(|| {
         app_state

@@ -24,7 +24,7 @@ struct DeleteKeyReq {
 #[function_component(ApiKeys)]
 pub fn api_keys() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
-    let keys = use_state(|| Vec::<ApiKeyInfo>::new());
+    let keys = use_state(Vec::<ApiKeyInfo>::new);
     let new_key = use_state(|| None::<String>);
     let key_name_input = use_state(String::new);
 

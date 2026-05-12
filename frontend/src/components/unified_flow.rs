@@ -135,8 +135,8 @@ pub fn unified_flow() -> Html {
                 match Request::post("/app/tips").json(&req).unwrap().send().await {
                     Ok(res) if res.ok() => {
                         toast(&app_state, "Cards added");
-                        let _ = LocalStorage::delete("denpie_prefill_topic");
-                        let _ = LocalStorage::delete("denpie_prefill_type");
+                        LocalStorage::delete("denpie_prefill_topic");
+                        LocalStorage::delete("denpie_prefill_type");
                         refresh_cards.emit(());
                     }
                     _ => {

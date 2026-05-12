@@ -758,6 +758,9 @@
             body.has-fullscreen-card {
                 overflow: hidden;
             }
+            body.has-fullscreen-card .flow-card:not(.is-fullscreen) {
+                visibility: hidden;
+            }
             .flow-card.is-fullscreen {
                 background: hsl(var(--card));
                 backdrop-filter: none;

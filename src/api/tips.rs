@@ -17,6 +17,23 @@ use super::{
     },
 };
 
+struct GenerationLlmConfig<'a> {
+    model: &'a str,
+    api_key: &'a str,
+    base_url: &'a str,
+    reasoning: &'a llm::ReasoningConfig,
+    compress_model: &'a str,
+    compress_base_url: &'a str,
+    compression_level: llm::CompressionLevel,
+}
+
+struct GenerationContext<'a> {
+    state: &'a AppState,
+    user_id: &'a str,
+    topic_name: &'a str,
+    topic: &'a TopicInfo,
+}
+
 pub async fn build_tips(
     state: &AppState,
     user_id: &str,
@@ -51,7 +68,7 @@ pub async fn build_tips(
         .await
         .map_err(|err| err.into_status_body())?;
     let llm_reasoning = llm::ReasoningConfig::new(settings.llm_reasoning_effort.clone());
-    let llm_compress_reasoning =
+    let _llm_compress_reasoning =
         llm::ReasoningConfig::new(settings.llm_compress_reasoning_effort.clone());
     let llm_compression_level =
         llm::CompressionLevel::from_setting(&settings.llm_compression_level);
@@ -87,10 +104,12 @@ pub async fn build_tips(
                 manual_compressed_content.clone()
             };
             create_manual_tipcard(
-                state,
-                user_id,
-                topic_name,
-                &topic,
+                GenerationContext {
+                    state,
+                    user_id,
+                    topic_name,
+                    topic: &topic,
+                },
                 manual_content.clone(),
                 compact,
                 manual_image_data.clone(),
@@ -164,19 +183,22 @@ pub async fn build_tips(
             });
             for _ in 0..cards_to_generate {
                 generate_tipcard(
-                    state,
-                    user_id,
-                    topic_name,
-                    &topic,
+                    GenerationContext {
+                        state,
+                        user_id,
+                        topic_name,
+                        topic: &topic,
+                    },
                     &settings.prompt_template,
-                    &settings.llm_model,
-                    &settings.llm_api_key,
-                    &settings.llm_base_url,
-                    &llm_reasoning,
-                    &settings.llm_compress_model,
-                    &settings.llm_compress_base_url,
-                    llm_compression_level,
-                    &llm_compress_reasoning,
+                    GenerationLlmConfig {
+                        model: &settings.llm_model,
+                        api_key: &settings.llm_api_key,
+                        base_url: &settings.llm_base_url,
+                        reasoning: &llm_reasoning,
+                        compress_model: &settings.llm_compress_model,
+                        compress_base_url: &settings.llm_compress_base_url,
+                        compression_level: llm_compression_level,
+                    },
                     &mut responses,
                 )
                 .await?;
@@ -184,19 +206,22 @@ pub async fn build_tips(
             }
         } else if active_room.is_none_or(|room| room > 0) {
             generate_tipcard(
-                state,
-                user_id,
-                topic_name,
-                &topic,
+                GenerationContext {
+                    state,
+                    user_id,
+                    topic_name,
+                    topic: &topic,
+                },
                 &settings.prompt_template,
-                &settings.llm_model,
-                &settings.llm_api_key,
-                &settings.llm_base_url,
-                &llm_reasoning,
-                &settings.llm_compress_model,
-                &settings.llm_compress_base_url,
-                llm_compression_level,
-                &llm_compress_reasoning,
+                GenerationLlmConfig {
+                    model: &settings.llm_model,
+                    api_key: &settings.llm_api_key,
+                    base_url: &settings.llm_base_url,
+                    reasoning: &llm_reasoning,
+                    compress_model: &settings.llm_compress_model,
+                    compress_base_url: &settings.llm_compress_base_url,
+                    compression_level: llm_compression_level,
+                },
                 &mut responses,
             )
             .await?;
@@ -334,7 +359,7 @@ async fn generate_fresh_daily_cards(
         .await
         .map_err(|err| err.into_status_body())?;
     let llm_reasoning = llm::ReasoningConfig::new(settings.llm_reasoning_effort.clone());
-    let llm_compress_reasoning =
+    let _llm_compress_reasoning =
         llm::ReasoningConfig::new(settings.llm_compress_reasoning_effort.clone());
     let llm_compression_level =
         llm::CompressionLevel::from_setting(&settings.llm_compression_level);
@@ -346,19 +371,22 @@ async fn generate_fresh_daily_cards(
             break;
         }
         generate_tipcard(
-            state,
-            user_id,
-            topic_name,
-            topic,
+            GenerationContext {
+                state,
+                user_id,
+                topic_name,
+                topic,
+            },
             &settings.prompt_template,
-            &settings.llm_model,
-            &settings.llm_api_key,
-            &settings.llm_base_url,
-            &llm_reasoning,
-            &settings.llm_compress_model,
-            &settings.llm_compress_base_url,
-            llm_compression_level,
-            &llm_compress_reasoning,
+            GenerationLlmConfig {
+                model: &settings.llm_model,
+                api_key: &settings.llm_api_key,
+                base_url: &settings.llm_base_url,
+                reasoning: &llm_reasoning,
+                compress_model: &settings.llm_compress_model,
+                compress_base_url: &settings.llm_compress_base_url,
+                compression_level: llm_compression_level,
+            },
             &mut responses,
         )
         .await?;
@@ -423,54 +451,60 @@ pub(crate) async fn create_custom_tipcard(
 }
 
 async fn generate_tipcard(
-    state: &AppState,
-    user_id: &str,
-    topic_name: &str,
-    topic: &TopicInfo,
+    ctx: GenerationContext<'_>,
     template: &str,
-    llm_model: &str,
-    llm_api_key: &str,
-    llm_base_url: &str,
-    llm_reasoning: &llm::ReasoningConfig,
-    llm_compress_model: &str,
-    llm_compress_base_url: &str,
-    llm_compression_level: llm::CompressionLevel,
-    _llm_compress_reasoning: &llm::ReasoningConfig,
+    llm: GenerationLlmConfig<'_>,
     responses: &mut Vec<TipCardJson>,
 ) -> ApiResult<()> {
-    let template = topic
+    let template = ctx
+        .topic
         .prompt_template
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(template);
     let card_context =
-        context::load_card_context(state, user_id, topic.id, &topic.tipcard_type).await?;
-    let prompt = context::render_generation_prompt(topic_name, template, &card_context);
-    let full_res =
-        llm::generate_new_card(llm_model, &prompt, llm_api_key, llm_base_url, llm_reasoning).await;
-    record_llm_token_usage(state, user_id, llm_model, "generate_card", &full_res.usage).await?;
+        context::load_card_context(ctx.state, ctx.user_id, ctx.topic.id, &ctx.topic.tipcard_type)
+            .await?;
+    let prompt = context::render_generation_prompt(ctx.topic_name, template, &card_context);
+    let full_res = llm::generate_new_card(
+        llm.model,
+        &prompt,
+        llm.api_key,
+        llm.base_url,
+        llm.reasoning,
+    )
+    .await;
+    record_llm_token_usage(
+        ctx.state,
+        ctx.user_id,
+        llm.model,
+        "generate_card",
+        &full_res.usage,
+    )
+    .await?;
     let full_tip = full_res.content;
-    let compression_level = topic
+    let compression_level = ctx
+        .topic
         .compression_level
         .as_deref()
         .map(llm::CompressionLevel::from_setting)
-        .unwrap_or(llm_compression_level);
+        .unwrap_or(llm.compression_level);
     let compression_reasoning = llm::ReasoningConfig::new(compression_level.reasoning_effort());
 
     let compressed_res = llm::compress_card(
         &full_tip,
-        llm_compress_model,
-        llm_api_key,
-        llm_compress_base_url,
+        llm.compress_model,
+        llm.api_key,
+        llm.compress_base_url,
         compression_level,
         &compression_reasoning,
     )
     .await;
     record_llm_token_usage(
-        state,
-        user_id,
-        llm_compress_model,
+        ctx.state,
+        ctx.user_id,
+        llm.compress_model,
         "compress_card",
         &compressed_res.usage,
     )
@@ -479,16 +513,16 @@ async fn generate_tipcard(
 
     let title_res = llm::generate_card_title(
         &full_tip,
-        llm_compress_model,
-        llm_api_key,
-        llm_compress_base_url,
+        llm.compress_model,
+        llm.api_key,
+        llm.compress_base_url,
         &compression_reasoning,
     )
     .await;
     record_llm_token_usage(
-        state,
-        user_id,
-        llm_compress_model,
+        ctx.state,
+        ctx.user_id,
+        llm.compress_model,
         "generate_title",
         &title_res.usage,
     )
@@ -496,10 +530,10 @@ async fn generate_tipcard(
     let card_title = title_res.content;
 
     let card_id = tipcards::create_generated(
-        &state.db,
-        user_id,
-        topic.id,
-        &topic.tipcard_type,
+        &ctx.state.db,
+        ctx.user_id,
+        ctx.topic.id,
+        &ctx.topic.tipcard_type,
         &card_title,
         &full_tip,
         &compressed_tip,
@@ -509,22 +543,19 @@ async fn generate_tipcard(
 
     responses.push(tip_response_json(
         card_id,
-        topic_name,
+        ctx.topic_name,
         full_tip,
         compressed_tip,
         Vec::new(),
-        topic.tipcard_type.clone(),
+        ctx.topic.tipcard_type.clone(),
         false,
     ));
-
     Ok(())
 }
 
+
 async fn create_manual_tipcard(
-    state: &AppState,
-    user_id: &str,
-    topic_name: &str,
-    topic: &TopicInfo,
+    ctx: GenerationContext<'_>,
     full_tip: String,
     compressed_tip: String,
     image_data: Vec<String>,
@@ -533,30 +564,32 @@ async fn create_manual_tipcard(
     let title = fallback_title(&full_tip, "Manual card");
     let image_data_json = image_data_json(&image_data)?;
     let card_id = tipcards::create_manual(
-        &state.db,
-        user_id,
-        topic.id,
-        &topic.tipcard_type,
-        &title,
-        &full_tip,
-        &compressed_tip,
-        &image_data_json,
+        &ctx.state.db,
+        tipcards::CreateManualParams {
+            user_id: ctx.user_id,
+            topic_id: ctx.topic.id,
+            tipcard_type: &ctx.topic.tipcard_type,
+            title: &title,
+            full_content: &full_tip,
+            compressed_content: &compressed_tip,
+            image_data_json: &image_data_json,
+        },
     )
     .await
     .map_err(|err| err.into_status_body())?;
 
     responses.push(tip_response_json(
         card_id,
-        topic_name,
+        ctx.topic_name,
         full_tip,
         compressed_tip,
         image_data,
-        topic.tipcard_type.clone(),
+        ctx.topic.tipcard_type.clone(),
         false,
     ));
-
     Ok(())
 }
+
 
 async fn record_llm_token_usage(
     state: &AppState,
