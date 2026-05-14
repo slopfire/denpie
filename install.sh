@@ -24,11 +24,11 @@ Environment overrides:
   RP_ID           WebAuthn relying party ID for passkeys (default: denpie.com)
   RP_ORIGIN       WebAuthn relying party origin for passkeys (default: https://denpie.com)
   BIN_DIR         binary install directory (default: /usr/local/bin)
-  SHARE_DIR       schema install directory (default: /usr/local/share/denpie)
+  SHARE_DIR       shared asset install directory (default: /usr/local/share/denpie)
   DATA_DIR        runtime data directory (default: /var/lib/denpie)
   LIBEXEC_DIR     helper script directory (default: /usr/local/libexec)
   SERVICE_USER    system user name (default: denpie)
-  SKIP_BUILD=1    install existing target/release/denpie
+  SKIP_BUILD=1    install existing target/release/denpie and frontend/dist
   RUSTUP_INIT_URL rustup installer URL (default: https://sh.rustup.rs)
 EOF
 }
@@ -85,7 +85,27 @@ build_release() {
         return
     fi
     install_rust_toolchain
-    cargo build --release
+    if ! command_exists rustup; then
+        echo "rustup is required to install the wasm32 frontend target; install rustup or use SKIP_BUILD=1 with prebuilt frontend/dist" >&2
+        exit 1
+    fi
+    rustup target add wasm32-unknown-unknown
+    if ! command_exists trunk; then
+        cargo install trunk --locked
+    fi
+    (cd frontend && trunk build --release)
+    cargo build --release --package "$APP_NAME"
+}
+
+verify_release_artifacts() {
+    if [ ! -x "target/release/$APP_NAME" ]; then
+        echo "missing target/release/$APP_NAME; run without SKIP_BUILD=1 or build the server first" >&2
+        exit 1
+    fi
+    if [ ! -f frontend/dist/index.html ]; then
+        echo "missing frontend/dist/index.html; run without SKIP_BUILD=1 or build the frontend with trunk first" >&2
+        exit 1
+    fi
 }
 
 ensure_user() {
@@ -108,7 +128,7 @@ write_service() {
         -e "s|^Environment=DENPIE_RP_ORIGIN=.*|Environment=DENPIE_RP_ORIGIN=$RP_ORIGIN|" \
         -e "s|^Environment=DENPIE_DATA_DIR=.*|Environment=DENPIE_DATA_DIR=$DATA_DIR|" \
         -e "s|^Environment=DENPIE_SCHEMA_PATH=.*|Environment=DENPIE_SCHEMA_PATH=$SHARE_DIR/schema.sql|" \
-        -e "s|^Environment=DENPIE_TEMPLATE_DIR=.*|Environment=DENPIE_TEMPLATE_DIR=$SHARE_DIR/templates|" \
+        -e "s|^Environment=DENPIE_FRONTEND_DIST=.*|Environment=DENPIE_FRONTEND_DIST=$SHARE_DIR/frontend/dist|" \
         -e "s|^Environment=DENPIE_STATIC_DIR=.*|Environment=DENPIE_STATIC_DIR=$SHARE_DIR/static|" \
         -e "s|^ExecStart=.*|ExecStart=$BIN_DIR/$APP_NAME|" \
         -e "s|^ReadWritePaths=.*|ReadWritePaths=$DATA_DIR|" \
@@ -177,13 +197,16 @@ EOF
 install_app() {
     require_sudo_access
     build_release
+    verify_release_artifacts
     ensure_user
 
-    run_as_root install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/templates" "$SHARE_DIR/static"
+    run_as_root install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/frontend" "$SHARE_DIR/static"
     run_as_root install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$DATA_DIR"
     run_as_root install -m 0755 "target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
     run_as_root install -m 0644 schema.sql "$SHARE_DIR/schema.sql"
-    run_as_root install -m 0644 templates/*.html "$SHARE_DIR/templates/"
+    run_as_root rm -rf "$SHARE_DIR/frontend/dist"
+    run_as_root install -d -m 0755 "$SHARE_DIR/frontend/dist"
+    run_as_root cp -R frontend/dist/. "$SHARE_DIR/frontend/dist/"
     run_as_root rm -rf "$SHARE_DIR/static"
     run_as_root install -d -m 0755 "$SHARE_DIR/static"
     run_as_root cp -R static/. "$SHARE_DIR/static/"

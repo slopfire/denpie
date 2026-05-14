@@ -126,8 +126,13 @@ printf '%s\n' "$now" > "$last_check_file"
 write_status checking "Checking updater prerequisites"
 need_command git
 need_command cargo
+need_command rustup
 need_command install
 need_command systemctl
+if ! command -v trunk >/dev/null 2>&1; then
+    cargo install trunk --locked
+fi
+rustup target add wasm32-unknown-unknown
 
 remote_url="https://github.com/$repo.git"
 write_status checking "Checking GitHub branch $repo:$branch"
@@ -160,15 +165,18 @@ rm -rf "$SOURCE_DIR.tmp"
 git clone --depth 1 --branch "$branch" "$remote_url" "$SOURCE_DIR.tmp"
 (
     cd "$SOURCE_DIR.tmp"
-    write_status compiling "Running cargo build --release" "$latest_sha"
-    cargo build --release
+    write_status compiling "Building frontend and server release assets" "$latest_sha"
+    (cd frontend && trunk build --release)
+    cargo build --release --package "$APP_NAME"
 )
 
-write_status installing "Installing binary, schema, templates, and static assets" "$latest_sha"
-install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/templates" "$SHARE_DIR/static"
+write_status installing "Installing binary, schema, frontend, and static assets" "$latest_sha"
+install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/frontend" "$SHARE_DIR/static"
 install -m 0755 "$SOURCE_DIR.tmp/target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
 install -m 0644 "$SOURCE_DIR.tmp/schema.sql" "$SHARE_DIR/schema.sql"
-install -m 0644 "$SOURCE_DIR.tmp/templates/"*.html "$SHARE_DIR/templates/"
+rm -rf "$SHARE_DIR/frontend/dist"
+install -d -m 0755 "$SHARE_DIR/frontend/dist"
+cp -R "$SOURCE_DIR.tmp/frontend/dist/." "$SHARE_DIR/frontend/dist/"
 rm -rf "$SHARE_DIR/static"
 install -d -m 0755 "$SHARE_DIR/static"
 cp -R "$SOURCE_DIR.tmp/static/." "$SHARE_DIR/static/"

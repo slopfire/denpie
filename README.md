@@ -18,7 +18,8 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Any OpenAI-Compatible LLM**: Configure each user's API key, base URL, and model through the protobuf API or browser dashboard — no hardcoded vendor lock-in.
 - **Token Spend Counters**: The browser dashboard tracks OpenAI-compatible `usage.total_tokens` for the current user's daily, monthly, and lifetime LLM calls.
 - **Unified Protobuf API**: `POST /api` manages tips, reviews, settings, keys, topics, topic deletion, card pinning, cards, and summary counts. The API key owner determines the data scope.
-- **Root Control Page**: `/` serves a shadcn-inspired browser control panel with direct Radix icons that talks to the same protobuf API, with readable shadcn dark destructive controls, compact mobile stats, stable per-card loading skeletons, compact/full card text controls, searchable archive filters, a remembered grid/column flow layout switch, readable-width list expansion, solid Unified Flow cards when more than eight cards are visible, title-row fullscreen card viewing that hides background cards, old-template-compatible tipcard actions, and touch-friendly card reordering with edge auto-scroll.
+- **Root Control Page**: `/` serves a shadcn-inspired Yew/WebAssembly browser control panel with direct Radix icons that talks to the same protobuf API, with readable shadcn dark destructive controls, compact mobile stats, stable per-card loading skeletons, compact/full card text controls, searchable archive filters, a remembered grid/column flow layout switch, readable-width list expansion, solid Unified Flow cards when more than eight cards are visible, title-row fullscreen card viewing that hides background cards, old-template-compatible tipcard actions, and touch-friendly card reordering with edge auto-scroll.
+- **Mobile-Friendly Asset Delivery**: The server compresses frontend assets and sends long-lived cache headers for hashed JavaScript, WebAssembly, and static files. The mobile control page avoids fixed background and backdrop-filter work on small screens.
 - **Single Dashboard Surface**: The browser dashboard is served only at `/`;
 - **CSS-Only Motion**: The control page uses fast page-entry, card-entry, and compact-to-full tipcard animations with reduced-motion support.
 - **Markdown Tipcards**: API responses keep the original raw markdown-capable text so clients can render it however they need.
@@ -94,12 +95,13 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 
 3. **Run the server:**
    ```bash
+   rustup target add wasm32-unknown-unknown
    cd frontend
-   trunk build
+   trunk build --release
    cd ..
    cargo run
    ```
-   For backend-only development, `cargo run` still works if `frontend/dist` already exists.
+   For backend-only development, `cargo run` still works if `frontend/dist` already exists. Use `trunk build --release` for the frontend served to phones; debug WebAssembly builds are much larger and slower to load.
    The server starts on `http://127.0.0.1:3017` by default. On the first run it will:
    - Create `denpie.db` and apply `schema.sql` automatically.
    - Generate and print a setup admin token to the console.
@@ -142,7 +144,7 @@ Per-user settings stored in SQLite include `llm_model`, `llm_compress_model`, `p
 
 ### Server Self-Updates
 
-Server self-updates are intentionally off by default. For the systemd installation, the installer enables a `denpie-autoupdate.timer` that reads `settings.yaml`; checking **Enable Server Self-Updates** in the app is enough. On the first successful check the updater records the current commit SHA as a baseline and does not update. On later checks, a changed SHA triggers a root-owned update helper that fetches the configured branch, runs `cargo build --release`, installs the new binary plus shared files, records the new SHA, and restarts `denpie.service`. The host must keep the build tools available after installation (`git`, `cargo` from the installer-managed rustup toolchain or another Rust installation, and `protoc`/`protobuf-compiler`).
+Server self-updates are intentionally off by default. For the systemd installation, the installer enables a `denpie-autoupdate.timer` that reads `settings.yaml`; checking **Enable Server Self-Updates** in the app is enough. On the first successful check the updater records the current commit SHA as a baseline and does not update. On later checks, a changed SHA triggers a root-owned update helper that fetches the configured branch, runs `trunk build --release` for the frontend and `cargo build --release --package denpie` for the server, installs the new binary plus shared files, records the new SHA, and restarts `denpie.service`. The host must keep the build tools available after installation (`git`, `cargo` from the installer-managed rustup toolchain or another Rust installation, and `protoc`/`protobuf-compiler`).
 
 The settings screen also has a **Check Server Now** button. It shows staged progress while saving server update settings, checking GitHub, and, when a new commit is found, starting the server update flow. If `autoupdate_command` is empty, it starts the default systemd updater service (`denpie-autoupdate.service`) with `systemctl start --no-block`; set `DENPIE_AUTOUPDATE_SERVICE` to use a different unit name. The installer also installs a narrow polkit rule allowing the `denpie` service user to start only that updater unit. If the unit or permission rule is missing, the check fails with a configuration message instead of a raw systemctl failure. For non-systemd or custom deployments it runs the configured `autoupdate_command` immediately after checking GitHub. When a server update is found, the browser shows the target commit, polls `/admin/autoupdate/status` for real updater phases, and polls the server build SHA after restart, so it only reports completion when the deployed server changes. The updater records `autoupdate_last_seen_sha` only after a successful service restart, allowing failed restarts to be retried. You can also manually trigger the root-owned updater with:
 
@@ -200,7 +202,7 @@ Use the installer on a Linux host with systemd:
 ./install.sh
 ```
 
-The installer installs Rust with rustup if `cargo` is not available, builds `target/release/denpie`, installs the binary to `/usr/local/bin/denpie`, installs `schema.sql`, the root page, and static assets to `/usr/local/share/denpie`, creates a `denpie` system user, stores runtime data in `/var/lib/denpie`, and starts `denpie.service`. It uses `sudo` internally for system directories, service users, and systemd commands.
+The installer installs Rust with rustup if `cargo` is not available, builds the release Yew frontend with Trunk, builds `target/release/denpie`, installs the binary to `/usr/local/bin/denpie`, installs `schema.sql`, frontend assets, and static assets to `/usr/local/share/denpie`, creates a `denpie` system user, stores runtime data in `/var/lib/denpie`, and starts `denpie.service`. It uses `sudo` internally for system directories, service users, and systemd commands.
 It also installs and enables `denpie-autoupdate.timer`, which stays idle unless `autoupdate_enabled: true` is set in `settings.yaml`.
 
 Useful commands:

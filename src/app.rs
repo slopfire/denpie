@@ -1,11 +1,17 @@
 use axum::{
+    body::Body,
+    extract::Request,
     http::StatusCode,
+    http::{header, HeaderValue},
+    middleware::Next,
+    response::Response,
     routing::{delete, get, post},
     Router,
 };
 use sqlx::SqlitePool;
 use std::{path::PathBuf, sync::Arc};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_http::compression::CompressionLayer;
 use tower_http::services::ServeDir;
 use tower_sessions::SessionManagerLayer;
 use webauthn_rs::Webauthn;
@@ -113,10 +119,51 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .route("/topic-classes", get(not_found))
         .route("/admin", get(not_found))
         .fallback_service(frontend_serve)
+        .layer(CompressionLayer::new())
+        .layer(axum::middleware::from_fn(cache_headers))
         .layer(session_layer)
         .with_state(shared_state)
 }
 
 async fn not_found() -> StatusCode {
     StatusCode::NOT_FOUND
+}
+
+async fn cache_headers(req: Request<Body>, next: Next) -> Response {
+    let path = req.uri().path().to_owned();
+    let mut response = next.run(req).await;
+
+    if !response.status().is_success() {
+        return response;
+    }
+
+    let headers = response.headers_mut();
+    if path == "/" || path.ends_with("/index.html") {
+        headers.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-cache, max-age=0, must-revalidate"),
+        );
+        return response;
+    }
+
+    if is_hashed_frontend_asset(&path) {
+        headers.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=31536000, immutable"),
+        );
+    } else if path.starts_with("/static/") {
+        headers.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=604800"),
+        );
+    }
+
+    response
+}
+
+fn is_hashed_frontend_asset(path: &str) -> bool {
+    path.starts_with("/snippets/")
+        || path.ends_with(".wasm")
+        || path.ends_with(".js")
+        || path.ends_with(".css")
 }

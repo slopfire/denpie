@@ -17,7 +17,7 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 tower-sessions = "0.13"
 tower-sessions-sqlx-store = { version = "0.14", features = ["sqlite"] }
-tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
+tower-http = { version = "0.6", features = ["compression-full", "fs", "cors", "trace"] }
 argon2 = "0.5"
 rand = "0.8"
 base64 = "0.22"
@@ -43,3 +43,12 @@ prost-build = "0.14.3"
 members = [
     "frontend"
 ]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "z"
+panic = "abort"
+
+[profile.release.package.frontend]
+opt-level = "z"
