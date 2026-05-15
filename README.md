@@ -202,7 +202,7 @@ Use the installer on a Linux host with systemd:
 ./install.sh
 ```
 
-The installer installs Rust with rustup if `cargo` is not available, builds the release Yew frontend with Trunk, builds `target/release/denpie`, installs the binary to `/usr/local/bin/denpie`, installs `schema.sql`, frontend assets, and static assets to `/usr/local/share/denpie`, creates a `denpie` system user, stores runtime data in `/var/lib/denpie`, and starts `denpie.service`. It uses `sudo` internally for system directories, service users, and systemd commands.
+The installer installs Rust with rustup if `cargo` is not available, builds the release Yew frontend with Trunk, builds `target/release/denpie`, installs the binary to `/usr/local/bin/denpie`, installs `schema.sql`, frontend assets, and static assets to `/usr/local/share/denpie`, creates a `denpie` system user, repairs `/var/lib/denpie` ownership for that service user, and starts `denpie.service`. It uses `sudo` internally for system directories, service users, and systemd commands.
 It also installs and enables `denpie-autoupdate.timer`, which stays idle unless `autoupdate_enabled: true` is set in `settings.yaml`.
 
 Useful commands:

@@ -117,6 +117,13 @@ ensure_user() {
     fi
 }
 
+repair_data_permissions() {
+    run_as_root install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$DATA_DIR"
+    run_as_root chown -R "$SERVICE_USER:$SERVICE_GROUP" "$DATA_DIR"
+    run_as_root find "$DATA_DIR" -type d -exec chmod 0750 {} +
+    run_as_root find "$DATA_DIR" -type f -exec chmod u+rw,g-rwx,o-rwx {} +
+}
+
 write_service() {
     tmp_file="$(mktemp)"
     sed \
@@ -143,6 +150,8 @@ write_autoupdate_defaults() {
     cat > "$tmp_file" <<EOF
 APP_NAME=$APP_NAME
 SERVICE_NAME=$APP_NAME.service
+SERVICE_USER=$SERVICE_USER
+SERVICE_GROUP=$SERVICE_GROUP
 BIN_DIR=$BIN_DIR
 SHARE_DIR=$SHARE_DIR
 DATA_DIR=$DATA_DIR
@@ -201,7 +210,7 @@ install_app() {
     ensure_user
 
     run_as_root install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/frontend" "$SHARE_DIR/static"
-    run_as_root install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$DATA_DIR"
+    repair_data_permissions
     run_as_root install -m 0755 "target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
     run_as_root install -m 0644 schema.sql "$SHARE_DIR/schema.sql"
     run_as_root rm -rf "$SHARE_DIR/frontend/dist"

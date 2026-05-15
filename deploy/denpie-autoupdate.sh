@@ -3,6 +3,8 @@ set -eu
 
 APP_NAME="${APP_NAME:-denpie}"
 SERVICE_NAME="${SERVICE_NAME:-denpie.service}"
+SERVICE_USER="${SERVICE_USER:-denpie}"
+SERVICE_GROUP="${SERVICE_GROUP:-$SERVICE_USER}"
 BIN_DIR="${BIN_DIR:-/usr/local/bin}"
 SHARE_DIR="${SHARE_DIR:-/usr/local/share/$APP_NAME}"
 DATA_DIR="${DATA_DIR:-/var/lib/$APP_NAME}"
@@ -17,12 +19,20 @@ log() {
     printf '%s %s\n' "$(date -Is)" "$*"
 }
 
+own_runtime_path() {
+    path="$1"
+    if id "$SERVICE_USER" >/dev/null 2>&1; then
+        chown "$SERVICE_USER:$SERVICE_GROUP" "$path" 2>/dev/null || true
+    fi
+}
+
 write_status() {
     phase="$1"
     message="$2"
     target_sha="${3:-}"
     mkdir -p "$STATE_DIR"
-    chmod 0755 "$STATE_DIR"
+    chmod 0750 "$STATE_DIR"
+    own_runtime_path "$STATE_DIR"
     tmp="$STATE_DIR/status.tmp.$$"
     {
         printf 'phase=%s\n' "$phase"
@@ -32,6 +42,7 @@ write_status() {
     } > "$tmp"
     chmod 0644 "$tmp"
     mv "$tmp" "$STATE_DIR/status"
+    own_runtime_path "$STATE_DIR/status"
 }
 
 completed=0
@@ -53,6 +64,8 @@ set_yaml_value() {
     value="$2"
     if [ ! -f "$SETTINGS_PATH" ]; then
         printf '%s: %s\n' "$key" "$value" > "$SETTINGS_PATH"
+        chmod 0600 "$SETTINGS_PATH"
+        own_runtime_path "$SETTINGS_PATH"
         return
     fi
     if grep -q "^[[:space:]]*$key:" "$SETTINGS_PATH"; then
@@ -63,6 +76,8 @@ set_yaml_value() {
     else
         printf '\n%s: %s\n' "$key" "$value" >> "$SETTINGS_PATH"
     fi
+    chmod 0600 "$SETTINGS_PATH"
+    own_runtime_path "$SETTINGS_PATH"
 }
 
 need_command() {
@@ -108,6 +123,8 @@ if [ "$interval" -lt 60 ]; then
 fi
 
 mkdir -p "$STATE_DIR"
+chmod 0750 "$STATE_DIR"
+own_runtime_path "$STATE_DIR"
 last_check_file="$STATE_DIR/last_check"
 if [ "${1:-}" != "force" ] && [ -f "$last_check_file" ]; then
     last_check="$(cat "$last_check_file" 2>/dev/null || printf '0')"
@@ -122,6 +139,8 @@ if [ "${1:-}" != "force" ] && [ -f "$last_check_file" ]; then
     fi
 fi
 printf '%s\n' "$now" > "$last_check_file"
+chmod 0600 "$last_check_file"
+own_runtime_path "$last_check_file"
 
 write_status checking "Checking updater prerequisites"
 need_command git
