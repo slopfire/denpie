@@ -54,7 +54,6 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let fullscreen = props.fullscreen;
 
     let ondragstart = {
-
         Callback::from(move |e: DragEvent| {
             if let Some(dt) = e.data_transfer() {
                 let _ = dt.set_data("text/plain", &id.to_string());
@@ -71,7 +70,6 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     });
 
     let ondrop = {
-
         Callback::from(move |e: DragEvent| {
             e.prevent_default();
             if let Some(dt) = e.data_transfer() {

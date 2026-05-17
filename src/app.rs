@@ -138,6 +138,15 @@ async fn cache_headers(req: Request<Body>, next: Next) -> Response {
     }
 
     let headers = response.headers_mut();
+    if path.starts_with("/admin/")
+        || path.starts_with("/app/")
+        || path.starts_with("/auth/")
+        || path.starts_with("/api")
+    {
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        return response;
+    }
+
     if path == "/" || path.ends_with("/index.html") {
         headers.insert(
             header::CACHE_CONTROL,

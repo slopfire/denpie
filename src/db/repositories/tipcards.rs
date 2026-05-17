@@ -396,10 +396,7 @@ pub struct CreateManualParams<'a> {
     pub image_data_json: &'a str,
 }
 
-pub async fn create_manual(
-    pool: &SqlitePool,
-    params: CreateManualParams<'_>,
-) -> AppResult<i64> {
+pub async fn create_manual(pool: &SqlitePool, params: CreateManualParams<'_>) -> AppResult<i64> {
     let card_id = sqlx::query(
         "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content, image_data) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )

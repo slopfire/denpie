@@ -16,7 +16,10 @@ fn main() -> Result<()> {
     println!("cargo:rustc-env=DENPIE_BUILD_SHA={sha}");
     let mut config = prost_build::Config::new();
     config.type_attribute(".denpie.ApiRequest", "#[allow(clippy::large_enum_variant)]");
-    config.type_attribute(".denpie.ApiResponse", "#[allow(clippy::large_enum_variant)]");
+    config.type_attribute(
+        ".denpie.ApiResponse",
+        "#[allow(clippy::large_enum_variant)]",
+    );
     config.compile_protos(&["proto/denpie.proto"], &["proto/"])?;
     Ok(())
 }

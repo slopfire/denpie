@@ -44,23 +44,21 @@ pub struct SettingsRes {
 pub async fn get_settings(
     State(state): State<Arc<AppState>>,
     session: Session,
-) -> Json<SettingsRes> {
-    let user = match crate::auth::current_user(&state, &session).await {
-        Ok(user) => user,
-        Err(_) => {
-            return Json(settings_response(config::Settings::default(), false));
-        }
-    };
-    let defaults = state.settings.get_settings().unwrap_or_default();
+) -> Result<Json<SettingsRes>, (StatusCode, String)> {
+    let user = crate::auth::current_user(&state, &session).await?;
+    let defaults = state
+        .settings
+        .get_settings()
+        .map_err(|err| err.into_status_body())?;
     let mut settings = user_settings::get(&state.db, &user.id, defaults)
         .await
-        .unwrap_or_default();
+        .map_err(|err| err.into_status_body())?;
     if user.role != "admin" {
         settings.autoupdate_enabled = false;
         settings.autoupdate_command.clear();
     }
 
-    Json(settings_response(settings, user.role == "admin"))
+    Ok(Json(settings_response(settings, user.role == "admin")))
 }
 
 fn settings_response(settings: config::Settings, show_autoupdate: bool) -> SettingsRes {
@@ -186,10 +184,13 @@ pub async fn update_settings(
             })
             .map_err(|err| err.into_status_body())?;
     }
-    let defaults = state.settings.get_settings().unwrap_or_default();
+    let defaults = state
+        .settings
+        .get_settings()
+        .map_err(|err| err.into_status_body())?;
     let current = user_settings::get(&state.db, &user.id, defaults)
         .await
-        .unwrap_or_default();
+        .map_err(|err| err.into_status_body())?;
     let updated = current.apply_patch(patch);
     user_settings::upsert(&state.db, &user.id, &updated)
         .await

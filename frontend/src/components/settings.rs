@@ -1,6 +1,7 @@
 use crate::api::toast;
 use crate::state::AppState;
 use gloo_net::http::Request;
+use gloo_storage::{LocalStorage, Storage};
 use gloo_timers::callback::Timeout;
 use serde::{Deserialize, Serialize};
 use web_sys::{HtmlInputElement, HtmlSelectElement, HtmlTextAreaElement};
@@ -33,10 +34,182 @@ pub struct SettingsRes {
     pub max_active_cards: u64,
 }
 
+impl SettingsRes {
+    fn diff_from(&self, prev: &Self) -> UpdateSettingsPatch {
+        macro_rules! changed {
+            ($patch:ident, $field:ident) => {
+                if self.$field != prev.$field {
+                    $patch.$field = Some(self.$field.clone());
+                }
+            };
+            ($patch:ident, $field:ident, copy) => {
+                if self.$field != prev.$field {
+                    $patch.$field = Some(self.$field);
+                }
+            };
+        }
+
+        let mut patch = UpdateSettingsPatch::default();
+        changed!(patch, model);
+        changed!(patch, compress_model);
+        changed!(patch, template);
+        changed!(patch, api_key);
+        changed!(patch, base_url);
+        changed!(patch, compress_base_url);
+        changed!(patch, reasoning_effort);
+        changed!(patch, compress_reasoning_effort);
+        changed!(patch, compression_level);
+        changed!(patch, color_scheme);
+        changed!(patch, transparency);
+        changed!(patch, blur_intensity);
+        changed!(patch, autoupdate_enabled, copy);
+        changed!(patch, autoupdate_repo);
+        changed!(patch, autoupdate_branch);
+        changed!(patch, autoupdate_check_interval_secs, copy);
+        changed!(patch, autoupdate_command);
+        changed!(patch, daily_time_zone);
+        changed!(patch, daily_update_time);
+        changed!(patch, max_active_cards, copy);
+        patch
+    }
+
+    fn apply_patch(&mut self, patch: &UpdateSettingsPatch) {
+        macro_rules! apply {
+            ($field:ident) => {
+                if let Some(value) = &patch.$field {
+                    self.$field = value.clone();
+                }
+            };
+        }
+
+        apply!(reasoning_effort);
+        apply!(compress_reasoning_effort);
+        apply!(compression_level);
+        apply!(color_scheme);
+        apply!(transparency);
+        apply!(blur_intensity);
+    }
+}
+
 #[derive(Serialize)]
 struct ForceDailyRefreshRequest {
     topics: String,
     tipcard_type: Option<String>,
+}
+
+const PENDING_SETTINGS_KEY: &str = "denpie-pending-settings";
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct UpdateSettingsPatch {
+    model: Option<String>,
+    compress_model: Option<String>,
+    template: Option<String>,
+    api_key: Option<String>,
+    base_url: Option<String>,
+    compress_base_url: Option<String>,
+    reasoning_effort: Option<String>,
+    compress_reasoning_effort: Option<String>,
+    compression_level: Option<String>,
+    color_scheme: Option<String>,
+    transparency: Option<String>,
+    blur_intensity: Option<String>,
+    autoupdate_enabled: Option<bool>,
+    autoupdate_repo: Option<String>,
+    autoupdate_branch: Option<String>,
+    autoupdate_check_interval_secs: Option<u64>,
+    autoupdate_command: Option<String>,
+    daily_time_zone: Option<String>,
+    daily_update_time: Option<String>,
+    max_active_cards: Option<u64>,
+}
+
+impl UpdateSettingsPatch {
+    fn durable_selects(&self) -> Self {
+        Self {
+            reasoning_effort: self.reasoning_effort.clone(),
+            compress_reasoning_effort: self.compress_reasoning_effort.clone(),
+            compression_level: self.compression_level.clone(),
+            color_scheme: self.color_scheme.clone(),
+            transparency: self.transparency.clone(),
+            blur_intensity: self.blur_intensity.clone(),
+            ..Default::default()
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.model.is_none()
+            && self.compress_model.is_none()
+            && self.template.is_none()
+            && self.api_key.is_none()
+            && self.base_url.is_none()
+            && self.compress_base_url.is_none()
+            && self.reasoning_effort.is_none()
+            && self.compress_reasoning_effort.is_none()
+            && self.compression_level.is_none()
+            && self.color_scheme.is_none()
+            && self.transparency.is_none()
+            && self.blur_intensity.is_none()
+            && self.autoupdate_enabled.is_none()
+            && self.autoupdate_repo.is_none()
+            && self.autoupdate_branch.is_none()
+            && self.autoupdate_check_interval_secs.is_none()
+            && self.autoupdate_command.is_none()
+            && self.daily_time_zone.is_none()
+            && self.daily_update_time.is_none()
+            && self.max_active_cards.is_none()
+    }
+
+    fn merge_from(&mut self, other: Self) {
+        macro_rules! merge {
+            ($field:ident) => {
+                if other.$field.is_some() {
+                    self.$field = other.$field;
+                }
+            };
+        }
+
+        merge!(model);
+        merge!(compress_model);
+        merge!(template);
+        merge!(api_key);
+        merge!(base_url);
+        merge!(compress_base_url);
+        merge!(reasoning_effort);
+        merge!(compress_reasoning_effort);
+        merge!(compression_level);
+        merge!(color_scheme);
+        merge!(transparency);
+        merge!(blur_intensity);
+        merge!(autoupdate_enabled);
+        merge!(autoupdate_repo);
+        merge!(autoupdate_branch);
+        merge!(autoupdate_check_interval_secs);
+        merge!(autoupdate_command);
+        merge!(daily_time_zone);
+        merge!(daily_update_time);
+        merge!(max_active_cards);
+    }
+}
+
+fn remember_pending_selects(patch: &UpdateSettingsPatch) {
+    let durable = patch.durable_selects();
+    if !durable.is_empty() {
+        let _ = LocalStorage::set(PENDING_SETTINGS_KEY, durable);
+    }
+}
+
+fn load_pending_selects() -> Option<UpdateSettingsPatch> {
+    LocalStorage::get(PENDING_SETTINGS_KEY).ok()
+}
+
+fn clear_pending_selects() {
+    LocalStorage::delete(PENDING_SETTINGS_KEY);
+}
+
+#[derive(Clone)]
+struct SaveRequest {
+    patch: UpdateSettingsPatch,
+    snapshot: SettingsRes,
 }
 
 #[derive(Deserialize, Clone, PartialEq, Default)]
@@ -70,19 +243,43 @@ fn apply_appearance(settings: &SettingsRes) {
 
 fn save_settings_now(
     app_state: UseReducerHandle<AppState>,
+    settings_state: UseStateHandle<Option<SettingsRes>>,
     status: UseStateHandle<String>,
-    settings: SettingsRes,
+    last_saved: UseStateHandle<Option<SettingsRes>>,
+    request: SaveRequest,
 ) {
     status.set("Saving...".to_string());
     wasm_bindgen_futures::spawn_local(async move {
         match Request::post("/admin/settings")
-            .json(&settings)
+            .json(&request.patch)
             .unwrap()
             .send()
             .await
         {
             Ok(res) if res.ok() => {
-                status.set("Saved".to_string());
+                match Request::get("/admin/settings").send().await {
+                    Ok(refresh) if refresh.ok() => {
+                        if let Ok(server_settings) = refresh.json::<SettingsRes>().await {
+                            clear_pending_selects();
+                            apply_appearance(&server_settings);
+                            settings_state.set(Some(server_settings.clone()));
+                            last_saved.set(Some(server_settings));
+                            status.set("Saved".to_string());
+                        } else {
+                            // Keep optimistic snapshot if refresh payload is invalid.
+                            settings_state.set(Some(request.snapshot.clone()));
+                            last_saved.set(Some(request.snapshot));
+                            status.set("Saved".to_string());
+                        }
+                    }
+                    _ => {
+                        clear_pending_selects();
+                        // Keep optimistic snapshot if refresh request fails.
+                        settings_state.set(Some(request.snapshot.clone()));
+                        last_saved.set(Some(request.snapshot));
+                        status.set("Saved".to_string());
+                    }
+                }
             }
             Ok(res) => {
                 let message = res
@@ -104,19 +301,62 @@ fn save_settings_now(
 pub fn settings() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
     let settings = use_state(|| None::<SettingsRes>);
+    let last_saved = use_state(|| None::<SettingsRes>);
     let update_status = use_state(|| None::<AutoupdateStatus>);
     let update_result = use_state(|| None::<TriggerAutoupdateRes>);
     let save_status = use_state(String::new);
     let save_timer = use_mut_ref(|| None::<Timeout>);
+    let pending_patch = use_mut_ref(UpdateSettingsPatch::default);
+    let pending_snapshot = use_mut_ref(|| None::<SettingsRes>);
 
     {
+        let app_state = app_state.clone();
         let settings = settings.clone();
+        let last_saved = last_saved.clone();
+        let save_status = save_status.clone();
         use_effect_with((), move |_| {
             wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(res) = Request::get("/admin/settings").send().await {
-                    if let Ok(data) = res.json::<SettingsRes>().await {
-                        apply_appearance(&data);
-                        settings.set(Some(data));
+                match Request::get("/admin/settings").send().await {
+                    Ok(res) if res.ok() => {
+                        if let Ok(data) = res.json::<SettingsRes>().await {
+                            let mut data = data;
+                            let pending = load_pending_selects();
+                            if let Some(pending) = &pending {
+                                data.apply_patch(pending);
+                            }
+                            let snapshot = data.clone();
+                            apply_appearance(&data);
+                            last_saved.set(Some(data.clone()));
+                            settings.set(Some(data));
+                            save_status.set(String::new());
+                            if let Some(pending) = pending {
+                                save_settings_now(
+                                    app_state.clone(),
+                                    settings.clone(),
+                                    save_status.clone(),
+                                    last_saved.clone(),
+                                    SaveRequest {
+                                        patch: pending,
+                                        snapshot,
+                                    },
+                                );
+                            }
+                        } else {
+                            save_status.set("Failed to load settings".to_string());
+                            toast(&app_state, "Failed to parse settings response");
+                        }
+                    }
+                    Ok(res) => {
+                        save_status.set("Failed to load settings".to_string());
+                        let message = res
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "Failed to load settings".to_string());
+                        toast(&app_state, message);
+                    }
+                    Err(err) => {
+                        save_status.set("Failed to load settings".to_string());
+                        toast(&app_state, err.to_string());
                     }
                 }
             });
@@ -127,29 +367,101 @@ pub fn settings() -> Html {
     let on_submit = {
         let app_state = app_state.clone();
         let settings = settings.clone();
+        let last_saved = last_saved.clone();
         let save_status = save_status.clone();
+        let save_timer = save_timer.clone();
+        let pending_patch = pending_patch.clone();
+        let pending_snapshot = pending_snapshot.clone();
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
             if let Some(s) = (*settings).clone() {
-                save_settings_now(app_state.clone(), save_status.clone(), s);
+                if let Some(timer) = save_timer.borrow_mut().take() {
+                    timer.cancel();
+                }
+                *pending_patch.borrow_mut() = UpdateSettingsPatch::default();
+                pending_snapshot.borrow_mut().take();
+                let prev = (*last_saved).clone().unwrap_or_default();
+                let patch = s.diff_from(&prev);
+                save_settings_now(
+                    app_state.clone(),
+                    settings.clone(),
+                    save_status.clone(),
+                    last_saved.clone(),
+                    SaveRequest { patch, snapshot: s },
+                );
             }
         })
     };
 
     let schedule_save = {
         let app_state = app_state.clone();
+        let settings = settings.clone();
+        let last_saved = last_saved.clone();
         let save_status = save_status.clone();
         let save_timer = save_timer.clone();
-        Callback::from(move |next: SettingsRes| {
+        let pending_patch = pending_patch.clone();
+        let pending_snapshot = pending_snapshot.clone();
+        Callback::from(move |request: SaveRequest| {
             save_status.set("Unsaved changes".to_string());
+            pending_patch.borrow_mut().merge_from(request.patch);
+            *pending_snapshot.borrow_mut() = Some(request.snapshot);
             if let Some(timer) = save_timer.borrow_mut().take() {
                 timer.cancel();
             }
+
             let app_state = app_state.clone();
+            let settings = settings.clone();
+            let last_saved = last_saved.clone();
             let save_status = save_status.clone();
-            *save_timer.borrow_mut() = Some(Timeout::new(550, move || {
-                save_settings_now(app_state, save_status, next);
-            }));
+            let save_timer = save_timer.clone();
+            let save_timer_for_callback = save_timer.clone();
+            let pending_patch = pending_patch.clone();
+            let pending_snapshot = pending_snapshot.clone();
+            let timer = Timeout::new(600, move || {
+                let patch = std::mem::take(&mut *pending_patch.borrow_mut());
+                let Some(snapshot) = pending_snapshot.borrow_mut().take() else {
+                    return;
+                };
+                save_timer_for_callback.borrow_mut().take();
+                save_settings_now(
+                    app_state,
+                    settings,
+                    save_status,
+                    last_saved,
+                    SaveRequest { patch, snapshot },
+                );
+            });
+            *save_timer.borrow_mut() = Some(timer);
+        })
+    };
+
+    let save_immediately = {
+        let app_state = app_state.clone();
+        let settings = settings.clone();
+        let last_saved = last_saved.clone();
+        let save_status = save_status.clone();
+        let save_timer = save_timer.clone();
+        let pending_patch = pending_patch.clone();
+        let pending_snapshot = pending_snapshot.clone();
+        Callback::from(move |request: SaveRequest| {
+            if let Some(timer) = save_timer.borrow_mut().take() {
+                timer.cancel();
+            }
+            remember_pending_selects(&request.patch);
+            pending_patch.borrow_mut().merge_from(request.patch);
+            *pending_snapshot.borrow_mut() = Some(request.snapshot);
+
+            let patch = std::mem::take(&mut *pending_patch.borrow_mut());
+            let Some(snapshot) = pending_snapshot.borrow_mut().take() else {
+                return;
+            };
+            save_settings_now(
+                app_state.clone(),
+                settings.clone(),
+                save_status.clone(),
+                last_saved.clone(),
+                SaveRequest { patch, snapshot },
+            );
         })
     };
 
@@ -210,7 +522,16 @@ pub fn settings() -> Html {
         })
     };
 
-    let s = (*settings).clone().unwrap_or_default();
+    let Some(s) = (*settings).clone() else {
+        return html! {
+            <section id="view-settings">
+                <h1 class="text-xl font-semibold tracking-tight mb-4">
+                    {"Settings"}
+                </h1>
+                <div class="text-sm text-muted">{"Loading settings..."}</div>
+            </section>
+        };
+    };
 
     let on_input = |field: &'static str| {
         let settings = settings.clone();
@@ -238,7 +559,42 @@ pub fn settings() -> Html {
                         _ => {}
                     }
                     settings.set(Some(current.clone()));
-                    schedule_save.emit(current);
+                    let mut patch = UpdateSettingsPatch::default();
+                    match field {
+                        "model" => patch.model = Some(current.model.clone()),
+                        "compress_model" => {
+                            patch.compress_model = Some(current.compress_model.clone())
+                        }
+                        "api_key" => patch.api_key = Some(current.api_key.clone()),
+                        "base_url" => patch.base_url = Some(current.base_url.clone()),
+                        "compress_base_url" => {
+                            patch.compress_base_url = Some(current.compress_base_url.clone())
+                        }
+                        "daily_time_zone" => {
+                            patch.daily_time_zone = Some(current.daily_time_zone.clone())
+                        }
+                        "daily_update_time" => {
+                            patch.daily_update_time = Some(current.daily_update_time.clone())
+                        }
+                        "max_active_cards" => {
+                            patch.max_active_cards = Some(current.max_active_cards)
+                        }
+                        "autoupdate_repo" => {
+                            patch.autoupdate_repo = Some(current.autoupdate_repo.clone())
+                        }
+                        "autoupdate_branch" => {
+                            patch.autoupdate_branch = Some(current.autoupdate_branch.clone())
+                        }
+                        "autoupdate_check_interval_secs" => {
+                            patch.autoupdate_check_interval_secs =
+                                Some(current.autoupdate_check_interval_secs)
+                        }
+                        _ => {}
+                    }
+                    schedule_save.emit(SaveRequest {
+                        patch,
+                        snapshot: current,
+                    });
                 }
             }
         })
@@ -246,7 +602,7 @@ pub fn settings() -> Html {
 
     let on_checkbox = |field: &'static str| {
         let settings = settings.clone();
-        let schedule_save = schedule_save.clone();
+        let save_immediately = save_immediately.clone();
         Callback::from(move |e: InputEvent| {
             if let Some(target) = e.target_dyn_into::<HtmlInputElement>() {
                 if let Some(mut current) = (*settings).clone() {
@@ -254,7 +610,12 @@ pub fn settings() -> Html {
                         current.autoupdate_enabled = target.checked();
                     }
                     settings.set(Some(current.clone()));
-                    schedule_save.emit(current);
+                    let mut patch = UpdateSettingsPatch::default();
+                    patch.autoupdate_enabled = Some(current.autoupdate_enabled);
+                    save_immediately.emit(SaveRequest {
+                        patch,
+                        snapshot: current,
+                    });
                 }
             }
         })
@@ -262,7 +623,7 @@ pub fn settings() -> Html {
 
     let on_select = |field: &'static str| {
         let settings = settings.clone();
-        let schedule_save = schedule_save.clone();
+        let save_immediately = save_immediately.clone();
         Callback::from(move |e: Event| {
             if let Some(target) = e.target_dyn_into::<HtmlSelectElement>() {
                 if let Some(mut current) = (*settings).clone() {
@@ -281,7 +642,29 @@ pub fn settings() -> Html {
                     }
                     apply_appearance(&current);
                     settings.set(Some(current.clone()));
-                    schedule_save.emit(current);
+                    let mut patch = UpdateSettingsPatch::default();
+                    match field {
+                        "reasoning_effort" => {
+                            patch.reasoning_effort = Some(current.reasoning_effort.clone())
+                        }
+                        "compress_reasoning_effort" => {
+                            patch.compress_reasoning_effort =
+                                Some(current.compress_reasoning_effort.clone())
+                        }
+                        "compression_level" => {
+                            patch.compression_level = Some(current.compression_level.clone())
+                        }
+                        "color_scheme" => patch.color_scheme = Some(current.color_scheme.clone()),
+                        "transparency" => patch.transparency = Some(current.transparency.clone()),
+                        "blur_intensity" => {
+                            patch.blur_intensity = Some(current.blur_intensity.clone())
+                        }
+                        _ => {}
+                    }
+                    save_immediately.emit(SaveRequest {
+                        patch,
+                        snapshot: current,
+                    });
                 }
             }
         })
@@ -299,7 +682,18 @@ pub fn settings() -> Html {
                         _ => {}
                     }
                     settings.set(Some(current.clone()));
-                    schedule_save.emit(current);
+                    let mut patch = UpdateSettingsPatch::default();
+                    match field {
+                        "template" => patch.template = Some(current.template.clone()),
+                        "autoupdate_command" => {
+                            patch.autoupdate_command = Some(current.autoupdate_command.clone())
+                        }
+                        _ => {}
+                    }
+                    schedule_save.emit(SaveRequest {
+                        patch,
+                        snapshot: current,
+                    });
                 }
             }
         })
@@ -310,7 +704,7 @@ pub fn settings() -> Html {
             <h1 class="text-xl font-semibold tracking-tight mb-4">
                 {"Settings"}
             </h1>
-            <form id="settings-form" onsubmit={on_submit} class="surface border rounded-md p-4 max-w-5xl space-y-5">
+            <form id="settings-form" onsubmit={on_submit} autocomplete="off" class="surface border rounded-md p-4 max-w-5xl space-y-5">
                 if !save_status.is_empty() {
                     <div class="text-sm text-muted">{(*save_status).clone()}</div>
                 }
@@ -325,7 +719,15 @@ pub fn settings() -> Html {
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
                         <label class="block card-kicker mb-2">{"LLM Reasoning"}</label>
-                        <select id="reasoning-effort-input" onchange={on_select("reasoning_effort")} value={s.reasoning_effort.clone()} class="w-full rounded-md border px-3 py-2">
+                        <select
+                            key={format!("reasoning-effort-{}", s.reasoning_effort)}
+                            id="reasoning-effort-input"
+                            name="reasoning-effort-input"
+                            autocomplete="off"
+                            onchange={on_select("reasoning_effort")}
+                            value={s.reasoning_effort.clone()}
+                            class="w-full rounded-md border px-3 py-2"
+                        >
                             <option value="none">{"None"}</option>
                             <option value="minimal">{"Minimal"}</option>
                             <option value="low">{"Low"}</option>
@@ -336,7 +738,15 @@ pub fn settings() -> Html {
                     </div>
                     <div>
                         <label class="block card-kicker mb-2">{"Compression Level"}</label>
-                        <select id="compression-level-input" onchange={on_select("compression_level")} value={s.compression_level.clone()} class="w-full rounded-md border px-3 py-2">
+                        <select
+                            key={format!("compression-level-{}", s.compression_level)}
+                            id="compression-level-input"
+                            name="compression-level-input"
+                            autocomplete="off"
+                            onchange={on_select("compression_level")}
+                            value={s.compression_level.clone()}
+                            class="w-full rounded-md border px-3 py-2"
+                        >
                             <option value="light">{"Light"}</option>
                             <option value="balanced">{"Balanced"}</option>
                             <option value="strong">{"Strong"}</option>
@@ -385,7 +795,10 @@ pub fn settings() -> Html {
                 <div>
                     <label class="block card-kicker mb-2" for="theme-select-settings">{"Color Scheme"}</label>
                     <select
+                        key={format!("theme-select-{}", s.color_scheme)}
                         id="theme-select-settings"
+                        name="theme-select-settings"
+                        autocomplete="off"
                         value={s.color_scheme.clone()}
                         class="theme-select w-full rounded-md border px-3 py-2"
                         onchange={on_select("color_scheme")}
@@ -402,7 +815,15 @@ pub fn settings() -> Html {
                 </div>
                 <div>
                     <label class="block card-kicker mb-2">{"Transparency"}</label>
-                    <select id="transparency-input" onchange={on_select("transparency")} value={s.transparency.clone()} class="w-full rounded-md border px-3 py-2">
+                    <select
+                        key={format!("transparency-{}", s.transparency)}
+                        id="transparency-input"
+                        name="transparency-input"
+                        autocomplete="off"
+                        onchange={on_select("transparency")}
+                        value={s.transparency.clone()}
+                        class="w-full rounded-md border px-3 py-2"
+                    >
                         <option value="none">{"None"}</option>
                         <option value="low">{"Low"}</option>
                         <option value="medium">{"Medium"}</option>
@@ -411,7 +832,15 @@ pub fn settings() -> Html {
                 </div>
                 <div>
                     <label class="block card-kicker mb-2">{"Blur Intensity"}</label>
-                    <select id="blur-intensity-input" onchange={on_select("blur_intensity")} value={s.blur_intensity.clone()} class="w-full rounded-md border px-3 py-2">
+                    <select
+                        key={format!("blur-intensity-{}", s.blur_intensity)}
+                        id="blur-intensity-input"
+                        name="blur-intensity-input"
+                        autocomplete="off"
+                        onchange={on_select("blur_intensity")}
+                        value={s.blur_intensity.clone()}
+                        class="w-full rounded-md border px-3 py-2"
+                    >
                         <option value="none">{"None"}</option>
                         <option value="low">{"Low"}</option>
                         <option value="medium">{"Medium"}</option>

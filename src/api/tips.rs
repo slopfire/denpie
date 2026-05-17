@@ -463,18 +463,16 @@ async fn generate_tipcard(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(template);
-    let card_context =
-        context::load_card_context(ctx.state, ctx.user_id, ctx.topic.id, &ctx.topic.tipcard_type)
-            .await?;
-    let prompt = context::render_generation_prompt(ctx.topic_name, template, &card_context);
-    let full_res = llm::generate_new_card(
-        llm.model,
-        &prompt,
-        llm.api_key,
-        llm.base_url,
-        llm.reasoning,
+    let card_context = context::load_card_context(
+        ctx.state,
+        ctx.user_id,
+        ctx.topic.id,
+        &ctx.topic.tipcard_type,
     )
-    .await;
+    .await?;
+    let prompt = context::render_generation_prompt(ctx.topic_name, template, &card_context);
+    let full_res =
+        llm::generate_new_card(llm.model, &prompt, llm.api_key, llm.base_url, llm.reasoning).await;
     record_llm_token_usage(
         ctx.state,
         ctx.user_id,
@@ -553,7 +551,6 @@ async fn generate_tipcard(
     Ok(())
 }
 
-
 async fn create_manual_tipcard(
     ctx: GenerationContext<'_>,
     full_tip: String,
@@ -589,7 +586,6 @@ async fn create_manual_tipcard(
     ));
     Ok(())
 }
-
 
 async fn record_llm_token_usage(
     state: &AppState,
