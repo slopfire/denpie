@@ -26,28 +26,6 @@ pub struct AuthUser {
     pub avatar_data: Option<String>,
 }
 
-#[allow(dead_code)]
-pub async fn verify_api_key(
-    State(state): State<Arc<AppState>>,
-    req: Request,
-    next: Next,
-) -> Result<Response, StatusCode> {
-    let headers = req.headers();
-    let auth_header = headers.get("Authorization");
-
-    if let Some(auth_value) = auth_header {
-        let key = auth_value.to_str().map_err(|_| StatusCode::UNAUTHORIZED)?;
-
-        if state.api_keys.verify(key).await.is_ok() {
-            Ok(next.run(req).await)
-        } else {
-            Err(StatusCode::UNAUTHORIZED)
-        }
-    } else {
-        Err(StatusCode::UNAUTHORIZED)
-    }
-}
-
 #[derive(serde::Deserialize)]
 pub struct LoginReq {
     pub username: String,
