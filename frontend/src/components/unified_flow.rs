@@ -498,6 +498,12 @@ pub fn unified_flow() -> Html {
     }
 
     let list_mode = *layout == "list";
+    let disable_flow_glass = should_disable_flow_glass(
+        list_mode,
+        flow_cards.len(),
+        &card_heights,
+        &current_ids,
+    );
 
     {
         let load_cards = load_cards.clone();
@@ -562,7 +568,7 @@ pub fn unified_flow() -> Html {
     html! {
         <section
             id="view-flow"
-            class={classes!((flow_cards.len() > 8).then_some("flow-many-cards"))}
+            class={classes!(disable_flow_glass.then_some("flow-many-cards"))}
         >
             <div class="flex flex-col xl:flex-row xl:items-end justify-between gap-3 mb-4">
                 <div>
@@ -666,6 +672,77 @@ pub fn unified_flow() -> Html {
                 </div>
             }
         </section>
+    }
+}
+
+const FLOW_GLASS_GRID_THRESHOLD: usize = 8;
+const FLOW_GLASS_LIST_VIEWPORT_MULTIPLIER: usize = 3;
+
+fn flow_grid_columns(viewport_width: f64) -> usize {
+    if viewport_width >= 1536.0 {
+        4
+    } else if viewport_width >= 1280.0 {
+        3
+    } else if viewport_width >= 768.0 {
+        2
+    } else {
+        1
+    }
+}
+
+fn estimate_visible_card_slots(
+    list_mode: bool,
+    card_heights: &HashMap<i64, f64>,
+    card_ids: &[i64],
+) -> usize {
+    let Some(window) = web_sys::window() else {
+        return if list_mode { 3 } else { 6 };
+    };
+    let viewport_h = window
+        .inner_height()
+        .ok()
+        .and_then(|value| value.as_f64())
+        .unwrap_or(800.0);
+    let viewport_w = window
+        .inner_width()
+        .ok()
+        .and_then(|value| value.as_f64())
+        .unwrap_or(1024.0);
+
+    let cols = if list_mode {
+        1
+    } else {
+        flow_grid_columns(viewport_w)
+    };
+    let gap_px = 12.0;
+    let measured: Vec<f64> = card_ids
+        .iter()
+        .filter_map(|id| card_heights.get(id).copied())
+        .filter(|height| *height > 0.0)
+        .collect();
+    let avg_card_h = if measured.is_empty() {
+        if list_mode { 360.0 } else { 280.0 }
+    } else {
+        measured.iter().sum::<f64>() / measured.len() as f64
+    };
+    let rows = (viewport_h / (avg_card_h + gap_px)).ceil().max(1.0) as usize;
+    cols * rows
+}
+
+fn should_disable_flow_glass(
+    list_mode: bool,
+    card_count: usize,
+    card_heights: &HashMap<i64, f64>,
+    card_ids: &[i64],
+) -> bool {
+    if card_count == 0 {
+        return false;
+    }
+    if list_mode {
+        let visible_slots = estimate_visible_card_slots(true, card_heights, card_ids);
+        card_count > visible_slots.saturating_mul(FLOW_GLASS_LIST_VIEWPORT_MULTIPLIER)
+    } else {
+        card_count > FLOW_GLASS_GRID_THRESHOLD
     }
 }
 
