@@ -25,7 +25,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **CSS-Only Motion**: The control page uses fast page-entry, card-entry, and compact-to-full tipcard animations with reduced-motion support.
 - **Markdown Tipcards**: API responses keep the original raw markdown-capable text so clients can render it however they need.
 - **Optional Server Self-Updates**: Disabled by default. The systemd install includes a root-owned updater timer; enabling it through the API polls GitHub, rebuilds from the configured repository branch, installs the new binary, schema, frontend assets, and static assets, and restarts the service.
-- **Bootstrap Admin Token**: On first startup the server generates and prints an admin token. Use it only to create the first admin user and, after setup, to bootstrap an API key for that admin user.
+- **Bootstrap Admin Token**: When admin setup is still required, the server generates and prints an admin token. Use it only to create the first admin user and, after setup, to bootstrap an API key for that admin user.
 - **Protobuf API**: The only public API is a single protobuf request/response envelope for both client and admin operations.
 - **Multi-User, Multi-Client**: Each user has isolated topics, cards, review state, LLM settings, token spend, and API keys. A user's scheduling state is shared across that user's clients (desktop widget, Telegram bot, etc.).
 - **SQLite Database**: Lightweight persistence via `sqlx` with compile-time query validation.
@@ -103,7 +103,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    The server starts on `http://127.0.0.1:3017` by default. On the first run it will:
    - Create `denpie.db` and apply `schema.sql` automatically.
    - Create the tipcard image directory. By default this is `tipcard-images` inside `DENPIE_DATA_DIR`; set `DENPIE_IMAGE_DIR` to store dashboard image files elsewhere.
-   - Generate and print a setup admin token to the console.
+   - Generate and print a setup admin token to the console only if admin setup is still required.
 
 4. **Create the first admin user** from the root page at `http://127.0.0.1:3017/`. Enter a username, password, and the printed setup token, then click **Create Admin User**. Existing single-user data, settings, and API keys from an older database are assigned to this first setup user.
 

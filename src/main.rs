@@ -51,11 +51,6 @@ async fn main() {
     let settings_path = data_dir.join("settings.yaml");
     let settings_store = config::SettingsStore::new(settings_path.clone());
     let settings_service = services::settings::SettingsService::new(settings_store);
-    let admin_token = settings_service
-        .ensure_admin_token()
-        .expect("Failed to ensure admin token");
-    //todo only on startup
-    println!(">>> ADMIN SETUP TOKEN: {} <<<", admin_token);
 
     // Setup DB
     let db_path = data_dir.join("denpie.db");
@@ -78,6 +73,15 @@ async fn main() {
     db::migrations::apply_schema_migrations(&pool)
         .await
         .expect("Failed to apply schema migrations");
+    if db::repositories::users::setup_allowed(&pool)
+        .await
+        .expect("Failed to check admin setup state")
+    {
+        let admin_token = settings_service
+            .ensure_admin_token()
+            .expect("Failed to ensure admin token");
+        println!(">>> ADMIN SETUP TOKEN: {} <<<", admin_token);
+    }
     image_store::migrate_legacy_images(&pool, &image_dir)
         .await
         .expect("Failed to migrate legacy tipcard images");
