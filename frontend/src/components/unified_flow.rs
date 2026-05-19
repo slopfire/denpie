@@ -10,10 +10,12 @@ use std::{
     collections::HashMap,
     rc::Rc,
 };
-use web_sys::{HtmlInputElement, HtmlTextAreaElement};
+use web_sys::{DragEvent, HtmlInputElement, HtmlTextAreaElement};
 use yew::prelude::*;
 
 const PAGE_LIMIT: i64 = 48;
+const DRAG_SCROLL_EDGE_PX: f64 = 96.0;
+const DRAG_SCROLL_MAX_STEP_PX: f64 = 32.0;
 
 #[derive(Deserialize, Clone, PartialEq)]
 pub struct TipcardInfo {
@@ -552,6 +554,10 @@ pub fn unified_flow() -> Html {
             image_readers.set(readers);
         })
     };
+    let on_flow_dragover = Callback::from(|e: DragEvent| {
+        e.prevent_default();
+        auto_scroll_for_drag(&e);
+    });
 
     html! {
         <section
@@ -621,6 +627,7 @@ pub fn unified_flow() -> Html {
             <div
                 id="flow-grid"
                 class={if list_mode { "grid grid-cols-1 gap-3 items-start w-full max-w-4xl mx-auto" } else { "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start" }}
+                ondragover={on_flow_dragover}
             >
                 {
                     for flow_cards.iter().map(|card| {
@@ -670,4 +677,32 @@ fn normalize_card_order(mut order: Vec<i64>, current_ids: &[i64]) -> Vec<i64> {
         }
     }
     order
+}
+
+fn auto_scroll_for_drag(event: &DragEvent) {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(inner_height) = window.inner_height() else {
+        return;
+    };
+    let Some(viewport_height) = inner_height.as_f64() else {
+        return;
+    };
+
+    let pointer_y = event.client_y() as f64;
+    let delta = if pointer_y < DRAG_SCROLL_EDGE_PX {
+        -scroll_step(DRAG_SCROLL_EDGE_PX - pointer_y)
+    } else if viewport_height - pointer_y < DRAG_SCROLL_EDGE_PX {
+        scroll_step(DRAG_SCROLL_EDGE_PX - (viewport_height - pointer_y))
+    } else {
+        return;
+    };
+
+    window.scroll_by_with_x_and_y(0.0, delta);
+}
+
+fn scroll_step(edge_overlap: f64) -> f64 {
+    let intensity = (edge_overlap / DRAG_SCROLL_EDGE_PX).clamp(0.0, 1.0);
+    (intensity * DRAG_SCROLL_MAX_STEP_PX).max(4.0)
 }
