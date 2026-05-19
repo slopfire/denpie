@@ -49,6 +49,19 @@ CREATE TABLE IF NOT EXISTS review_states (
     FOREIGN KEY(card_id) REFERENCES tipcards(id)
 );
 
+CREATE TABLE IF NOT EXISTS tipcard_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    card_id INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    storage_path TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    FOREIGN KEY(card_id) REFERENCES tipcards(id)
+);
+
 CREATE TABLE IF NOT EXISTS llm_token_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,

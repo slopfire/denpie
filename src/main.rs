@@ -1,6 +1,7 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::process::Command;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::fs;
@@ -18,6 +19,7 @@ mod dashboard;
 mod db;
 mod domain;
 mod error;
+mod image_store;
 mod llm;
 mod scheduling;
 mod services;
@@ -30,6 +32,7 @@ pub use db::migrations::apply_schema_migrations;
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
+    build_frontend_for_cargo_run();
 
     // Setup Admin Token
     let data_dir = std::env::var_os("DENPIE_DATA_DIR")
@@ -38,6 +41,12 @@ async fn main() {
     fs::create_dir_all(&data_dir)
         .await
         .expect("Failed to create data directory");
+    let image_dir = std::env::var_os("DENPIE_IMAGE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| data_dir.join("tipcard-images"));
+    fs::create_dir_all(&image_dir)
+        .await
+        .expect("Failed to create image directory");
 
     let settings_path = data_dir.join("settings.yaml");
     let settings_store = config::SettingsStore::new(settings_path.clone());
@@ -69,6 +78,9 @@ async fn main() {
     db::migrations::apply_schema_migrations(&pool)
         .await
         .expect("Failed to apply schema migrations");
+    image_store::migrate_legacy_images(&pool, &image_dir)
+        .await
+        .expect("Failed to migrate legacy tipcard images");
 
     let session_store = SqliteStore::new(pool.clone());
     session_store
@@ -101,6 +113,7 @@ async fn main() {
 
     let shared_state = Arc::new(AppState {
         db: pool,
+        image_dir,
         settings_path,
         settings: settings_service,
         api_keys: api_key_service,
@@ -129,4 +142,32 @@ async fn main() {
     )
     .await
     .unwrap();
+}
+
+fn build_frontend_for_cargo_run() {
+    if !cfg!(debug_assertions) {
+        return;
+    }
+    if std::env::var_os("DENPIE_SKIP_FRONTEND_BUILD").is_some() {
+        println!("Skipping frontend build because DENPIE_SKIP_FRONTEND_BUILD is set");
+        return;
+    }
+    if std::env::var_os("DENPIE_FRONTEND_DIST").is_some() {
+        return;
+    }
+    let frontend_dir = PathBuf::from("frontend");
+    if !frontend_dir.join("index.html").exists() {
+        return;
+    }
+    println!("Building frontend with trunk build --release...");
+    let status = Command::new("trunk")
+        .args(["build", "--release"])
+        .current_dir(&frontend_dir)
+        .status()
+        .unwrap_or_else(|err| {
+            panic!("failed to run trunk; install it with `cargo install trunk --locked`: {err}")
+        });
+    if !status.success() {
+        panic!("frontend build failed with status {status}");
+    }
 }

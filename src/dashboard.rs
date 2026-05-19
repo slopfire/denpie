@@ -4,7 +4,7 @@ use crate::{
     llm, AppState,
 };
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
@@ -654,6 +654,42 @@ pub struct TipcardInfo {
     pub pinned: bool,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct FlowCardInfo {
+    pub id: i64,
+    pub topic_name: String,
+    pub title: String,
+    pub compressed_content: String,
+    pub created_at: String,
+    pub tipcard_type: String,
+    pub status: String,
+    pub next_review_at: String,
+    pub repeat_count: u32,
+    pub pinned: bool,
+    pub image_count: i64,
+    pub thumbnail_urls: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct FlowCardPage {
+    pub cards: Vec<FlowCardInfo>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+#[derive(Serialize)]
+pub struct FlowCardDetail {
+    #[serde(flatten)]
+    pub card: TipcardInfo,
+    pub image_urls: Vec<String>,
+}
+
+#[derive(Default, Deserialize)]
+pub struct FlowCardsQuery {
+    pub cursor: Option<String>,
+    pub limit: Option<i64>,
+}
+
 #[derive(Default, Deserialize)]
 pub struct ListTipcardsQuery {
     pub q: Option<String>,
@@ -704,6 +740,113 @@ pub async fn list_tipcards(
     .collect();
 
     Json(cards)
+}
+
+pub async fn flow_cards(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Query(query): Query<FlowCardsQuery>,
+) -> Result<Json<FlowCardPage>, (StatusCode, String)> {
+    let user = crate::auth::current_user(&state, &session).await?;
+    let limit = query.limit.unwrap_or(48).clamp(1, 100);
+    let cursor = query.cursor.as_deref().and_then(parse_flow_cursor);
+    let rows = tipcards::list_flow_cards(&state.db, &user.id, cursor, limit + 1)
+        .await
+        .map_err(|err| err.into_status_body())?;
+    let has_more = rows.len() > limit as usize;
+    let rows: Vec<_> = rows.into_iter().take(limit as usize).collect();
+    let next_cursor = if has_more {
+        rows.last().map(|row| {
+            format!(
+                "{}|{}|{}",
+                if row.pinned { 1 } else { 0 },
+                row.created_at,
+                row.id
+            )
+        })
+    } else {
+        None
+    };
+    let mut cards = Vec::new();
+    for row in rows {
+        let images = tipcards::list_images(&state.db, &user.id, row.id)
+            .await
+            .map_err(|err| err.into_status_body())?;
+        cards.push(FlowCardInfo {
+            id: row.id,
+            topic_name: row.topic_name,
+            title: row.title,
+            compressed_content: row.compressed_content,
+            created_at: row.created_at,
+            tipcard_type: row.tipcard_type,
+            status: row.status,
+            next_review_at: row.next_review_at,
+            repeat_count: repeat_count(&row.state_data),
+            pinned: row.pinned,
+            image_count: row.image_count,
+            thumbnail_urls: images
+                .iter()
+                .take(4)
+                .map(|image| image_url(image.id))
+                .collect(),
+        });
+    }
+    Ok(Json(FlowCardPage {
+        cards,
+        next_cursor,
+        has_more,
+    }))
+}
+
+pub async fn flow_card_detail(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Path(id): Path<i64>,
+) -> Result<Json<FlowCardDetail>, (StatusCode, String)> {
+    let user = crate::auth::current_user(&state, &session).await?;
+    let row = tipcards::get_tipcard_info(&state.db, &user.id, id)
+        .await
+        .map_err(|err| err.into_status_body())?;
+    let images = tipcards::list_images(&state.db, &user.id, row.id)
+        .await
+        .map_err(|err| err.into_status_body())?;
+    let image_urls: Vec<String> = images.iter().map(|image| image_url(image.id)).collect();
+    Ok(Json(FlowCardDetail {
+        card: TipcardInfo {
+            id: row.id,
+            topic_name: row.topic_name,
+            title: row.title,
+            full_content: row.full_content,
+            compressed_content: row.compressed_content,
+            image_data: image_urls.clone(),
+            created_at: row.created_at,
+            tipcard_type: row.tipcard_type,
+            status: row.status,
+            next_review_at: row.next_review_at,
+            repeat_count: repeat_count(&row.state_data),
+            pinned: row.pinned,
+        },
+        image_urls,
+    }))
+}
+
+fn parse_flow_cursor(cursor: &str) -> Option<(i64, String, i64)> {
+    let mut parts = cursor.splitn(3, '|');
+    let pinned = parts.next()?.parse().ok()?;
+    let created_at = parts.next()?.to_string();
+    let id = parts.next()?.parse().ok()?;
+    Some((pinned, created_at, id))
+}
+
+fn repeat_count(state_data: &str) -> u32 {
+    serde_json::from_str::<serde_json::Value>(state_data)
+        .ok()
+        .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
+        .unwrap_or(0) as u32
+}
+
+fn image_url(id: i64) -> String {
+    format!("/app/tipcard-images/{id}")
 }
 
 pub async fn app_tips(

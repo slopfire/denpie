@@ -7,10 +7,13 @@ use gloo_storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     rc::Rc,
 };
 use web_sys::{HtmlInputElement, HtmlTextAreaElement};
 use yew::prelude::*;
+
+const PAGE_LIMIT: i64 = 48;
 
 #[derive(Deserialize, Clone, PartialEq)]
 pub struct TipcardInfo {
@@ -26,6 +29,83 @@ pub struct TipcardInfo {
     pub next_review_at: String,
     pub repeat_count: u32,
     pub pinned: bool,
+}
+
+#[derive(Deserialize, Clone, PartialEq)]
+struct FlowCardSummary {
+    id: i64,
+    topic_name: String,
+    title: String,
+    compressed_content: String,
+    created_at: String,
+    tipcard_type: String,
+    status: String,
+    next_review_at: String,
+    repeat_count: u32,
+    pinned: bool,
+    image_count: i64,
+    thumbnail_urls: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct FlowCardPage {
+    cards: Vec<FlowCardSummary>,
+    next_cursor: Option<String>,
+    has_more: bool,
+}
+
+#[derive(Deserialize, Clone)]
+struct FlowCardDetail {
+    id: i64,
+    topic_name: String,
+    title: String,
+    full_content: String,
+    compressed_content: String,
+    created_at: String,
+    tipcard_type: String,
+    status: String,
+    next_review_at: String,
+    repeat_count: u32,
+    pinned: bool,
+    image_urls: Vec<String>,
+}
+
+impl From<FlowCardSummary> for TipcardInfo {
+    fn from(card: FlowCardSummary) -> Self {
+        Self {
+            id: card.id,
+            topic_name: card.topic_name,
+            title: card.title,
+            full_content: card.compressed_content.clone(),
+            compressed_content: card.compressed_content,
+            image_data: card.thumbnail_urls,
+            created_at: card.created_at,
+            tipcard_type: card.tipcard_type,
+            status: card.status,
+            next_review_at: card.next_review_at,
+            repeat_count: card.repeat_count,
+            pinned: card.pinned,
+        }
+    }
+}
+
+impl From<FlowCardDetail> for TipcardInfo {
+    fn from(card: FlowCardDetail) -> Self {
+        Self {
+            id: card.id,
+            topic_name: card.topic_name,
+            title: card.title,
+            full_content: card.full_content,
+            compressed_content: card.compressed_content,
+            image_data: card.image_urls,
+            created_at: card.created_at,
+            tipcard_type: card.tipcard_type,
+            status: card.status,
+            next_review_at: card.next_review_at,
+            repeat_count: card.repeat_count,
+            pinned: card.pinned,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -44,11 +124,6 @@ struct ReviewReq {
     action: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct TipcardIdOnly {
-    id: i64,
-}
-
 #[derive(Serialize)]
 struct PinReq {
     id: i64,
@@ -60,6 +135,11 @@ struct PinReq {
 pub fn unified_flow() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
     let cards = use_state(Vec::<TipcardInfo>::new);
+    let detail_loaded = use_state(HashMap::<i64, bool>::new);
+    let card_heights = use_state(HashMap::<i64, f64>::new);
+    let next_cursor = use_state(|| None::<String>);
+    let has_more = use_state(|| true);
+    let loading = use_state(|| false);
     let card_order =
         use_state(|| LocalStorage::get::<Vec<i64>>("denpie-card-order").unwrap_or_default());
     let topics_input =
@@ -74,30 +154,106 @@ pub fn unified_flow() -> Html {
     let layout = use_state(|| {
         LocalStorage::get::<String>("denpie-flow-layout").unwrap_or_else(|_| "grid".to_string())
     });
-    let page = use_state(|| 1usize);
     let fullscreen_card_id = use_state(|| None::<i64>);
 
-    let refresh_cards = {
+    let load_cards = {
         let cards = cards.clone();
-        Callback::from(move |_| {
+        let detail_loaded = detail_loaded.clone();
+        let next_cursor = next_cursor.clone();
+        let has_more = has_more.clone();
+        let loading = loading.clone();
+        Callback::from(move |reset: bool| {
+            if *loading {
+                return;
+            }
             let cards = cards.clone();
+            let detail_loaded = detail_loaded.clone();
+            let next_cursor = next_cursor.clone();
+            let has_more = has_more.clone();
+            let loading = loading.clone();
+            let cursor = if reset { None } else { (*next_cursor).clone() };
+            if !reset && cursor.is_none() && !*has_more {
+                return;
+            }
+            loading.set(true);
             wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(res) = Request::get("/admin/tipcards").send().await {
-                    if let Ok(data) = res.json::<Vec<TipcardInfo>>().await {
-                        cards.set(data);
-                    }
+                let mut url = format!("/app/flow-cards?limit={PAGE_LIMIT}");
+                if let Some(cursor) = cursor {
+                    url.push_str("&cursor=");
+                    url.push_str(
+                        &js_sys::encode_uri_component(&cursor)
+                            .as_string()
+                            .unwrap_or_default(),
+                    );
                 }
+                match Request::get(&url).send().await {
+                    Ok(res) if res.ok() => {
+                        if let Ok(page) = res.json::<FlowCardPage>().await {
+                            let new_cards: Vec<TipcardInfo> =
+                                page.cards.into_iter().map(Into::into).collect();
+                            if reset {
+                                let loaded = new_cards
+                                    .iter()
+                                    .map(|card| (card.id, false))
+                                    .collect::<HashMap<_, _>>();
+                                detail_loaded.set(loaded);
+                                cards.set(new_cards);
+                            } else {
+                                let mut merged = (*cards).clone();
+                                let mut loaded = (*detail_loaded).clone();
+                                for card in new_cards {
+                                    if !merged.iter().any(|existing| existing.id == card.id) {
+                                        loaded.entry(card.id).or_insert(false);
+                                        merged.push(card);
+                                    }
+                                }
+                                detail_loaded.set(loaded);
+                                cards.set(merged);
+                            }
+                            next_cursor.set(page.next_cursor);
+                            has_more.set(page.has_more);
+                        }
+                    }
+                    _ => {}
+                }
+                loading.set(false);
             });
         })
     };
 
     {
-        let refresh_cards = refresh_cards.clone();
+        let load_cards = load_cards.clone();
         use_effect_with((), move |_| {
-            refresh_cards.emit(());
+            load_cards.emit(true);
             || ()
         });
     }
+
+    let request_detail = {
+        let cards = cards.clone();
+        let detail_loaded = detail_loaded.clone();
+        Callback::from(move |id: i64| {
+            let cards = cards.clone();
+            let detail_loaded = detail_loaded.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Ok(res) = Request::get(&format!("/app/flow-cards/{id}")).send().await {
+                    if res.ok() {
+                        if let Ok(detail) = res.json::<FlowCardDetail>().await {
+                            let updated_card: TipcardInfo = detail.into();
+                            let mut next = (*cards).clone();
+                            if let Some(card) = next.iter_mut().find(|card| card.id == id) {
+                                *card = updated_card;
+                            }
+                            let mut loaded = (*detail_loaded).clone();
+                            loaded.insert(id, true);
+                            detail_loaded.set(loaded);
+                            cards.set(next);
+                        }
+                    }
+                }
+            });
+        })
+    };
 
     let on_submit = {
         let app_state = app_state.clone();
@@ -105,7 +261,7 @@ pub fn unified_flow() -> Html {
         let tip_type = tip_type.clone();
         let manual_content = manual_content.clone();
         let manual_images = manual_images.clone();
-        let refresh_cards = refresh_cards.clone();
+        let load_cards = load_cards.clone();
 
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
@@ -114,7 +270,7 @@ pub fn unified_flow() -> Html {
             let ttype = (*tip_type).clone();
             let content = (*manual_content).clone();
             let images = (*manual_images).clone();
-            let refresh_cards = refresh_cards.clone();
+            let load_cards = load_cards.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
                 let req = CreateTipReq {
@@ -137,90 +293,35 @@ pub fn unified_flow() -> Html {
                         toast(&app_state, "Cards added");
                         LocalStorage::delete("denpie_prefill_topic");
                         LocalStorage::delete("denpie_prefill_type");
-                        refresh_cards.emit(());
+                        load_cards.emit(true);
                     }
-                    _ => {
-                        toast(&app_state, "Failed to add cards");
-                    }
+                    _ => toast(&app_state, "Failed to add cards"),
                 }
             });
         })
     };
 
     let on_review_cb = {
-        let refresh_cards = refresh_cards.clone();
         let cards = cards.clone();
         let app_state = app_state.clone();
+        let load_cards = load_cards.clone();
         Callback::from(
             move |(id, grade, action): (i64, Option<u8>, Option<String>)| {
-                let refresh_cards = refresh_cards.clone();
                 let cards = cards.clone();
                 let app_state = app_state.clone();
+                let load_cards = load_cards.clone();
                 wasm_bindgen_futures::spawn_local(async move {
-                    let action_for_replace = action.clone();
                     let req = ReviewReq {
                         card_id: id,
                         grade,
                         action,
                     };
-                    if Request::post("/app/review")
-                        .json(&req)
-                        .unwrap()
-                        .send()
-                        .await
-                        .is_ok()
-                    {
-                        if let Some(card) = cards.iter().find(|card| card.id == id).cloned() {
-                            let action_name = action_for_replace.as_deref().unwrap_or_default();
-                            let should_replace = (card.tipcard_type == "casual_tip"
-                                && action_name == "dismiss")
-                                || (card.tipcard_type == "repeatable_tip"
-                                    && matches!(action_name, "dismiss" | "repeat" | "memorize"));
-                            if should_replace {
-                                let pull = CreateTipReq {
-                                    topics: card.topic_name,
-                                    tipcard_type: Some(card.tipcard_type),
-                                    manual_content: None,
-                                    manual_image_data: None,
-                                    exclude_card_ids: Some(
-                                        cards.iter().map(|card| card.id).collect(),
-                                    ),
-                                };
-                                if let Ok(res) =
-                                    Request::post("/app/tips").json(&pull).unwrap().send().await
-                                {
-                                    if res.ok() {
-                                        if let Ok(new_cards) =
-                                            res.json::<Vec<TipcardIdOnly>>().await
-                                        {
-                                            let mut order =
-                                                LocalStorage::get::<Vec<i64>>("denpie-card-order")
-                                                    .unwrap_or_default();
-                                            let new_ids: Vec<i64> =
-                                                new_cards.iter().map(|card| card.id).collect();
-                                            if let Some(position) =
-                                                order.iter().position(|existing| *existing == id)
-                                            {
-                                                order.retain(|existing| {
-                                                    *existing != id && !new_ids.contains(existing)
-                                                });
-                                                for (offset, new_id) in new_ids.iter().enumerate() {
-                                                    order.insert(position + offset, *new_id);
-                                                }
-                                            } else {
-                                                order
-                                                    .retain(|existing| !new_ids.contains(existing));
-                                                order.extend(new_ids);
-                                            }
-                                            let _ = LocalStorage::set("denpie-card-order", &order);
-                                        }
-                                    }
-                                }
-                            }
+                    match Request::post("/app/review").json(&req).unwrap().send().await {
+                        Ok(res) if res.ok() => {
+                            cards.set(cards.iter().filter(|card| card.id != id).cloned().collect());
+                            load_cards.emit(false);
                         }
-                        refresh_cards.emit(());
-                    } else {
-                        toast(&app_state, "Review failed");
+                        _ => toast(&app_state, "Review failed"),
                     }
                 });
             },
@@ -228,34 +329,41 @@ pub fn unified_flow() -> Html {
     };
 
     let on_toggle_pin_cb = {
-        let refresh_cards = refresh_cards.clone();
+        let cards = cards.clone();
         Callback::from(move |(id, pinned): (i64, bool)| {
-            let refresh_cards = refresh_cards.clone();
+            let cards = cards.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let req = PinReq {
                     id,
                     pinned: Some(pinned),
                     image_data: None,
                 };
-                if Request::patch("/admin/tipcards")
+                if let Ok(res) = Request::patch("/admin/tipcards")
                     .json(&req)
                     .unwrap()
                     .send()
                     .await
-                    .is_ok()
                 {
-                    refresh_cards.emit(());
+                    if res.ok() {
+                        let mut next = (*cards).clone();
+                        if let Some(card) = next.iter_mut().find(|card| card.id == id) {
+                            card.pinned = pinned;
+                        }
+                        cards.set(next);
+                    }
                 }
             });
         })
     };
 
     let on_update_images_cb = {
-        let refresh_cards = refresh_cards.clone();
+        let request_detail = request_detail.clone();
         let app_state = app_state.clone();
+        let detail_loaded = detail_loaded.clone();
         Callback::from(move |(id, image_data): (i64, Vec<String>)| {
-            let refresh_cards = refresh_cards.clone();
+            let request_detail = request_detail.clone();
             let app_state = app_state.clone();
+            let detail_loaded = detail_loaded.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let req = PinReq {
                     id,
@@ -270,7 +378,10 @@ pub fn unified_flow() -> Html {
                 {
                     Ok(res) if res.ok() => {
                         toast(&app_state, "Images updated");
-                        refresh_cards.emit(());
+                        let mut loaded = (*detail_loaded).clone();
+                        loaded.insert(id, false);
+                        detail_loaded.set(loaded);
+                        request_detail.emit(id);
                     }
                     Ok(res) => toast(
                         &app_state,
@@ -286,10 +397,10 @@ pub fn unified_flow() -> Html {
 
     let on_delete_cb = {
         let app_state = app_state.clone();
-        let refresh_cards = refresh_cards.clone();
+        let cards = cards.clone();
         Callback::from(move |id: i64| {
             let app_state = app_state.clone();
-            let refresh_cards = refresh_cards.clone();
+            let cards = cards.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let req = serde_json::json!({ "id": id });
                 if Request::delete("/admin/tipcards")
@@ -300,7 +411,7 @@ pub fn unified_flow() -> Html {
                     .is_ok()
                 {
                     toast(&app_state, "Card deleted");
-                    refresh_cards.emit(());
+                    cards.set(cards.iter().filter(|card| card.id != id).cloned().collect());
                 }
             });
         })
@@ -310,10 +421,8 @@ pub fn unified_flow() -> Html {
         let card_order = card_order.clone();
         let cards = cards.clone();
         Callback::from(move |(source_id, target_id): (i64, i64)| {
-            let mut order = (*card_order).clone();
-            if order.is_empty() {
-                order = cards.iter().map(|c| c.id).collect();
-            }
+            let current_ids: Vec<i64> = cards.iter().map(|c| c.id).collect();
+            let mut order = normalize_card_order((*card_order).clone(), &current_ids);
 
             if let (Some(from_idx), Some(to_idx)) = (
                 order.iter().position(|&id| id == source_id),
@@ -329,11 +438,28 @@ pub fn unified_flow() -> Html {
 
     let on_toggle_fullscreen = {
         let fullscreen_card_id = fullscreen_card_id.clone();
+        let request_detail = request_detail.clone();
         Callback::from(move |id: i64| {
             if *fullscreen_card_id == Some(id) {
                 fullscreen_card_id.set(None);
             } else {
+                request_detail.emit(id);
                 fullscreen_card_id.set(Some(id));
+            }
+        })
+    };
+
+    let on_measure = {
+        let card_heights = card_heights.clone();
+        Callback::from(move |(id, height): (i64, f64)| {
+            if height <= 0.0 {
+                return;
+            }
+            let current = card_heights.get(&id).copied().unwrap_or(0.0);
+            if (current - height).abs() > 2.0 {
+                let mut next = (*card_heights).clone();
+                next.insert(id, height);
+                card_heights.set(next);
             }
         })
     };
@@ -356,33 +482,33 @@ pub fn unified_flow() -> Html {
         });
     }
 
-    let mut sorted_cards = (*cards).clone();
-    sorted_cards.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    if !card_order.is_empty() {
-        sorted_cards.sort_by_key(|c| {
-            card_order
+    let mut flow_cards = (*cards).clone();
+    flow_cards.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| b.id.cmp(&a.id)));
+    let current_ids: Vec<i64> = flow_cards.iter().map(|card| card.id).collect();
+    let normalized_order = normalize_card_order((*card_order).clone(), &current_ids);
+    if !normalized_order.is_empty() {
+        flow_cards.sort_by_key(|c| {
+            normalized_order
                 .iter()
                 .position(|&id| id == c.id)
                 .unwrap_or(usize::MAX)
         });
     }
 
-    let flow_cards: Vec<_> = sorted_cards
-        .iter()
-        .filter(|card| {
-            (card.status.is_empty() || card.status == "active") && (card.pinned || is_due(card))
-        })
-        .cloned()
-        .collect();
-    let pinned_cards: Vec<_> = flow_cards.iter().filter(|c| c.pinned).cloned().collect();
-    let unpinned_cards_all: Vec<_> = flow_cards.iter().filter(|c| !c.pinned).cloned().collect();
-    let visible_unpinned: Vec<_> = unpinned_cards_all
-        .iter()
-        .take(*page * 24)
-        .cloned()
-        .collect();
     let list_mode = *layout == "list";
-    let visible_card_count = pinned_cards.len() + visible_unpinned.len();
+
+    {
+        let load_cards = load_cards.clone();
+        let has_more = *has_more;
+        let loading = *loading;
+        let loaded_count = flow_cards.len();
+        use_effect_with((has_more, loading, loaded_count), move |_| {
+            if has_more && !loading && loaded_count == 0 {
+                load_cards.emit(false);
+            }
+            || ()
+        });
+    }
 
     let on_manual_images = {
         let manual_images = manual_images.clone();
@@ -397,7 +523,7 @@ pub fn unified_flow() -> Html {
             };
             if files.length() == 0 {
                 return;
-            }
+            };
             let next_images = Rc::new(RefCell::new(Vec::<String>::new()));
             let remaining = Rc::new(Cell::new(files.length()));
             for index in 0..files.length() {
@@ -430,7 +556,7 @@ pub fn unified_flow() -> Html {
     html! {
         <section
             id="view-flow"
-            class={classes!((visible_card_count > 8).then_some("flow-many-cards"))}
+            class={classes!((flow_cards.len() > 8).then_some("flow-many-cards"))}
         >
             <div class="flex flex-col xl:flex-row xl:items-end justify-between gap-3 mb-4">
                 <div>
@@ -480,7 +606,7 @@ pub fn unified_flow() -> Html {
 
             <div class="flex justify-between items-center gap-3 mb-4">
                 <div class="text-sm text-muted">
-                    <span id="flow-count">{flow_cards.len()}</span>{" cards"}
+                    <span id="flow-count">{flow_cards.len()}</span>{" loaded cards"}
                 </div>
                 <div class="flex muted-surface rounded-md p-1 border border-token">
                     <button id="flow-grid-btn" type="button" class={classes!("rounded", "px-2", "py-1", (!list_mode).then_some("bg-primary-soft text-primary"))} onclick={Callback::from({ let layout = layout.clone(); move |_| { let _ = LocalStorage::set("denpie-flow-layout", "grid"); layout.set("grid".to_string()); } })}>
@@ -492,60 +618,42 @@ pub fn unified_flow() -> Html {
                 </div>
             </div>
 
-            if !pinned_cards.is_empty() {
-                <div id="pinned-flow-section" class="mb-4">
-                    <div class="flex items-center gap-2 mb-3 text-sm font-medium text-primary">
-                        <iconify-icon icon="radix-icons:drawing-pin-filled" class="radix-icon" aria-hidden="true"></iconify-icon>
-                        <span>{"Pinned"}</span>
-                    </div>
-                    <div id="pinned-flow-grid" class={if list_mode { "grid grid-cols-1 gap-3 items-start w-full max-w-4xl mx-auto" } else { "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start" }}>
-                        {
-                            for pinned_cards.iter().map(|c| {
-                                html! {
-                                    <FlowCard
-                                        card={c.clone()}
-                                        on_review={on_review_cb.clone()}
-                                        on_toggle_pin={on_toggle_pin_cb.clone()}
-                                        on_delete={on_delete_cb.clone()}
-                                        on_reorder={on_reorder_cb.clone()}
-                                        on_update_images={on_update_images_cb.clone()}
-                                        on_toggle_fullscreen={on_toggle_fullscreen.clone()}
-                                        list_mode={list_mode}
-                                        fullscreen={*fullscreen_card_id == Some(c.id)}
-                                    />
-                                }
-                            })
-                        }
-                    </div>
-                </div>
-            }
-
-            <div id="flow-grid" class={if list_mode { "grid grid-cols-1 gap-3 items-start w-full max-w-4xl mx-auto" } else { "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start" }}>
+            <div
+                id="flow-grid"
+                class={if list_mode { "grid grid-cols-1 gap-3 items-start w-full max-w-4xl mx-auto" } else { "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start" }}
+            >
                 {
-                    for visible_unpinned.iter().map(|c| {
+                    for flow_cards.iter().map(|card| {
+                        let card = card.clone();
+                        let id = card.id;
                         html! {
                             <FlowCard
-                                card={c.clone()}
+                                card={card}
                                 on_review={on_review_cb.clone()}
                                 on_toggle_pin={on_toggle_pin_cb.clone()}
                                 on_delete={on_delete_cb.clone()}
                                 on_reorder={on_reorder_cb.clone()}
                                 on_update_images={on_update_images_cb.clone()}
                                 on_toggle_fullscreen={on_toggle_fullscreen.clone()}
+                                on_request_detail={request_detail.clone()}
+                                on_measure={on_measure.clone()}
                                 list_mode={list_mode}
-                                fullscreen={*fullscreen_card_id == Some(c.id)}
+                                fullscreen={*fullscreen_card_id == Some(id)}
+                                detail_loaded={detail_loaded.get(&id).copied().unwrap_or(false)}
                             />
                         }
                     })
                 }
             </div>
-            if unpinned_cards_all.len() > visible_unpinned.len() {
+            if *loading {
+                <div class="flex justify-center py-8 text-sm text-muted">{"Loading cards..."}</div>
+            } else if *has_more {
                 <div class="flex justify-center py-8">
-                    <button type="button" class="rounded-md border border-token px-6 py-2 font-medium" onclick={Callback::from({ let page = page.clone(); move |_| page.set(*page + 1) })}>{"Load More Cards"}</button>
+                    <button type="button" class="rounded-md border border-token px-6 py-2 font-medium" onclick={Callback::from({ let load_cards = load_cards.clone(); move |_| load_cards.emit(false) })}>{"Load More Cards"}</button>
                 </div>
             }
 
-            if flow_cards.is_empty() {
+            if flow_cards.is_empty() && !*loading {
                 <div id="empty-flow" class="surface border rounded-md p-10 text-center text-muted">
                     {"No cards yet."}
                 </div>
@@ -554,26 +662,12 @@ pub fn unified_flow() -> Html {
     }
 }
 
-fn is_due(card: &TipcardInfo) -> bool {
-    let raw = card.next_review_at.trim();
-    if raw.is_empty() {
-        return true;
+fn normalize_card_order(mut order: Vec<i64>, current_ids: &[i64]) -> Vec<i64> {
+    order.retain(|id| current_ids.contains(id));
+    for id in current_ids {
+        if !order.contains(id) {
+            order.push(*id);
+        }
     }
-    let isoish = if raw.contains('T') {
-        raw.to_string()
-    } else {
-        raw.replace(' ', "T")
-    };
-    let has_offset = isoish.len() >= 6
-        && matches!(
-            isoish.as_bytes().get(isoish.len() - 6),
-            Some(b'+') | Some(b'-')
-        );
-    let normalized = if isoish.ends_with('Z') || has_offset {
-        isoish
-    } else {
-        format!("{isoish}Z")
-    };
-    let parsed = js_sys::Date::parse(&normalized);
-    parsed.is_nan() || parsed <= js_sys::Date::now()
+    order
 }

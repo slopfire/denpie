@@ -12,6 +12,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Forced Card Refresh**: The settings screen and protobuf API use the same backend refresh path as the daily worker: pull one fresh generated card for every generated topic, or target selected generated topics, while keeping current cards untouched.
 - **Pinned Tipcards**: Any active card can be pinned from the control panel or API so it stays visible in a separate top section until unpinned.
 - **Tipcard Images**: Manual cards can be saved with attached images, and existing cards can receive or clear image attachments from the browser control panel.
+- **Fast Unified Flow**: The dashboard flow uses cursor-loaded card summaries, a measured virtual grid, on-demand full-card details, and protected file-backed image URLs so large card sets keep scrolling smoothly.
 - **Archive Search**: The browser archive can search card titles, topics, full text, compressed text, classes, and statuses, with status filters for active, acknowledged, memorized, dismissed, and custom cards.
 - **Custom Tipcards**: External workflows can submit grey `custom_tip` cards for summaries or reminders without adding scheduling review state.
 - **Active Card Limit**: A per-user max-active-cards setting can stop new card creation while still allowing due and pinned cards to be reviewed.
@@ -72,6 +73,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 ├── frontend/          # Yew/WebAssembly browser dashboard
 ├── static/
 │   └── assets/        # Browser dashboard images and static files
+├── data/tipcard-images # Runtime dashboard tipcard image files when DENPIE_DATA_DIR=data
 ├── docs/              # API documentation
 └── settings.yaml      # Runtime config, generated locally and ignored
 ```
@@ -95,15 +97,12 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 
 3. **Run the server:**
    ```bash
-   rustup target add wasm32-unknown-unknown
-   cd frontend
-   trunk build --release
-   cd ..
    cargo run
    ```
-   For backend-only development, `cargo run` still works if `frontend/dist` already exists. Use `trunk build --release` for the frontend served to phones; debug WebAssembly builds are much larger and slower to load.
+   In debug builds, `cargo run` automatically runs `trunk build --release` for the Yew frontend before the server starts. Install the frontend target and Trunk first with `rustup target add wasm32-unknown-unknown` and `cargo install trunk --locked`. Set `DENPIE_SKIP_FRONTEND_BUILD=1` to skip this automatic frontend build, or set `DENPIE_FRONTEND_DIST` when serving a prebuilt frontend from another directory.
    The server starts on `http://127.0.0.1:3017` by default. On the first run it will:
    - Create `denpie.db` and apply `schema.sql` automatically.
+   - Create the tipcard image directory. By default this is `tipcard-images` inside `DENPIE_DATA_DIR`; set `DENPIE_IMAGE_DIR` to store dashboard image files elsewhere.
    - Generate and print a setup admin token to the console.
 
 4. **Create the first admin user** from the root page at `http://127.0.0.1:3017/`. Enter a username, password, and the printed setup token, then click **Create Admin User**. Existing single-user data, settings, and API keys from an older database are assigned to this first setup user.

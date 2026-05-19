@@ -574,6 +574,14 @@ async fn create_manual_tipcard(
     )
     .await
     .map_err(|err| err.into_status_body())?;
+    crate::image_store::replace_card_images(
+        &ctx.state.db,
+        &ctx.state.image_dir,
+        ctx.user_id,
+        card_id,
+        image_data.clone(),
+    )
+    .await?;
 
     responses.push(tip_response_json(
         card_id,

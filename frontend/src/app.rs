@@ -8,7 +8,7 @@ use crate::components::api_keys::ApiKeys;
 use crate::components::archive::Archive;
 use crate::components::dashboard::Dashboard;
 use crate::components::login::LoginPanel;
-use crate::components::settings::Settings;
+use crate::components::settings::{apply_appearance, Settings, SettingsRes};
 use crate::components::sidebar::Sidebar;
 use crate::components::unified_flow::UnifiedFlow;
 
@@ -53,10 +53,35 @@ fn app_root() -> Html {
                         if let Ok(user) = res.json::<UserProfile>().await {
                             app_state.dispatch(AppAction::SetUser(Some(user)));
                             app_state.dispatch(AppAction::SetAuthed(true));
+                            if let Ok(settings_res) = Request::get("/admin/settings").send().await {
+                                if settings_res.ok() {
+                                    if let Ok(settings) = settings_res.json::<SettingsRes>().await {
+                                        apply_appearance(&settings);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             });
+            || ()
+        });
+    }
+
+    {
+        let authed = app_state.authed;
+        use_effect_with(authed, move |authed| {
+            if *authed {
+                wasm_bindgen_futures::spawn_local(async move {
+                    if let Ok(settings_res) = Request::get("/admin/settings").send().await {
+                        if settings_res.ok() {
+                            if let Ok(settings) = settings_res.json::<SettingsRes>().await {
+                                apply_appearance(&settings);
+                            }
+                        }
+                    }
+                });
+            }
             || ()
         });
     }

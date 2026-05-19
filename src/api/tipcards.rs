@@ -30,10 +30,8 @@ pub async fn set_tipcard_images(
     image_data: Vec<String>,
 ) -> ApiResult<()> {
     let image_data = validate_image_data(image_data)?;
-    let image_data_json = image_data_json(&image_data)?;
-    tipcards::set_images(&state.db, user_id, id, image_data_json)
+    crate::image_store::replace_card_images(&state.db, &state.image_dir, user_id, id, image_data)
         .await
-        .map_err(|err| err.into_status_body())
 }
 
 pub(crate) fn parse_image_data(raw: &str) -> Vec<String> {

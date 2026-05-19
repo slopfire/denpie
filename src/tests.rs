@@ -122,6 +122,7 @@ fn unique_settings_path() -> PathBuf {
 
 fn make_state(db: SqlitePool, settings_path: PathBuf) -> AppState {
     let settings_store = crate::config::SettingsStore::new(settings_path.clone());
+    let image_dir = settings_path.with_extension("images");
     let rp_id = "localhost";
     let rp_origin = url::Url::parse("http://localhost:3017").unwrap();
     let webauthn = Arc::new(
@@ -135,6 +136,7 @@ fn make_state(db: SqlitePool, settings_path: PathBuf) -> AppState {
         settings: crate::services::settings::SettingsService::new(settings_store),
         reviews: crate::services::review::ReviewService::new(db.clone()),
         db,
+        image_dir,
         settings_path,
         webauthn,
     }
@@ -1985,10 +1987,15 @@ async fn test_manual_tipcards_store_and_update_images() {
         .fetch_one(&state.db)
         .await
         .unwrap();
-    assert_eq!(
-        serde_json::from_str::<Vec<String>>(&stored).unwrap(),
-        vec![image]
-    );
+    assert!(serde_json::from_str::<Vec<String>>(&stored).unwrap().is_empty());
+    let stored_image: (String, i64) =
+        sqlx::query_as("SELECT mime_type, byte_size FROM tipcard_images WHERE card_id = ?")
+            .bind(tips[0].id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(stored_image.0, "image/png");
+    assert!(stored_image.1 > 0);
 
     let replacement = "data:image/webp;base64,UklGRg==".to_string();
     crate::api::set_tipcard_images(&state, TEST_USER_ID, tips[0].id, vec![replacement.clone()])
@@ -1999,10 +2006,15 @@ async fn test_manual_tipcards_store_and_update_images() {
         .fetch_one(&state.db)
         .await
         .unwrap();
-    assert_eq!(
-        serde_json::from_str::<Vec<String>>(&updated).unwrap(),
-        vec![replacement]
-    );
+    assert!(serde_json::from_str::<Vec<String>>(&updated).unwrap().is_empty());
+    let updated_image: (String, i64) =
+        sqlx::query_as("SELECT mime_type, byte_size FROM tipcard_images WHERE card_id = ?")
+            .bind(tips[0].id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(updated_image.0, "image/webp");
+    assert!(updated_image.1 > 0);
 }
 
 #[tokio::test]
