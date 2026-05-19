@@ -89,15 +89,13 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
         let root_ref = root_ref.clone();
         let on_measure = props.on_measure.clone();
         use_effect_with(id, move |_| {
-            let element = root_ref.cast::<web_sys::Element>().expect("card root exists");
+            let element = root_ref
+                .cast::<web_sys::Element>()
+                .expect("card root exists");
             let callback = Closure::<dyn FnMut(js_sys::Array, ResizeObserver)>::wrap(Box::new({
                 let on_measure = on_measure.clone();
                 move |entries: js_sys::Array, _observer: ResizeObserver| {
-                    let Some(entry) = entries
-                        .get(0)
-                        .dyn_into::<ResizeObserverEntry>()
-                        .ok()
-                    else {
+                    let Some(entry) = entries.get(0).dyn_into::<ResizeObserverEntry>().ok() else {
                         return;
                     };
                     on_measure.emit((id, entry.content_rect().height()));
@@ -117,10 +115,23 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     }
 
     let ondragstart = {
+        let root_ref = root_ref.clone();
         Callback::from(move |e: DragEvent| {
+            if fullscreen {
+                e.prevent_default();
+                return;
+            }
             if let Some(dt) = e.data_transfer() {
                 let _ = dt.set_data("text/plain", &id.to_string());
                 dt.set_drop_effect("move");
+                if let Some(element) = root_ref.cast::<web_sys::Element>() {
+                    let rect = element.get_bounding_client_rect();
+                    let offset_x =
+                        ((e.client_x() as f64) - rect.left()).clamp(0.0, rect.width()) as i32;
+                    let offset_y =
+                        ((e.client_y() as f64) - rect.top()).clamp(0.0, rect.height()) as i32;
+                    dt.set_drag_image(&element, offset_x, offset_y);
+                }
             }
         })
     };
@@ -244,8 +255,6 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
             ref={root_ref}
             class={article_classes}
             data-card-id={id.to_string()}
-            draggable="true"
-            ondragstart={ondragstart.clone()}
             {ondragover}
             {ondrop}
         >
@@ -253,7 +262,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
             <div class="p-4 flex flex-col flex-1">
                 <div class="flex justify-between items-start gap-3 border-b border-token pb-3 mb-4">
                     <div class="flex items-center gap-2 font-medium min-w-0">
-                        <button type="button" class="card-drag-handle border border-token p-1" title="Drag to reorder" draggable="true" ondragstart={ondragstart.clone()}>
+                        <button type="button" class="card-drag-handle border border-token p-1" title="Drag to reorder" draggable={if fullscreen { "false" } else { "true" }} ondragstart={ondragstart.clone()}>
                             <iconify-icon icon="radix-icons:drag-handle-dots-2" class="radix-icon"></iconify-icon>
                         </button>
                         if pinned {
