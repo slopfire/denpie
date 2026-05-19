@@ -144,6 +144,27 @@ pub fn read_status(settings_path: &Path) -> UpdateStatus {
     }
 }
 
+pub fn write_status(settings_path: &Path, phase: &str, message: &str, target_sha: Option<&str>) {
+    let status_dir = settings_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("autoupdate");
+    if std::fs::create_dir_all(&status_dir).is_err() {
+        return;
+    }
+    let status_path = status_dir.join("status");
+    let tmp_path = status_dir.join(format!("status.tmp.{}", std::process::id()));
+    let clean_message = message.replace(['\r', '\n'], " ");
+    let content = format!(
+        "phase={phase}\nmessage={clean_message}\ntarget_sha={}\nupdated_at={}\n",
+        target_sha.unwrap_or_default(),
+        chrono::Utc::now().to_rfc3339()
+    );
+    if std::fs::write(&tmp_path, content).is_ok() {
+        let _ = std::fs::rename(tmp_path, status_path);
+    }
+}
+
 async fn run_once(client: &reqwest::Client, settings_path: &Path) -> Result<CheckResult, String> {
     let settings = read_settings(settings_path).await?;
     let config = AutoupdateConfig::from_settings(&settings);
@@ -223,6 +244,12 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
     let config = AutoupdateConfig::from_settings(&settings);
 
     if !config.enabled {
+        write_status(
+            settings_path,
+            "disabled",
+            "Server self-updates disabled",
+            None,
+        );
         return Ok(ManualCheckResult {
             message: "Server self-updates disabled".to_string(),
             should_exit_for_restart: false,
@@ -231,6 +258,7 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
         });
     }
     if config.repo.is_empty() {
+        write_status(settings_path, "invalid", "Server update repo empty", None);
         return Ok(ManualCheckResult {
             message: "Server update repo empty".to_string(),
             should_exit_for_restart: false,
@@ -241,6 +269,7 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
 
     let latest_sha = latest_github_sha(&client, &config.repo, &config.branch).await?;
     if latest_sha.is_empty() {
+        write_status(settings_path, "failed", "No commit SHA found", None);
         return Ok(ManualCheckResult {
             message: "No commit SHA found".to_string(),
             should_exit_for_restart: false,
@@ -251,6 +280,12 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
 
     if config.last_seen_sha.is_empty() {
         write_last_seen_sha(settings_path, &latest_sha).await?;
+        write_status(
+            settings_path,
+            "baseline",
+            "Recorded server update baseline",
+            Some(&latest_sha),
+        );
         return Ok(ManualCheckResult {
             message: format!("Recorded baseline {}", short_sha(&latest_sha)),
             should_exit_for_restart: false,
@@ -260,6 +295,12 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
     }
 
     if config.last_seen_sha == latest_sha {
+        write_status(
+            settings_path,
+            "current",
+            "Already up to date",
+            Some(&latest_sha),
+        );
         return Ok(ManualCheckResult {
             message: format!("Already up to date at {}", short_sha(&latest_sha)),
             should_exit_for_restart: false,
@@ -281,6 +322,12 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
             service = %service,
             "manual server update triggered; starting default systemd updater"
         );
+        write_status(
+            settings_path,
+            "starting",
+            "Starting default server updater",
+            Some(&latest_sha),
+        );
 
         let load_state = Command::new("systemctl")
             .arg("show")
@@ -298,6 +345,12 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
             .trim()
             .to_string();
         if !load_state.status.success() || load_state_text != "loaded" {
+            write_status(
+                settings_path,
+                "failed",
+                &format!("Default updater {service} is not installed"),
+                Some(&latest_sha),
+            );
             return Err(format!(
                 "no server update runner configured: default updater {service} is not installed; set autoupdate_command for this install or install the systemd updater"
             ));
@@ -330,15 +383,33 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
                 start_output.status.to_string()
             };
             if detail.contains("Interactive authentication required") {
+                write_status(
+                    settings_path,
+                    "failed",
+                    &format!("Default updater {service} needs permission for the web service user"),
+                    Some(&latest_sha),
+                );
                 return Err(format!(
                     "default server updater {service} needs permission for the web service user; rerun ./install.sh to install the polkit rule, or set autoupdate_command for custom installs"
                 ));
             }
+            write_status(
+                settings_path,
+                "failed",
+                &format!("Default updater {service} failed: {detail}"),
+                Some(&latest_sha),
+            );
             return Err(format!(
                 "default server updater {service} failed: {detail}; set autoupdate_command for custom installs"
             ));
         }
 
+        write_status(
+            settings_path,
+            "queued",
+            "Default server updater started",
+            Some(&latest_sha),
+        );
         return Ok(ManualCheckResult {
             message: format!(
                 "Started updater for {} -> {}",
@@ -358,6 +429,12 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
         new_sha = %short_sha(&latest_sha),
         "manual server update triggered; running command"
     );
+    write_status(
+        settings_path,
+        "running",
+        "Running configured server update command",
+        Some(&latest_sha),
+    );
 
     let status = Command::new("sh")
         .arg("-c")
@@ -367,10 +444,22 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
         .map_err(|err| format!("failed to spawn update command: {err}"))?;
 
     if !status.success() {
+        write_status(
+            settings_path,
+            "failed",
+            &format!("Configured server update command failed with {status}"),
+            Some(&latest_sha),
+        );
         return Err(format!("server update command failed with {status}"));
     }
 
     write_last_seen_sha(settings_path, &latest_sha).await?;
+    write_status(
+        settings_path,
+        "installed",
+        "Installed update; restarting server",
+        Some(&latest_sha),
+    );
     Ok(ManualCheckResult {
         message: format!("Installed update {}", short_sha(&latest_sha)),
         should_exit_for_restart: true,
