@@ -1,10 +1,10 @@
 use axum::{
     body::Body,
-    extract::Request,
+    extract::{Path, Request, State},
     http::StatusCode,
     http::{header, HeaderValue},
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
     routing::{delete, get, post},
     Router,
 };
@@ -20,6 +20,7 @@ use crate::{api, auth, dashboard, services};
 
 pub struct AppState {
     pub db: SqlitePool,
+    pub image_dir: PathBuf,
     pub settings_path: PathBuf,
     pub settings: services::settings::SettingsService,
     pub api_keys: services::api_keys::ApiKeyService,
@@ -79,6 +80,9 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
                 .delete(dashboard::delete_topic),
         )
         .route("/app/tips", post(dashboard::app_tips))
+        .route("/app/flow-cards", get(dashboard::flow_cards))
+        .route("/app/flow-cards/:id", get(dashboard::flow_card_detail))
+        .route("/app/tipcard-images/:id", get(serve_tipcard_image))
         .route("/app/daily-refresh", post(dashboard::force_daily_refresh))
         .route("/app/review", post(dashboard::app_review))
         .route("/auth/passkeys", get(auth::list_passkeys))
@@ -123,6 +127,26 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .layer(axum::middleware::from_fn(cache_headers))
         .layer(session_layer)
         .with_state(shared_state)
+}
+
+async fn serve_tipcard_image(
+    State(state): State<Arc<AppState>>,
+    session: tower_sessions::Session,
+    Path(id): Path<i64>,
+) -> Result<Response, StatusCode> {
+    let user = crate::auth::current_user(&state, &session)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let image = crate::db::repositories::tipcards::find_image(&state.db, &user.id, id)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let path = state.image_dir.join(&image.storage_path);
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let content_type = HeaderValue::from_str(&image.mime_type)
+        .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
+    Ok(([(header::CONTENT_TYPE, content_type)], bytes).into_response())
 }
 
 async fn not_found() -> StatusCode {

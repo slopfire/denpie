@@ -270,7 +270,7 @@ struct AutoupdateStatus {
     updated_at: String,
 }
 
-fn apply_appearance(settings: &SettingsRes) {
+pub fn apply_appearance(settings: &SettingsRes) {
     if let Some(window) = web_sys::window() {
         if let Some(document) = window.document() {
             if let Some(html) = document.document_element() {

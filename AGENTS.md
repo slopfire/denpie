@@ -3,7 +3,7 @@
 **Denpie** codebase. Primary context guide.
 
 ## Project Overview
-Backend service for daily tip cards. Scheduling truth now SM-2. No claim real FSRS until code has real FSRS. Admin dashboard, API key auth, Gemini/OpenAI-compatible tips via `async-openai`.
+Backend service for daily tip cards. Scheduling truth now SM-2. No claim real FSRS until code has real FSRS. Browser dashboard app for admins and users, API key auth, Gemini/OpenAI-compatible tips via `async-openai`.
 
 ## Technology Stack & Best Practices
 - **Language**: Rust (edition 2021)
@@ -15,7 +15,7 @@ Backend service for daily tip cards. Scheduling truth now SM-2. No claim real FS
 - **Schema**: `migrations/` snapshots plus compatibility `schema.sql`; startup migration helpers live in `src/db/migrations.rs`.
 - **Async Runtime**: Tokio
 - **LLM Integration**: `async-openai` (Gemini endpoint)
-- **Frontend**: Tailwind CSS (Admin UI)
+- **Frontend**: Tailwind CSS (dashboard app for admin and user workflows)
 
 ## Architecture & File Mapping
 - **Design Paradigm**: Single-user, multi-client. Global scheduling state; multiple clients (desktop widget, Telegram bot) via API keys.
@@ -40,7 +40,7 @@ Backend service for daily tip cards. Scheduling truth now SM-2. No claim real FS
 ## Development Workflow
 ```bash
 cargo check  # verify compilation without running
-cargo run    # start server on 127.0.0.1:3017
+cargo run    # builds frontend with trunk build --release, then starts server on 127.0.0.1:3017
 ```
 Use chrome dev tools if you want to check something on website
 Remember to close cargo run to allow me to test everything by myself

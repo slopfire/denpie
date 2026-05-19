@@ -31,6 +31,30 @@ pub struct TipcardInfoRecord {
     pub pinned: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct TipcardImageRecord {
+    pub id: i64,
+    pub position: i64,
+    pub storage_path: String,
+    pub mime_type: String,
+    pub byte_size: i64,
+}
+
+#[derive(Clone, Debug)]
+pub struct FlowCardRecord {
+    pub id: i64,
+    pub topic_name: String,
+    pub title: String,
+    pub compressed_content: String,
+    pub created_at: String,
+    pub tipcard_type: String,
+    pub status: String,
+    pub next_review_at: String,
+    pub state_data: String,
+    pub pinned: bool,
+    pub image_count: i64,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct TipcardFilter {
     pub q: Option<String>,
@@ -56,6 +80,11 @@ pub async fn delete_with_review(pool: &SqlitePool, user_id: &str, id: i64) -> Ap
     .bind(user_id)
     .execute(&mut *tx)
     .await?;
+    sqlx::query("DELETE FROM tipcard_images WHERE card_id = ? AND user_id = ?")
+        .bind(id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
     let result = sqlx::query("DELETE FROM tipcards WHERE id = ? AND user_id = ?")
         .bind(id)
         .bind(user_id)
@@ -81,24 +110,98 @@ pub async fn set_pinned(pool: &SqlitePool, user_id: &str, id: i64, pinned: bool)
     Ok(())
 }
 
-pub async fn set_images(
+pub async fn replace_image_records(
+    pool: &SqlitePool,
+    user_id: &str,
+    card_id: i64,
+    images: &[TipcardImageRecord],
+) -> AppResult<()> {
+    let mut tx = pool.begin().await?;
+    let exists: Option<i64> = sqlx::query_scalar("SELECT id FROM tipcards WHERE id = ? AND user_id = ?")
+        .bind(card_id)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    if exists.is_none() {
+        return Err(AppError::NotFound("Card not found".to_string()));
+    }
+    sqlx::query("DELETE FROM tipcard_images WHERE card_id = ? AND user_id = ?")
+        .bind(card_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    for image in images {
+        sqlx::query(
+            "INSERT INTO tipcard_images (user_id, card_id, position, storage_path, mime_type, byte_size)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(user_id)
+        .bind(card_id)
+        .bind(image.position)
+        .bind(&image.storage_path)
+        .bind(&image.mime_type)
+        .bind(image.byte_size)
+        .execute(&mut *tx)
+        .await?;
+    }
+    sqlx::query("UPDATE tipcards SET image_data = '[]' WHERE id = ? AND user_id = ?")
+        .bind(card_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn list_images(
+    pool: &SqlitePool,
+    user_id: &str,
+    card_id: i64,
+) -> AppResult<Vec<TipcardImageRecord>> {
+    let rows = sqlx::query_as::<_, (i64, i64, String, String, i64)>(
+        "SELECT id, position, storage_path, mime_type, byte_size
+         FROM tipcard_images
+         WHERE user_id = ? AND card_id = ?
+         ORDER BY position ASC, id ASC",
+    )
+    .bind(user_id)
+    .bind(card_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| TipcardImageRecord {
+            id: row.0,
+            position: row.1,
+            storage_path: row.2,
+            mime_type: row.3,
+            byte_size: row.4,
+        })
+        .collect())
+}
+
+pub async fn find_image(
     pool: &SqlitePool,
     user_id: &str,
     id: i64,
-    image_data_json: String,
-) -> AppResult<()> {
-    let result = sqlx::query("UPDATE tipcards SET image_data = ? WHERE id = ? AND user_id = ?")
-        .bind(image_data_json)
-        .bind(id)
-        .bind(user_id)
-        .execute(pool)
-        .await?;
-
-    if result.rows_affected() == 0 {
-        return Err(AppError::NotFound("Card not found".to_string()));
-    }
-
-    Ok(())
+) -> AppResult<TipcardImageRecord> {
+    let row = sqlx::query_as::<_, (i64, i64, String, String, i64)>(
+        "SELECT id, position, storage_path, mime_type, byte_size
+         FROM tipcard_images
+         WHERE user_id = ? AND id = ?",
+    )
+    .bind(user_id)
+    .bind(id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Image not found".to_string()))?;
+    Ok(TipcardImageRecord {
+        id: row.0,
+        position: row.1,
+        storage_path: row.2,
+        mime_type: row.3,
+        byte_size: row.4,
+    })
 }
 
 pub async fn list_admin(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<TipcardInfoRecord>> {
@@ -262,6 +365,155 @@ pub async fn list_filtered(
             pinned: row.11 != 0,
         })
         .collect())
+}
+
+pub async fn list_flow_cards(
+    pool: &SqlitePool,
+    user_id: &str,
+    cursor: Option<(i64, String, i64)>,
+    limit: i64,
+) -> AppResult<Vec<FlowCardRecord>> {
+    let limit = limit.clamp(1, 100);
+    let now = Utc::now();
+    let mut builder = QueryBuilder::<Sqlite>::new(
+        "SELECT t.id,
+                top.name AS topic_name,
+                COALESCE(t.title, '') AS title,
+                t.compressed_content,
+                COALESCE(CAST(t.created_at AS TEXT), '') AS created_at,
+                top.tipcard_type,
+                COALESCE(r.status, CASE WHEN top.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) AS status,
+                COALESCE(CAST(r.next_review_at AS TEXT), '') AS next_review_at,
+                COALESCE(r.state_data, '') AS state_data,
+                COALESCE(t.pinned, 0) AS pinned,
+                COUNT(img.id) AS image_count
+         FROM tipcards t
+         JOIN topics top ON t.topic_id = top.id
+         LEFT JOIN review_states r ON r.card_id = t.id
+         LEFT JOIN tipcard_images img ON img.card_id = t.id
+         WHERE t.user_id = ",
+    );
+    builder.push_bind(user_id);
+    builder.push(
+        " AND COALESCE(r.status, CASE WHEN top.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) = 'active'
+          AND (COALESCE(t.pinned, 0) = 1 OR r.next_review_at IS NULL OR r.next_review_at <= ",
+    );
+    builder.push_bind(now);
+    builder.push(")");
+    if let Some((pinned, created_at, id)) = cursor {
+        builder.push(" AND (COALESCE(t.pinned, 0) < ");
+        builder.push_bind(pinned);
+        builder.push(" OR (COALESCE(t.pinned, 0) = ");
+        builder.push_bind(pinned);
+        builder.push(" AND (CAST(t.created_at AS TEXT) < ");
+        builder.push_bind(created_at.clone());
+        builder.push(" OR (CAST(t.created_at AS TEXT) = ");
+        builder.push_bind(created_at);
+        builder.push(" AND t.id < ");
+        builder.push_bind(id);
+        builder.push("))))");
+    }
+    builder.push(
+        " GROUP BY t.id
+          ORDER BY pinned DESC, t.created_at DESC, t.id DESC
+          LIMIT ",
+    );
+    builder.push_bind(limit);
+
+    let rows = builder
+        .build_query_as::<(
+            i64,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            i64,
+            i64,
+        )>()
+        .fetch_all(pool)
+        .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| FlowCardRecord {
+            id: row.0,
+            topic_name: row.1,
+            title: row.2,
+            compressed_content: row.3,
+            created_at: row.4,
+            tipcard_type: row.5,
+            status: row.6,
+            next_review_at: row.7,
+            state_data: row.8,
+            pinned: row.9 != 0,
+            image_count: row.10,
+        })
+        .collect())
+}
+
+pub async fn get_tipcard_info(
+    pool: &SqlitePool,
+    user_id: &str,
+    id: i64,
+) -> AppResult<TipcardInfoRecord> {
+    let row = sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            i64,
+        ),
+    >(
+        "SELECT t.id,
+                top.name AS topic_name,
+                COALESCE(t.title, '') AS title,
+                t.full_content,
+                t.compressed_content,
+                COALESCE(t.image_data, '[]') AS image_data,
+                COALESCE(CAST(t.created_at AS TEXT), '') AS created_at,
+                top.tipcard_type,
+                COALESCE(r.status, CASE WHEN top.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) AS status,
+                COALESCE(CAST(r.next_review_at AS TEXT), '') AS next_review_at,
+                COALESCE(r.state_data, '') AS state_data,
+                COALESCE(t.pinned, 0) AS pinned
+         FROM tipcards t
+         JOIN topics top ON t.topic_id = top.id
+         LEFT JOIN review_states r ON r.card_id = t.id
+         WHERE t.user_id = ? AND t.id = ?",
+    )
+    .bind(user_id)
+    .bind(id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Tipcard not found".to_string()))?;
+
+    Ok(TipcardInfoRecord {
+        id: row.0,
+        topic_name: row.1,
+        title: row.2,
+        full_content: row.3,
+        compressed_content: row.4,
+        image_data: row.5,
+        created_at: row.6,
+        tipcard_type: row.7,
+        status: row.8,
+        next_review_at: row.9,
+        state_data: row.10,
+        pinned: row.11 != 0,
+    })
 }
 
 pub async fn find_daily_topic_cards(

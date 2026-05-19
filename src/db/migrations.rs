@@ -78,6 +78,23 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
     .execute(pool)
     .await?;
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS tipcard_images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            card_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            storage_path TEXT NOT NULL,
+            mime_type TEXT NOT NULL,
+            byte_size INTEGER NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(card_id) REFERENCES tipcards(id)
+        )",
+    )
+    .execute(pool)
+    .await?;
+
     ensure_column(pool, "users", "password_hash", "TEXT").await?;
     ensure_column(pool, "users", "role", "TEXT NOT NULL DEFAULT 'user'").await?;
     ensure_column(
@@ -150,6 +167,12 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
         .execute(pool)
         .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_tipcards_user_id ON tipcards(user_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_tipcard_images_card_id ON tipcard_images(card_id)")
+        .execute(pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_tipcard_images_user_id ON tipcard_images(user_id)")
         .execute(pool)
         .await?;
     sqlx::query(
