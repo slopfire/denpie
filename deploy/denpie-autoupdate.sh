@@ -101,6 +101,24 @@ normalize_repo() {
     printf '%s' "$repo"
 }
 
+sync_source_repo() {
+    mkdir -p "$(dirname "$SOURCE_DIR")"
+    if [ -d "$SOURCE_DIR/.git" ]; then
+        write_status pulling "Pulling $repo:$branch" "$latest_sha"
+        (
+            cd "$SOURCE_DIR"
+            git remote set-url origin "$remote_url"
+            git fetch --prune origin "$branch"
+            git checkout -f -B "$branch" "origin/$branch"
+        )
+        return
+    fi
+
+    write_status cloning "Cloning $repo:$branch" "$latest_sha"
+    rm -rf "$SOURCE_DIR"
+    git clone --branch "$branch" "$remote_url" "$SOURCE_DIR"
+}
+
 now="$(date +%s)"
 enabled="$(get_yaml_value autoupdate_enabled || true)"
 if [ "$enabled" != "true" ]; then
@@ -179,11 +197,9 @@ if [ "$last_seen" = "$latest_sha" ]; then
 fi
 
 log "updating $APP_NAME from ${last_seen} to ${latest_sha}"
-write_status cloning "Cloning $repo:$branch" "$latest_sha"
-rm -rf "$SOURCE_DIR.tmp"
-git clone --depth 1 --branch "$branch" "$remote_url" "$SOURCE_DIR.tmp"
+sync_source_repo
 (
-    cd "$SOURCE_DIR.tmp"
+    cd "$SOURCE_DIR"
     write_status compiling "Building frontend and server release assets" "$latest_sha"
     (cd frontend && trunk build --release)
     cargo build --release --package "$APP_NAME"
@@ -191,16 +207,14 @@ git clone --depth 1 --branch "$branch" "$remote_url" "$SOURCE_DIR.tmp"
 
 write_status installing "Installing binary, schema, frontend, and static assets" "$latest_sha"
 install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/frontend" "$SHARE_DIR/static"
-install -m 0755 "$SOURCE_DIR.tmp/target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
-install -m 0644 "$SOURCE_DIR.tmp/schema.sql" "$SHARE_DIR/schema.sql"
+install -m 0755 "$SOURCE_DIR/target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
+install -m 0644 "$SOURCE_DIR/schema.sql" "$SHARE_DIR/schema.sql"
 rm -rf "$SHARE_DIR/frontend/dist"
 install -d -m 0755 "$SHARE_DIR/frontend/dist"
-cp -R "$SOURCE_DIR.tmp/frontend/dist/." "$SHARE_DIR/frontend/dist/"
+cp -R "$SOURCE_DIR/frontend/dist/." "$SHARE_DIR/frontend/dist/"
 rm -rf "$SHARE_DIR/static"
 install -d -m 0755 "$SHARE_DIR/static"
-cp -R "$SOURCE_DIR.tmp/static/." "$SHARE_DIR/static/"
-rm -rf "$SOURCE_DIR"
-mv "$SOURCE_DIR.tmp" "$SOURCE_DIR"
+cp -R "$SOURCE_DIR/static/." "$SHARE_DIR/static/"
 
 log "installed update; restarting $SERVICE_NAME"
 write_status restarting "Restarting $SERVICE_NAME" "$latest_sha"
