@@ -66,8 +66,10 @@ pub fn archive() -> Html {
         let fullscreen_card_id = fullscreen_card_id.clone();
         Callback::from(move |id: i64| {
             if *fullscreen_card_id == Some(id) {
+                set_fullscreen_body_class(false);
                 fullscreen_card_id.set(None);
             } else {
+                set_fullscreen_body_class(true);
                 fullscreen_card_id.set(Some(id));
             }
         })
@@ -75,18 +77,9 @@ pub fn archive() -> Html {
 
     {
         use_effect_with(*fullscreen_card_id, move |fullscreen| {
-            let body = web_sys::window()
-                .and_then(|window| window.document())
-                .and_then(|document| document.body());
-            if let Some(body) = body.as_ref() {
-                let _ = body
-                    .class_list()
-                    .toggle_with_force("has-fullscreen-card", fullscreen.is_some());
-            }
+            set_fullscreen_body_class(fullscreen.is_some());
             move || {
-                if let Some(body) = body.as_ref() {
-                    let _ = body.class_list().remove_1("has-fullscreen-card");
-                }
+                set_fullscreen_body_class(false);
             }
         });
     }
@@ -232,4 +225,16 @@ pub fn archive() -> Html {
             }
         </section>
     }
+}
+
+fn set_fullscreen_body_class(fullscreen: bool) {
+    let Some(body) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.body())
+    else {
+        return;
+    };
+    let _ = body
+        .class_list()
+        .toggle_with_force("has-fullscreen-card", fullscreen);
 }
