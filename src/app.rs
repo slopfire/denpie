@@ -1,8 +1,8 @@
 use axum::{
     body::Body,
     extract::{Path, Request, State},
-    http::StatusCode,
     http::{header, HeaderValue},
+    http::{HeaderMap, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -116,6 +116,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .merge(protected_routes)
         .nest("/auth", auth_routes)
         .nest_service("/static", ServeDir::new(static_dir))
+        .route("/service-worker.js", get(service_worker))
         .route("/api", post(api::unified_api))
         .route("/tips", post(not_found))
         .route("/review", post(not_found))
@@ -132,6 +133,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
 async fn serve_tipcard_image(
     State(state): State<Arc<AppState>>,
     session: tower_sessions::Session,
+    headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<Response, StatusCode> {
     let user = crate::auth::current_user(&state, &session)
@@ -140,17 +142,61 @@ async fn serve_tipcard_image(
     let image = crate::db::repositories::tipcards::find_image(&state.db, &user.id, id)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
+    let etag = format!("\"tipcard-image-{}-{}\"", image.id, image.byte_size);
+    let etag_header =
+        HeaderValue::from_str(&etag).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if etag_matches(headers.get(header::IF_NONE_MATCH), &etag) {
+        return Ok((
+            StatusCode::NOT_MODIFIED,
+            [
+                (
+                    header::CACHE_CONTROL,
+                    HeaderValue::from_static("private, no-cache, max-age=0, must-revalidate"),
+                ),
+                (header::ETAG, etag_header),
+            ],
+        )
+            .into_response());
+    }
     let path = state.image_dir.join(&image.storage_path);
     let bytes = tokio::fs::read(path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
     let content_type = HeaderValue::from_str(&image.mime_type)
         .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
-    Ok(([(header::CONTENT_TYPE, content_type)], bytes).into_response())
+    Ok((
+        [
+            (header::CONTENT_TYPE, content_type),
+            (
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, no-cache, max-age=0, must-revalidate"),
+            ),
+            (header::ETAG, etag_header),
+        ],
+        bytes,
+    )
+        .into_response())
 }
 
 async fn not_found() -> StatusCode {
     StatusCode::NOT_FOUND
+}
+
+async fn service_worker() -> Response {
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/javascript; charset=utf-8"),
+            ),
+            (
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("no-cache, max-age=0, must-revalidate"),
+            ),
+        ],
+        include_str!("../frontend/service-worker.js"),
+    )
+        .into_response()
 }
 
 async fn cache_headers(req: Request<Body>, next: Next) -> Response {
@@ -162,6 +208,12 @@ async fn cache_headers(req: Request<Body>, next: Next) -> Response {
     }
 
     let headers = response.headers_mut();
+    if headers.contains_key(header::CACHE_CONTROL) {
+        return response;
+    }
+
+    headers.append(header::VARY, HeaderValue::from_static("Accept-Encoding"));
+
     if path.starts_with("/admin/")
         || path.starts_with("/app/")
         || path.starts_with("/auth/")
@@ -171,7 +223,7 @@ async fn cache_headers(req: Request<Body>, next: Next) -> Response {
         return response;
     }
 
-    if path == "/" || path.ends_with("/index.html") {
+    if is_frontend_document(&path) {
         headers.insert(
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-cache, max-age=0, must-revalidate"),
@@ -187,16 +239,80 @@ async fn cache_headers(req: Request<Body>, next: Next) -> Response {
     } else if path.starts_with("/static/") {
         headers.insert(
             header::CACHE_CONTROL,
-            HeaderValue::from_static("public, max-age=604800"),
+            HeaderValue::from_static("public, max-age=2592000, stale-while-revalidate=604800"),
         );
     }
 
     response
 }
 
+fn etag_matches(if_none_match: Option<&HeaderValue>, etag: &str) -> bool {
+    if_none_match
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .any(|candidate| candidate == "*" || candidate == etag)
+        })
+        .unwrap_or(false)
+}
+
+fn is_frontend_document(path: &str) -> bool {
+    if path == "/" || path.ends_with("/index.html") {
+        return true;
+    }
+
+    path.rsplit('/')
+        .next()
+        .map(|segment| !segment.contains('.'))
+        .unwrap_or(false)
+}
+
 fn is_hashed_frontend_asset(path: &str) -> bool {
     path.starts_with("/snippets/")
-        || path.ends_with(".wasm")
-        || path.ends_with(".js")
-        || path.ends_with(".css")
+        || ((path.starts_with("/frontend-") || path.contains("/frontend-"))
+            && (path.ends_with(".wasm") || path.ends_with(".js") || path.ends_with(".css")))
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    #[test]
+    fn frontend_document_paths_revalidate() {
+        assert!(is_frontend_document("/"));
+        assert!(is_frontend_document("/flow"));
+        assert!(is_frontend_document("/archive/cards"));
+        assert!(is_frontend_document("/index.html"));
+        assert!(!is_frontend_document("/frontend-abc123.js"));
+    }
+
+    #[test]
+    fn only_built_frontend_assets_are_treated_as_immutable() {
+        assert!(is_hashed_frontend_asset("/frontend-abc123.js"));
+        assert!(is_hashed_frontend_asset("/frontend-abc123_bg.wasm"));
+        assert!(is_hashed_frontend_asset(
+            "/snippets/frontend-aebe9231459ec4d1/src/passkeys.js"
+        ));
+        assert!(!is_hashed_frontend_asset("/service-worker.js"));
+    }
+
+    #[test]
+    fn etag_header_matches_lists() {
+        assert!(etag_matches(
+            Some(&HeaderValue::from_static(
+                "\"other\", \"tipcard-image-1-20\""
+            )),
+            "\"tipcard-image-1-20\""
+        ));
+        assert!(etag_matches(
+            Some(&HeaderValue::from_static("*")),
+            "\"tipcard-image-1-20\""
+        ));
+        assert!(!etag_matches(
+            Some(&HeaderValue::from_static("\"tipcard-image-2-20\"")),
+            "\"tipcard-image-1-20\""
+        ));
+    }
 }
