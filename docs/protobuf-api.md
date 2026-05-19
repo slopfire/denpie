@@ -6,7 +6,7 @@ Base URL for local development:
 http://127.0.0.1:3017
 ```
 
-`POST /api` is the canonical API for both card clients and administration. The server is single-user, so an API key has full access to tips, reviews, settings, API-key management, topic metadata, card deletion, card pinning, and summary counts.
+`POST /api` is the canonical programmable API for both card clients and administration. API keys are owned by users; an authenticated key can access tips, reviews, settings, API-key management, topic metadata, card deletion, card pinning, and summary counts for that key's user.
 
 Requests and responses use `application/x-protobuf` with the canonical schema in [`proto/denpie.proto`](../proto/denpie.proto).
 
@@ -16,7 +16,7 @@ The root page at `GET /` is a browser control panel that uses this same protobuf
 
 Every `ApiRequest` has an `auth` field. Set it to the raw `sk_live_*` API key for every operation except `bootstrap_api_key`.
 
-To create the first key without a session cookie, call `bootstrap_api_key` with the startup `admin_token`:
+After the first admin user exists, create the first key without a session cookie by calling `bootstrap_api_key` with the startup `admin_token`:
 
 ```proto
 ApiRequest {
@@ -35,12 +35,11 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 
 | Operation | Result | Purpose |
 |---|---|---|
-| `bootstrap_api_key` | `api_key_created` | Create the first/full-access API key using `admin_token`. |
+| `bootstrap_api_key` | `api_key_created` | Create an API key for the first admin user using `admin_token`. |
 | `tips` | `tips` | Get due cards, reuse the current daily topic card, generate a new card after the configured daily card refresh time, or create a manual card from user text. |
 | `submit_custom_tipcard` | `tips` | Store an externally supplied custom card without creating scheduling review state. |
 | `review` | `ok` | Review, dismiss, acknowledge, repeat, or memorize a card. |
 | `get_topics` | `topics` | List known topic names. |
-| `get_topic_classes` | `topic_classes` | List topic classes and card behavior types. |
 | `get_settings` | `settings` | Read LLM, prompt, theme, appearance, and server self-update settings. |
 | `update_settings` | `ok` | Update provided settings fields. Unset optional fields are preserved. |
 | `create_api_key` | `api_key_created` | Create another full-access API key. |
@@ -50,7 +49,7 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 | `list_tipcards` | `tipcards` | List stored cards with status, repeat count, pin state, and next scheduled review time. |
 | `delete_tipcard` | `ok` | Delete a card and its review state. |
 | `pin_tipcard` | `ok` | Pin or unpin a card by database ID. Pinned active cards are treated as due until unpinned. |
-| `force_daily_refresh` | `force_daily_refresh` | Move current unpinned generated cards out of the active daily view for all generated topics or selected topics so the next `tips` call creates fresh daily cards. |
+| `force_daily_refresh` | `force_daily_refresh` | Generate one fresh card for all generated topics or selected generated topics without moving, dismissing, or rescheduling current cards. |
 | `delete_topic` | `ok` | Delete a topic and all of its cards and review states. |
 | `get_summary` | `summary` | Read card/topic counts. |
 | `list_app_topics` | `app_topics` | Read topic rows with due/completed counts. |
@@ -64,13 +63,13 @@ Daily card refresh windows use `settings.daily_time_zone` (IANA name such as `UT
 
 Compression uses `settings.compression_level` by default. Each topic can override it with `update_topic.compression_level`; send an empty string to inherit the global preset.
 
-Use `force_daily_refresh` with empty fields to refresh all existing generated topics, or with comma-separated topics plus the desired `topic_class` and `tipcard_type` to target selected topics before the normal refresh time. The operation schedules active, unpinned generated cards forward and returns `refreshed_cards`; pinned cards stay in place, and refreshed cards are not marked dismissed.
+Use `force_daily_refresh` with empty fields to refresh all existing generated topics, or with comma-separated topics plus the desired `tipcard_type` to target selected topics before the normal refresh time. The operation creates fresh generated cards and returns `refreshed_cards`; existing cards keep their current review state and schedule.
 
 For user-authored cards, set `TipsQuery.tipcard_type` to `manual_tip` and provide `manual_content`. The server stores that text directly as the full card content, uses `manual_compressed_content` when provided, and otherwise uses the full text as compact content. Manual cards do not call the LLM.
 
 ## Custom Tipcards
 
-Use `submit_custom_tipcard` for cards that come from external workflows such as email summaries, reminders, or non-client automations. The server stores the card as `tipcard_type = "custom_tip"` under the `topic_class = "custom"` class and returns those names in the `tips.tips[0]` response. Custom cards do not create a `review_states` row, so scheduling algorithms never schedule or update them. They still appear in card lists and total card counts.
+Use `submit_custom_tipcard` for cards that come from external workflows such as email summaries, reminders, or non-client automations. The server stores the card as `tipcard_type = "custom_tip"` and returns that type in the `tips.tips[0]` response. Custom cards do not create a `review_states` row, so scheduling algorithms never schedule or update them. They still appear in card lists and total card counts.
 
 ```proto
 ApiRequest {
@@ -106,9 +105,11 @@ ApiRequest {
 }
 ```
 
-## Removed Routes
+## HTTP Surfaces
 
-Legacy route-specific APIs are gone. `/tips`, `/topics`, `/topic-classes`, `/review`, `/auth/login`, `/admin/*`, and `/app/*` return `404 Not Found`. Use `POST /api` for all client and admin operations. `GET /` is only the HTML control page.
+Legacy route-specific public APIs are gone. `/tips`, `/topics`, `/topic-classes`, `/review`, `/auth/login`, and `/admin` return `404 Not Found`. Use `POST /api` for API-key clients and automation.
+
+`GET /` serves the browser control panel. The browser uses session-authenticated JSON routes under `/auth/*`, `/admin/*`, and `/app/*`; those routes are implementation details for the dashboard, not the stable API-key surface.
 
 ## Status Codes
 

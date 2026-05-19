@@ -11,15 +11,16 @@ Backend service for daily tip cards. Scheduling truth now SM-2. No claim real FS
 - **Database**: SQLite via SQLx
   - **CRITICAL**: Use safe query binding in SQLx. No SQL injection.
   - Review `schema.sql` for table structure (`api_keys`, `topics`, `tipcards`, `review_states`).
-- **Configuration**: YAML (`settings.yaml` for LLM parameters)
-- **Schema**: `migrations/` snapshots plus compatibility `schema.sql`; startup migration helpers live in `src/db/migrations.rs`.
+- **Configuration**: YAML (`settings.yaml`) for server bootstrap/autoupdate; per-user LLM/UI/daily settings live in SQLite.
+- **Schema**: `schema.sql` plus startup compatibility migrations in `src/db/migrations.rs`; `migrations/` holds install/reference snapshots.
 - **Async Runtime**: Tokio
-- **LLM Integration**: `async-openai` (Gemini endpoint)
+- **LLM Integration**: `async-openai` against OpenAI-compatible endpoints (Gemini/OpenRouter/etc.)
 - **Frontend**: Tailwind CSS (dashboard app for admin and user workflows)
 
 ## Architecture & File Mapping
-- **Design Paradigm**: Single-user, multi-client. Global scheduling state; multiple clients (desktop widget, Telegram bot) via API keys.
-- `src/main.rs`: Axum router, DI (State), DB pool, app init.
+- **Design Paradigm**: Multi-user, multi-client. Per-user topics/cards/review state/settings/API keys; each user's clients share that user's scheduling state.
+- `src/main.rs`: DB pool, settings/image dirs, schema init, app startup.
+- `src/app.rs`: Axum router, middleware, static/frontend serving.
 - `src/config/`: typed settings + YAML store. Raw YAML `Value` stay here, ugh.
 - `src/db/repositories/`: SQL lives here as refactor grows. Bind params, no injection nonsense.
 - `src/domain/`: scheduling/review/tipcard rules. No SQL/YAML.
@@ -28,8 +29,8 @@ Backend service for daily tip cards. Scheduling truth now SM-2. No claim real FS
 - `src/api/`: protobuf transport, request types, tip generation, admin/topic/tipcard helpers.
 - `src/auth.rs`: session middleware/login transport; API key verify through service.
 - `src/dashboard.rs`: browser handlers; settings/key calls through services.
-- `src/srs.rs`: SM-2 scheduling implementation.
-- `src/llm.rs`: LLM wrappers for Gemini API.
+- `src/scheduling/`: SM-2 scheduling implementation. `FSRS` only accepted as legacy alias, not real FSRS.
+- `src/llm.rs`: LLM wrappers for OpenAI-compatible chat completions.
 
 ## Persona & Behavioral Rules (CRITICAL)
 1. **Communication Mode**: Normal chat → **sassy caveman full mode** (e.g. "Me do thing. You want? Ugh.").
@@ -44,4 +45,4 @@ cargo run    # builds frontend with trunk build --release, then starts server on
 ```
 Use chrome dev tools if you want to check something on website
 Remember to close cargo run to allow me to test everything by myself
-`schema.sql` auto-runs on startup to ensure tables exist.
+Startup applies `schema.sql`, then compatibility migrations in `src/db/migrations.rs`.

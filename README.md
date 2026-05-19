@@ -7,7 +7,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Intelligent Scheduling**: SM-2 review intervals optimize tip delivery based on user review grades.
 - **Casual Cards**: Queue-style tips can be dismissed or acknowledged so clients can pull the next card immediately; acknowledged cards are scheduled.
 - **Repeatable Cards**: Re:word-style cards can be dismissed, repeated, memorized, or acknowledged; clients can advance after repeatable review actions, and repeated cards come back when due through scheduling.
-- **Topic Classes**: Topics belong to a card behavior class: casual, repeatable, or manual. 
+- **Card Types**: Topics use a card behavior type: casual, repeatable, manual, or custom.
 - **Daily Topic Cards**: Each topic/type returns a configurable number of stable cards, with per-topic overrides for count and card refresh time. A server-side daily worker adds fresh generated cards at the configured window without requiring the browser dashboard to be open. Current cards stay active unless the user reviews or deletes them.
 - **Forced Card Refresh**: The settings screen and protobuf API use the same backend refresh path as the daily worker: pull one fresh generated card for every generated topic, or target selected generated topics, while keeping current cards untouched.
 - **Pinned Tipcards**: Any active card can be pinned from the control panel or API so it stays visible in a separate top section until unpinned.
@@ -28,7 +28,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Bootstrap Admin Token**: When admin setup is still required, the server generates and prints an admin token. Use it only to create the first admin user and, after setup, to bootstrap an API key for that admin user.
 - **Protobuf API**: The only public API is a single protobuf request/response envelope for both client and admin operations.
 - **Multi-User, Multi-Client**: Each user has isolated topics, cards, review state, LLM settings, token spend, and API keys. A user's scheduling state is shared across that user's clients (desktop widget, Telegram bot, etc.).
-- **SQLite Database**: Lightweight persistence via `sqlx` with compile-time query validation.
+- **SQLite Database**: Lightweight persistence via `sqlx` with bound query parameters.
 
 ## Screenshots
 
@@ -117,7 +117,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 
    Browser settings changes autosave after a short debounce. **Save Now** forces the pending settings patch to be written immediately.
 
-   Each topic can also define its own prompt, daily card count, and card refresh time with `update_topic`; empty topic time fields fall back to the current user's default time zone setting. Topics can be deleted from the browser control panel or with `delete_topic`; deleting a topic also deletes its cards and review state for that user. The browser control panel has a class switcher for Casual, Repeatable, and Manual cards; Manual cards are saved from user-entered text and do not call the LLM. In Manual mode, Tab or Enter moves from the title field straight to the card text; in the card text, Enter saves the card and Shift+Enter inserts a newline. External systems can use `submit_custom_tipcard` to store `custom_tip` cards for summaries and reminders; these cards return `topic_class = "custom"` and do not create scheduling review state. Active cards can be pinned so they remain in a separate top section even before their next review time; unpinning returns them to normal scheduling. Daily refresh runs inside the server once per topic window and uses the same behavior as **Force Daily Refresh**: it adds fresh generated cards without moving, dismissing, or rescheduling current cards. Protobuf clients can call `force_daily_refresh` for generated topic targeting. Set **Max Active Cards** to stop creating new cards once your active review state reaches that number; `0` means unlimited, and existing due/pinned cards remain available. When a new generated card is created, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
+   Each topic can also define its own prompt, daily card count, and card refresh time with `update_topic`; empty topic time fields fall back to the current user's default time zone setting. Topics can be deleted from the browser control panel or with `delete_topic`; deleting a topic also deletes its cards and review state for that user. The browser control panel has a type switcher for Casual, Repeatable, and Manual cards; Manual cards are saved from user-entered text and do not call the LLM. In Manual mode, Tab or Enter moves from the title field straight to the card text; in the card text, Enter saves the card and Shift+Enter inserts a newline. External systems can use `submit_custom_tipcard` to store `custom_tip` cards for summaries and reminders; these cards return `tipcard_type = "custom_tip"` and do not create scheduling review state. Active cards can be pinned so they remain in a separate top section even before their next review time; unpinning returns them to normal scheduling. Daily refresh runs inside the server once per topic window and uses the same behavior as **Force Daily Refresh**: it adds fresh generated cards without moving, dismissing, or rescheduling current cards. Protobuf clients can call `force_daily_refresh` for generated topic targeting. Set **Max Active Cards** to stop creating new cards once your active review state reaches that number; `0` means unlimited, and existing due/pinned cards remain available. When a new generated card is created, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
 
 7. **Use the API key** in `ApiRequest.auth` for every operation except `bootstrap_api_key`. All reads and writes are scoped to the user that owns the key.
 
@@ -268,11 +268,15 @@ The unified protobuf API is the only public API:
 | Table | Purpose |
 |---|---|
 | `api_keys` | Hashed client keys with display names |
-| `topic_classes` | Topic class definitions, including card behavior type |
-| `topics` | Topic categories linked to topic classes, with optional per-topic prompt template |
+| `users` | Login profiles, roles, display names, and avatar data |
+| `topics` | Topic categories scoped to users, with card type, optional prompt template, and daily refresh overrides |
 | `tipcards` | Generated, manual, and custom tips with full content, compact compressed content, title, card type, and pin state |
 | `review_states` | Per-card review state, status, and next review timestamp |
+| `tipcard_images` | File-backed image attachment metadata for cards |
 | `llm_token_usage` | Token usage returned by LLM calls, used for daily, monthly, and total dashboard counters |
+| `user_settings` | Per-user LLM, prompt, UI, schedule, and active-card-limit settings |
+| `daily_refresh_runs` | Per-topic daily refresh windows already processed by the worker |
+| `passkeys` | WebAuthn passkeys for browser login |
 
 Topic rows can override the daily refresh defaults with `daily_card_count` and `daily_update_time` in the browser dashboard; the global `daily_time_zone` setting is used for refresh windows. Topics can also override `llm_compression_level` with their own compression preset. Empty time and compression fields inherit the global settings; empty or zero count falls back to one card.
 
