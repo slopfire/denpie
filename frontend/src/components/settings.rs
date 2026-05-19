@@ -206,6 +206,37 @@ fn clear_pending_selects() {
     LocalStorage::delete(PENDING_SETTINGS_KEY);
 }
 
+fn refresh_autoupdate_status(update_status: UseStateHandle<Option<AutoupdateStatus>>) {
+    wasm_bindgen_futures::spawn_local(async move {
+        let Ok(status_res) = Request::get("/admin/autoupdate/status").send().await else {
+            return;
+        };
+        let Ok(status) = status_res.json::<AutoupdateStatus>().await else {
+            return;
+        };
+        if status.phase == "unknown" && status.message.is_empty() && status.updated_at.is_empty() {
+            update_status.set(None);
+        } else {
+            update_status.set(Some(status));
+        }
+    });
+}
+
+fn autoupdate_status_is_active(status: &AutoupdateStatus) -> bool {
+    matches!(
+        status.phase.as_str(),
+        "starting"
+            | "queued"
+            | "checking"
+            | "pulling"
+            | "cloning"
+            | "compiling"
+            | "installing"
+            | "restarting"
+            | "running"
+    )
+}
+
 #[derive(Clone)]
 struct SaveRequest {
     patch: UpdateSettingsPatch,
@@ -405,6 +436,31 @@ pub fn settings() -> Html {
         });
     }
 
+    {
+        let update_status = update_status.clone();
+        use_effect_with((), move |_| {
+            refresh_autoupdate_status(update_status);
+            || ()
+        });
+    }
+
+    {
+        let update_status_handle = update_status.clone();
+        let current_status = (*update_status).clone();
+        use_effect_with(current_status, move |status| {
+            let timer = status
+                .as_ref()
+                .filter(|status| autoupdate_status_is_active(status))
+                .map(|_| {
+                    let update_status_handle = update_status_handle.clone();
+                    Timeout::new(2500, move || {
+                        refresh_autoupdate_status(update_status_handle);
+                    })
+                });
+            move || drop(timer)
+        });
+    }
+
     let on_submit = {
         let app_state = app_state.clone();
         let settings = settings.clone();
@@ -548,15 +604,10 @@ pub fn settings() -> Html {
                         } else {
                             toast(&app_state, "Autoupdate checked");
                         }
-                        if let Ok(status_res) =
-                            Request::get("/admin/autoupdate/status").send().await
-                        {
-                            if let Ok(status) = status_res.json::<AutoupdateStatus>().await {
-                                update_status.set(Some(status));
-                            }
-                        }
+                        refresh_autoupdate_status(update_status);
                     } else {
                         toast(&app_state, "Failed to check updates");
+                        refresh_autoupdate_status(update_status);
                     }
                 }
             });
@@ -921,8 +972,14 @@ pub fn settings() -> Html {
                     if let Some(status) = (*update_status).clone() {
                         <div id="autoupdate-progress" class="muted-surface rounded-md p-3 space-y-2">
                             <div class="flex items-center justify-between gap-3 card-kicker">
-                                <span>{status.phase}</span>
+                                <span>{"Updater Log"}</span>
                                 <span>{status.updated_at}</span>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-2 text-xs text-muted">
+                                <span>{format!("Phase: {}", status.phase)}</span>
+                                if !status.target_sha.is_empty() {
+                                    <span>{format!("Target: {}", status.target_sha)}</span>
+                                }
                             </div>
                             <div class="text-sm">{status.message}</div>
                         </div>
