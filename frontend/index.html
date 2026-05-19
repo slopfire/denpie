@@ -12,6 +12,15 @@
             defer
             src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"
         ></script>
+        <script>
+            if ("serviceWorker" in navigator) {
+                window.addEventListener("load", () => {
+                    navigator.serviceWorker
+                        .register("/service-worker.js")
+                        .catch(() => undefined);
+                });
+            }
+        </script>
         <style>
             :root,
             [data-theme="shadcn"] {
