@@ -3,7 +3,7 @@ use serde_yaml::{Mapping, Value};
 use std::path::Path;
 use std::time::Duration;
 use tokio::process::Command;
-use tokio::time;
+use tokio::time::{self, timeout};
 use tracing::{error, info, warn};
 
 #[derive(Clone, Debug)]
@@ -18,6 +18,7 @@ pub struct AutoupdateConfig {
 
 const DEFAULT_REPO: &str = "slopfire/denpie";
 const DEFAULT_SYSTEMD_UPDATE_SERVICE: &str = "denpie-autoupdate.service";
+const GITHUB_CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 
 impl AutoupdateConfig {
     pub fn from_settings(settings: &Value) -> Self {
@@ -173,8 +174,26 @@ async fn run_once(client: &reqwest::Client, settings_path: &Path) -> Result<Chec
         return Ok(CheckResult::Disabled);
     }
 
-    let latest_sha = latest_github_sha(client, &config.repo, &config.branch).await?;
+    write_status(
+        settings_path,
+        "checking",
+        &format!("Checking GitHub branch {}:{}", config.repo, config.branch),
+        None,
+    );
+    let latest_sha = match latest_github_sha(client, &config.repo, &config.branch).await {
+        Ok(sha) => sha,
+        Err(err) => {
+            write_status(
+                settings_path,
+                "failed",
+                &format!("GitHub update check failed: {err}"),
+                None,
+            );
+            return Err(err);
+        }
+    };
     if latest_sha.is_empty() {
+        write_status(settings_path, "failed", "No commit SHA found", None);
         return Ok(CheckResult::NoChange(Duration::from_secs(
             config.check_interval_secs,
         )));
@@ -188,12 +207,24 @@ async fn run_once(client: &reqwest::Client, settings_path: &Path) -> Result<Chec
             sha = %short_sha(&latest_sha),
             "server update baseline recorded"
         );
+        write_status(
+            settings_path,
+            "baseline",
+            "Recorded server update baseline",
+            Some(&latest_sha),
+        );
         return Ok(CheckResult::NoChange(Duration::from_secs(
             config.check_interval_secs,
         )));
     }
 
     if config.last_seen_sha == latest_sha {
+        write_status(
+            settings_path,
+            "current",
+            "Already up to date",
+            Some(&latest_sha),
+        );
         return Ok(CheckResult::NoChange(Duration::from_secs(
             config.check_interval_secs,
         )));
@@ -207,6 +238,12 @@ async fn run_once(client: &reqwest::Client, settings_path: &Path) -> Result<Chec
             new_sha = %short_sha(&latest_sha),
             "server update detected, but command is empty"
         );
+        write_status(
+            settings_path,
+            "idle",
+            "Update detected; default systemd updater handles scheduled install",
+            Some(&latest_sha),
+        );
         return Ok(CheckResult::NoChange(Duration::from_secs(
             config.check_interval_secs,
         )));
@@ -219,6 +256,12 @@ async fn run_once(client: &reqwest::Client, settings_path: &Path) -> Result<Chec
         new_sha = %short_sha(&latest_sha),
         "server update detected; running command"
     );
+    write_status(
+        settings_path,
+        "running",
+        "Running configured server update command",
+        Some(&latest_sha),
+    );
 
     let status = Command::new("sh")
         .arg("-c")
@@ -229,6 +272,12 @@ async fn run_once(client: &reqwest::Client, settings_path: &Path) -> Result<Chec
 
     if !status.success() {
         error!(?status, "server update command failed");
+        write_status(
+            settings_path,
+            "failed",
+            &format!("Configured server update command failed with {status}"),
+            Some(&latest_sha),
+        );
         return Ok(CheckResult::NoChange(Duration::from_secs(
             config.check_interval_secs,
         )));
@@ -267,7 +316,24 @@ pub async fn trigger_manual(settings_path: &Path) -> Result<ManualCheckResult, S
         });
     }
 
-    let latest_sha = latest_github_sha(&client, &config.repo, &config.branch).await?;
+    write_status(
+        settings_path,
+        "checking",
+        &format!("Checking GitHub branch {}:{}", config.repo, config.branch),
+        None,
+    );
+    let latest_sha = match latest_github_sha(&client, &config.repo, &config.branch).await {
+        Ok(sha) => sha,
+        Err(err) => {
+            write_status(
+                settings_path,
+                "failed",
+                &format!("GitHub update check failed: {err}"),
+                None,
+            );
+            return Err(err);
+        }
+    };
     if latest_sha.is_empty() {
         write_status(settings_path, "failed", "No commit SHA found", None);
         return Ok(ManualCheckResult {
@@ -481,12 +547,16 @@ async fn latest_github_sha(
         branch.trim()
     };
     let url = format!("https://api.github.com/repos/{repo}/commits/{branch}");
-    let res = client
-        .get(url)
-        .header(reqwest::header::USER_AGENT, "denpie-autoupdate")
-        .send()
-        .await
-        .map_err(|err| format!("github request failed: {err}"))?;
+    let res = timeout(
+        GITHUB_CHECK_TIMEOUT,
+        client
+            .get(url)
+            .header(reqwest::header::USER_AGENT, "denpie-autoupdate")
+            .send(),
+    )
+    .await
+    .map_err(|_| "github request timed out".to_string())?
+    .map_err(|err| format!("github request failed: {err}"))?;
 
     if !res.status().is_success() {
         return Err(format!("github returned {}", res.status()));

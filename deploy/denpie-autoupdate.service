@@ -7,3 +7,4 @@ Wants=network-online.target
 Type=oneshot
 EnvironmentFile=-/etc/default/denpie-autoupdate
 ExecStart=/usr/local/libexec/denpie-autoupdate force
+TimeoutStartSec=75min

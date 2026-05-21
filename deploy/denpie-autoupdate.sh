@@ -14,6 +14,9 @@ SOURCE_DIR="${SOURCE_DIR:-$STATE_DIR/source}"
 DEFAULT_REPO="${DEFAULT_REPO:-slopfire/denpie}"
 DEFAULT_BRANCH="${DEFAULT_BRANCH:-master}"
 DEFAULT_INTERVAL_SECS="${DEFAULT_INTERVAL_SECS:-3600}"
+NETWORK_TIMEOUT_SECS="${NETWORK_TIMEOUT_SECS:-120}"
+BUILD_TIMEOUT_SECS="${BUILD_TIMEOUT_SECS:-1800}"
+INSTALL_TIMEOUT_SECS="${INSTALL_TIMEOUT_SECS:-300}"
 
 log() {
     printf '%s %s\n' "$(date -Is)" "$*"
@@ -30,13 +33,14 @@ write_status() {
     phase="$1"
     message="$2"
     target_sha="${3:-}"
+    clean_message="$(printf '%s' "$message" | tr '\r\n' '  ')"
     mkdir -p "$STATE_DIR"
     chmod 0750 "$STATE_DIR"
     own_runtime_path "$STATE_DIR"
     tmp="$STATE_DIR/status.tmp.$$"
     {
         printf 'phase=%s\n' "$phase"
-        printf 'message=%s\n' "$message"
+        printf 'message=%s\n' "$clean_message"
         printf 'target_sha=%s\n' "$target_sha"
         printf 'updated_at=%s\n' "$(date -Is)"
     } > "$tmp"
@@ -46,7 +50,8 @@ write_status() {
 }
 
 completed=0
-trap 'code=$?; if [ "$completed" != "1" ] && [ "$code" -ne 0 ]; then write_status failed "Server updater failed; check journalctl -u ${APP_NAME}-autoupdate.service" "${latest_sha:-}"; fi' EXIT
+current_step="starting"
+trap 'code=$?; if [ "$completed" != "1" ] && [ "$code" -ne 0 ]; then write_status failed "Server updater failed during ${current_step}; check journalctl -u ${APP_NAME}-autoupdate.service" "${latest_sha:-}"; fi' EXIT
 
 get_yaml_value() {
     key="$1"
@@ -87,6 +92,23 @@ need_command() {
     fi
 }
 
+run_step() {
+    phase="$1"
+    message="$2"
+    timeout_secs="$3"
+    shift 3
+    current_step="$message"
+    write_status "$phase" "$message" "${latest_sha:-}"
+    if timeout "$timeout_secs" "$@"; then
+        return
+    else
+        code="$?"
+        write_status failed "$message failed with exit code $code" "${latest_sha:-}"
+        log "$message failed with exit code $code"
+        exit "$code"
+    fi
+}
+
 normalize_repo() {
     repo="$1"
     repo="${repo#https://github.com/}"
@@ -104,19 +126,20 @@ normalize_repo() {
 sync_source_repo() {
     mkdir -p "$(dirname "$SOURCE_DIR")"
     if [ -d "$SOURCE_DIR/.git" ]; then
-        write_status pulling "Pulling $repo:$branch" "$latest_sha"
-        (
+        run_step pulling "Fetching $repo:$branch" "$NETWORK_TIMEOUT_SECS" sh -c "
             cd "$SOURCE_DIR"
             git remote set-url origin "$remote_url"
             git fetch --prune origin "$branch"
+        "
+        run_step pulling "Checking out $repo:$branch" "$NETWORK_TIMEOUT_SECS" sh -c "
+            cd "$SOURCE_DIR"
             git checkout -f -B "$branch" "origin/$branch"
-        )
+        "
         return
     fi
 
-    write_status cloning "Cloning $repo:$branch" "$latest_sha"
     rm -rf "$SOURCE_DIR"
-    git clone --branch "$branch" "$remote_url" "$SOURCE_DIR"
+    run_step cloning "Cloning $repo:$branch" "$NETWORK_TIMEOUT_SECS" git clone --branch "$branch" "$remote_url" "$SOURCE_DIR"
 }
 
 now="$(date +%s)"
@@ -160,20 +183,29 @@ printf '%s\n' "$now" > "$last_check_file"
 chmod 0600 "$last_check_file"
 own_runtime_path "$last_check_file"
 
+current_step="checking updater prerequisites"
 write_status checking "Checking updater prerequisites"
 need_command git
 need_command cargo
 need_command rustup
 need_command install
 need_command systemctl
+need_command timeout
 if ! command -v trunk >/dev/null 2>&1; then
-    cargo install trunk --locked
+    run_step preparing "Installing Trunk" "$BUILD_TIMEOUT_SECS" cargo install trunk --locked
 fi
-rustup target add wasm32-unknown-unknown
+run_step preparing "Ensuring wasm32 Rust target" "$NETWORK_TIMEOUT_SECS" rustup target add wasm32-unknown-unknown
 
 remote_url="https://github.com/$repo.git"
-write_status checking "Checking GitHub branch $repo:$branch"
-latest_sha="$(git ls-remote "$remote_url" "refs/heads/$branch" | awk '{print $1}' | head -n 1)"
+current_step="checking GitHub branch $repo:$branch"
+write_status checking "Checking GitHub branch $repo:$branch" "${latest_sha:-}"
+ls_remote_output="$(timeout "$NETWORK_TIMEOUT_SECS" git ls-remote "$remote_url" "refs/heads/$branch" 2>&1)" || {
+    code="$?"
+    write_status failed "GitHub branch check failed with exit code $code: $ls_remote_output"
+    log "GitHub branch check failed with exit code $code: $ls_remote_output"
+    exit "$code"
+}
+latest_sha="$(printf '%s\n' "$ls_remote_output" | awk '{print $1}' | head -n 1)"
 if [ -z "$latest_sha" ]; then
     write_status failed "No SHA found for $repo $branch"
     log "no SHA found for $repo $branch"
@@ -200,25 +232,24 @@ log "updating $APP_NAME from ${last_seen} to ${latest_sha}"
 sync_source_repo
 (
     cd "$SOURCE_DIR"
-    write_status compiling "Building frontend and server release assets" "$latest_sha"
-    (cd frontend && trunk build --release)
-    cargo build --release --package "$APP_NAME"
+    run_step compiling "Building frontend release assets" "$BUILD_TIMEOUT_SECS" sh -c "cd frontend && trunk build --release"
+    run_step compiling "Building server release binary" "$BUILD_TIMEOUT_SECS" cargo build --release --package "$APP_NAME"
 )
 
-write_status installing "Installing binary, schema, frontend, and static assets" "$latest_sha"
-install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/frontend" "$SHARE_DIR/static"
-install -m 0755 "$SOURCE_DIR/target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
-install -m 0644 "$SOURCE_DIR/schema.sql" "$SHARE_DIR/schema.sql"
-rm -rf "$SHARE_DIR/frontend/dist"
-install -d -m 0755 "$SHARE_DIR/frontend/dist"
-cp -R "$SOURCE_DIR/frontend/dist/." "$SHARE_DIR/frontend/dist/"
-rm -rf "$SHARE_DIR/static"
-install -d -m 0755 "$SHARE_DIR/static"
-cp -R "$SOURCE_DIR/static/." "$SHARE_DIR/static/"
+run_step installing "Installing binary, schema, frontend, and static assets" "$INSTALL_TIMEOUT_SECS" sh -c "
+    install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/frontend" "$SHARE_DIR/static"
+    install -m 0755 "$SOURCE_DIR/target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
+    install -m 0644 "$SOURCE_DIR/schema.sql" "$SHARE_DIR/schema.sql"
+    rm -rf "$SHARE_DIR/frontend/dist"
+    install -d -m 0755 "$SHARE_DIR/frontend/dist"
+    cp -R "$SOURCE_DIR/frontend/dist/." "$SHARE_DIR/frontend/dist/"
+    rm -rf "$SHARE_DIR/static"
+    install -d -m 0755 "$SHARE_DIR/static"
+    cp -R "$SOURCE_DIR/static/." "$SHARE_DIR/static/"
+"
 
 log "installed update; restarting $SERVICE_NAME"
-write_status restarting "Restarting $SERVICE_NAME" "$latest_sha"
-systemctl restart "$SERVICE_NAME"
+run_step restarting "Restarting $SERVICE_NAME" "$NETWORK_TIMEOUT_SECS" systemctl restart "$SERVICE_NAME"
 set_yaml_value autoupdate_last_seen_sha "$latest_sha"
 log "update active at ${latest_sha}"
 write_status active "Update active" "$latest_sha"
