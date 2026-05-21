@@ -228,6 +228,7 @@ fn autoupdate_status_is_active(status: &AutoupdateStatus) -> bool {
         "starting"
             | "queued"
             | "checking"
+            | "preparing"
             | "pulling"
             | "cloning"
             | "compiling"
@@ -235,6 +236,33 @@ fn autoupdate_status_is_active(status: &AutoupdateStatus) -> bool {
             | "restarting"
             | "running"
     )
+}
+
+fn autoupdate_phase_label(phase: &str) -> &'static str {
+    match phase {
+        "active" => "Update active",
+        "baseline" => "Baseline recorded",
+        "checking" => "Checking",
+        "cloning" => "Cloning",
+        "compiling" => "Building",
+        "current" => "Already current",
+        "disabled" => "Disabled",
+        "failed" => "Failed",
+        "idle" => "Idle",
+        "installing" => "Installing",
+        "invalid" => "Invalid settings",
+        "preparing" => "Preparing",
+        "pulling" => "Pulling",
+        "queued" => "Queued",
+        "restarting" => "Restarting",
+        "running" => "Running",
+        "starting" => "Starting",
+        _ => "Status",
+    }
+}
+
+fn short_commit(sha: &str) -> String {
+    sha.chars().take(12).collect()
 }
 
 #[derive(Clone)]
@@ -596,6 +624,12 @@ pub fn settings() -> Html {
             let update_status = update_status.clone();
             let update_result = update_result.clone();
             wasm_bindgen_futures::spawn_local(async move {
+                update_status.set(Some(AutoupdateStatus {
+                    phase: "checking".to_string(),
+                    message: "Checking GitHub for server updates".to_string(),
+                    target_sha: String::new(),
+                    updated_at: String::new(),
+                }));
                 if let Ok(res) = Request::post("/admin/autoupdate").send().await {
                     if res.ok() {
                         if let Ok(result) = res.json::<TriggerAutoupdateRes>().await {
@@ -609,6 +643,13 @@ pub fn settings() -> Html {
                         toast(&app_state, "Failed to check updates");
                         refresh_autoupdate_status(update_status);
                     }
+                } else {
+                    update_status.set(Some(AutoupdateStatus {
+                        phase: "failed".to_string(),
+                        message: "Failed to reach server updater endpoint".to_string(),
+                        target_sha: String::new(),
+                        updated_at: String::new(),
+                    }));
                 }
             });
         })
@@ -972,13 +1013,15 @@ pub fn settings() -> Html {
                     if let Some(status) = (*update_status).clone() {
                         <div id="autoupdate-progress" class="muted-surface rounded-md p-3 space-y-2">
                             <div class="flex items-center justify-between gap-3 card-kicker">
-                                <span>{"Updater Log"}</span>
-                                <span>{status.updated_at}</span>
+                                <span>{format!("Updater Log: {}", autoupdate_phase_label(&status.phase))}</span>
+                                if !status.updated_at.is_empty() {
+                                    <span>{status.updated_at}</span>
+                                }
                             </div>
                             <div class="flex flex-wrap items-center gap-2 text-xs text-muted">
                                 <span>{format!("Phase: {}", status.phase)}</span>
                                 if !status.target_sha.is_empty() {
-                                    <span>{format!("Target: {}", status.target_sha)}</span>
+                                    <span>{format!("Target: {}", short_commit(&status.target_sha))}</span>
                                 }
                             </div>
                             <div class="text-sm">{status.message}</div>

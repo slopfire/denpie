@@ -14,6 +14,9 @@ SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 LIBEXEC_DIR="${LIBEXEC_DIR:-/usr/local/libexec}"
 DEFAULTS_DIR="${DEFAULTS_DIR:-/etc/default}"
 POLKIT_DIR="${POLKIT_DIR:-/etc/polkit-1/rules.d}"
+NETWORK_TIMEOUT_SECS="${NETWORK_TIMEOUT_SECS:-120}"
+BUILD_TIMEOUT_SECS="${BUILD_TIMEOUT_SECS:-1800}"
+INSTALL_TIMEOUT_SECS="${INSTALL_TIMEOUT_SECS:-300}"
 
 usage() {
     cat <<EOF
@@ -28,6 +31,9 @@ Environment overrides:
   DATA_DIR        runtime data directory (default: /var/lib/denpie)
   LIBEXEC_DIR     helper script directory (default: /usr/local/libexec)
   SERVICE_USER    system user name (default: denpie)
+  NETWORK_TIMEOUT_SECS autoupdater network step timeout (default: 120)
+  BUILD_TIMEOUT_SECS   autoupdater build step timeout (default: 1800)
+  INSTALL_TIMEOUT_SECS autoupdater install step timeout (default: 300)
   SKIP_BUILD=1    install existing target/release/denpie and frontend/dist
   RUSTUP_INIT_URL rustup installer URL (default: https://sh.rustup.rs)
 EOF
@@ -157,6 +163,9 @@ SHARE_DIR=$SHARE_DIR
 DATA_DIR=$DATA_DIR
 SETTINGS_PATH=$DATA_DIR/settings.yaml
 STATE_DIR=$DATA_DIR/autoupdate
+NETWORK_TIMEOUT_SECS=$NETWORK_TIMEOUT_SECS
+BUILD_TIMEOUT_SECS=$BUILD_TIMEOUT_SECS
+INSTALL_TIMEOUT_SECS=$INSTALL_TIMEOUT_SECS
 PATH=$rust_path
 CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}
 RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}
@@ -223,8 +232,10 @@ install_app() {
     write_autoupdate_units
 
     run_as_root systemctl daemon-reload
-    run_as_root systemctl enable --now "$APP_NAME.service"
-    run_as_root systemctl enable --now "$APP_NAME-autoupdate.timer"
+    run_as_root systemctl enable "$APP_NAME.service"
+    run_as_root systemctl restart "$APP_NAME.service"
+    run_as_root systemctl enable "$APP_NAME-autoupdate.timer"
+    run_as_root systemctl restart "$APP_NAME-autoupdate.timer"
 
     echo "Installed $APP_NAME"
     echo "URL: http://$BIND_ADDR/"
