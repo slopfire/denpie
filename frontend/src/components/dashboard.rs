@@ -4,7 +4,7 @@ use crate::state::AppState;
 use gloo_net::http::Request;
 use gloo_storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
-use web_sys::{HtmlInputElement, HtmlSelectElement, HtmlTextAreaElement};
+use web_sys::{HtmlDialogElement, HtmlInputElement, HtmlSelectElement, HtmlTextAreaElement};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -62,6 +62,23 @@ pub fn dashboard() -> Html {
     let topics = use_state(Vec::<AppTopicInfo>::new);
     let search = use_state(String::new);
     let editing = use_state(|| None::<AppTopicInfo>);
+    let confirm_delete = use_state(|| None::<AppTopicInfo>);
+    let dialog_ref = use_node_ref();
+
+    {
+        let dialog_ref = dialog_ref.clone();
+        let confirm_delete = confirm_delete.clone();
+        use_effect_with(confirm_delete.clone(), move |cd| {
+            if let Some(dialog) = dialog_ref.cast::<HtmlDialogElement>() {
+                if cd.is_some() {
+                    let _ = dialog.show_modal();
+                } else {
+                    let _ = dialog.close();
+                }
+            }
+            || ()
+        });
+    }
 
     {
         let summary = summary.clone();
@@ -100,6 +117,51 @@ pub fn dashboard() -> Html {
                     }
                 }
             });
+        })
+    };
+
+    let on_dialog_close = {
+        let confirm_delete = confirm_delete.clone();
+        Callback::from(move |_| {
+            confirm_delete.set(None);
+        })
+    };
+
+    let on_cancel_delete = {
+        let confirm_delete = confirm_delete.clone();
+        Callback::from(move |_| {
+            confirm_delete.set(None);
+        })
+    };
+
+    let on_confirm_delete = {
+        let confirm_delete = confirm_delete.clone();
+        let app_state = app_state.clone();
+        let refresh_topics = refresh_topics.clone();
+        Callback::from(move |_| {
+            if let Some(topic) = &*confirm_delete {
+                let app_state = app_state.clone();
+                let refresh_topics = refresh_topics.clone();
+                let confirm_delete = confirm_delete.clone();
+                let req = DeleteTopicReq { id: topic.id };
+                wasm_bindgen_futures::spawn_local(async move {
+                    match Request::delete("/app/topics").json(&req).unwrap().send().await {
+                        Ok(res) if res.ok() => {
+                            toast(&app_state, "Topic deleted");
+                            refresh_topics.emit(());
+                            confirm_delete.set(None);
+                        }
+                        Ok(res) => {
+                            toast(&app_state, res.text().await.unwrap_or_else(|_| "Failed to delete topic".to_string()));
+                            confirm_delete.set(None);
+                        }
+                        Err(err) => {
+                            toast(&app_state, err.to_string());
+                            confirm_delete.set(None);
+                        }
+                    }
+                });
+            }
         })
     };
 
@@ -260,25 +322,10 @@ pub fn dashboard() -> Html {
                                             type="button"
                                             class="rounded-md border border-token px-2 py-1.5 text-xs font-medium text-danger"
                                             onclick={Callback::from({
-                                                let app_state = app_state.clone();
-                                                let refresh_topics = refresh_topics.clone();
+                                                let confirm_delete = confirm_delete.clone();
+                                                let topic = topic_for_delete.clone();
                                                 move |_| {
-                                                    let app_state = app_state.clone();
-                                                    let refresh_topics = refresh_topics.clone();
-                                                    let topic = topic_for_delete.clone();
-                                                    if web_sys::window().and_then(|w| w.confirm_with_message(&format!("Delete topic {} and its cards?", topic.name)).ok()).unwrap_or(false) {
-                                                        wasm_bindgen_futures::spawn_local(async move {
-                                                            let req = DeleteTopicReq { id: topic.id };
-                                                            match Request::delete("/app/topics").json(&req).unwrap().send().await {
-                                                                Ok(res) if res.ok() => {
-                                                                    toast(&app_state, "Topic deleted");
-                                                                    refresh_topics.emit(());
-                                                                }
-                                                                Ok(res) => toast(&app_state, res.text().await.unwrap_or_else(|_| "Failed to delete topic".to_string())),
-                                                                Err(err) => toast(&app_state, err.to_string()),
-                                                            }
-                                                        });
-                                                    }
+                                                    confirm_delete.set(Some(topic.clone()));
                                                 }
                                             })}
                                         >
@@ -306,6 +353,40 @@ pub fn dashboard() -> Html {
                     }
                 })} />
             }
+
+            <dialog ref={dialog_ref} onclose={on_dialog_close} class="tailscale-dialog">
+                if let Some(topic) = &*confirm_delete {
+                    <div class="flex items-start gap-4">
+                        <div class="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">
+                            <iconify-icon icon="lucide:alert-triangle" class="text-xl"></iconify-icon>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="text-lg font-semibold leading-6 text-foreground mb-1">
+                                {"Delete topic"}
+                            </h3>
+                            <p class="text-sm text-muted mb-4">
+                                {format!("Are you sure you want to delete topic \"{}\" and all its cards? This action cannot be undone.", topic.name)}
+                            </p>
+                            <div class="flex justify-end gap-3">
+                                <button
+                                    type="button"
+                                    class="rounded-md border border-token px-4 py-2 text-sm font-medium hover:bg-accent-hsl"
+                                    onclick={on_cancel_delete}
+                                >
+                                    {"Cancel"}
+                                </button>
+                                <button
+                                    type="button"
+                                    class="rounded-md bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-sm font-medium"
+                                    onclick={on_confirm_delete}
+                                >
+                                    {"Delete"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </dialog>
         </section>
     }
 }
