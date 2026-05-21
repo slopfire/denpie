@@ -25,6 +25,9 @@ impl ApiKeyService {
                 role: verified.role,
                 display_name: None, // API key auth doesn't usually need these
                 avatar_data: None,
+                build_sha: option_env!("DENPIE_BUILD_SHA")
+                    .unwrap_or("unknown")
+                    .to_string(),
             }
         })
     }

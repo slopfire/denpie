@@ -24,6 +24,7 @@ pub struct AuthUser {
     pub role: String,
     pub display_name: Option<String>,
     pub avatar_data: Option<String>,
+    pub build_sha: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -208,6 +209,9 @@ pub async fn setup(
         role: user.role,
         display_name: user.display_name,
         avatar_data: user.avatar_data,
+        build_sha: option_env!("DENPIE_BUILD_SHA")
+            .unwrap_or("unknown")
+            .to_string(),
     }))
 }
 
@@ -243,6 +247,9 @@ pub async fn current_user(
         role: user.role,
         display_name: user.display_name,
         avatar_data: user.avatar_data,
+        build_sha: option_env!("DENPIE_BUILD_SHA")
+            .unwrap_or("unknown")
+            .to_string(),
     })
 }
 

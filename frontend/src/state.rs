@@ -9,6 +9,7 @@ pub struct UserProfile {
     pub display_name: Option<String>,
     pub role: String,
     pub avatar_data: Option<String>,
+    pub build_sha: String,
 }
 
 #[derive(Clone, PartialEq, Default)]
