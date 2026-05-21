@@ -2,6 +2,7 @@ use crate::api::toast;
 use crate::app::View;
 use crate::state::{AppAction, AppState};
 use gloo_net::http::Request;
+use wasm_bindgen::JsCast;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -18,6 +19,26 @@ pub fn sidebar(props: &SidebarProps) -> Html {
     let toggle_menu = {
         let menu_open = menu_open.clone();
         Callback::from(move |_| menu_open.set(!*menu_open))
+    };
+
+    let container_ref = use_node_ref();
+
+    let onfocusout = {
+        let menu_open = menu_open.clone();
+        let container_ref = container_ref.clone();
+        Callback::from(move |e: FocusEvent| {
+            if let Some(container) = container_ref.cast::<web_sys::HtmlElement>() {
+                if let Some(related_target) = e.related_target() {
+                    if let Ok(target_node) = related_target.dyn_into::<web_sys::Node>() {
+                        let container_node: web_sys::Node = container.into();
+                        if container_node.contains(Some(&target_node)) {
+                            return;
+                        }
+                    }
+                }
+            }
+            menu_open.set(false);
+        })
     };
 
     let logout = {
@@ -43,6 +64,15 @@ pub fn sidebar(props: &SidebarProps) -> Html {
         .as_ref()
         .map(|u| u.role.clone())
         .unwrap_or_else(|| "User".to_string());
+    let build_sha = user
+        .as_ref()
+        .map(|u| u.build_sha.clone())
+        .unwrap_or_default();
+    let build_sha_short = if build_sha.len() >= 7 {
+        build_sha.chars().take(7).collect::<String>()
+    } else {
+        build_sha.clone()
+    };
     let avatar_content = if let Some(Some(avatar)) = user.as_ref().map(|u| u.avatar_data.clone()) {
         html! { <img src={avatar} class="h-full w-full rounded-full object-cover" /> }
     } else {
@@ -75,7 +105,7 @@ pub fn sidebar(props: &SidebarProps) -> Html {
                 </Link<View>>
             </div>
 
-            <div class="relative">
+            <div ref={container_ref.clone()} class="relative" {onfocusout}>
                 <button id="account-menu-btn" onclick={toggle_menu} class="w-full rounded-md border border-token p-2 hover:opacity-90 flex items-center gap-2 text-left" title="Account">
                     <span id="account-avatar" class={classes!("h-8", "w-8", "shrink-0", "rounded-full", "flex", "items-center", "justify-center", "text-sm", "font-semibold", (user.as_ref().map(|u| u.avatar_data.is_none()).unwrap_or(true)).then_some("bg-primary-solid"))}>{avatar_content}</span>
                     <span class="min-w-0 flex-1">
@@ -99,6 +129,18 @@ pub fn sidebar(props: &SidebarProps) -> Html {
                     </button>
                 </div>
             </div>
+            if !build_sha.is_empty() && build_sha != "unknown" {
+                <div class="mt-4 pt-3 border-t border-token flex justify-center">
+                    <a href={format!("https://github.com/slopfire/dailytipdraft/commit/{}", build_sha)}
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono font-medium tracking-wider text-muted hover:text-primary border border-token hover:border-primary/30 bg-[var(--surface-muted)] hover:bg-[var(--surface-hover)] transition-all duration-200 shadow-sm"
+                       title="View commit on GitHub">
+                        <iconify-icon icon="radix-icons:commit" class="radix-icon text-xs opacity-70 shrink-0"></iconify-icon>
+                        <span>{build_sha_short}</span>
+                    </a>
+                </div>
+            }
         </nav>
     }
 }
