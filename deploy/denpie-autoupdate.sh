@@ -126,15 +126,9 @@ normalize_repo() {
 sync_source_repo() {
     mkdir -p "$(dirname "$SOURCE_DIR")"
     if [ -d "$SOURCE_DIR/.git" ]; then
-        run_step pulling "Fetching $repo:$branch" "$NETWORK_TIMEOUT_SECS" sh -c "
-            cd "$SOURCE_DIR"
-            git remote set-url origin "$remote_url"
-            git fetch --prune origin "$branch"
-        "
-        run_step pulling "Checking out $repo:$branch" "$NETWORK_TIMEOUT_SECS" sh -c "
-            cd "$SOURCE_DIR"
-            git checkout -f -B "$branch" "origin/$branch"
-        "
+        run_step pulling "Configuring source repository" "$NETWORK_TIMEOUT_SECS" git -c safe.directory="$SOURCE_DIR" -C "$SOURCE_DIR" remote set-url origin "$remote_url"
+        run_step pulling "Fetching $repo:$branch" "$NETWORK_TIMEOUT_SECS" git -c safe.directory="$SOURCE_DIR" -C "$SOURCE_DIR" fetch --prune origin "$branch"
+        run_step pulling "Checking out $repo:$branch" "$NETWORK_TIMEOUT_SECS" git -c safe.directory="$SOURCE_DIR" -C "$SOURCE_DIR" checkout -f -B "$branch" "origin/$branch"
         return
     fi
 

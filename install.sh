@@ -125,9 +125,9 @@ ensure_user() {
 
 repair_data_permissions() {
     run_as_root install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$DATA_DIR"
-    run_as_root chown -R "$SERVICE_USER:$SERVICE_GROUP" "$DATA_DIR"
-    run_as_root find "$DATA_DIR" -type d -exec chmod 0750 {} +
-    run_as_root find "$DATA_DIR" -type f -exec chmod u+rw,g-rwx,o-rwx {} +
+    run_as_root find "$DATA_DIR" -path "$DATA_DIR/autoupdate/source" -prune -o -exec chown "$SERVICE_USER:$SERVICE_GROUP" {} +
+    run_as_root find "$DATA_DIR" -path "$DATA_DIR/autoupdate/source" -prune -o -type d -exec chmod 0750 {} +
+    run_as_root find "$DATA_DIR" -path "$DATA_DIR/autoupdate/source" -prune -o -type f -exec chmod u+rw,g-rwx,o-rwx {} +
 }
 
 write_service() {
