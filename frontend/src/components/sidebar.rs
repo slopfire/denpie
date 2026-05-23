@@ -80,7 +80,7 @@ pub fn sidebar(props: &SidebarProps) -> Html {
     };
 
     html! {
-        <nav class="hidden lg:flex fixed left-0 top-0 z-50 h-full w-56 flex-col border-r surface p-4">
+        <nav class="hidden lg:flex fixed left-0 top-0 z-50 h-full w-56 flex-col border-r surface p-4 rounded-none">
             <div class="flex items-center gap-2 px-2 py-2 mb-4">
                 <div class="flex min-w-0 items-center gap-2">
                     <iconify-icon icon="radix-icons:lightning-bolt" class="radix-icon shrink-0 text-primary text-xl" aria-hidden="true"></iconify-icon>
