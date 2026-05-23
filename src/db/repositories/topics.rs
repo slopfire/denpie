@@ -191,7 +191,24 @@ pub async fn delete_cascade(pool: &SqlitePool, user_id: &str, id: i64) -> AppRes
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query(
+        "DELETE FROM tipcard_images
+         WHERE user_id = ?
+           AND card_id IN (SELECT id FROM tipcards WHERE topic_id = ? AND user_id = ?)",
+    )
+    .bind(user_id)
+    .bind(id)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
+
     sqlx::query("DELETE FROM tipcards WHERE topic_id = ? AND user_id = ?")
+        .bind(id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query("DELETE FROM daily_refresh_runs WHERE topic_id = ? AND user_id = ?")
         .bind(id)
         .bind(user_id)
         .execute(&mut *tx)
