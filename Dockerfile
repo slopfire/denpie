@@ -36,6 +36,7 @@ ENV DENPIE_BIND_ADDR=127.0.0.1:3017 \
 
 VOLUME ["/var/lib/denpie"]
 EXPOSE 3017
+RUN chmod -R a+rX /app/frontend/dist /app/static
 USER denpie
 
 CMD ["denpie"]
