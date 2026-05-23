@@ -5,7 +5,7 @@ use std::{
     cell::{Cell, RefCell},
     rc::Rc,
 };
-use wasm_bindgen::{closure::Closure, JsCast};
+use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use web_sys::{HtmlInputElement, ResizeObserver, ResizeObserverEntry};
 use yew::prelude::*;
 
@@ -26,6 +26,29 @@ pub struct FlowCardProps {
     pub fullscreen: bool,
     #[prop_or(true)]
     pub detail_loaded: bool,
+}
+
+fn highlight_card_code_blocks(root: &web_sys::Element) {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(integration) =
+        js_sys::Reflect::get(window.as_ref(), &JsValue::from_str("DenpieHighlight"))
+    else {
+        return;
+    };
+    if integration.is_null() || integration.is_undefined() {
+        return;
+    }
+    let Ok(highlight_card) =
+        js_sys::Reflect::get(&integration, &JsValue::from_str("highlightCard"))
+    else {
+        return;
+    };
+    let Ok(highlight_card) = highlight_card.dyn_into::<js_sys::Function>() else {
+        return;
+    };
+    let _ = highlight_card.call1(&JsValue::NULL, root.as_ref());
 }
 
 #[function_component(FlowCard)]
@@ -67,6 +90,16 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let on_update_images = props.on_update_images.clone();
     let on_toggle_fullscreen = props.on_toggle_fullscreen.clone();
     let fullscreen = props.fullscreen;
+    {
+        let root_ref = root_ref.clone();
+        let highlight_key = (id, props.fullscreen, *expanded, html_content.clone());
+        use_effect_with(highlight_key, move |_| {
+            if let Some(element) = root_ref.cast::<web_sys::Element>() {
+                highlight_card_code_blocks(&element);
+            }
+            || ()
+        });
+    }
     {
         let root_ref = root_ref.clone();
         let on_measure = props.on_measure.clone();

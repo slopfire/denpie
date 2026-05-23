@@ -30,6 +30,46 @@ fn safe_markdown_url(url: &str) -> &str {
     }
 }
 
+fn normalize_code_language(fence_info: &str) -> &'static str {
+    let raw = fence_info
+        .trim()
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .trim_matches(|c| c == '{' || c == '}')
+        .to_ascii_lowercase();
+    let raw = raw.trim_start_matches("language-");
+
+    match raw {
+        "rs" | "rust" => "rust",
+        "sh" | "shell" | "zsh" | "fish" | "console" | "terminal" | "bash" => "bash",
+        "js" | "jsx" | "javascript" => "javascript",
+        "ts" | "tsx" | "typescript" => "typescript",
+        "json" => "json",
+        "py" | "python" => "python",
+        "html" | "htm" => "html",
+        "css" => "css",
+        "toml" => "toml",
+        "yaml" | "yml" => "yaml",
+        "md" | "markdown" => "markdown",
+        "sql" => "sql",
+        "c" => "c",
+        "cc" | "cpp" | "cxx" | "c++" => "cpp",
+        "cs" | "csharp" | "c#" => "csharp",
+        "go" | "golang" => "go",
+        "java" => "java",
+        "kt" | "kotlin" => "kotlin",
+        "lua" => "lua",
+        "php" => "php",
+        "rb" | "ruby" => "ruby",
+        "swift" => "swift",
+        "diff" | "patch" => "diff",
+        "ini" | "properties" => "ini",
+        "dockerfile" => "dockerfile",
+        _ => "plaintext",
+    }
+}
+
 fn render_inline_markdown(value: &str) -> String {
     let mut text = value.to_string();
     let mut tokens = Vec::new();
@@ -109,6 +149,7 @@ pub fn render_markdown(value: &str) -> String {
     let mut list_items = Vec::new();
     let mut quote_lines = Vec::new();
     let mut in_code = false;
+    let mut code_language = "plaintext";
     let mut code_lines = Vec::new();
 
     let flush_paragraph = |html: &mut Vec<String>, paragraph: &mut Vec<&str>| {
@@ -142,9 +183,11 @@ pub fn render_markdown(value: &str) -> String {
         quote_lines.clear();
     };
 
-    let flush_code = |html: &mut Vec<String>, code_lines: &mut Vec<&str>| {
+    let flush_code = |html: &mut Vec<String>, code_lines: &mut Vec<&str>, language: &str| {
+        let escaped_language = escape_html(language);
         html.push(format!(
-            "<pre><code>{}</code></pre>",
+            "<div class=\"code-block-shell\" data-lang=\"{0}\"><div class=\"code-block-toolbar\"><span class=\"code-block-lang\">{0}</span><button type=\"button\" class=\"code-block-copy\" aria-label=\"Copy {0} code\">Copy</button></div><pre class=\"code-block\" data-lang=\"{0}\"><code class=\"language-{0}\" data-lang=\"{0}\">{1}</code></pre></div>",
+            escaped_language,
             escape_html(&code_lines.join("\n"))
         ));
         code_lines.clear();
@@ -166,10 +209,12 @@ pub fn render_markdown(value: &str) -> String {
     let re_quote = Regex::new(r"^\s*>\s?(.+)$").unwrap();
 
     for line in lines {
-        if line.trim().starts_with("```") {
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") {
             if in_code {
-                flush_code(&mut html, &mut code_lines);
+                flush_code(&mut html, &mut code_lines, code_language);
                 in_code = false;
+                code_language = "plaintext";
             } else {
                 flush_blocks(
                     &mut html,
@@ -178,6 +223,7 @@ pub fn render_markdown(value: &str) -> String {
                     &mut list_items,
                     &mut quote_lines,
                 );
+                code_language = normalize_code_language(trimmed.trim_start_matches("```"));
                 in_code = true;
             }
             continue;
@@ -249,7 +295,7 @@ pub fn render_markdown(value: &str) -> String {
     }
 
     if in_code {
-        flush_code(&mut html, &mut code_lines);
+        flush_code(&mut html, &mut code_lines, code_language);
     }
     flush_blocks(
         &mut html,
