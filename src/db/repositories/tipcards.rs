@@ -2,9 +2,13 @@ use chrono::{DateTime, Utc};
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 
 use crate::{
-    domain::review::RepeatableState,
+    domain::{review::RepeatableState, topic_visual},
     error::{AppError, AppResult},
 };
+
+fn topic_color_from_row(name: &str, color_hue: Option<i64>) -> String {
+    topic_visual::resolve_topic_color(color_hue.map(|hue| hue as i32), name)
+}
 
 #[derive(Clone, Debug)]
 pub struct ScheduledCardRecord {
@@ -19,6 +23,8 @@ pub struct ScheduledCardRecord {
 pub struct TipcardInfoRecord {
     pub id: i64,
     pub topic_name: String,
+    pub topic_icon: String,
+    pub topic_color: String,
     pub title: String,
     pub full_content: String,
     pub compressed_content: String,
@@ -44,6 +50,8 @@ pub struct TipcardImageRecord {
 pub struct FlowCardRecord {
     pub id: i64,
     pub topic_name: String,
+    pub topic_icon: String,
+    pub topic_color: String,
     pub title: String,
     pub compressed_content: String,
     pub created_at: String,
@@ -211,6 +219,8 @@ pub async fn list_admin(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<Tipca
             i64,
             String,
             String,
+            Option<i64>,
+            String,
             String,
             String,
             String,
@@ -222,6 +232,8 @@ pub async fn list_admin(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<Tipca
     >(
         "SELECT t.id,
                 top.name AS topic_name,
+                COALESCE(NULLIF(TRIM(top.icon_id), ''), 'lucide:tag') AS topic_icon,
+                top.color_hue,
                 t.full_content,
                 t.compressed_content,
                 COALESCE(CAST(t.created_at AS TEXT), '') AS created_at,
@@ -244,17 +256,19 @@ pub async fn list_admin(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<Tipca
         .into_iter()
         .map(|row| TipcardInfoRecord {
             id: row.0,
-            topic_name: row.1,
+            topic_name: row.1.clone(),
+            topic_icon: row.2,
+            topic_color: topic_color_from_row(&row.1, row.3),
             title: String::new(),
-            full_content: row.2,
-            compressed_content: row.3,
+            full_content: row.4,
+            compressed_content: row.5,
             image_data: "[]".to_string(),
-            created_at: row.4,
-            tipcard_type: row.5,
-            status: row.6,
-            next_review_at: row.7,
-            state_data: row.8,
-            pinned: row.9 != 0,
+            created_at: row.6,
+            tipcard_type: row.7,
+            status: row.8,
+            next_review_at: row.9,
+            state_data: row.10,
+            pinned: row.11 != 0,
         })
         .collect())
 }
@@ -267,6 +281,8 @@ pub async fn list_filtered(
     let mut builder = QueryBuilder::<Sqlite>::new(
         "SELECT t.id,
                 top.name AS topic_name,
+                COALESCE(NULLIF(TRIM(top.icon_id), ''), 'lucide:tag') AS topic_icon,
+                top.color_hue,
                 COALESCE(t.title, '') AS title,
                 t.full_content,
                 t.compressed_content,
@@ -335,6 +351,8 @@ pub async fn list_filtered(
             i64,
             String,
             String,
+            Option<i64>,
+            String,
             String,
             String,
             String,
@@ -352,17 +370,19 @@ pub async fn list_filtered(
         .into_iter()
         .map(|row| TipcardInfoRecord {
             id: row.0,
-            topic_name: row.1,
-            title: row.2,
-            full_content: row.3,
-            compressed_content: row.4,
-            image_data: row.5,
-            created_at: row.6,
-            tipcard_type: row.7,
-            status: row.8,
-            next_review_at: row.9,
-            state_data: row.10,
-            pinned: row.11 != 0,
+            topic_name: row.1.clone(),
+            topic_icon: row.2,
+            topic_color: topic_color_from_row(&row.1, row.3),
+            title: row.4,
+            full_content: row.5,
+            compressed_content: row.6,
+            image_data: row.7,
+            created_at: row.8,
+            tipcard_type: row.9,
+            status: row.10,
+            next_review_at: row.11,
+            state_data: row.12,
+            pinned: row.13 != 0,
         })
         .collect())
 }
@@ -378,6 +398,8 @@ pub async fn list_flow_cards(
     let mut builder = QueryBuilder::<Sqlite>::new(
         "SELECT t.id,
                 top.name AS topic_name,
+                COALESCE(NULLIF(TRIM(top.icon_id), ''), 'lucide:tag') AS topic_icon,
+                top.color_hue,
                 COALESCE(t.title, '') AS title,
                 t.compressed_content,
                 COALESCE(CAST(t.created_at AS TEXT), '') AS created_at,
@@ -425,6 +447,8 @@ pub async fn list_flow_cards(
             i64,
             String,
             String,
+            Option<i64>,
+            String,
             String,
             String,
             String,
@@ -441,16 +465,18 @@ pub async fn list_flow_cards(
         .into_iter()
         .map(|row| FlowCardRecord {
             id: row.0,
-            topic_name: row.1,
-            title: row.2,
-            compressed_content: row.3,
-            created_at: row.4,
-            tipcard_type: row.5,
-            status: row.6,
-            next_review_at: row.7,
-            state_data: row.8,
-            pinned: row.9 != 0,
-            image_count: row.10,
+            topic_name: row.1.clone(),
+            topic_icon: row.2,
+            topic_color: topic_color_from_row(&row.1, row.3),
+            title: row.4,
+            compressed_content: row.5,
+            created_at: row.6,
+            tipcard_type: row.7,
+            status: row.8,
+            next_review_at: row.9,
+            state_data: row.10,
+            pinned: row.11 != 0,
+            image_count: row.12,
         })
         .collect())
 }
@@ -466,6 +492,8 @@ pub async fn get_tipcard_info(
             i64,
             String,
             String,
+            Option<i64>,
+            String,
             String,
             String,
             String,
@@ -479,6 +507,8 @@ pub async fn get_tipcard_info(
     >(
         "SELECT t.id,
                 top.name AS topic_name,
+                COALESCE(NULLIF(TRIM(top.icon_id), ''), 'lucide:tag') AS topic_icon,
+                top.color_hue,
                 COALESCE(t.title, '') AS title,
                 t.full_content,
                 t.compressed_content,
@@ -502,17 +532,19 @@ pub async fn get_tipcard_info(
 
     Ok(TipcardInfoRecord {
         id: row.0,
-        topic_name: row.1,
-        title: row.2,
-        full_content: row.3,
-        compressed_content: row.4,
-        image_data: row.5,
-        created_at: row.6,
-        tipcard_type: row.7,
-        status: row.8,
-        next_review_at: row.9,
-        state_data: row.10,
-        pinned: row.11 != 0,
+        topic_name: row.1.clone(),
+        topic_icon: row.2,
+        topic_color: topic_color_from_row(&row.1, row.3),
+        title: row.4,
+        full_content: row.5,
+        compressed_content: row.6,
+        image_data: row.7,
+        created_at: row.8,
+        tipcard_type: row.9,
+        status: row.10,
+        next_review_at: row.11,
+        state_data: row.12,
+        pinned: row.13 != 0,
     })
 }
 

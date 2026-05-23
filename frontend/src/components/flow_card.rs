@@ -1,5 +1,6 @@
 use crate::components::unified_flow::TipcardInfo;
 use crate::markdown::render_markdown;
+use crate::topic_visual::display_icon;
 use gloo_file::{callbacks::FileReader, File};
 use std::{
     cell::{Cell, RefCell},
@@ -291,6 +292,8 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     } else {
         "text-base leading-7 flex-1"
     };
+    let topic_icon = display_icon(&card.topic_icon).to_string();
+    let topic_color_style = format!("color: {}", card.topic_color);
 
     html! {
         <article
@@ -302,18 +305,20 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
         >
             <div class={classes!("absolute", "top-0", "left-0", "w-1", "h-full", line_class)}></div>
             <div class="p-4 flex flex-col flex-1">
-                <div class="flex justify-between items-start gap-3 border-b border-token pb-3 mb-4">
-                    <div class="flex items-center gap-2 font-medium min-w-0">
+                <div class="card-title-bar border-b border-token pb-3 mb-4">
+                    <div class="card-title-leading flex items-center gap-1 justify-self-start">
                         <button type="button" class="card-drag-handle border border-token p-1" title="Drag to reorder" draggable={if fullscreen { "false" } else { "true" }} ondragstart={ondragstart.clone()}>
                             <iconify-icon icon="radix-icons:drag-handle-dots-2" class="radix-icon"></iconify-icon>
                         </button>
-                        if pinned {
-                            <iconify-icon icon="radix-icons:drawing-pin-filled" class="radix-icon text-primary" title="Pinned"></iconify-icon>
-                        }
-                        <iconify-icon icon="radix-icons:code" class="radix-icon text-primary"></iconify-icon>
-                        <span class="truncate">{&card.topic_name}</span>
+                        <iconify-icon icon={topic_icon} class="topic-icon radix-icon shrink-0" style={topic_color_style}></iconify-icon>
                     </div>
-                    <div class="card-title-controls flex items-center gap-2 shrink-0">
+                    <div class="card-title-center flex items-center justify-center gap-1.5 min-w-0 px-1">
+                        if pinned {
+                            <iconify-icon icon="radix-icons:drawing-pin-filled" class="radix-icon text-primary shrink-0" title="Pinned"></iconify-icon>
+                        }
+                        <span class="card-topic-title truncate text-center">{&card.topic_name}</span>
+                    </div>
+                    <div class="card-title-controls flex items-center gap-2 justify-self-end shrink-0">
                         <span class="badge">{badge_label}</span>
                         <button type="button" onclick={Callback::from(move |_| on_toggle_fullscreen.emit(id))} class="border border-token p-2" title={if fullscreen { "Exit fullscreen" } else { "Fullscreen" }}>
                             <iconify-icon icon={if fullscreen { "radix-icons:exit-full-screen" } else { "radix-icons:enter-full-screen" }} class="radix-icon"></iconify-icon>
@@ -383,6 +388,49 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                     <button onclick={on_copy} data-copy-card-id={id.to_string()} class={classes!("card-copy-btn", "border", "border-token", "p-2", (*copied).then_some("copied"))} title="Copy text">
                         <iconify-icon icon="radix-icons:clipboard-copy" class="radix-icon"></iconify-icon>
                     </button>
+                </div>
+            </div>
+        </article>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct FlowCardSkeletonProps {
+    pub list_mode: bool,
+}
+
+#[function_component(FlowCardSkeleton)]
+pub fn flow_card_skeleton(props: &FlowCardSkeletonProps) -> Html {
+    let article_classes = if props.list_mode {
+        "flow-card flow-card-list surface border relative overflow-hidden flex flex-col lg:flex-row"
+    } else {
+        "flow-card surface border relative overflow-hidden min-h-[240px] flex flex-col"
+    };
+
+    html! {
+        <article class={article_classes} aria-busy="true" aria-label="Generating card">
+            <div class="absolute top-0 left-0 w-1 h-full" style="background: var(--surface-muted)"></div>
+            <div class="p-4 flex flex-col flex-1">
+                <div class="flex justify-between items-start gap-3 border-b border-token pb-3 mb-4">
+                    <div class="flex items-center gap-2 min-w-0 flex-1">
+                        <div class="skeleton-block shrink-0" style="width: 22px; height: 22px; border-radius: 6px"></div>
+                        <div class="skeleton-block" style="height: 14px; width: 40%"></div>
+                    </div>
+                    <div class="skeleton-block shrink-0" style="height: 18px; width: 56px"></div>
+                </div>
+
+                <div class="skeleton-block mb-3" style="height: 18px; width: 70%"></div>
+                <div class="flex-1 space-y-2">
+                    <div class="skeleton-block" style="height: 12px; width: 100%"></div>
+                    <div class="skeleton-block" style="height: 12px; width: 92%"></div>
+                    <div class="skeleton-block" style="height: 12px; width: 78%"></div>
+                </div>
+
+                <div class="mt-5 pt-4 border-t border-token flex gap-2">
+                    <div class="skeleton-block flex-1" style="height: 36px"></div>
+                    <div class="skeleton-block flex-1" style="height: 36px"></div>
+                    <div class="skeleton-block" style="height: 36px; width: 36px"></div>
+                    <div class="skeleton-block" style="height: 36px; width: 36px"></div>
                 </div>
             </div>
         </article>

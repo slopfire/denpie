@@ -1,5 +1,5 @@
 use crate::api::toast;
-use crate::components::flow_card::FlowCard;
+use crate::components::flow_card::{FlowCard, FlowCardSkeleton};
 use crate::state::AppState;
 use gloo_file::{callbacks::FileReader, File};
 use gloo_net::http::Request;
@@ -21,6 +21,8 @@ const DRAG_SCROLL_MAX_STEP_PX: f64 = 32.0;
 pub struct TipcardInfo {
     pub id: i64,
     pub topic_name: String,
+    pub topic_icon: String,
+    pub topic_color: String,
     pub title: String,
     pub full_content: String,
     pub compressed_content: String,
@@ -37,6 +39,8 @@ pub struct TipcardInfo {
 struct FlowCardSummary {
     id: i64,
     topic_name: String,
+    topic_icon: String,
+    topic_color: String,
     title: String,
     compressed_content: String,
     created_at: String,
@@ -60,6 +64,8 @@ struct FlowCardPage {
 struct FlowCardDetail {
     id: i64,
     topic_name: String,
+    topic_icon: String,
+    topic_color: String,
     title: String,
     full_content: String,
     compressed_content: String,
@@ -77,6 +83,8 @@ impl From<FlowCardSummary> for TipcardInfo {
         Self {
             id: card.id,
             topic_name: card.topic_name,
+            topic_icon: card.topic_icon,
+            topic_color: card.topic_color,
             title: card.title,
             full_content: card.compressed_content.clone(),
             compressed_content: card.compressed_content,
@@ -96,6 +104,8 @@ impl From<FlowCardDetail> for TipcardInfo {
         Self {
             id: card.id,
             topic_name: card.topic_name,
+            topic_icon: card.topic_icon,
+            topic_color: card.topic_color,
             title: card.title,
             full_content: card.full_content,
             compressed_content: card.compressed_content,
@@ -142,11 +152,11 @@ pub fn unified_flow() -> Html {
     let next_cursor = use_state(|| None::<String>);
     let has_more = use_state(|| true);
     let loading = use_state(|| false);
+    let pending_count = use_state(|| 0usize);
     let card_order =
         use_state(|| LocalStorage::get::<Vec<i64>>("denpie-card-order").unwrap_or_default());
-    let pinned_card_order = use_state(|| {
-        LocalStorage::get::<Vec<i64>>("denpie-pinned-card-order").unwrap_or_default()
-    });
+    let pinned_card_order =
+        use_state(|| LocalStorage::get::<Vec<i64>>("denpie-pinned-card-order").unwrap_or_default());
     let topics_input =
         use_state(|| LocalStorage::get::<String>("denpie_prefill_topic").unwrap_or_default());
     let tip_type = use_state(|| {
@@ -160,7 +170,9 @@ pub fn unified_flow() -> Html {
         LocalStorage::get::<String>("denpie-flow-layout").unwrap_or_else(|_| "grid".to_string())
     });
     let sort_by = use_state(|| {
-        LocalStorage::get::<String>("denpie-flow-sort").unwrap_or_else(|_| "date".to_string())
+        LocalStorage::get::<String>("denpie-flow-sort")
+            .map(|value| normalize_flow_sort(&value))
+            .unwrap_or_else(|_| "topic".to_string())
     });
     let fullscreen_card_id = use_state(|| None::<i64>);
 
@@ -270,15 +282,31 @@ pub fn unified_flow() -> Html {
         let manual_content = manual_content.clone();
         let manual_images = manual_images.clone();
         let load_cards = load_cards.clone();
+        let pending_count = pending_count.clone();
 
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
+            if *pending_count > 0 {
+                return;
+            }
             let app_state = app_state.clone();
             let topics = (*topics_input).clone();
             let ttype = (*tip_type).clone();
             let content = (*manual_content).clone();
             let images = (*manual_images).clone();
             let load_cards = load_cards.clone();
+            let pending_count = pending_count.clone();
+
+            let n_skeletons = if ttype == "manual_tip" {
+                1
+            } else {
+                topics
+                    .split(',')
+                    .filter(|topic| !topic.trim().is_empty())
+                    .count()
+                    .max(1)
+            };
+            pending_count.set(n_skeletons);
 
             wasm_bindgen_futures::spawn_local(async move {
                 let req = CreateTipReq {
@@ -305,6 +333,7 @@ pub fn unified_flow() -> Html {
                     }
                     _ => toast(&app_state, "Failed to add cards"),
                 }
+                pending_count.set(0);
             });
         })
     };
@@ -324,7 +353,12 @@ pub fn unified_flow() -> Html {
                         grade,
                         action,
                     };
-                    match Request::post("/app/review").json(&req).unwrap().send().await {
+                    match Request::post("/app/review")
+                        .json(&req)
+                        .unwrap()
+                        .send()
+                        .await
+                    {
                         Ok(res) if res.ok() => {
                             cards.set(cards.iter().filter(|card| card.id != id).cloned().collect());
                             load_cards.emit(false);
@@ -374,8 +408,7 @@ pub fn unified_flow() -> Html {
                         cards.set(next);
 
                         if pinned {
-                            let order =
-                                normalize_card_order((*card_order).clone(), &unpinned_ids);
+                            let order = normalize_card_order((*card_order).clone(), &unpinned_ids);
                             let _ = LocalStorage::set("denpie-card-order", &order);
                             card_order.set(order);
                         } else {
@@ -478,8 +511,7 @@ pub fn unified_flow() -> Html {
                     .filter(|card| card.pinned)
                     .map(|card| card.id)
                     .collect();
-                let mut order =
-                    normalize_card_order((*pinned_card_order).clone(), &pinned_ids);
+                let mut order = normalize_card_order((*pinned_card_order).clone(), &pinned_ids);
                 if let (Some(from_idx), Some(to_idx)) = (
                     order.iter().position(|&id| id == source_id),
                     order.iter().position(|&id| id == target_id),
@@ -507,8 +539,8 @@ pub fn unified_flow() -> Html {
                 order.insert(to_idx, item);
                 let _ = LocalStorage::set("denpie-card-order", &order);
                 card_order.set(order);
-                let _ = LocalStorage::set("denpie-flow-sort", "manual");
-                sort_by.set("manual".to_string());
+                let _ = LocalStorage::set("denpie-flow-sort", "drag");
+                sort_by.set("drag".to_string());
             }
         })
     };
@@ -583,12 +615,8 @@ pub fn unified_flow() -> Html {
     let current_ids: Vec<i64> = flow_cards.iter().map(|card| card.id).collect();
 
     let list_mode = *layout == "list";
-    let disable_flow_glass = should_disable_flow_glass(
-        list_mode,
-        flow_cards.len(),
-        &card_heights,
-        &current_ids,
-    );
+    let disable_flow_glass =
+        should_disable_flow_glass(list_mode, flow_cards.len(), &card_heights, &current_ids);
 
     {
         let load_cards = load_cards.clone();
@@ -674,9 +702,13 @@ pub fn unified_flow() -> Html {
                         <button type="button" onclick={let t = tip_type.clone(); Callback::from(move |_| t.set("repeatable_tip".to_string()))} class={classes!("rounded-md", "px-3", "py-2", "text-sm", "font-medium", (*tip_type == "repeatable_tip").then_some("active"))}>{"Repeat"}</button>
                         <button type="button" onclick={let t = tip_type.clone(); Callback::from(move |_| t.set("manual_tip".to_string()))} class={classes!("rounded-md", "px-3", "py-2", "text-sm", "font-medium", (*tip_type == "manual_tip").then_some("active"))}>{"Manual"}</button>
                     </div>
-                    <button type="submit" class="rounded-md bg-primary-solid px-4 py-2 font-medium flex items-center justify-center gap-2">
-                        <iconify-icon icon="radix-icons:magic-wand" class="radix-icon" aria-hidden="true"></iconify-icon>
-                        <span>{"Add"}</span>
+                    <button
+                        type="submit"
+                        class={classes!("rounded-md", "bg-primary-solid", "px-4", "py-2", "font-medium", "flex", "items-center", "justify-center", "gap-2", (*pending_count > 0).then_some("opacity-60 cursor-not-allowed"))}
+                        disabled={*pending_count > 0}
+                    >
+                        <iconify-icon icon={if *pending_count > 0 { "radix-icons:update" } else { "radix-icons:magic-wand" }} class={classes!("radix-icon", (*pending_count > 0).then_some("animate-spin"))} aria-hidden="true"></iconify-icon>
+                        <span>{ if *pending_count > 0 { "Adding..." } else { "Add" } }</span>
                     </button>
                     if *tip_type == "manual_tip" {
                         <textarea
@@ -703,24 +735,10 @@ pub fn unified_flow() -> Html {
 
             <div class="flex justify-between items-center gap-3 mb-4">
                 <div class="text-sm text-muted">
-                    <span id="flow-count">{flow_cards.len()}</span>{" loaded cards"}
+                    <span id="flow-count">{flow_cards.len()}</span>{"/"}{PAGE_LIMIT}{" loaded cards"}
                 </div>
                 <div class="flex flex-wrap items-center justify-end gap-2">
                     <div class="flex muted-surface rounded-md p-1 border border-token" role="group" aria-label="Sort cards">
-                        <button
-                            type="button"
-                            class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "date").then_some("bg-primary-soft text-primary"))}
-                            aria-pressed={(*sort_by == "date").to_string()}
-                            onclick={Callback::from({
-                                let sort_by = sort_by.clone();
-                                move |_| {
-                                    let _ = LocalStorage::set("denpie-flow-sort", "date");
-                                    sort_by.set("date".to_string());
-                                }
-                            })}
-                        >
-                            {"Date"}
-                        </button>
                         <button
                             type="button"
                             class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "topic").then_some("bg-primary-soft text-primary"))}
@@ -737,17 +755,31 @@ pub fn unified_flow() -> Html {
                         </button>
                         <button
                             type="button"
-                            class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "manual").then_some("bg-primary-soft text-primary"))}
-                            aria-pressed={(*sort_by == "manual").to_string()}
+                            class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "date").then_some("bg-primary-soft text-primary"))}
+                            aria-pressed={(*sort_by == "date").to_string()}
                             onclick={Callback::from({
                                 let sort_by = sort_by.clone();
                                 move |_| {
-                                    let _ = LocalStorage::set("denpie-flow-sort", "manual");
-                                    sort_by.set("manual".to_string());
+                                    let _ = LocalStorage::set("denpie-flow-sort", "date");
+                                    sort_by.set("date".to_string());
                                 }
                             })}
                         >
-                            {"Manual"}
+                            {"Date"}
+                        </button>
+                        <button
+                            type="button"
+                            class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "drag").then_some("bg-primary-soft text-primary"))}
+                            aria-pressed={(*sort_by == "drag").to_string()}
+                            onclick={Callback::from({
+                                let sort_by = sort_by.clone();
+                                move |_| {
+                                    let _ = LocalStorage::set("denpie-flow-sort", "drag");
+                                    sort_by.set("drag".to_string());
+                                }
+                            })}
+                        >
+                            {"Drag"}
                         </button>
                     </div>
                     <div class="flex muted-surface rounded-md p-1 border border-token">
@@ -766,6 +798,11 @@ pub fn unified_flow() -> Html {
                 class={if list_mode { "grid grid-cols-1 gap-3 items-start w-full max-w-4xl mx-auto" } else { "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start" }}
                 ondragover={on_flow_dragover}
             >
+                {
+                    for (0..*pending_count).map(|i| html! {
+                        <FlowCardSkeleton key={format!("skeleton-{i}")} list_mode={list_mode} />
+                    })
+                }
                 {
                     for flow_cards.iter().map(|card| {
                         let card = card.clone();
@@ -852,7 +889,11 @@ fn estimate_visible_card_slots(
         .filter(|height| *height > 0.0)
         .collect();
     let avg_card_h = if measured.is_empty() {
-        if list_mode { 360.0 } else { 280.0 }
+        if list_mode {
+            360.0
+        } else {
+            280.0
+        }
     } else {
         measured.iter().sum::<f64>() / measured.len() as f64
     };
@@ -877,25 +918,33 @@ fn should_disable_flow_glass(
     }
 }
 
-fn sort_flow_cards(cards: &mut [TipcardInfo], sort_by: &str, manual_order: &[i64]) {
+fn normalize_flow_sort(value: &str) -> String {
+    match value {
+        "manual" | "drag" => "drag".to_string(),
+        "date" | "topic" => value.to_string(),
+        _ => "topic".to_string(),
+    }
+}
+
+fn sort_flow_cards(cards: &mut [TipcardInfo], sort_by: &str, drag_order: &[i64]) {
     match sort_by {
-        "topic" => cards.sort_by(|a, b| {
-            a.topic_name
-                .to_lowercase()
-                .cmp(&b.topic_name.to_lowercase())
-                .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
-                .then_with(|| a.id.cmp(&b.id))
+        "date" => cards.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| b.id.cmp(&a.id))
         }),
-        "manual" if !manual_order.is_empty() => cards.sort_by_key(|card| {
-            manual_order
+        "drag" if !drag_order.is_empty() => cards.sort_by_key(|card| {
+            drag_order
                 .iter()
                 .position(|&id| id == card.id)
                 .unwrap_or(usize::MAX)
         }),
         _ => cards.sort_by(|a, b| {
-            b.created_at
-                .cmp(&a.created_at)
-                .then_with(|| b.id.cmp(&a.id))
+            a.topic_name
+                .to_lowercase()
+                .cmp(&b.topic_name.to_lowercase())
+                .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
+                .then_with(|| a.id.cmp(&b.id))
         }),
     }
 }

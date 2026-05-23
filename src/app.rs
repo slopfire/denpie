@@ -79,6 +79,10 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
                 .patch(dashboard::update_topic)
                 .delete(dashboard::delete_topic),
         )
+        .route(
+            "/app/topics/regenerate-icon",
+            post(dashboard::regenerate_topic_icon),
+        )
         .route("/app/tips", post(dashboard::app_tips))
         .route("/app/flow-cards", get(dashboard::flow_cards))
         .route("/app/flow-cards/:id", get(dashboard::flow_card_detail))
