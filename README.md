@@ -19,8 +19,8 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Any OpenAI-Compatible LLM**: Configure each user's API key, base URL, and model through the protobuf API or browser dashboard — no hardcoded vendor lock-in.
 - **Token Spend Counters**: The browser dashboard tracks OpenAI-compatible `usage.total_tokens` for the current user's daily, monthly, and lifetime LLM calls.
 - **Unified Protobuf API**: `POST /api` manages tips, reviews, settings, keys, topics, topic deletion, card pinning, cards, and summary counts. The API key owner determines the data scope.
-- **Root Control Page**: `/` serves a shadcn-inspired Yew/WebAssembly browser control panel with direct Radix icons that talks to the same protobuf API, with readable shadcn dark destructive controls, compact mobile stats, stable per-card loading skeletons, compact/full card text controls, searchable archive filters, a remembered grid/column flow layout switch, readable-width list expansion, masked static wallpaper blur across in-flow panels and surfaces, title-row fullscreen card viewing that hides background cards, old-template-compatible tipcard actions, and touch-friendly handle-based card reordering with edge auto-scroll.
-- **Mobile-Friendly Asset Delivery**: The server compresses frontend assets, sends long-lived cache headers for hashed JavaScript/WebAssembly and static files, registers a service worker for repeat visits, and revalidates private tipcard images with ETags. The mobile control page keeps the fixed wallpaper visible with the same static glass blur treatment.
+- **Root Control Page**: `/` serves a shadcn-inspired Yew/WebAssembly browser control panel with direct Radix icons that talks to the same protobuf API, with readable shadcn dark destructive controls, compact mobile stats, stable per-card loading skeletons, compact/full card text controls, searchable archive filters, a remembered grid/column flow layout switch, readable-width list expansion, solid Unified Flow cards when more than eight cards are visible, title-row fullscreen card viewing that hides background cards, old-template-compatible tipcard actions, and touch-friendly handle-based card reordering with edge auto-scroll.
+- **Mobile-Friendly Asset Delivery**: The server compresses frontend assets, sends long-lived cache headers for hashed JavaScript/WebAssembly and static files, registers a service worker for repeat visits, and revalidates private tipcard images with ETags. The mobile control page avoids fixed background and backdrop-filter work on small screens.
 - **Single Dashboard Surface**: The browser dashboard is served only at `/`;
 - **CSS-Only Motion**: The control page uses fast page-entry, card-entry, and compact-to-full tipcard animations with reduced-motion support.
 - **Markdown Tipcards**: API responses keep the original raw markdown-capable text so clients can render it however they need.
@@ -141,7 +141,7 @@ Global server bootstrap and autoupdate configuration lives in `settings.yaml`. P
 | `autoupdate_command` | Optional local shell command for non-systemd server updates after a new commit is detected | *(empty)* |
 | `autoupdate_last_seen_sha` | Last GitHub commit SHA recorded by the updater | *(empty)* |
 
-Per-user settings stored in SQLite include `llm_model`, `llm_compress_model`, `prompt_template`, `llm_api_key`, LLM base URLs, reasoning/compression settings, browser theme/transparency choices, `daily_time_zone`, `daily_update_time`, and `max_active_cards`.
+Per-user settings stored in SQLite include `llm_model`, `llm_compress_model`, `prompt_template`, `llm_api_key`, LLM base URLs, reasoning/compression settings, browser theme/blur choices, `daily_time_zone`, `daily_update_time`, and `max_active_cards`.
 
 ### Server Self-Updates
 
