@@ -3,6 +3,7 @@ use crate::components::flow_card::FlowCard;
 use crate::components::unified_flow::TipcardInfo;
 use crate::state::AppState;
 use gloo_net::http::Request;
+use gloo_storage::{LocalStorage, Storage};
 use serde::Serialize;
 use web_sys::{HtmlInputElement, HtmlSelectElement};
 use yew::prelude::*;
@@ -20,6 +21,9 @@ pub fn archive() -> Html {
     let cards = use_state(Vec::<TipcardInfo>::new);
     let search = use_state(String::new);
     let status = use_state(|| "all".to_string());
+    let sort_by = use_state(|| {
+        LocalStorage::get::<String>("denpie-archive-sort").unwrap_or_else(|_| "date".to_string())
+    });
     let page = use_state(|| 1usize);
     let fullscreen_card_id = use_state(|| None::<i64>);
 
@@ -45,7 +49,7 @@ pub fn archive() -> Html {
         });
     }
 
-    let filtered: Vec<_> = cards
+    let mut filtered: Vec<_> = cards
         .iter()
         .filter(|card| {
             let q = search.to_lowercase();
@@ -58,6 +62,20 @@ pub fn archive() -> Html {
         })
         .cloned()
         .collect();
+    match sort_by.as_str() {
+        "topic" => filtered.sort_by(|a, b| {
+            a.topic_name
+                .to_lowercase()
+                .cmp(&b.topic_name.to_lowercase())
+                .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
+                .then_with(|| a.id.cmp(&b.id))
+        }),
+        _ => filtered.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| b.id.cmp(&a.id))
+        }),
+    }
     let visible: Vec<_> = filtered.iter().take(*page * 24).cloned().collect();
 
     let on_review = Callback::from(|_: (i64, Option<u8>, Option<String>)| {});
@@ -183,15 +201,51 @@ pub fn archive() -> Html {
                     <h1 class="text-xl font-semibold tracking-tight">{"Archive"}</h1>
                     <p class="text-muted mt-2"><span>{filtered.len()}</span>{" of "}<span>{cards.len()}</span>{" cards"}</p>
                 </div>
-                <div class="surface border rounded-md p-3 grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 w-full lg:w-auto">
-                    <input value={(*search).clone()} oninput={Callback::from({ let search = search.clone(); let page = page.clone(); move |e: InputEvent| if let Some(t) = e.target_dyn_into::<HtmlInputElement>() { search.set(t.value()); page.set(1); }})} class="rounded-md border px-3 py-2" placeholder="Find card" />
-                    <select value={(*status).clone()} onchange={Callback::from({ let status = status.clone(); let page = page.clone(); move |e: Event| if let Some(t) = e.target_dyn_into::<HtmlSelectElement>() { status.set(t.value()); page.set(1); }})} class="rounded-md border px-3 py-2">
-                        <option value="all">{"All"}</option>
-                        <option value="active">{"Active"}</option>
-                        <option value="completed">{"Completed"}</option>
-                        <option value="custom">{"Custom"}</option>
-                    </select>
-                    <button type="button" class="rounded-md border border-token px-3 py-2" onclick={Callback::from({ let search = search.clone(); let status = status.clone(); let page = page.clone(); move |_| { search.set(String::new()); status.set("all".to_string()); page.set(1); } })}>{"Clear"}</button>
+                <div class="surface border rounded-md p-3 flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+                    <input value={(*search).clone()} oninput={Callback::from({ let search = search.clone(); let page = page.clone(); move |e: InputEvent| if let Some(t) = e.target_dyn_into::<HtmlInputElement>() { search.set(t.value()); page.set(1); }})} class="rounded-md border px-3 py-2 flex-1 min-w-0" placeholder="Find card" />
+                    <div class="flex flex-wrap sm:flex-nowrap items-center gap-2">
+                        <select value={(*status).clone()} onchange={Callback::from({ let status = status.clone(); let page = page.clone(); move |e: Event| if let Some(t) = e.target_dyn_into::<HtmlSelectElement>() { status.set(t.value()); page.set(1); }})} class="rounded-md border px-3 py-2">
+                            <option value="all">{"All"}</option>
+                            <option value="active">{"Active"}</option>
+                            <option value="completed">{"Completed"}</option>
+                            <option value="custom">{"Custom"}</option>
+                        </select>
+                        <div class="flex muted-surface rounded-md p-1 border border-token" role="group" aria-label="Sort cards">
+                            <button
+                                type="button"
+                                class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "date").then_some("bg-primary-soft text-primary"))}
+                                aria-pressed={(*sort_by == "date").to_string()}
+                                onclick={Callback::from({
+                                    let sort_by = sort_by.clone();
+                                    let page = page.clone();
+                                    move |_| {
+                                        let _ = LocalStorage::set("denpie-archive-sort", "date");
+                                        sort_by.set("date".to_string());
+                                        page.set(1);
+                                    }
+                                })}
+                            >
+                                {"Date"}
+                            </button>
+                            <button
+                                type="button"
+                                class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "topic").then_some("bg-primary-soft text-primary"))}
+                                aria-pressed={(*sort_by == "topic").to_string()}
+                                onclick={Callback::from({
+                                    let sort_by = sort_by.clone();
+                                    let page = page.clone();
+                                    move |_| {
+                                        let _ = LocalStorage::set("denpie-archive-sort", "topic");
+                                        sort_by.set("topic".to_string());
+                                        page.set(1);
+                                    }
+                                })}
+                            >
+                                {"Topic"}
+                            </button>
+                        </div>
+                        <button type="button" class="rounded-md border border-token px-3 py-2" onclick={Callback::from({ let search = search.clone(); let status = status.clone(); let page = page.clone(); move |_| { search.set(String::new()); status.set("all".to_string()); page.set(1); } })}>{"Clear"}</button>
+                    </div>
                 </div>
             </div>
 

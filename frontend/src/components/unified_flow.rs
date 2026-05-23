@@ -144,6 +144,9 @@ pub fn unified_flow() -> Html {
     let loading = use_state(|| false);
     let card_order =
         use_state(|| LocalStorage::get::<Vec<i64>>("denpie-card-order").unwrap_or_default());
+    let pinned_card_order = use_state(|| {
+        LocalStorage::get::<Vec<i64>>("denpie-pinned-card-order").unwrap_or_default()
+    });
     let topics_input =
         use_state(|| LocalStorage::get::<String>("denpie_prefill_topic").unwrap_or_default());
     let tip_type = use_state(|| {
@@ -155,6 +158,9 @@ pub fn unified_flow() -> Html {
     let image_readers = use_state(Vec::<FileReader>::new);
     let layout = use_state(|| {
         LocalStorage::get::<String>("denpie-flow-layout").unwrap_or_else(|_| "grid".to_string())
+    });
+    let sort_by = use_state(|| {
+        LocalStorage::get::<String>("denpie-flow-sort").unwrap_or_else(|_| "date".to_string())
     });
     let fullscreen_card_id = use_state(|| None::<i64>);
 
@@ -332,8 +338,12 @@ pub fn unified_flow() -> Html {
 
     let on_toggle_pin_cb = {
         let cards = cards.clone();
+        let card_order = card_order.clone();
+        let pinned_card_order = pinned_card_order.clone();
         Callback::from(move |(id, pinned): (i64, bool)| {
             let cards = cards.clone();
+            let card_order = card_order.clone();
+            let pinned_card_order = pinned_card_order.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let req = PinReq {
                     id,
@@ -351,7 +361,29 @@ pub fn unified_flow() -> Html {
                         if let Some(card) = next.iter_mut().find(|card| card.id == id) {
                             card.pinned = pinned;
                         }
+                        let unpinned_ids: Vec<i64> = next
+                            .iter()
+                            .filter(|card| !card.pinned)
+                            .map(|card| card.id)
+                            .collect();
+                        let pinned_ids: Vec<i64> = next
+                            .iter()
+                            .filter(|card| card.pinned)
+                            .map(|card| card.id)
+                            .collect();
                         cards.set(next);
+
+                        if pinned {
+                            let order =
+                                normalize_card_order((*card_order).clone(), &unpinned_ids);
+                            let _ = LocalStorage::set("denpie-card-order", &order);
+                            card_order.set(order);
+                        } else {
+                            let order =
+                                normalize_card_order((*pinned_card_order).clone(), &pinned_ids);
+                            let _ = LocalStorage::set("denpie-pinned-card-order", &order);
+                            pinned_card_order.set(order);
+                        }
                     }
                 }
             });
@@ -421,10 +453,51 @@ pub fn unified_flow() -> Html {
 
     let on_reorder_cb = {
         let card_order = card_order.clone();
+        let pinned_card_order = pinned_card_order.clone();
         let cards = cards.clone();
+        let sort_by = sort_by.clone();
         Callback::from(move |(source_id, target_id): (i64, i64)| {
-            let current_ids: Vec<i64> = cards.iter().map(|c| c.id).collect();
-            let mut order = normalize_card_order((*card_order).clone(), &current_ids);
+            let source_pinned = cards
+                .iter()
+                .find(|card| card.id == source_id)
+                .map(|card| card.pinned);
+            let target_pinned = cards
+                .iter()
+                .find(|card| card.id == target_id)
+                .map(|card| card.pinned);
+            let (Some(source_pinned), Some(target_pinned)) = (source_pinned, target_pinned) else {
+                return;
+            };
+            if source_pinned != target_pinned {
+                return;
+            }
+
+            if source_pinned {
+                let pinned_ids: Vec<i64> = cards
+                    .iter()
+                    .filter(|card| card.pinned)
+                    .map(|card| card.id)
+                    .collect();
+                let mut order =
+                    normalize_card_order((*pinned_card_order).clone(), &pinned_ids);
+                if let (Some(from_idx), Some(to_idx)) = (
+                    order.iter().position(|&id| id == source_id),
+                    order.iter().position(|&id| id == target_id),
+                ) {
+                    let item = order.remove(from_idx);
+                    order.insert(to_idx, item);
+                    let _ = LocalStorage::set("denpie-pinned-card-order", &order);
+                    pinned_card_order.set(order);
+                }
+                return;
+            }
+
+            let unpinned_ids: Vec<i64> = cards
+                .iter()
+                .filter(|card| !card.pinned)
+                .map(|card| card.id)
+                .collect();
+            let mut order = normalize_card_order((*card_order).clone(), &unpinned_ids);
 
             if let (Some(from_idx), Some(to_idx)) = (
                 order.iter().position(|&id| id == source_id),
@@ -434,6 +507,8 @@ pub fn unified_flow() -> Html {
                 order.insert(to_idx, item);
                 let _ = LocalStorage::set("denpie-card-order", &order);
                 card_order.set(order);
+                let _ = LocalStorage::set("denpie-flow-sort", "manual");
+                sort_by.set("manual".to_string());
             }
         })
     };
@@ -477,18 +552,35 @@ pub fn unified_flow() -> Html {
         });
     }
 
-    let mut flow_cards = (*cards).clone();
-    flow_cards.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| b.id.cmp(&a.id)));
-    let current_ids: Vec<i64> = flow_cards.iter().map(|card| card.id).collect();
-    let normalized_order = normalize_card_order((*card_order).clone(), &current_ids);
-    if !normalized_order.is_empty() {
-        flow_cards.sort_by_key(|c| {
-            normalized_order
+    let mut pinned_cards: Vec<TipcardInfo> =
+        cards.iter().filter(|card| card.pinned).cloned().collect();
+    let mut unpinned_cards: Vec<TipcardInfo> =
+        cards.iter().filter(|card| !card.pinned).cloned().collect();
+    let pinned_ids: Vec<i64> = pinned_cards.iter().map(|card| card.id).collect();
+    let unpinned_ids: Vec<i64> = unpinned_cards.iter().map(|card| card.id).collect();
+
+    if !(*pinned_card_order).is_empty() {
+        let normalized_pinned_order =
+            normalize_card_order((*pinned_card_order).clone(), &pinned_ids);
+        pinned_cards.sort_by_key(|card| {
+            normalized_pinned_order
                 .iter()
-                .position(|&id| id == c.id)
+                .position(|&id| id == card.id)
                 .unwrap_or(usize::MAX)
         });
+    } else {
+        sort_flow_cards(&mut pinned_cards, sort_by.as_str(), &[]);
     }
+
+    sort_flow_cards(
+        &mut unpinned_cards,
+        sort_by.as_str(),
+        &normalize_card_order((*card_order).clone(), &unpinned_ids),
+    );
+
+    let mut flow_cards = pinned_cards;
+    flow_cards.extend(unpinned_cards);
+    let current_ids: Vec<i64> = flow_cards.iter().map(|card| card.id).collect();
 
     let list_mode = *layout == "list";
     let disable_flow_glass = should_disable_flow_glass(
@@ -613,13 +705,59 @@ pub fn unified_flow() -> Html {
                 <div class="text-sm text-muted">
                     <span id="flow-count">{flow_cards.len()}</span>{" loaded cards"}
                 </div>
-                <div class="flex muted-surface rounded-md p-1 border border-token">
-                    <button id="flow-grid-btn" type="button" class={classes!("rounded", "px-2", "py-1", (!list_mode).then_some("bg-primary-soft text-primary"))} onclick={Callback::from({ let layout = layout.clone(); move |_| { let _ = LocalStorage::set("denpie-flow-layout", "grid"); layout.set("grid".to_string()); } })}>
-                        <iconify-icon icon="radix-icons:grid" class="radix-icon"></iconify-icon>
-                    </button>
-                    <button id="flow-list-btn" type="button" class={classes!("rounded", "px-2", "py-1", list_mode.then_some("bg-primary-soft text-primary"))} onclick={Callback::from({ let layout = layout.clone(); move |_| { let _ = LocalStorage::set("denpie-flow-layout", "list"); layout.set("list".to_string()); } })}>
-                        <iconify-icon icon="radix-icons:list-bullet" class="radix-icon"></iconify-icon>
-                    </button>
+                <div class="flex flex-wrap items-center justify-end gap-2">
+                    <div class="flex muted-surface rounded-md p-1 border border-token" role="group" aria-label="Sort cards">
+                        <button
+                            type="button"
+                            class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "date").then_some("bg-primary-soft text-primary"))}
+                            aria-pressed={(*sort_by == "date").to_string()}
+                            onclick={Callback::from({
+                                let sort_by = sort_by.clone();
+                                move |_| {
+                                    let _ = LocalStorage::set("denpie-flow-sort", "date");
+                                    sort_by.set("date".to_string());
+                                }
+                            })}
+                        >
+                            {"Date"}
+                        </button>
+                        <button
+                            type="button"
+                            class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "topic").then_some("bg-primary-soft text-primary"))}
+                            aria-pressed={(*sort_by == "topic").to_string()}
+                            onclick={Callback::from({
+                                let sort_by = sort_by.clone();
+                                move |_| {
+                                    let _ = LocalStorage::set("denpie-flow-sort", "topic");
+                                    sort_by.set("topic".to_string());
+                                }
+                            })}
+                        >
+                            {"Topic"}
+                        </button>
+                        <button
+                            type="button"
+                            class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "manual").then_some("bg-primary-soft text-primary"))}
+                            aria-pressed={(*sort_by == "manual").to_string()}
+                            onclick={Callback::from({
+                                let sort_by = sort_by.clone();
+                                move |_| {
+                                    let _ = LocalStorage::set("denpie-flow-sort", "manual");
+                                    sort_by.set("manual".to_string());
+                                }
+                            })}
+                        >
+                            {"Manual"}
+                        </button>
+                    </div>
+                    <div class="flex muted-surface rounded-md p-1 border border-token">
+                        <button id="flow-grid-btn" type="button" class={classes!("rounded", "px-2", "py-1", (!list_mode).then_some("bg-primary-soft text-primary"))} onclick={Callback::from({ let layout = layout.clone(); move |_| { let _ = LocalStorage::set("denpie-flow-layout", "grid"); layout.set("grid".to_string()); } })}>
+                            <iconify-icon icon="radix-icons:grid" class="radix-icon"></iconify-icon>
+                        </button>
+                        <button id="flow-list-btn" type="button" class={classes!("rounded", "px-2", "py-1", list_mode.then_some("bg-primary-soft text-primary"))} onclick={Callback::from({ let layout = layout.clone(); move |_| { let _ = LocalStorage::set("denpie-flow-layout", "list"); layout.set("list".to_string()); } })}>
+                            <iconify-icon icon="radix-icons:list-bullet" class="radix-icon"></iconify-icon>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -736,6 +874,29 @@ fn should_disable_flow_glass(
         card_count > visible_slots.saturating_mul(FLOW_GLASS_LIST_VIEWPORT_MULTIPLIER)
     } else {
         card_count > FLOW_GLASS_GRID_THRESHOLD
+    }
+}
+
+fn sort_flow_cards(cards: &mut [TipcardInfo], sort_by: &str, manual_order: &[i64]) {
+    match sort_by {
+        "topic" => cards.sort_by(|a, b| {
+            a.topic_name
+                .to_lowercase()
+                .cmp(&b.topic_name.to_lowercase())
+                .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
+                .then_with(|| a.id.cmp(&b.id))
+        }),
+        "manual" if !manual_order.is_empty() => cards.sort_by_key(|card| {
+            manual_order
+                .iter()
+                .position(|&id| id == card.id)
+                .unwrap_or(usize::MAX)
+        }),
+        _ => cards.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| b.id.cmp(&a.id))
+        }),
     }
 }
 
