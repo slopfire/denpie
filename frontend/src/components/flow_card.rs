@@ -155,7 +155,10 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                 return;
             }
             if let Some(dt) = e.data_transfer() {
-                let _ = dt.set_data("text/plain", &id.to_string());
+                let _ = dt.set_data(
+                    "text/plain",
+                    &format!("{}|{}", id, if pinned { 1 } else { 0 }),
+                );
                 dt.set_drop_effect("move");
                 if let Some(element) = root_ref.cast::<web_sys::Element>() {
                     let rect = element.get_bounding_client_rect();
@@ -180,12 +183,18 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
         Callback::from(move |e: DragEvent| {
             e.prevent_default();
             if let Some(dt) = e.data_transfer() {
-                if let Ok(source_id_str) = dt.get_data("text/plain") {
-                    if let Ok(source_id) = source_id_str.parse::<i64>() {
-                        if source_id != id {
-                            on_reorder.emit((source_id, id));
-                        }
+                if let Ok(payload) = dt.get_data("text/plain") {
+                    let Some((source_id_str, source_pinned_str)) = payload.split_once('|') else {
+                        return;
+                    };
+                    let Ok(source_id) = source_id_str.parse::<i64>() else {
+                        return;
+                    };
+                    let source_pinned = source_pinned_str == "1";
+                    if source_pinned != pinned || source_id == id {
+                        return;
                     }
+                    on_reorder.emit((source_id, id));
                 }
             }
         })
