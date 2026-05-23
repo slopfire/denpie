@@ -225,9 +225,11 @@ install_app() {
     run_as_root rm -rf "$SHARE_DIR/frontend/dist"
     run_as_root install -d -m 0755 "$SHARE_DIR/frontend/dist"
     run_as_root cp -R frontend/dist/. "$SHARE_DIR/frontend/dist/"
+    run_as_root chmod -R a+rX "$SHARE_DIR/frontend/dist"
     run_as_root rm -rf "$SHARE_DIR/static"
     run_as_root install -d -m 0755 "$SHARE_DIR/static"
     run_as_root cp -R static/. "$SHARE_DIR/static/"
+    run_as_root chmod -R a+rX "$SHARE_DIR/static"
     write_service
     write_autoupdate_units
 

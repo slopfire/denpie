@@ -237,9 +237,11 @@ run_step installing "Installing binary, schema, frontend, and static assets" "$I
     rm -rf "$SHARE_DIR/frontend/dist"
     install -d -m 0755 "$SHARE_DIR/frontend/dist"
     cp -R "$SOURCE_DIR/frontend/dist/." "$SHARE_DIR/frontend/dist/"
+    chmod -R a+rX "$SHARE_DIR/frontend/dist"
     rm -rf "$SHARE_DIR/static"
     install -d -m 0755 "$SHARE_DIR/static"
     cp -R "$SOURCE_DIR/static/." "$SHARE_DIR/static/"
+    chmod -R a+rX "$SHARE_DIR/static"
 "
 
 log "installed update; restarting $SERVICE_NAME"
