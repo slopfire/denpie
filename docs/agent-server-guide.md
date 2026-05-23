@@ -32,7 +32,7 @@ Then put returned `sk_live_*` into `ApiRequest.auth` for every request.
 - `review`: schedule grade or queue action.
 - `get_topics` / `list_app_topics`: topic metadata.
 - `list_tipcards` / `delete_tipcard`: card inventory.
-- `delete_topic`: delete topic + all cards + review state.
+- `delete_topic`: delete topic + cards + review state + card images + daily refresh runs.
 - `get_summary`: counts.
 
 Canonical schema: [`../proto/denpie.proto`](../proto/denpie.proto).
