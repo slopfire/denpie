@@ -13,6 +13,128 @@
             src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"
         ></script>
         <script>
+            window.DenpieHighlight = (() => {
+                const shikiModule = import("https://esm.sh/shiki@4.1.0");
+                const themes = {
+                    light: "vitesse-light",
+                    dark: "vitesse-dark",
+                };
+
+                const resetButton = (button, label) => {
+                    window.setTimeout(() => {
+                        button.textContent = label;
+                        button.classList.remove("copied");
+                    }, 1200);
+                };
+
+                const installCopyHandler = (root) => {
+                    if (!root || root.dataset.codeCopyReady === "true") {
+                        return;
+                    }
+                    root.dataset.codeCopyReady = "true";
+                    root.addEventListener("click", async (event) => {
+                        const target = event.target;
+                        if (!(target instanceof Element)) {
+                            return;
+                        }
+                        const button = target.closest(".code-block-copy");
+                        if (!button || !root.contains(button)) {
+                            return;
+                        }
+                        const shell = button.closest(".code-block-shell");
+                        const code = shell?.querySelector("pre code");
+                        const text = code?.innerText ?? "";
+                        if (!text) {
+                            return;
+                        }
+                        const original = button.textContent || "Copy";
+                        try {
+                            await navigator.clipboard.writeText(text);
+                            button.textContent = "Copied";
+                            button.classList.add("copied");
+                        } catch (_error) {
+                            button.textContent = "Copy failed";
+                        }
+                        resetButton(button, original);
+                    });
+                };
+
+                const setPlaintextFallback = (shell, code) => {
+                    shell.dataset.shikiHighlighted = "yes";
+                    code.className = "language-plaintext";
+                };
+
+                const replaceCodeBlock = async (shell, code) => {
+                    if (shell.dataset.shikiHighlighted) {
+                        return;
+                    }
+                    shell.dataset.shikiHighlighted = "pending";
+
+                    const lang = code.dataset.lang || "plaintext";
+                    const codeText = code.textContent || "";
+                    try {
+                        const { codeToHtml } = await shikiModule;
+                        const highlighted = await codeToHtml(codeText, {
+                            lang,
+                            themes,
+                            defaultColor: false,
+                        });
+                        const template = document.createElement("template");
+                        template.innerHTML = highlighted.trim();
+                        const shikiPre = template.content.querySelector("pre");
+                        const currentPre = code.closest("pre");
+                        if (!shikiPre || !currentPre) {
+                            setPlaintextFallback(shell, code);
+                            return;
+                        }
+                        shikiPre.classList.add("code-block");
+                        shikiPre.dataset.lang = lang;
+                        shikiPre.removeAttribute("tabindex");
+                        currentPre.replaceWith(shikiPre);
+                        shell.dataset.shikiHighlighted = "yes";
+                    } catch (_error) {
+                        try {
+                            const { codeToHtml } = await shikiModule;
+                            const fallback = await codeToHtml(codeText, {
+                                lang: "plaintext",
+                                themes,
+                                defaultColor: false,
+                            });
+                            const template = document.createElement("template");
+                            template.innerHTML = fallback.trim();
+                            const shikiPre = template.content.querySelector("pre");
+                            const currentPre = code.closest("pre");
+                            if (!shikiPre || !currentPre) {
+                                setPlaintextFallback(shell, code);
+                                return;
+                            }
+                            shikiPre.classList.add("code-block");
+                            shikiPre.dataset.lang = "plaintext";
+                            shikiPre.removeAttribute("tabindex");
+                            currentPre.replaceWith(shikiPre);
+                            shell.dataset.shikiHighlighted = "yes";
+                        } catch (_fallbackError) {
+                            setPlaintextFallback(shell, code);
+                        }
+                    }
+                };
+
+                const highlightCard = (root) => {
+                    installCopyHandler(root);
+                    if (!root) {
+                        return;
+                    }
+                    root.querySelectorAll(".code-block-shell").forEach((shell) => {
+                        const code = shell.querySelector("pre code");
+                        if (code) {
+                            void replaceCodeBlock(shell, code);
+                        }
+                    });
+                };
+
+                return { highlightCard };
+            })();
+
             if ("serviceWorker" in navigator) {
                 window.addEventListener("load", () => {
                     navigator.serviceWorker
@@ -934,29 +1056,108 @@
                 color: var(--muted);
                 text-align: left;
             }
-            .markdown-content code {
+            .markdown-content :not(pre) > code {
                 background: hsl(var(--muted-hsl) / var(--glass-muted-alpha));
                 border: 1px solid var(--border);
                 border-radius: 6px;
-                padding: 0.08rem 0.32rem;
+                color: hsl(var(--foreground));
+                padding: 0.1rem 0.34rem;
                 font-family:
                     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
                     "Liberation Mono", monospace;
                 font-size: 0.9em;
             }
-            .markdown-content pre {
+            .code-block-shell {
+                overflow: hidden;
+                border: 1px solid hsl(var(--border-hsl));
+                border-radius: 10px;
+                background: hsl(var(--background) / 0.82);
+                box-shadow: inset 0 1px 0 hsl(var(--foreground) / 0.04);
+                text-align: left;
+            }
+            .code-block-toolbar {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 0.75rem;
+                border-bottom: 1px solid hsl(var(--border-hsl));
                 background: hsl(var(--muted-hsl) / var(--glass-muted-alpha));
+                padding: 0.35rem 0.55rem 0.35rem 0.75rem;
+            }
+            .code-block-lang {
+                color: hsl(var(--muted-foreground));
+                font-family:
+                    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+                    "Liberation Mono", monospace;
+                font-size: 0.68rem;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                line-height: 1;
+                text-transform: uppercase;
+            }
+            .code-block-copy {
+                min-height: 1.7rem;
+                border: 1px solid hsl(var(--border-hsl));
+                border-radius: 999px;
+                background: hsl(var(--background) / var(--glass-control-alpha));
+                color: hsl(var(--foreground));
+                padding: 0.18rem 0.55rem;
+                font-size: 0.72rem;
+                line-height: 1;
+            }
+            .code-block-copy:hover,
+            .code-block-copy:focus-visible {
+                outline: none;
+                border-color: hsl(var(--ring-hsl));
+                background: hsl(var(--accent-hsl) / var(--glass-strong-alpha));
+            }
+            .code-block-copy.copied {
+                color: var(--ok);
+                border-color: var(--ok);
+            }
+            .markdown-content pre.code-block {
+                margin: 0;
+                background: transparent;
                 border: 1px solid var(--border);
-                border-radius: 8px;
-                padding: 0.9rem;
+                border-width: 0;
+                border-radius: 0;
                 overflow-x: auto;
+                padding: 0.95rem;
                 text-align: left;
                 white-space: pre;
+                scrollbar-color: hsl(var(--muted-foreground) / 0.55)
+                    transparent;
             }
-            .markdown-content pre code {
+            .markdown-content pre.code-block code {
+                display: block;
                 background: transparent;
                 border: 0;
+                color: hsl(var(--foreground));
+                min-width: max-content;
                 padding: 0;
+                font-family:
+                    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+                    "Liberation Mono", monospace;
+                font-size: 0.84rem;
+                line-height: 1.55;
+                tab-size: 4;
+            }
+            .markdown-content .shiki,
+            .markdown-content .shiki span {
+                background: transparent !important;
+            }
+            .markdown-content .shiki span {
+                color: var(--shiki-dark, hsl(var(--foreground)));
+            }
+            html[data-theme="shadcn-light"] .markdown-content .shiki span,
+            html[data-theme="solarized-light"] .markdown-content .shiki span {
+                color: var(--shiki-light, hsl(var(--foreground)));
+            }
+            .markdown-content pre.code-block code::selection,
+            .markdown-content pre.code-block code span::selection,
+            .markdown-content :not(pre) > code::selection {
+                background: hsl(var(--primary-hsl) / 0.32);
+                color: hsl(var(--foreground));
             }
             .markdown-content a {
                 color: var(--primary);
@@ -1101,10 +1302,9 @@
                 color: hsl(var(--foreground));
                 box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
             }
-            .markdown-content code,
-            .markdown-content pre,
+            .markdown-content :not(pre) > code,
+            .code-block-shell,
             code {
-                background: hsl(var(--muted-hsl) / var(--glass-muted-alpha));
                 color: hsl(var(--foreground));
                 border-color: hsl(var(--border-hsl));
             }
@@ -1274,6 +1474,16 @@
                 html .icon-tile,
                 html dialog.tailscale-dialog {
                     -webkit-backdrop-filter: none;
+                }
+                .code-block-toolbar {
+                    padding: 0.32rem 0.45rem 0.32rem 0.6rem;
+                }
+                .markdown-content pre.code-block {
+                    padding: 0.8rem;
+                }
+                .markdown-content pre.code-block code {
+                    font-size: 0.78rem;
+                    line-height: 1.5;
                 }
             }
         </style>
