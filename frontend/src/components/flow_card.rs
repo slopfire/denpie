@@ -306,11 +306,10 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
             <div class={classes!("absolute", "top-0", "left-0", "w-1", "h-full", line_class)}></div>
             <div class="p-4 flex flex-col flex-1">
                 <div class="card-title-bar border-b border-token pb-3 mb-4">
-                    <div class="card-title-leading flex items-center gap-1 justify-self-start">
+                    <div class="card-title-leading flex items-center justify-self-start">
                         <button type="button" class="card-drag-handle border border-token p-1" title="Drag to reorder" draggable={if fullscreen { "false" } else { "true" }} ondragstart={ondragstart.clone()}>
-                            <iconify-icon icon="radix-icons:drag-handle-dots-2" class="radix-icon"></iconify-icon>
+                            <iconify-icon icon={topic_icon} class="topic-icon radix-icon shrink-0" style={topic_color_style}></iconify-icon>
                         </button>
-                        <iconify-icon icon={topic_icon} class="topic-icon radix-icon shrink-0" style={topic_color_style}></iconify-icon>
                     </div>
                     <div class="card-title-center flex items-center justify-center gap-1.5 min-w-0 px-1">
                         if pinned {

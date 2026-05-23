@@ -919,8 +919,10 @@
             }
             .card-drag-handle {
                 cursor: grab;
-                color: var(--muted);
                 touch-action: none;
+            }
+            .card-drag-handle:active {
+                cursor: grabbing;
             }
             .card-title-bar {
                 display: grid;
@@ -941,8 +943,7 @@
                 letter-spacing: 0.02em;
                 text-transform: capitalize;
             }
-            .card-title-leading .card-drag-handle .radix-icon,
-            .card-title-leading .topic-icon {
+            .card-drag-handle .topic-icon {
                 width: 1.75rem;
                 height: 1.75rem;
                 font-size: 1.75rem;
