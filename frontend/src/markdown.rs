@@ -184,11 +184,19 @@ pub fn render_markdown(value: &str) -> String {
     };
 
     let flush_code = |html: &mut Vec<String>, code_lines: &mut Vec<&str>, language: &str| {
+        let line_count = code_lines.len();
         let escaped_language = escape_html(language);
+        let collapsible_class = if line_count > 5 {
+            " is-collapsible"
+        } else {
+            ""
+        };
         html.push(format!(
-            "<div class=\"code-block-shell\" data-lang=\"{0}\"><div class=\"code-block-toolbar\"><span class=\"code-block-lang\">{0}</span><button type=\"button\" class=\"code-block-copy\" aria-label=\"Copy {0} code\">Copy</button></div><pre class=\"code-block\" data-lang=\"{0}\"><code class=\"language-{0}\" data-lang=\"{0}\">{1}</code></pre></div>",
+            "<div class=\"code-block-shell{2}\" data-line-count=\"{3}\" data-lang=\"{0}\"><div class=\"code-block-toolbar\"><span class=\"code-block-lang\">{0}</span><button type=\"button\" class=\"code-block-copy\" aria-label=\"Copy {0} code\">Copy</button></div><pre class=\"code-block\" data-lang=\"{0}\"><code class=\"language-{0}\" data-lang=\"{0}\">{1}</code></pre></div>",
             escaped_language,
-            escape_html(&code_lines.join("\n"))
+            escape_html(&code_lines.join("\n")),
+            collapsible_class,
+            line_count
         ));
         code_lines.clear();
     };

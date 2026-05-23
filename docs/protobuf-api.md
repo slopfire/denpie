@@ -61,7 +61,7 @@ The response contains `api_key_created.api_key`. Store it client-side; the serve
 
 Daily card refresh windows use `settings.daily_time_zone` (IANA name such as `UTC`, `Asia/Vladivostok`, or `America/New_York`; fixed offsets such as `UTC+10` are also accepted) and `settings.daily_update_time` (`HH:MM`, default `00:00`). Each topic can override count/time with `update_topic.daily_card_count`, `update_topic.daily_time_zone`, and `update_topic.daily_update_time`. Invalid values fall back to `UTC`, midnight, and one card.
 
-Compression uses `settings.compression_level` by default. Each topic can override it with `update_topic.compression_level`; send an empty string to inherit the global preset.
+Compression uses `settings.compression_level` by default. Each topic can override it with `update_topic.compression_level`; send an empty string to inherit the global preset. Fenced code blocks are preserved verbatim during compression; only surrounding prose is compacted.
 
 Use `force_daily_refresh` with empty fields to refresh all existing generated topics, or with comma-separated topics plus the desired `tipcard_type` to target selected topics before the normal refresh time. The operation creates fresh generated cards and returns `refreshed_cards`; existing cards keep their current review state and schedule.
 

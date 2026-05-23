@@ -1074,6 +1074,34 @@
                 background: hsl(var(--background) / 0.82);
                 box-shadow: inset 0 1px 0 hsl(var(--foreground) / 0.04);
                 text-align: left;
+                position: relative;
+            }
+            .card-text.is-compact .code-block-shell.is-collapsible pre.code-block {
+                max-height: calc(5 * 1.55em + 1.9rem);
+                overflow: hidden;
+            }
+            .card-text.is-compact .code-block-shell.is-collapsible::after {
+                content: "";
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                height: 2.4rem;
+                pointer-events: none;
+                background: linear-gradient(
+                    to bottom,
+                    hsl(var(--background) / 0),
+                    hsl(var(--background) / 0.92)
+                );
+            }
+            .card-text.is-expanded .code-block-shell.is-collapsible pre.code-block,
+            .flow-card.is-fullscreen .code-block-shell.is-collapsible pre.code-block {
+                max-height: none;
+                overflow-x: auto;
+            }
+            .card-text.is-expanded .code-block-shell.is-collapsible::after,
+            .flow-card.is-fullscreen .code-block-shell.is-collapsible::after {
+                content: none;
             }
             .code-block-toolbar {
                 display: flex;
@@ -1183,6 +1211,9 @@
             .surface {
                 border-radius: var(--glass-panel-radius);
                 border-width: 1px;
+            }
+            nav.surface {
+                border-radius: 0 !important;
             }
             .rounded-md {
                 border-radius: var(--glass-control-radius);
@@ -1475,10 +1506,15 @@
                 html dialog.tailscale-dialog {
                     -webkit-backdrop-filter: none;
                 }
-                .code-block-toolbar {
-                    padding: 0.32rem 0.45rem 0.32rem 0.6rem;
+                nav.surface {
+                    backdrop-filter: blur(10px) saturate(1.15) !important;
+                    -webkit-backdrop-filter: blur(10px) saturate(1.15) !important;
                 }
-                .markdown-content pre.code-block {
+            }
+            .code-block-toolbar {
+                padding: 0.32rem 0.45rem 0.32rem 0.6rem;
+            }
+            .markdown-content pre.code-block {
                     padding: 0.8rem;
                 }
                 .markdown-content pre.code-block code {
