@@ -506,6 +506,23 @@
                 width: 1em;
                 height: 1em;
             }
+            .topic-icon {
+                width: 1.25rem;
+                height: 1.25rem;
+                font-size: 1.25rem;
+                line-height: 1;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+            }
+            .topic-icon-btn {
+                width: 2rem;
+                height: 2rem;
+                min-width: 2rem;
+                min-height: 2rem;
+                padding: 0;
+            }
             .surface {
                 background: hsl(var(--card) / var(--glass-card-alpha));
                 color: hsl(var(--card-foreground));
@@ -904,6 +921,31 @@
                 cursor: grab;
                 color: var(--muted);
                 touch-action: none;
+            }
+            .card-title-bar {
+                display: grid;
+                grid-template-columns: auto 1fr auto;
+                align-items: center;
+                gap: 0.75rem;
+                font-weight: 500;
+            }
+            .card-title-center {
+                justify-self: center;
+                width: 100%;
+                max-width: 100%;
+            }
+            .card-topic-title {
+                font-size: 1.125rem;
+                font-weight: 700;
+                line-height: 1.25;
+                letter-spacing: 0.02em;
+                text-transform: capitalize;
+            }
+            .card-title-leading .card-drag-handle .radix-icon,
+            .card-title-leading .topic-icon {
+                width: 1.75rem;
+                height: 1.75rem;
+                font-size: 1.75rem;
             }
             .flow-card.dragging {
                 opacity: 0.45;

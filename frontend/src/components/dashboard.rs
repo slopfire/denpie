@@ -1,6 +1,7 @@
 use crate::api::toast;
 use crate::app::View;
 use crate::state::AppState;
+use crate::topic_visual::display_icon;
 use gloo_net::http::Request;
 use gloo_storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,8 @@ pub struct AppTopicInfo {
     pub id: i64,
     pub name: String,
     pub tipcard_type: String,
+    pub icon_id: String,
+    pub topic_color: String,
     pub prompt_template: String,
     pub total_cards: i64,
     pub due_cards: i64,
@@ -53,6 +56,17 @@ struct DeleteTopicReq {
     id: i64,
 }
 
+#[derive(Serialize)]
+struct RegenerateTopicIconReq {
+    id: i64,
+}
+
+#[derive(Deserialize)]
+struct RegenerateTopicIconRes {
+    icon_id: String,
+    topic_color: String,
+}
+
 #[function_component(Dashboard)]
 pub fn dashboard() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
@@ -63,6 +77,7 @@ pub fn dashboard() -> Html {
     let search = use_state(String::new);
     let editing = use_state(|| None::<AppTopicInfo>);
     let confirm_delete = use_state(|| None::<AppTopicInfo>);
+    let regenerating_icon = use_state(|| None::<i64>);
     let dialog_ref = use_node_ref();
 
     {
@@ -116,6 +131,64 @@ pub fn dashboard() -> Html {
                         topics.set(data);
                     }
                 }
+            });
+        })
+    };
+
+    let on_regenerate_icon = {
+        let app_state = app_state.clone();
+        let topics = topics.clone();
+        let regenerating_icon = regenerating_icon.clone();
+        Callback::from(move |topic_id: i64| {
+            if regenerating_icon.is_some() {
+                return;
+            }
+            regenerating_icon.set(Some(topic_id));
+            let app_state = app_state.clone();
+            let topics = topics.clone();
+            let regenerating_icon = regenerating_icon.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let req = RegenerateTopicIconReq { id: topic_id };
+                let result = Request::post("/app/topics/regenerate-icon")
+                    .json(&req)
+                    .unwrap()
+                    .send()
+                    .await;
+                match result {
+                    Ok(res) if res.ok() => {
+                        if let Ok(data) = res.json::<RegenerateTopicIconRes>().await {
+                            topics.set(
+                                topics
+                                    .iter()
+                                    .map(|topic| {
+                                        if topic.id == topic_id {
+                                            AppTopicInfo {
+                                                icon_id: data.icon_id.clone(),
+                                                topic_color: data.topic_color.clone(),
+                                                ..topic.clone()
+                                            }
+                                        } else {
+                                            topic.clone()
+                                        }
+                                    })
+                                    .collect(),
+                            );
+                            toast(&app_state, "Topic icon and color updated");
+                        } else {
+                            toast(&app_state, "Failed to read icon response");
+                        }
+                    }
+                    Ok(res) => {
+                        toast(
+                            &app_state,
+                            res.text()
+                                .await
+                                .unwrap_or_else(|_| "Failed to update topic icon".to_string()),
+                        );
+                    }
+                    Err(err) => toast(&app_state, err.to_string()),
+                }
+                regenerating_icon.set(None);
             });
         })
     };
@@ -282,11 +355,38 @@ pub fn dashboard() -> Html {
                                 let topic_for_edit = t.clone();
                                 let topic_for_load = t.clone();
                                 let topic_for_delete = t.clone();
+                                let topic_id = t.id;
+                                let icon_loading = *regenerating_icon == Some(topic_id);
+                                let on_regenerate_icon = on_regenerate_icon.clone();
                                 html! {
                                 <div class="surface border rounded-md p-4 flex flex-col">
-                                    <div class="flex justify-between items-start mb-2">
-                                        <h3 class="font-semibold text-lg truncate">{&t.name}</h3>
-                                        <span class="badge">{&t.tipcard_type}</span>
+                                    <div class="flex justify-between items-start mb-2 gap-2">
+                                        <h3 class="font-semibold text-lg truncate flex items-center gap-2 min-w-0">
+                                            <button
+                                                type="button"
+                                                class="topic-icon-btn shrink-0 inline-flex items-center justify-center rounded-sm border border-transparent hover:border-token disabled:opacity-50"
+                                                title="Pick new icon with AI"
+                                                disabled={icon_loading}
+                                                onclick={Callback::from(move |_| on_regenerate_icon.emit(topic_id))}
+                                            >
+                                                if icon_loading {
+                                                    <iconify-icon
+                                                        icon="radix-icons:reload"
+                                                        class="topic-icon radix-icon animate-spin opacity-70"
+                                                        aria-hidden="true"
+                                                    ></iconify-icon>
+                                                } else {
+                                                    <iconify-icon
+                                                        icon={display_icon(&t.icon_id).to_string()}
+                                                        class="topic-icon radix-icon"
+                                                        style={format!("color: {}", t.topic_color)}
+                                                        aria-hidden="true"
+                                                    ></iconify-icon>
+                                                }
+                                            </button>
+                                            <span class="truncate">{&t.name}</span>
+                                        </h3>
+                                        <span class="badge shrink-0">{&t.tipcard_type}</span>
                                     </div>
                                     <div class="text-sm text-muted">
                                         {format!("{} due / {} total", t.due_cards, t.total_cards)}

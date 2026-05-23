@@ -1,6 +1,7 @@
 use crate::{
     api, autoupdate, config,
     db::repositories::{tipcards, token_usage, topics, user_settings},
+    domain::topic_visual,
     llm, AppState,
 };
 use axum::{
@@ -380,6 +381,8 @@ pub struct TopicInfo {
     pub id: i64,
     pub name: String,
     pub tipcard_type: String,
+    pub icon_id: String,
+    pub topic_color: String,
     pub prompt_template: String,
     pub daily_card_count: u32,
     pub daily_time_zone: String,
@@ -401,8 +404,12 @@ pub async fn list_topics(
         .into_iter()
         .map(|r| TopicInfo {
             id: r.id,
-            name: r.name,
+            name: r.name.clone(),
             tipcard_type: r.tipcard_type,
+            icon_id: r
+                .icon_id
+                .unwrap_or_else(|| crate::domain::topic_visual::DEFAULT_TOPIC_ICON.to_string()),
+            topic_color: topic_visual::resolve_topic_color(r.color_hue, &r.name),
             prompt_template: r.prompt_template.unwrap_or_default(),
             daily_card_count: r.daily_card_count.unwrap_or(1).max(1) as u32,
             daily_time_zone: r.daily_time_zone.unwrap_or_default(),
@@ -486,6 +493,8 @@ pub struct AppTopicInfo {
     pub id: i64,
     pub name: String,
     pub tipcard_type: String,
+    pub icon_id: String,
+    pub topic_color: String,
     pub prompt_template: String,
     pub total_cards: i64,
     pub due_cards: i64,
@@ -513,6 +522,8 @@ pub async fn app_topics(
                 id: r.id,
                 name: r.name,
                 tipcard_type: r.tipcard_type,
+                icon_id: r.icon_id,
+                topic_color: r.topic_color,
                 prompt_template: r.prompt_template,
                 daily_card_count: r.daily_card_count,
                 daily_time_zone: r.daily_time_zone,
@@ -624,6 +635,30 @@ pub async fn update_topic(
 }
 
 #[derive(Deserialize)]
+pub struct RegenerateTopicIconReq {
+    pub id: i64,
+}
+
+#[derive(Serialize)]
+pub struct RegenerateTopicIconRes {
+    pub icon_id: String,
+    pub topic_color: String,
+}
+
+pub async fn regenerate_topic_icon(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Json(req): Json<RegenerateTopicIconReq>,
+) -> Result<Json<RegenerateTopicIconRes>, (StatusCode, String)> {
+    let user = crate::auth::current_user(&state, &session).await?;
+    let update = api::regenerate_topic_icon(&state, &user.id, req.id).await?;
+    Ok(Json(RegenerateTopicIconRes {
+        icon_id: update.icon_id,
+        topic_color: update.topic_color,
+    }))
+}
+
+#[derive(Deserialize)]
 pub struct DeleteTopicReq {
     pub id: i64,
 }
@@ -642,6 +677,8 @@ pub async fn delete_topic(
 pub struct TipcardInfo {
     pub id: i64,
     pub topic_name: String,
+    pub topic_icon: String,
+    pub topic_color: String,
     pub title: String,
     pub full_content: String,
     pub compressed_content: String,
@@ -658,6 +695,8 @@ pub struct TipcardInfo {
 pub struct FlowCardInfo {
     pub id: i64,
     pub topic_name: String,
+    pub topic_icon: String,
+    pub topic_color: String,
     pub title: String,
     pub compressed_content: String,
     pub created_at: String,
@@ -723,6 +762,8 @@ pub async fn list_tipcards(
     .map(|r| TipcardInfo {
         id: r.id,
         topic_name: r.topic_name,
+        topic_icon: r.topic_icon,
+        topic_color: r.topic_color,
         title: r.title,
         full_content: r.full_content,
         compressed_content: r.compressed_content,
@@ -775,6 +816,8 @@ pub async fn flow_cards(
         cards.push(FlowCardInfo {
             id: row.id,
             topic_name: row.topic_name,
+            topic_icon: row.topic_icon,
+            topic_color: row.topic_color,
             title: row.title,
             compressed_content: row.compressed_content,
             created_at: row.created_at,
@@ -815,6 +858,8 @@ pub async fn flow_card_detail(
         card: TipcardInfo {
             id: row.id,
             topic_name: row.topic_name,
+            topic_icon: row.topic_icon,
+            topic_color: row.topic_color,
             title: row.title,
             full_content: row.full_content,
             compressed_content: row.compressed_content,

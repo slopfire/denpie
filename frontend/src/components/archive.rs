@@ -22,7 +22,7 @@ pub fn archive() -> Html {
     let search = use_state(String::new);
     let status = use_state(|| "all".to_string());
     let sort_by = use_state(|| {
-        LocalStorage::get::<String>("denpie-archive-sort").unwrap_or_else(|_| "date".to_string())
+        LocalStorage::get::<String>("denpie-archive-sort").unwrap_or_else(|_| "topic".to_string())
     });
     let page = use_state(|| 1usize);
     let fullscreen_card_id = use_state(|| None::<i64>);
@@ -63,17 +63,17 @@ pub fn archive() -> Html {
         .cloned()
         .collect();
     match sort_by.as_str() {
-        "topic" => filtered.sort_by(|a, b| {
+        "date" => filtered.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| b.id.cmp(&a.id))
+        }),
+        _ => filtered.sort_by(|a, b| {
             a.topic_name
                 .to_lowercase()
                 .cmp(&b.topic_name.to_lowercase())
                 .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
                 .then_with(|| a.id.cmp(&b.id))
-        }),
-        _ => filtered.sort_by(|a, b| {
-            b.created_at
-                .cmp(&a.created_at)
-                .then_with(|| b.id.cmp(&a.id))
         }),
     }
     let visible: Vec<_> = filtered.iter().take(*page * 24).cloned().collect();
@@ -213,22 +213,6 @@ pub fn archive() -> Html {
                         <div class="flex muted-surface rounded-md p-1 border border-token" role="group" aria-label="Sort cards">
                             <button
                                 type="button"
-                                class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "date").then_some("bg-primary-soft text-primary"))}
-                                aria-pressed={(*sort_by == "date").to_string()}
-                                onclick={Callback::from({
-                                    let sort_by = sort_by.clone();
-                                    let page = page.clone();
-                                    move |_| {
-                                        let _ = LocalStorage::set("denpie-archive-sort", "date");
-                                        sort_by.set("date".to_string());
-                                        page.set(1);
-                                    }
-                                })}
-                            >
-                                {"Date"}
-                            </button>
-                            <button
-                                type="button"
                                 class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "topic").then_some("bg-primary-soft text-primary"))}
                                 aria-pressed={(*sort_by == "topic").to_string()}
                                 onclick={Callback::from({
@@ -242,6 +226,22 @@ pub fn archive() -> Html {
                                 })}
                             >
                                 {"Topic"}
+                            </button>
+                            <button
+                                type="button"
+                                class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "date").then_some("bg-primary-soft text-primary"))}
+                                aria-pressed={(*sort_by == "date").to_string()}
+                                onclick={Callback::from({
+                                    let sort_by = sort_by.clone();
+                                    let page = page.clone();
+                                    move |_| {
+                                        let _ = LocalStorage::set("denpie-archive-sort", "date");
+                                        sort_by.set("date".to_string());
+                                        page.set(1);
+                                    }
+                                })}
+                            >
+                                {"Date"}
                             </button>
                         </div>
                         <button type="button" class="rounded-md border border-token px-3 py-2" onclick={Callback::from({ let search = search.clone(); let status = status.clone(); let page = page.clone(); move |_| { search.set(String::new()); status.set("all".to_string()); page.set(1); } })}>{"Clear"}</button>

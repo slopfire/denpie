@@ -1,6 +1,8 @@
 use sqlx::{Row, SqlitePool};
 use std::path::Path;
 
+use crate::domain::topic_visual;
+
 pub async fn apply_schema_file(pool: &SqlitePool, schema_path: &Path) -> Result<(), sqlx::Error> {
     let schema = tokio::fs::read_to_string(schema_path).await?;
     for query in schema.split(';') {
@@ -121,6 +123,10 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
     ensure_column(pool, "topics", "daily_time_zone", "TEXT").await?;
     ensure_column(pool, "topics", "daily_update_time", "TEXT").await?;
     ensure_column(pool, "topics", "compression_level", "TEXT").await?;
+    ensure_column(pool, "topics", "icon_id", "TEXT").await?;
+    backfill_topic_icons(pool).await?;
+    ensure_column(pool, "topics", "color_hue", "INTEGER").await?;
+    backfill_topic_colors(pool).await?;
     rebuild_topics_without_global_name_unique(pool).await?;
     ensure_column(pool, "tipcards", "user_id", "TEXT").await?;
     ensure_column(
@@ -257,6 +263,39 @@ async fn has_unique_single_column_index(
         }
     }
     Ok(false)
+}
+
+async fn backfill_topic_icons(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let rows = sqlx::query("SELECT id FROM topics WHERE icon_id IS NULL OR TRIM(icon_id) = ''")
+        .fetch_all(pool)
+        .await?;
+    for row in rows {
+        let id = row.try_get::<i64, _>("id")?;
+        let icon_id = topic_visual::DEFAULT_TOPIC_ICON.to_string();
+        sqlx::query("UPDATE topics SET icon_id = ? WHERE id = ?")
+            .bind(icon_id)
+            .bind(id)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
+async fn backfill_topic_colors(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let rows = sqlx::query("SELECT id, name FROM topics WHERE color_hue IS NULL")
+        .fetch_all(pool)
+        .await?;
+    for row in rows {
+        let id = row.try_get::<i64, _>("id")?;
+        let name = row.try_get::<String, _>("name")?;
+        let color_hue = topic_visual::color_hue_from_name(&name);
+        sqlx::query("UPDATE topics SET color_hue = ? WHERE id = ?")
+            .bind(color_hue)
+            .bind(id)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
 }
 
 async fn ensure_column(

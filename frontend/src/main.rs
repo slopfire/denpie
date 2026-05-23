@@ -4,6 +4,7 @@ mod components;
 mod markdown;
 mod passkeys;
 mod state;
+mod topic_visual;
 
 use app::App;
 

@@ -198,6 +198,7 @@ async fn test_topic_names_can_repeat_across_users() {
         TEST_USER_ID,
         "rust",
         "repeatable_tip",
+        None,
     )
     .await
     .unwrap();
@@ -206,6 +207,7 @@ async fn test_topic_names_can_repeat_across_users() {
         "usr_other",
         "rust",
         "repeatable_tip",
+        None,
     )
     .await
     .unwrap();
@@ -250,10 +252,10 @@ async fn test_legacy_global_topic_unique_index_is_removed() {
             .execute(&db)
             .await
             .unwrap();
-    crate::db::repositories::topics::get_or_create_topic(&db, "u1", "rust", "repeatable_tip")
+    crate::db::repositories::topics::get_or_create_topic(&db, "u1", "rust", "repeatable_tip", None)
         .await
         .unwrap();
-    crate::db::repositories::topics::get_or_create_topic(&db, "u2", "rust", "repeatable_tip")
+    crate::db::repositories::topics::get_or_create_topic(&db, "u2", "rust", "repeatable_tip", None)
         .await
         .unwrap();
 }

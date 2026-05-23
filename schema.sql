@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS topics (
     daily_time_zone TEXT,
     daily_update_time TEXT,
     compression_level TEXT,
+    icon_id TEXT,
+    color_hue INTEGER,
     FOREIGN KEY(user_id) REFERENCES users(id),
     UNIQUE(user_id, name)
 );
