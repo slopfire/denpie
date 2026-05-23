@@ -10,7 +10,8 @@ use std::{
     collections::HashMap,
     rc::Rc,
 };
-use web_sys::{DragEvent, HtmlInputElement, HtmlTextAreaElement};
+use wasm_bindgen::JsCast;
+use web_sys::{DragEvent, HtmlInputElement, HtmlTextAreaElement, KeyboardEvent};
 use yew::prelude::*;
 
 const PAGE_LIMIT: i64 = 48;
@@ -695,6 +696,23 @@ pub fn unified_flow() -> Html {
                         placeholder="Rust, Python, System Design"
                         value={(*topics_input).clone()}
                         oninput={Callback::from({let t = topics_input.clone(); move |e: InputEvent| if let Some(target) = e.target_dyn_into::<HtmlInputElement>() { t.set(target.value()); }})}
+                        onkeydown={Callback::from({
+                            let tip_type = tip_type.clone();
+                            move |e: KeyboardEvent| {
+                                if *tip_type == "manual_tip" && e.key() == "Tab" && !e.shift_key() {
+                                    if let Some(window) = web_sys::window() {
+                                        if let Some(document) = window.document() {
+                                            if let Some(el) = document.get_element_by_id("manual-card-content") {
+                                                if let Ok(textarea) = el.dyn_into::<HtmlTextAreaElement>() {
+                                                    let _ = textarea.focus();
+                                                    e.prevent_default();
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        })}
                         required=true
                     />
                     <div class="tip-type-switch muted-surface border border-token rounded-md p-1 grid grid-cols-3 sm:col-span-2" role="group">
@@ -703,6 +721,7 @@ pub fn unified_flow() -> Html {
                         <button type="button" onclick={let t = tip_type.clone(); Callback::from(move |_| t.set("manual_tip".to_string()))} class={classes!("rounded-md", "px-3", "py-2", "text-sm", "font-medium", (*tip_type == "manual_tip").then_some("active"))}>{"Manual"}</button>
                     </div>
                     <button
+                        id="tips-submit-btn"
                         type="submit"
                         class={classes!("rounded-md", "bg-primary-solid", "px-4", "py-2", "font-medium", "flex", "items-center", "justify-center", "gap-2", (*pending_count > 0).then_some("opacity-60 cursor-not-allowed"))}
                         disabled={*pending_count > 0}
@@ -717,6 +736,22 @@ pub fn unified_flow() -> Html {
                             placeholder="Manual card content"
                             value={(*manual_content).clone()}
                             oninput={Callback::from({ let manual_content = manual_content.clone(); move |e: InputEvent| if let Some(target) = e.target_dyn_into::<HtmlTextAreaElement>() { manual_content.set(target.value()); }})}
+                            onkeydown={Callback::from({
+                                move |e: KeyboardEvent| {
+                                    if e.key() == "Enter" && e.shift_key() {
+                                        e.prevent_default();
+                                        if let Some(window) = web_sys::window() {
+                                            if let Some(document) = window.document() {
+                                                if let Some(btn) = document.get_element_by_id("tips-submit-btn") {
+                                                    if let Ok(btn_el) = btn.dyn_into::<web_sys::HtmlElement>() {
+                                                        btn_el.click();
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            })}
                         ></textarea>
                         <div class="sm:col-span-2 xl:col-span-5 flex flex-wrap items-center gap-3">
                             <label class="inline-flex items-center gap-2 rounded-md border border-token px-3 py-2 text-sm font-medium cursor-pointer">
