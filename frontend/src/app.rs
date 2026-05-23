@@ -132,26 +132,21 @@ fn switch_shell(view: View) -> Html {
 #[function_component(MobileNav)]
 fn mobile_nav() -> Html {
     html! {
-        <nav class="lg:hidden fixed bottom-0 inset-x-0 z-50 surface border-t grid grid-cols-5 px-2 py-2">
+        <nav class="lg:hidden fixed bottom-0 inset-x-0 z-50 surface border-t grid grid-cols-5 px-2 py-2 rounded-none">
             <Link<View> to={View::Dashboard} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
                 <iconify-icon icon="radix-icons:dashboard" class="radix-icon block mx-auto"></iconify-icon>
-                <span>{"Home"}</span>
             </Link<View>>
             <Link<View> to={View::Flow} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
                 <iconify-icon icon="radix-icons:loop" class="radix-icon block mx-auto"></iconify-icon>
-                <span>{"Flow"}</span>
             </Link<View>>
             <Link<View> to={View::Archive} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
                 <iconify-icon icon="radix-icons:archive" class="radix-icon block mx-auto"></iconify-icon>
-                <span>{"Archive"}</span>
             </Link<View>>
             <Link<View> to={View::Settings} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
                 <iconify-icon icon="radix-icons:gear" class="radix-icon block mx-auto"></iconify-icon>
-                <span>{"Settings"}</span>
             </Link<View>>
             <Link<View> to={View::Keys} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
                 <iconify-icon icon="radix-icons:lock-closed" class="radix-icon block mx-auto"></iconify-icon>
-                <span>{"Keys"}</span>
             </Link<View>>
         </nav>
     }
