@@ -5,7 +5,8 @@ use std::{
     cell::{Cell, RefCell},
     rc::Rc,
 };
-use web_sys::HtmlInputElement;
+use wasm_bindgen::{closure::Closure, JsCast};
+use web_sys::{HtmlInputElement, ResizeObserver, ResizeObserverEntry};
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
@@ -19,6 +20,8 @@ pub struct FlowCardProps {
     pub on_toggle_fullscreen: Callback<i64>,
     #[prop_or_default]
     pub on_request_detail: Callback<i64>,
+    #[prop_or_default]
+    pub on_measure: Callback<(i64, f64)>,
     pub list_mode: bool,
     pub fullscreen: bool,
     #[prop_or(true)]
@@ -64,6 +67,53 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let on_update_images = props.on_update_images.clone();
     let on_toggle_fullscreen = props.on_toggle_fullscreen.clone();
     let fullscreen = props.fullscreen;
+    {
+        let root_ref = root_ref.clone();
+        let on_measure = props.on_measure.clone();
+        let measure_key = (
+            card.id,
+            props.fullscreen,
+            props.list_mode,
+            *expanded,
+            card.full_content.len(),
+            card.image_data.len(),
+        );
+        use_effect_with(measure_key, move |_| {
+            if let Some(element) = root_ref.cast::<web_sys::Element>() {
+                on_measure.emit((id, element.get_bounding_client_rect().height()));
+            }
+            || ()
+        });
+    }
+    {
+        let root_ref = root_ref.clone();
+        let on_measure = props.on_measure.clone();
+        use_effect_with(id, move |_| {
+            let element = root_ref
+                .cast::<web_sys::Element>()
+                .expect("card root exists");
+            let callback = Closure::<dyn FnMut(js_sys::Array, ResizeObserver)>::wrap(Box::new({
+                let on_measure = on_measure.clone();
+                move |entries: js_sys::Array, _observer: ResizeObserver| {
+                    let Some(entry) = entries.get(0).dyn_into::<ResizeObserverEntry>().ok() else {
+                        return;
+                    };
+                    on_measure.emit((id, entry.content_rect().height()));
+                }
+            }));
+            let observer = ResizeObserver::new(callback.as_ref().unchecked_ref()).ok();
+            if let Some(observer) = observer.as_ref() {
+                observer.observe(&element);
+            }
+            move || {
+                if let Some(observer) = observer {
+                    observer.disconnect();
+                }
+                drop(callback);
+            }
+        });
+    }
+
     let ondragstart = {
         let root_ref = root_ref.clone();
         Callback::from(move |e: DragEvent| {
