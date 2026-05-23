@@ -131,21 +131,23 @@ fn switch_shell(view: View) -> Html {
 
 #[function_component(MobileNav)]
 fn mobile_nav() -> Html {
+    let active_view = use_route::<View>();
+
     html! {
         <nav class="lg:hidden fixed bottom-0 inset-x-0 z-50 surface border-t grid grid-cols-5 px-2 py-2 rounded-none">
-            <Link<View> to={View::Dashboard} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
+            <Link<View> to={View::Dashboard} classes={classes!("nav-item", "rounded-md", "px-2", "py-2", "text-xs", "font-semibold", "text-center", (active_view == Some(View::Dashboard)).then_some("active"))}>
                 <iconify-icon icon="radix-icons:dashboard" class="radix-icon block mx-auto"></iconify-icon>
             </Link<View>>
-            <Link<View> to={View::Flow} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
+            <Link<View> to={View::Flow} classes={classes!("nav-item", "rounded-md", "px-2", "py-2", "text-xs", "font-semibold", "text-center", (active_view == Some(View::Flow)).then_some("active"))}>
                 <iconify-icon icon="radix-icons:loop" class="radix-icon block mx-auto"></iconify-icon>
             </Link<View>>
-            <Link<View> to={View::Archive} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
+            <Link<View> to={View::Archive} classes={classes!("nav-item", "rounded-md", "px-2", "py-2", "text-xs", "font-semibold", "text-center", (active_view == Some(View::Archive)).then_some("active"))}>
                 <iconify-icon icon="radix-icons:archive" class="radix-icon block mx-auto"></iconify-icon>
             </Link<View>>
-            <Link<View> to={View::Settings} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
+            <Link<View> to={View::Settings} classes={classes!("nav-item", "rounded-md", "px-2", "py-2", "text-xs", "font-semibold", "text-center", (active_view == Some(View::Settings)).then_some("active"))}>
                 <iconify-icon icon="radix-icons:gear" class="radix-icon block mx-auto"></iconify-icon>
             </Link<View>>
-            <Link<View> to={View::Keys} classes="nav-item rounded-md px-2 py-2 text-xs font-semibold text-center">
+            <Link<View> to={View::Keys} classes={classes!("nav-item", "rounded-md", "px-2", "py-2", "text-xs", "font-semibold", "text-center", (active_view == Some(View::Keys)).then_some("active"))}>
                 <iconify-icon icon="radix-icons:lock-closed" class="radix-icon block mx-auto"></iconify-icon>
             </Link<View>>
         </nav>

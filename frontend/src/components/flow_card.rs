@@ -337,14 +337,16 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                     if card.status != "active" {
                         <div class="muted-surface border border-token p-2 flex-1 text-center text-sm font-medium text-muted">{&card.status}</div>
                     } else if card.tipcard_type == "casual_tip" {
-                        <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))} class="border border-token p-2" title="Dismiss"><iconify-icon icon="radix-icons:cross-2" class="radix-icon"></iconify-icon></button>
+                        // Sassy Caveman says: Make dismiss big like acknowledge! Equal size smash!
+                        <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))} class="border border-token p-2 flex-1" title="Dismiss"><iconify-icon icon="radix-icons:cross-2" class="radix-icon"></iconify-icon></button>
                         <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("acknowledge".to_string()))))} class="bg-primary-solid p-2 flex-1" title="Acknowledge"><iconify-icon icon="radix-icons:check" class="radix-icon"></iconify-icon></button>
                     } else if card.tipcard_type == "repeatable_tip" {
                         <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))} class="border border-token p-2" title="Dismiss"><iconify-icon icon="radix-icons:cross-2" class="radix-icon"></iconify-icon></button>
                         <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("repeat".to_string()))))} class="border border-token p-2" title="Repeat"><iconify-icon icon="radix-icons:reset" class="radix-icon"></iconify-icon></button>
                         <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(5), Some("memorize".to_string()))))} class="bg-primary-solid p-2 flex-1" title="Memorize"><iconify-icon icon="radix-icons:lightning-bolt" class="radix-icon"></iconify-icon></button>
                     } else if card.tipcard_type == "manual_tip" {
-                        <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))} class="border border-token p-2" title="Dismiss"><iconify-icon icon="radix-icons:cross-2" class="radix-icon"></iconify-icon></button>
+                        // Sassy Caveman says: Smash dismiss button to be same width! Ugh.
+                        <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))} class="border border-token p-2 flex-1" title="Dismiss"><iconify-icon icon="radix-icons:cross-2" class="radix-icon"></iconify-icon></button>
                         <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("acknowledge".to_string()))))} class="bg-primary-solid p-2 flex-1" title="Acknowledge"><iconify-icon icon="radix-icons:check" class="radix-icon"></iconify-icon></button>
                     } else {
                         <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(1), Some(String::new()))))} class="border border-token p-2 flex-1" title="Again">{"Again"}</button>
