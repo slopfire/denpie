@@ -20,3 +20,7 @@ denpie_pb2.py
 frontend/dist/
 frontend/.trunk/
 frontend/.dev-build-stamp
+benches/results/*.json
+benches/results/*.txt
+benches/results/baseline.md
+benches/results/report.md

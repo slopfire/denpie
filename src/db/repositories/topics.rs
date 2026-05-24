@@ -353,40 +353,26 @@ pub async fn app_summary(
     user_id: &str,
     now: DateTime<Utc>,
 ) -> AppResult<AppSummaryRecord> {
-    let topics = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM topics WHERE user_id = ?")
-        .bind(user_id)
-        .fetch_one(pool)
-        .await?;
-    let total_cards =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tipcards WHERE user_id = ?")
-            .bind(user_id)
-            .fetch_one(pool)
-            .await?;
-    let due_cards = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*)
-         FROM review_states r
-         JOIN tipcards t ON t.id = r.card_id
-         WHERE t.user_id = ? AND r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1)",
+    let row = sqlx::query_as::<_, (i64, i64, i64, i64)>(
+        "SELECT 
+            (SELECT COUNT(*) FROM topics WHERE user_id = ?) as topics,
+            (SELECT COUNT(*) FROM tipcards WHERE user_id = ?) as total_cards,
+            (SELECT COUNT(*) FROM review_states r JOIN tipcards t ON t.id = r.card_id WHERE t.user_id = ? AND r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1)) as due_cards,
+            (SELECT COUNT(*) FROM review_states r JOIN tipcards t ON t.id = r.card_id WHERE t.user_id = ? AND r.status = 'active') as active_cards",
     )
     .bind(user_id)
+    .bind(user_id)
+    .bind(user_id)
     .bind(now)
-    .fetch_one(pool)
-    .await?;
-    let active_cards = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*)
-         FROM review_states r
-         JOIN tipcards t ON t.id = r.card_id
-         WHERE t.user_id = ? AND r.status = 'active'",
-    )
     .bind(user_id)
     .fetch_one(pool)
     .await?;
 
     Ok(AppSummaryRecord {
-        topics,
-        total_cards,
-        due_cards,
-        active_cards,
+        topics: row.0,
+        total_cards: row.1,
+        due_cards: row.2,
+        active_cards: row.3,
     })
 }
 
