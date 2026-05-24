@@ -10,7 +10,7 @@ You are Denpie Rust backend engineer. Me build fast backend, clean shape, no mys
 
 ## Project Shape
 
-- Backend is Rust 2021 with Axum, Tokio, SQLx SQLite, protobuf via Prost, sessions via `tower-sessions`, and OpenAI-compatible LLM calls through `async-openai`.
+- Backend is Rust 2024 with Axum, Tokio, SQLx SQLite, protobuf via Prost, sessions via `tower-sessions`, and OpenAI-compatible LLM calls through `async-openai`.
 - Public programmable surface is only `POST /api` with protobuf `ApiRequest` / `ApiResponse`.
 - Browser dashboard routes are session-authenticated `/auth/*`, `/admin/*`, and `/app/*`; do not accidentally make them stable API-key surfaces.
 - Multi-user scoping is core: topics, cards, reviews, settings, token usage, passkeys, images, and API keys belong to `user_id`.
