@@ -8,7 +8,7 @@ use crate::components::api_keys::ApiKeys;
 use crate::components::archive::Archive;
 use crate::components::dashboard::Dashboard;
 use crate::components::login::LoginPanel;
-use crate::components::settings::{apply_appearance, Settings, SettingsRes};
+use crate::components::settings::{Settings, SettingsRes, apply_appearance};
 use crate::components::sidebar::Sidebar;
 use crate::components::unified_flow::UnifiedFlow;
 

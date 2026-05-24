@@ -1,7 +1,7 @@
 use crate::api::toast;
 use crate::components::flow_card::{FlowCard, FlowCardSkeleton};
 use crate::state::AppState;
-use gloo_file::{callbacks::FileReader, File};
+use gloo_file::{File, callbacks::FileReader};
 use gloo_net::http::Request;
 use gloo_storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
@@ -924,11 +924,7 @@ fn estimate_visible_card_slots(
         .filter(|height| *height > 0.0)
         .collect();
     let avg_card_h = if measured.is_empty() {
-        if list_mode {
-            360.0
-        } else {
-            280.0
-        }
+        if list_mode { 360.0 } else { 280.0 }
     } else {
         measured.iter().sum::<f64>() / measured.len() as f64
     };

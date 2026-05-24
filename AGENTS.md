@@ -6,7 +6,7 @@
 Backend service for daily tip cards. Scheduling truth now SM-2. No claim real FSRS until code has real FSRS. Browser dashboard app for admins and users, API key auth, Gemini/OpenAI-compatible tips via `async-openai`.
 
 ## Technology Stack & Best Practices
-- **Language**: Rust (edition 2021)
+- **Language**: Rust (edition 2024)
 - **Web Framework**: Axum (`tower-http`, `tower-sessions`)
 - **Database**: SQLite via SQLx
   - **CRITICAL**: Use safe query binding in SQLx. No SQL injection.

@@ -1,10 +1,11 @@
 use axum::http::StatusCode;
 
 use crate::{
+    AppState,
     config::topic_icons,
     db::repositories::{token_usage, topics, user_settings},
     domain::topic_visual,
-    llm, AppState,
+    llm,
 };
 
 use super::{
@@ -188,9 +189,5 @@ pub async fn regenerate_topic_icon(
 
 fn trimmed_optional(value: String) -> Option<String> {
     let value = value.trim().to_string();
-    if value.is_empty() {
-        None
-    } else {
-        Some(value)
-    }
+    if value.is_empty() { None } else { Some(value) }
 }

@@ -209,15 +209,14 @@ pub async fn set_topic_visual(
     icon_id: &str,
     color_hue: i32,
 ) -> AppResult<()> {
-    let result = sqlx::query(
-        "UPDATE topics SET icon_id = ?, color_hue = ? WHERE id = ? AND user_id = ?",
-    )
-    .bind(icon_id)
-    .bind(color_hue)
-    .bind(topic_id)
-    .bind(user_id)
-    .execute(pool)
-    .await?;
+    let result =
+        sqlx::query("UPDATE topics SET icon_id = ?, color_hue = ? WHERE id = ? AND user_id = ?")
+            .bind(icon_id)
+            .bind(color_hue)
+            .bind(topic_id)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Topic not found".to_string()));
     }
@@ -452,7 +451,9 @@ pub async fn list_app_topics(
                 daily_time_zone: row.5.unwrap_or_default(),
                 daily_update_time: row.6.unwrap_or_default(),
                 compression_level: row.7.unwrap_or_default(),
-                icon_id: row.8.unwrap_or_else(|| topic_visual::DEFAULT_TOPIC_ICON.to_string()),
+                icon_id: row
+                    .8
+                    .unwrap_or_else(|| topic_visual::DEFAULT_TOPIC_ICON.to_string()),
                 topic_color: topic_visual::resolve_topic_color(row.9.map(|hue| hue as i32), &name),
                 total_cards: row.10,
                 due_cards: row.11,

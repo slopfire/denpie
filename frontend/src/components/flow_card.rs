@@ -1,12 +1,12 @@
 use crate::components::unified_flow::TipcardInfo;
 use crate::markdown::render_markdown;
 use crate::topic_visual::display_icon;
-use gloo_file::{callbacks::FileReader, File};
+use gloo_file::{File, callbacks::FileReader};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
 };
-use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{HtmlInputElement, ResizeObserver, ResizeObserverEntry};
 use yew::prelude::*;
 

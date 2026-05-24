@@ -26,7 +26,7 @@ mod services;
 #[cfg(test)]
 mod tests;
 
-pub use app::{build_app, AppState};
+pub use app::{AppState, build_app};
 pub use db::migrations::apply_schema_migrations;
 
 #[tokio::main]
