@@ -11,8 +11,9 @@ use crate::components::login::LoginPanel;
 use crate::components::settings::{Settings, SettingsRes, apply_appearance};
 use crate::components::sidebar::Sidebar;
 use crate::components::unified_flow::UnifiedFlow;
+use std::collections::HashSet;
 
-#[derive(Clone, Routable, PartialEq)]
+#[derive(Clone, Routable, PartialEq, Eq, Hash)]
 pub enum View {
     #[at("/")]
     Dashboard,
@@ -53,13 +54,6 @@ fn app_root() -> Html {
                         if let Ok(user) = res.json::<UserProfile>().await {
                             app_state.dispatch(AppAction::SetUser(Some(user)));
                             app_state.dispatch(AppAction::SetAuthed(true));
-                            if let Ok(settings_res) = Request::get("/admin/settings").send().await {
-                                if settings_res.ok() {
-                                    if let Ok(settings) = settings_res.json::<SettingsRes>().await {
-                                        apply_appearance(&settings);
-                                    }
-                                }
-                            }
                         }
                     }
                 }
@@ -92,7 +86,7 @@ fn app_root() -> Html {
                 <LoginPanel />
             } else {
                 <div id="app-shell" class="min-h-screen">
-                    <Switch<View> render={switch_shell} />
+                    <Switch<View> render={|_| html! { <AppShell /> }} />
                     <MobileNav />
                 </div>
             }
@@ -104,26 +98,76 @@ fn app_root() -> Html {
     }
 }
 
-fn switch_shell(view: View) -> Html {
-    let current = if view == View::NotFound {
-        View::Dashboard
-    } else {
-        view
-    };
+fn normalize_view(view: Option<View>) -> View {
+    match view {
+        Some(View::NotFound) | None => View::Dashboard,
+        Some(view) => view,
+    }
+}
+
+#[derive(Properties, PartialEq)]
+struct RouteViewProps {
+    active: bool,
+    mounted: bool,
+    children: Children,
+}
+
+#[function_component(RouteView)]
+fn route_view(props: &RouteViewProps) -> Html {
+    if !props.mounted {
+        return html! {};
+    }
+
+    html! {
+        <div class={classes!("route-view", (!props.active).then_some("hidden-view"))} aria-hidden={(!props.active).to_string()}>
+            { for props.children.iter() }
+        </div>
+    }
+}
+
+#[function_component(AppShell)]
+fn app_shell() -> Html {
+    let current = normalize_view(use_route::<View>());
+    let mounted = use_state(|| HashSet::from([current.clone()]));
+
+    {
+        let mounted = mounted.clone();
+        let current = current.clone();
+        use_effect_with(current.clone(), move |view| {
+            if !mounted.contains(view) {
+                let mut next = (*mounted).clone();
+                next.insert(view.clone());
+                mounted.set(next);
+            }
+            || ()
+        });
+    }
+
+    let is_mounted = |view: &View| mounted.contains(view);
+    let is_active = |view: View| current == view;
+
     html! {
         <>
             <Sidebar current_view={current.clone()} />
             <main class="lg:ml-56 px-4 sm:px-6 lg:px-6 py-5 pb-20 max-w-none">
-                {
-                    match current {
-                        View::Dashboard | View::NotFound => html! { <Dashboard /> },
-                        View::Flow => html! { <UnifiedFlow /> },
-                        View::Settings => html! { <Settings /> },
-                        View::Keys => html! { <ApiKeys /> },
-                        View::Archive => html! { <Archive /> },
-                        View::AccountSettings => html! { <AccountSettings /> },
-                    }
-                }
+                <RouteView active={is_active(View::Dashboard)} mounted={is_mounted(&View::Dashboard)}>
+                    <Dashboard />
+                </RouteView>
+                <RouteView active={is_active(View::Flow)} mounted={is_mounted(&View::Flow)}>
+                    <UnifiedFlow />
+                </RouteView>
+                <RouteView active={is_active(View::Settings)} mounted={is_mounted(&View::Settings)}>
+                    <Settings />
+                </RouteView>
+                <RouteView active={is_active(View::Keys)} mounted={is_mounted(&View::Keys)}>
+                    <ApiKeys />
+                </RouteView>
+                <RouteView active={is_active(View::Archive)} mounted={is_mounted(&View::Archive)}>
+                    <Archive />
+                </RouteView>
+                <RouteView active={is_active(View::AccountSettings)} mounted={is_mounted(&View::AccountSettings)}>
+                    <AccountSettings />
+                </RouteView>
             </main>
         </>
     }
