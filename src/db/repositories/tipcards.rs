@@ -28,13 +28,14 @@ pub struct TipcardInfoRecord {
     pub title: String,
     pub full_content: String,
     pub compressed_content: String,
-    pub image_data: String,
+    pub image_data: Vec<String>,
     pub created_at: String,
     pub tipcard_type: String,
     pub status: String,
     pub next_review_at: String,
     pub state_data: String,
     pub pinned: bool,
+    pub repeats: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -189,6 +190,43 @@ pub async fn list_images(
         .collect())
 }
 
+pub async fn list_images_for_cards(
+    pool: &SqlitePool,
+    user_id: &str,
+    card_ids: &[i64],
+) -> AppResult<std::collections::HashMap<i64, Vec<TipcardImageRecord>>> {
+    if card_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let mut qb = QueryBuilder::<Sqlite>::new(
+        "SELECT card_id, id, position, storage_path, mime_type, byte_size
+         FROM tipcard_images
+         WHERE user_id = ? AND card_id IN (",
+    );
+    let mut separated = qb.separated(", ");
+    for id in card_ids {
+        separated.push_bind(id);
+    }
+    separated.push_unseparated(") ORDER BY card_id ASC, position ASC, id ASC");
+    let rows = qb
+        .build_query_as::<(i64, i64, i64, String, String, i64)>()
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+    let mut map: std::collections::HashMap<i64, Vec<TipcardImageRecord>> =
+        std::collections::HashMap::new();
+    for row in rows {
+        map.entry(row.0).or_default().push(TipcardImageRecord {
+            id: row.1,
+            position: row.2,
+            storage_path: row.3,
+            mime_type: row.4,
+            byte_size: row.5,
+        });
+    }
+    Ok(map)
+}
+
 pub async fn find_image(
     pool: &SqlitePool,
     user_id: &str,
@@ -263,13 +301,14 @@ pub async fn list_admin(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<Tipca
             title: String::new(),
             full_content: row.4,
             compressed_content: row.5,
-            image_data: "[]".to_string(),
+            image_data: Vec::new(),
             created_at: row.6,
             tipcard_type: row.7,
             status: row.8,
             next_review_at: row.9,
             state_data: row.10,
             pinned: row.11 != 0,
+            repeats: 0,
         })
         .collect())
 }
@@ -377,13 +416,17 @@ pub async fn list_filtered(
             title: row.4,
             full_content: row.5,
             compressed_content: row.6,
-            image_data: row.7,
+            image_data: serde_json::from_str::<Vec<String>>(&row.7).unwrap_or_default(),
             created_at: row.8,
             tipcard_type: row.9,
             status: row.10,
             next_review_at: row.11,
-            state_data: row.12,
+            state_data: row.12.clone(),
             pinned: row.13 != 0,
+            repeats: serde_json::from_str::<serde_json::Value>(&row.12)
+                .ok()
+                .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
+                .unwrap_or(0) as u32,
         })
         .collect())
 }
@@ -539,13 +582,17 @@ pub async fn get_tipcard_info(
         title: row.4,
         full_content: row.5,
         compressed_content: row.6,
-        image_data: row.7,
+        image_data: serde_json::from_str::<Vec<String>>(&row.7).unwrap_or_default(),
         created_at: row.8,
         tipcard_type: row.9,
         status: row.10,
         next_review_at: row.11,
-        state_data: row.12,
+        state_data: row.12.clone(),
         pinned: row.13 != 0,
+        repeats: serde_json::from_str::<serde_json::Value>(&row.12)
+            .ok()
+            .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
+            .unwrap_or(0) as u32,
     })
 }
 

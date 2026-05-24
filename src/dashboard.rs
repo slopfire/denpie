@@ -755,15 +755,12 @@ pub async fn list_tipcards(
         title: r.title,
         full_content: r.full_content,
         compressed_content: r.compressed_content,
-        image_data: serde_json::from_str::<Vec<String>>(&r.image_data).unwrap_or_default(),
+        image_data: r.image_data,
         created_at: r.created_at,
         tipcard_type: r.tipcard_type,
         status: r.status,
         next_review_at: r.next_review_at,
-        repeat_count: serde_json::from_str::<serde_json::Value>(&r.state_data)
-            .ok()
-            .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
-            .unwrap_or(0) as u32,
+        repeat_count: r.repeats,
         pinned: r.pinned,
     })
     .collect();
@@ -796,11 +793,12 @@ pub async fn flow_cards(
     } else {
         None
     };
+    let card_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+    let images_map = tipcards::list_images_for_cards(&state.db, &user.id, &card_ids)
+        .await
+        .map_err(|err| err.into_status_body())?;
     let mut cards = Vec::new();
     for row in rows {
-        let images = tipcards::list_images(&state.db, &user.id, row.id)
-            .await
-            .map_err(|err| err.into_status_body())?;
         cards.push(FlowCardInfo {
             id: row.id,
             topic_name: row.topic_name,
@@ -815,11 +813,10 @@ pub async fn flow_cards(
             repeat_count: repeat_count(&row.state_data),
             pinned: row.pinned,
             image_count: row.image_count,
-            thumbnail_urls: images
-                .iter()
-                .take(4)
-                .map(|image| image_url(image.id))
-                .collect(),
+            thumbnail_urls: images_map
+                .get(&row.id)
+                .map(|imgs| imgs.iter().take(4).map(|image| image_url(image.id)).collect())
+                .unwrap_or_default(),
         });
     }
     Ok(Json(FlowCardPage {
