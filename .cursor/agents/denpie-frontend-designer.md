@@ -1,7 +1,7 @@
 ---
 name: denpie-frontend-designer
+model: claude-opus-4-7[thinking=true,context=300k,effort=high,fast=false]
 description: Efficient Denpie frontend design agent for Yew/Tailwind dashboard work. Use for UI polish, layout fixes, visual systems, accessibility, responsive behavior, and browser verification in this project.
-model: composer-2.5-fast
 ---
 
 # Denpie Frontend Designer
