@@ -100,7 +100,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    ```bash
    cargo run
    ```
-   In debug builds, `cargo run` automatically runs `trunk build --release` for the Yew frontend before the server starts. Install the frontend target and Trunk first with `rustup target add wasm32-unknown-unknown` and `cargo install trunk --locked`. The frontend `Trunk.toml` disables Trunk's JavaScript minifier because older Trunk versions cannot parse current wasm-bindgen output cleanly. Set `DENPIE_SKIP_FRONTEND_BUILD=1` to skip this automatic frontend build, or set `DENPIE_FRONTEND_DIST` when serving a prebuilt frontend from another directory.
+   In debug builds, `cargo run` automatically runs `trunk build` (debug profile) for the Yew frontend before the server starts, and skips the rebuild when `frontend/dist` is already up to date. Install the frontend target and Trunk first with `rustup target add wasm32-unknown-unknown` and `cargo install trunk --locked`. The frontend `Trunk.toml` disables Trunk's JavaScript minifier because older Trunk versions cannot parse current wasm-bindgen output cleanly. Set `DENPIE_SKIP_FRONTEND_BUILD=1` to skip this automatic frontend build, or set `DENPIE_FRONTEND_DIST` when serving a prebuilt frontend from another directory. Production installs and Docker still use `trunk build --release`.
    The server starts on `http://127.0.0.1:3017` by default. On the first run it will:
    - Create `denpie.db` and apply `schema.sql` automatically.
    - Create the tipcard image directory. By default this is `tipcard-images` inside `DENPIE_DATA_DIR`; set `DENPIE_IMAGE_DIR` to store dashboard image files elsewhere.

@@ -1,9 +1,10 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::SystemTime;
 use tokio::fs;
 use tower_sessions::{Expiry, SessionManagerLayer};
 use tower_sessions_sqlx_store::SqliteStore;
@@ -148,6 +149,8 @@ async fn main() {
     .unwrap();
 }
 
+const DEV_FRONTEND_BUILD_STAMP: &str = "debug-v1";
+
 fn build_frontend_for_cargo_run() {
     if !cfg!(debug_assertions) {
         return;
@@ -163,9 +166,14 @@ fn build_frontend_for_cargo_run() {
     if !frontend_dir.join("index.html").exists() {
         return;
     }
-    println!("Building frontend with trunk build --release...");
+    if dev_frontend_build_stamp_matches(&frontend_dir) && frontend_dist_is_fresh(&frontend_dir) {
+        println!("Frontend dist is up to date; skipping trunk build");
+        return;
+    }
+    println!("Building frontend with trunk build (debug)...");
     let status = Command::new("trunk")
-        .args(["build", "--release"])
+        .arg("build")
+        .env_remove("NO_COLOR")
         .current_dir(&frontend_dir)
         .status()
         .unwrap_or_else(|err| {
@@ -174,4 +182,81 @@ fn build_frontend_for_cargo_run() {
     if !status.success() {
         panic!("frontend build failed with status {status}");
     }
+    write_dev_frontend_build_stamp(&frontend_dir);
+}
+
+fn dev_frontend_build_stamp_path(frontend_dir: &Path) -> PathBuf {
+    frontend_dir.join(".dev-build-stamp")
+}
+
+fn dev_frontend_build_stamp_matches(frontend_dir: &Path) -> bool {
+    std::fs::read_to_string(dev_frontend_build_stamp_path(frontend_dir))
+        .map(|value| value.trim() == DEV_FRONTEND_BUILD_STAMP)
+        .unwrap_or(false)
+}
+
+fn write_dev_frontend_build_stamp(frontend_dir: &Path) {
+    let _ = std::fs::write(
+        dev_frontend_build_stamp_path(frontend_dir),
+        DEV_FRONTEND_BUILD_STAMP,
+    );
+}
+
+fn frontend_dist_is_fresh(frontend_dir: &Path) -> bool {
+    let dist_index = frontend_dir.join("dist/index.html");
+    let dist_mtime = match dist_index.metadata().and_then(|meta| meta.modified()) {
+        Ok(mtime) => mtime,
+        Err(_) => return false,
+    };
+
+    for path in [
+        frontend_dir.join("Cargo.toml"),
+        frontend_dir.join("index.html"),
+        frontend_dir.join("Trunk.toml"),
+        frontend_dir.join("service-worker.js"),
+    ] {
+        if path.is_file() && file_is_newer_than(&path, dist_mtime) {
+            return false;
+        }
+    }
+
+    match max_mtime_in_dir(&frontend_dir.join("src")) {
+        Some(src_mtime) => src_mtime <= dist_mtime,
+        None => false,
+    }
+}
+
+fn file_is_newer_than(path: &Path, threshold: SystemTime) -> bool {
+    path.metadata()
+        .ok()
+        .and_then(|meta| meta.modified().ok())
+        .map(|mtime| mtime > threshold)
+        .unwrap_or(true)
+}
+
+fn max_mtime_in_dir(dir: &Path) -> Option<SystemTime> {
+    if !dir.is_dir() {
+        return None;
+    }
+
+    let mut stack = vec![dir.to_path_buf()];
+    let mut latest = None;
+
+    while let Some(path) = stack.pop() {
+        let entries = std::fs::read_dir(&path).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let mtime = entry.metadata().ok()?.modified().ok()?;
+            latest = Some(match latest {
+                Some(current) if current >= mtime => current,
+                _ => mtime,
+            });
+        }
+    }
+
+    latest
 }
