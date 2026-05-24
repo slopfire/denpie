@@ -83,7 +83,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 
 ### Prerequisites
 
-- Rust (latest stable)
+- Rust 1.95.0 or newer (latest stable)
 - SQLite
 
 ### Setup
