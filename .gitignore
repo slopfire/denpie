@@ -19,3 +19,4 @@ denpie_pb2.py
 # Frontend
 frontend/dist/
 frontend/.trunk/
+frontend/.dev-build-stamp

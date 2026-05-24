@@ -41,7 +41,7 @@ Backend service for daily tip cards. Scheduling truth now SM-2. No claim real FS
 ## Development Workflow
 ```bash
 cargo check  # verify compilation without running
-cargo run    # builds frontend with trunk build --release, then starts server on 127.0.0.1:3017
+cargo run    # builds frontend with trunk build (debug, skipped when dist is fresh), then starts server on 127.0.0.1:3017
 ```
 Use chrome dev tools if you want to check something on website
 Remember to close cargo run to allow me to test everything by myself
