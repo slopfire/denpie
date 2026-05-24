@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub const DEFAULT_PROMPT_TEMPLATE: &str = "\
 Write one genuinely useful daily tip about {topic}.
@@ -344,10 +344,8 @@ pub async fn compress_card(
         match segment {
             MarkdownSegment::Code(code) => compressed_segments.push(MarkdownSegment::Code(code)),
             MarkdownSegment::Text(text) => {
-                let response = compress_text_segment(
-                    &text, model, api_key, api_base, level, reasoning,
-                )
-                .await;
+                let response =
+                    compress_text_segment(&text, model, api_key, api_base, level, reasoning).await;
                 total_usage.prompt_tokens += response.usage.prompt_tokens;
                 total_usage.completion_tokens += response.usage.completion_tokens;
                 total_usage.total_tokens += response.usage.total_tokens;
@@ -484,7 +482,7 @@ fn fallback_title(full_content: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{fallback_title, should_keep_full_card, CompressionLevel};
+    use super::{CompressionLevel, fallback_title, should_keep_full_card};
 
     #[test]
     fn parse_topic_icon_response_reads_json_object() {
@@ -555,12 +553,19 @@ mod tests {
 
     #[test]
     fn split_markdown_segments_preserves_fenced_code_blocks() {
-        let content = "Intro line\n\n```rust\nfn main() {\n    println!(\"hi\");\n}\n```\n\nClosing note";
+        let content =
+            "Intro line\n\n```rust\nfn main() {\n    println!(\"hi\");\n}\n```\n\nClosing note";
         let segments = super::split_markdown_segments(content);
         assert_eq!(segments.len(), 3);
-        assert!(matches!(&segments[0], super::MarkdownSegment::Text(text) if text.contains("Intro line")));
-        assert!(matches!(&segments[1], super::MarkdownSegment::Code(code) if code.contains("fn main()")));
-        assert!(matches!(&segments[2], super::MarkdownSegment::Text(text) if text.contains("Closing note")));
+        assert!(
+            matches!(&segments[0], super::MarkdownSegment::Text(text) if text.contains("Intro line"))
+        );
+        assert!(
+            matches!(&segments[1], super::MarkdownSegment::Code(code) if code.contains("fn main()"))
+        );
+        assert!(
+            matches!(&segments[2], super::MarkdownSegment::Text(text) if text.contains("Closing note"))
+        );
     }
 
     #[test]

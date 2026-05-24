@@ -1,7 +1,7 @@
 use crate::api::toast;
 use crate::passkeys::registerPasskey;
 use crate::state::{AppAction, AppState, UserProfile};
-use gloo_file::{callbacks::FileReader, File};
+use gloo_file::{File, callbacks::FileReader};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use web_sys::HtmlInputElement;

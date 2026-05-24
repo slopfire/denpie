@@ -1,8 +1,8 @@
 use chrono::Utc;
 
 use crate::{
-    db::repositories::{tipcards, topics},
     AppState,
+    db::repositories::{tipcards, topics},
 };
 
 use super::{pb, types::ApiResult};

@@ -3,9 +3,9 @@ use rand::Rng;
 pub const DEFAULT_TOPIC_ICON: &str = "lucide:tag";
 
 pub fn hash_string(value: &str) -> u64 {
-    value
-        .bytes()
-        .fold(5381u64, |hash, byte| hash.wrapping_mul(33).wrapping_add(u64::from(byte)))
+    value.bytes().fold(5381u64, |hash, byte| {
+        hash.wrapping_mul(33).wrapping_add(u64::from(byte))
+    })
 }
 
 pub fn color_hue_from_name(name: &str) -> i32 {
@@ -47,7 +47,9 @@ pub fn random_color_hue_excluding(current: Option<i32>) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{color_from_hue, color_hue_from_name, hash_string, random_color_hue_excluding, topic_color};
+    use super::{
+        color_from_hue, color_hue_from_name, hash_string, random_color_hue_excluding, topic_color,
+    };
 
     #[test]
     fn topic_color_is_deterministic() {

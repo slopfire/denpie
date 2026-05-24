@@ -41,7 +41,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 
 | Layer | Technology |
 |---|---|
-| Language | Rust (edition 2021) |
+| Language | Rust (edition 2024) |
 | Web Framework | Axum |
 | Database | SQLite (via SQLx) |
 | Async Runtime | Tokio |

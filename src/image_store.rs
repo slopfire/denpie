@@ -1,14 +1,12 @@
 use std::path::Path;
 
 use axum::http::StatusCode;
-use base64::{engine::general_purpose::STANDARD, Engine};
-use rand::{distributions::Alphanumeric, Rng};
+use base64::{Engine, engine::general_purpose::STANDARD};
+use rand::{Rng, distributions::Alphanumeric};
 use sqlx::SqlitePool;
 use tokio::fs;
 
-use crate::{
-    db::repositories::tipcards::{self, TipcardImageRecord},
-};
+use crate::db::repositories::tipcards::{self, TipcardImageRecord};
 
 type StatusResult<T> = Result<T, (StatusCode, String)>;
 
@@ -84,12 +82,20 @@ struct ParsedImage<'a> {
 
 fn parse_data_url(value: &str) -> StatusResult<ParsedImage<'_>> {
     let Some((header, payload)) = value.split_once(',') else {
-        return Err((StatusCode::BAD_REQUEST, "Invalid image data URL".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid image data URL".to_string(),
+        ));
     };
     let mime_type = header
         .strip_prefix("data:")
         .and_then(|value| value.strip_suffix(";base64"))
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Invalid image data URL".to_string()))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                "Invalid image data URL".to_string(),
+            )
+        })?;
     let extension = match mime_type {
         "image/png" => "png",
         "image/jpeg" | "image/jpg" => "jpg",
@@ -99,12 +105,15 @@ fn parse_data_url(value: &str) -> StatusResult<ParsedImage<'_>> {
             return Err((
                 StatusCode::BAD_REQUEST,
                 "Only PNG, JPEG, WebP, or GIF data URLs are supported".to_string(),
-            ))
+            ));
         }
     };
-    let bytes = STANDARD
-        .decode(payload)
-        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid base64 image data".to_string()))?;
+    let bytes = STANDARD.decode(payload).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            "Invalid base64 image data".to_string(),
+        )
+    })?;
     Ok(ParsedImage {
         mime_type,
         extension,

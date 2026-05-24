@@ -1,6 +1,6 @@
 use axum::http::StatusCode;
 
-use crate::{db::repositories::tipcards, AppState};
+use crate::{AppState, db::repositories::tipcards};
 
 //todo
 const MAX_CONTEXT_TITLES: usize = 80;

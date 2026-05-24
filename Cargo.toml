@@ -1,7 +1,8 @@
 [package]
 name = "denpie"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.85"
 license = "MIT"
 
 [dependencies]
@@ -40,6 +41,7 @@ tower = { version = "0.5", features = ["util"] }
 prost-build = "0.14.3"
 
 [workspace]
+resolver = "3"
 members = [
     "frontend"
 ]

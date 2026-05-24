@@ -1,4 +1,4 @@
-use crate::{db::repositories::tipcards, domain, AppState};
+use crate::{AppState, db::repositories::tipcards, domain};
 
 use super::types::ApiResult;
 

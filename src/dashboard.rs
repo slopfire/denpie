@@ -1,14 +1,14 @@
 use crate::{
-    api, autoupdate, config,
+    AppState, api, autoupdate, config,
     db::repositories::{tipcards, token_usage, topics, user_settings},
     domain::topic_visual,
-    llm, AppState,
+    llm,
 };
 use axum::{
+    Json,
     extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -250,7 +250,7 @@ pub async fn autoupdate_status(
                 message: "Admin only".to_string(),
                 target_sha: String::new(),
                 updated_at: String::new(),
-            })
+            });
         }
     }
     Json(autoupdate::read_status(&state.settings_path))
@@ -435,7 +435,7 @@ pub async fn token_spend(State(state): State<Arc<AppState>>, session: Session) -
                 daily: 0,
                 monthly: 0,
                 total: 0,
-            })
+            });
         }
     };
     match token_usage::aggregate_spend(&state.db, &user.id).await {
@@ -469,7 +469,7 @@ pub async fn app_summary(State(state): State<Arc<AppState>>, session: Session) -
                 total_cards: 0,
                 due_cards: 0,
                 active_cards: 0,
-            })
+            });
         }
     };
     match topics::app_summary(&state.db, &user.id, chrono::Utc::now()).await {
@@ -561,11 +561,7 @@ pub async fn update_topic(
         .prompt_template
         .map(|value| {
             let value = value.trim().to_string();
-            if value.is_empty() {
-                None
-            } else {
-                Some(value)
-            }
+            if value.is_empty() { None } else { Some(value) }
         })
         .unwrap_or(current.prompt_template);
     let daily_card_count = req
@@ -582,22 +578,14 @@ pub async fn update_topic(
         .daily_time_zone
         .map(|value| {
             let value = value.trim().to_string();
-            if value.is_empty() {
-                None
-            } else {
-                Some(value)
-            }
+            if value.is_empty() { None } else { Some(value) }
         })
         .unwrap_or(current.daily_time_zone);
     let daily_update_time = req
         .daily_update_time
         .map(|value| {
             let value = value.trim().to_string();
-            if value.is_empty() {
-                None
-            } else {
-                Some(value)
-            }
+            if value.is_empty() { None } else { Some(value) }
         })
         .unwrap_or(current.daily_update_time);
     let compression_level = req

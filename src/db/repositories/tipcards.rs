@@ -125,11 +125,12 @@ pub async fn replace_image_records(
     images: &[TipcardImageRecord],
 ) -> AppResult<()> {
     let mut tx = pool.begin().await?;
-    let exists: Option<i64> = sqlx::query_scalar("SELECT id FROM tipcards WHERE id = ? AND user_id = ?")
-        .bind(card_id)
-        .bind(user_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+    let exists: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM tipcards WHERE id = ? AND user_id = ?")
+            .bind(card_id)
+            .bind(user_id)
+            .fetch_optional(&mut *tx)
+            .await?;
     if exists.is_none() {
         return Err(AppError::NotFound("Card not found".to_string()));
     }

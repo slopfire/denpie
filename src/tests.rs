@@ -1,7 +1,7 @@
-use crate::{apply_schema_migrations, build_app, AppState};
+use crate::{AppState, apply_schema_migrations, build_app};
 use prost::Message;
-use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
+use sqlx::sqlite::SqlitePoolOptions;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
@@ -1989,7 +1989,11 @@ async fn test_manual_tipcards_store_and_update_images() {
         .fetch_one(&state.db)
         .await
         .unwrap();
-    assert!(serde_json::from_str::<Vec<String>>(&stored).unwrap().is_empty());
+    assert!(
+        serde_json::from_str::<Vec<String>>(&stored)
+            .unwrap()
+            .is_empty()
+    );
     let stored_image: (String, i64) =
         sqlx::query_as("SELECT mime_type, byte_size FROM tipcard_images WHERE card_id = ?")
             .bind(tips[0].id)
@@ -2008,7 +2012,11 @@ async fn test_manual_tipcards_store_and_update_images() {
         .fetch_one(&state.db)
         .await
         .unwrap();
-    assert!(serde_json::from_str::<Vec<String>>(&updated).unwrap().is_empty());
+    assert!(
+        serde_json::from_str::<Vec<String>>(&updated)
+            .unwrap()
+            .is_empty()
+    );
     let updated_image: (String, i64) =
         sqlx::query_as("SELECT mime_type, byte_size FROM tipcard_images WHERE card_id = ?")
             .bind(tips[0].id)

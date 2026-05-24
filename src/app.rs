@@ -1,16 +1,16 @@
 use axum::{
+    Router,
     body::Body,
     extract::{Path, Request, State},
-    http::{header, HeaderValue},
     http::{HeaderMap, StatusCode},
+    http::{HeaderValue, header},
     middleware::Next,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
-    Router,
 };
 use sqlx::SqlitePool;
 use std::{path::PathBuf, sync::Arc};
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::compression::CompressionLayer;
 use tower_http::services::ServeDir;
 use tower_sessions::SessionManagerLayer;

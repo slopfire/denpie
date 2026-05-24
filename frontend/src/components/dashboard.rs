@@ -218,14 +218,24 @@ pub fn dashboard() -> Html {
                 let confirm_delete = confirm_delete.clone();
                 let req = DeleteTopicReq { id: topic.id };
                 wasm_bindgen_futures::spawn_local(async move {
-                    match Request::delete("/app/topics").json(&req).unwrap().send().await {
+                    match Request::delete("/app/topics")
+                        .json(&req)
+                        .unwrap()
+                        .send()
+                        .await
+                    {
                         Ok(res) if res.ok() => {
                             toast(&app_state, "Topic deleted");
                             refresh_topics.emit(());
                             confirm_delete.set(None);
                         }
                         Ok(res) => {
-                            toast(&app_state, res.text().await.unwrap_or_else(|_| "Failed to delete topic".to_string()));
+                            toast(
+                                &app_state,
+                                res.text()
+                                    .await
+                                    .unwrap_or_else(|_| "Failed to delete topic".to_string()),
+                            );
                             confirm_delete.set(None);
                         }
                         Err(err) => {

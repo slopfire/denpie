@@ -1,4 +1,4 @@
-use crate::{config::SettingsPatch, db::repositories::user_settings, AppState};
+use crate::{AppState, config::SettingsPatch, db::repositories::user_settings};
 
 use super::{pb, types::ApiResult};
 

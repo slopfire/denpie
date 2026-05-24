@@ -1,7 +1,7 @@
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(module = "/src/passkeys.js")]
-extern "C" {
+unsafe extern "C" {
     #[wasm_bindgen(catch)]
     pub async fn registerPasskey(challenge_json: &str) -> Result<JsValue, JsValue>;
 
