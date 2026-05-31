@@ -1,5 +1,6 @@
 use crate::api::toast;
 use crate::app::View;
+use crate::i18n::{I18n, use_i18n};
 use crate::state::AppState;
 use crate::topic_visual::display_icon;
 use gloo_net::http::Request;
@@ -70,6 +71,7 @@ struct RegenerateTopicIconRes {
 #[function_component(Dashboard)]
 pub fn dashboard() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
+    let i18n = use_i18n();
     let navigator = use_navigator();
     let summary = use_state(|| None::<AppSummary>);
     let token_spend = use_state(|| None::<TokenSpend>);
@@ -396,7 +398,7 @@ pub fn dashboard() -> Html {
                                             </button>
                                             <span class="truncate">{&t.name}</span>
                                         </h3>
-                                        <span class="badge shrink-0">{&t.tipcard_type}</span>
+                                        <span class="badge shrink-0">{tip_type_label(&i18n, &t.tipcard_type)}</span>
                                     </div>
                                     <div class="text-sm text-muted">
                                         {format!("{} due / {} total", t.due_cards, t.total_cards)}
@@ -511,6 +513,7 @@ struct TopicEditorProps {
 #[function_component(TopicEditor)]
 fn topic_editor(props: &TopicEditorProps) -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
+    let i18n = use_i18n();
     let prompt_template = use_state(|| props.topic.prompt_template.clone());
     let daily_card_count = use_state(|| props.topic.daily_card_count.to_string());
     let daily_time_zone = use_state(|| props.topic.daily_time_zone.clone());
@@ -567,7 +570,7 @@ fn topic_editor(props: &TopicEditorProps) -> Html {
                 <div class="flex items-start justify-between gap-3">
                     <div>
                         <h2 class="text-lg font-semibold">{format!("Topic: {}", props.topic.name)}</h2>
-                        <p class="text-sm text-muted">{&props.topic.tipcard_type}</p>
+                        <p class="text-sm text-muted">{tip_type_label(&i18n, &props.topic.tipcard_type)}</p>
                     </div>
                     <button type="button" class="border border-token rounded-md px-2 py-1" onclick={let on_close = props.on_close.clone(); Callback::from(move |_| on_close.emit(()))}>{"Close"}</button>
                 </div>
@@ -601,5 +604,14 @@ fn topic_editor(props: &TopicEditorProps) -> Html {
                 <button type="submit" class="rounded-md bg-primary-solid px-4 py-2 font-medium">{"Save Topic"}</button>
             </form>
         </div>
+    }
+}
+
+fn tip_type_label(i18n: &I18n, tipcard_type: &str) -> String {
+    match tipcard_type {
+        "casual_tip" | "repeatable_tip" | "manual_tip" | "custom_tip" => {
+            i18n.t(&format!("tip_type.{tipcard_type}"))
+        }
+        _ => tipcard_type.to_string(),
     }
 }

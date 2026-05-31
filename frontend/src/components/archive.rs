@@ -1,6 +1,7 @@
-use crate::api::toast;
+use crate::api::{toast, toast_key};
 use crate::components::flow_card::FlowCard;
 use crate::components::unified_flow::TipcardInfo;
+use crate::i18n::use_i18n;
 use crate::state::AppState;
 use gloo_net::http::Request;
 use gloo_storage::{LocalStorage, Storage};
@@ -18,6 +19,7 @@ struct PatchTipcardReq {
 #[function_component(Archive)]
 pub fn archive() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
+    let i18n = use_i18n();
     let cards = use_state(Vec::<TipcardInfo>::new);
     let search = use_state(String::new);
     let status = use_state(|| "all".to_string());
@@ -128,11 +130,13 @@ pub fn archive() -> Html {
     let on_delete = {
         let app_state = app_state.clone();
         let refresh_cards = refresh_cards.clone();
+        let i18n = i18n.clone();
         Callback::from(move |id: i64| {
             let app_state = app_state.clone();
             let refresh_cards = refresh_cards.clone();
+            let i18n = i18n.clone();
             if web_sys::window()
-                .and_then(|w| w.confirm_with_message("Delete this card?").ok())
+                .and_then(|w| w.confirm_with_message(&i18n.t("confirm.delete_card")).ok())
                 .unwrap_or(false)
             {
                 wasm_bindgen_futures::spawn_local(async move {
@@ -144,14 +148,14 @@ pub fn archive() -> Html {
                         .await
                     {
                         Ok(res) if res.ok() => {
-                            toast(&app_state, "Card deleted");
+                            toast_key(&app_state, &i18n, "toast.card_deleted");
                             refresh_cards.emit(());
                         }
                         Ok(res) => toast(
                             &app_state,
                             res.text()
                                 .await
-                                .unwrap_or_else(|_| "Failed to delete card".to_string()),
+                                .unwrap_or_else(|_| i18n.t("toast.failed_delete_card")),
                         ),
                         Err(err) => toast(&app_state, err.to_string()),
                     }
@@ -163,9 +167,11 @@ pub fn archive() -> Html {
     let on_update_images = {
         let refresh_cards = refresh_cards.clone();
         let app_state = app_state.clone();
+        let i18n = i18n.clone();
         Callback::from(move |(id, image_data): (i64, Vec<String>)| {
             let refresh_cards = refresh_cards.clone();
             let app_state = app_state.clone();
+            let i18n = i18n.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let req = PatchTipcardReq {
                     id,
@@ -179,14 +185,14 @@ pub fn archive() -> Html {
                     .await
                 {
                     Ok(res) if res.ok() => {
-                        toast(&app_state, "Images updated");
+                        toast_key(&app_state, &i18n, "toast.images_updated");
                         refresh_cards.emit(());
                     }
                     Ok(res) => toast(
                         &app_state,
                         res.text()
                             .await
-                            .unwrap_or_else(|_| "Failed to update images".to_string()),
+                            .unwrap_or_else(|_| i18n.t("toast.failed_update_images")),
                     ),
                     Err(err) => toast(&app_state, err.to_string()),
                 }
@@ -198,19 +204,19 @@ pub fn archive() -> Html {
         <section id="view-archive">
             <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-3 mb-4">
                 <div>
-                    <h1 class="text-xl font-semibold tracking-tight">{"Archive"}</h1>
-                    <p class="text-muted mt-2"><span>{filtered.len()}</span>{" of "}<span>{cards.len()}</span>{" cards"}</p>
+                    <h1 class="text-xl font-semibold tracking-tight">{i18n.t("archive.title")}</h1>
+                    <p class="text-muted mt-2">{i18n.tf("format.archive_card_count", &[("shown", filtered.len().to_string()), ("total", cards.len().to_string())])}</p>
                 </div>
                 <div class="surface border rounded-md p-3 flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
-                    <input value={(*search).clone()} oninput={Callback::from({ let search = search.clone(); let page = page.clone(); move |e: InputEvent| if let Some(t) = e.target_dyn_into::<HtmlInputElement>() { search.set(t.value()); page.set(1); }})} class="rounded-md border px-3 py-2 flex-1 min-w-0" placeholder="Find card" />
+                    <input value={(*search).clone()} oninput={Callback::from({ let search = search.clone(); let page = page.clone(); move |e: InputEvent| if let Some(t) = e.target_dyn_into::<HtmlInputElement>() { search.set(t.value()); page.set(1); }})} class="rounded-md border px-3 py-2 flex-1 min-w-0" placeholder={i18n.t("archive.find_card")} />
                     <div class="flex flex-wrap sm:flex-nowrap items-center gap-2">
                         <select value={(*status).clone()} onchange={Callback::from({ let status = status.clone(); let page = page.clone(); move |e: Event| if let Some(t) = e.target_dyn_into::<HtmlSelectElement>() { status.set(t.value()); page.set(1); }})} class="rounded-md border px-3 py-2">
-                            <option value="all">{"All"}</option>
-                            <option value="active">{"Active"}</option>
-                            <option value="completed">{"Completed"}</option>
-                            <option value="custom">{"Custom"}</option>
+                            <option value="all">{i18n.t("archive.status_all")}</option>
+                            <option value="active">{i18n.t("archive.status_active")}</option>
+                            <option value="completed">{i18n.t("archive.status_completed")}</option>
+                            <option value="custom">{i18n.t("archive.status_custom")}</option>
                         </select>
-                        <div class="flex muted-surface rounded-md p-1 border border-token" role="group" aria-label="Sort cards">
+                        <div class="flex muted-surface rounded-md p-1 border border-token" role="group" aria-label={i18n.t("archive.sort_cards")}>
                             <button
                                 type="button"
                                 class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "topic").then_some("bg-primary-soft text-primary"))}
@@ -225,7 +231,7 @@ pub fn archive() -> Html {
                                     }
                                 })}
                             >
-                                {"Topic"}
+                                {i18n.t("archive.sort_topic")}
                             </button>
                             <button
                                 type="button"
@@ -241,10 +247,10 @@ pub fn archive() -> Html {
                                     }
                                 })}
                             >
-                                {"Date"}
+                                {i18n.t("archive.sort_date")}
                             </button>
                         </div>
-                        <button type="button" class="rounded-md border border-token px-3 py-2" onclick={Callback::from({ let search = search.clone(); let status = status.clone(); let page = page.clone(); move |_| { search.set(String::new()); status.set("all".to_string()); page.set(1); } })}>{"Clear"}</button>
+                        <button type="button" class="rounded-md border border-token px-3 py-2" onclick={Callback::from({ let search = search.clone(); let status = status.clone(); let page = page.clone(); move |_| { search.set(String::new()); status.set("all".to_string()); page.set(1); } })}>{i18n.t("archive.clear")}</button>
                     </div>
                 </div>
             </div>
@@ -252,7 +258,7 @@ pub fn archive() -> Html {
             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
                 {
                     if visible.is_empty() {
-                        html! { <div class="col-span-full surface border rounded-md p-10 text-center text-muted">{"No cards found."}</div> }
+                        html! { <div class="col-span-full surface border rounded-md p-10 text-center text-muted">{i18n.t("archive.empty")}</div> }
                     } else {
                         html! {
                             for visible.iter().map(|card| html! {
@@ -274,7 +280,7 @@ pub fn archive() -> Html {
             </div>
             if filtered.len() > visible.len() {
                 <div class="flex justify-center py-8">
-                    <button type="button" class="rounded-md border border-token px-6 py-2 font-medium" onclick={Callback::from({ let page = page.clone(); move |_| page.set(*page + 1) })}>{"Load more"}</button>
+                    <button type="button" class="rounded-md border border-token px-6 py-2 font-medium" onclick={Callback::from({ let page = page.clone(); move |_| page.set(*page + 1) })}>{i18n.t("archive.load_more")}</button>
                 </div>
             }
         </section>

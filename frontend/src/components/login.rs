@@ -1,3 +1,5 @@
+use crate::api::{toast, toast_key};
+use crate::i18n::use_i18n;
 use crate::passkeys::loginPasskey;
 use crate::state::{AppAction, AppState, UserProfile};
 use gloo_net::http::Request;
@@ -21,27 +23,23 @@ struct SetupReq {
 #[function_component(LoginPanel)]
 pub fn login_panel() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
+    let i18n = use_i18n();
     let username = use_state(String::new);
     let password = use_state(String::new);
     let setup_token = use_state(String::new);
 
     let on_passkey_login = {
         let app_state = app_state.clone();
+        let i18n = i18n.clone();
         Callback::from(move |_| {
             let app_state = app_state.clone();
+            let i18n = i18n.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 // 1. Get challenge
                 let challenge_res = match Request::post("/auth/passkeys/login/start").send().await {
                     Ok(r) if r.ok() => r.text().await.unwrap_or_default(),
                     _ => {
-                        app_state.dispatch(AppAction::ShowToast(
-                            "Failed to start passkey login".to_string(),
-                        ));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        })
-                        .forget();
+                        toast_key(&app_state, &i18n, "toast.failed_passkey_start");
                         return;
                     }
                 };
@@ -53,14 +51,9 @@ pub fn login_panel() -> Html {
                         let err_msg = if let Some(err) = e.as_string() {
                             err
                         } else {
-                            "Passkey error".to_string()
+                            i18n.t("toast.passkey_error")
                         };
-                        app_state.dispatch(AppAction::ShowToast(err_msg));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        })
-                        .forget();
+                        toast(&app_state, err_msg);
                         return;
                     }
                 };
@@ -78,14 +71,7 @@ pub fn login_panel() -> Html {
                             if let Ok(user) = user_res.json::<UserProfile>().await {
                                 app_state.dispatch(AppAction::SetUser(Some(user)));
                                 app_state.dispatch(AppAction::SetAuthed(true));
-                                app_state.dispatch(AppAction::ShowToast(
-                                    "Logged in with passkey".to_string(),
-                                ));
-                                let state_clone = app_state.clone();
-                                gloo_timers::callback::Timeout::new(2400, move || {
-                                    state_clone.dispatch(AppAction::HideToast);
-                                })
-                                .forget();
+                                toast_key(&app_state, &i18n, "toast.logged_in_passkey");
                             }
                         }
                     }
@@ -93,21 +79,11 @@ pub fn login_panel() -> Html {
                         let err = res
                             .text()
                             .await
-                            .unwrap_or_else(|_| "Passkey login failed".to_string());
-                        app_state.dispatch(AppAction::ShowToast(err));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        })
-                        .forget();
+                            .unwrap_or_else(|_| i18n.t("toast.failed_passkey_login"));
+                        toast(&app_state, err);
                     }
                     Err(err) => {
-                        app_state.dispatch(AppAction::ShowToast(err.to_string()));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        })
-                        .forget();
+                        toast(&app_state, err.to_string());
                     }
                 }
             });
@@ -119,12 +95,14 @@ pub fn login_panel() -> Html {
         let username = username.clone();
         let password = password.clone();
         let setup_token = setup_token.clone();
+        let i18n = i18n.clone();
 
         Callback::from(move |_| {
             let app_state = app_state.clone();
             let user = (*username).clone();
             let pass = (*password).clone();
             let token = (*setup_token).clone();
+            let i18n = i18n.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
                 let res = if !token.is_empty() {
@@ -156,13 +134,7 @@ pub fn login_panel() -> Html {
                             if let Ok(user) = user_res.json::<UserProfile>().await {
                                 app_state.dispatch(AppAction::SetUser(Some(user)));
                                 app_state.dispatch(AppAction::SetAuthed(true));
-                                app_state.dispatch(AppAction::ShowToast("Logged in".to_string()));
-
-                                let state_clone = app_state.clone();
-                                gloo_timers::callback::Timeout::new(2400, move || {
-                                    state_clone.dispatch(AppAction::HideToast);
-                                })
-                                .forget();
+                                toast_key(&app_state, &i18n, "toast.logged_in");
                             }
                         }
                     }
@@ -170,22 +142,18 @@ pub fn login_panel() -> Html {
                         let status = res.status();
                         let mut err = res.text().await.unwrap_or_default();
                         if err.is_empty() {
-                            err = format!("Error {}: {}", status, res.status_text());
+                            err = i18n.tf(
+                                "format.http_error",
+                                &[
+                                    ("status", status.to_string()),
+                                    ("status_text", res.status_text()),
+                                ],
+                            );
                         }
-                        app_state.dispatch(AppAction::ShowToast(err));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        })
-                        .forget();
+                        toast(&app_state, err);
                     }
                     Err(err) => {
-                        app_state.dispatch(AppAction::ShowToast(err.to_string()));
-                        let state_clone = app_state.clone();
-                        gloo_timers::callback::Timeout::new(2400, move || {
-                            state_clone.dispatch(AppAction::HideToast);
-                        })
-                        .forget();
+                        toast(&app_state, err.to_string());
                     }
                 }
             });
@@ -225,24 +193,24 @@ pub fn login_panel() -> Html {
                 <div class="flex items-center gap-3 mb-4">
                     <iconify-icon icon="radix-icons:lightning-bolt" class="radix-icon text-primary text-4xl" aria-hidden="true"></iconify-icon>
                     <div>
-                        <h1 class="text-xl font-semibold tracking-tight">{"Denpie"}</h1>
-                        <p class="text-sm text-muted">{"Username and password"}</p>
+                        <h1 class="text-xl font-semibold tracking-tight">{i18n.t("app.name")}</h1>
+                        <p class="text-sm text-muted">{i18n.t("auth.subtitle")}</p>
                     </div>
                 </div>
 
-                <label class="block card-kicker mb-2" for="login-username">{"Username"}</label>
+                <label class="block card-kicker mb-2" for="login-username">{i18n.t("auth.username")}</label>
                 <input id="login-username" oninput={on_username_input} value={(*username).clone()} type="text" class="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)]" autocomplete="username" />
 
-                <label class="mt-3 block card-kicker mb-2" for="login-password">{"Password"}</label>
+                <label class="mt-3 block card-kicker mb-2" for="login-password">{i18n.t("auth.password")}</label>
                 <input id="login-password" oninput={on_password_input} value={(*password).clone()} type="password" class="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)]" autocomplete="current-password" />
 
-                <label class="mt-3 block card-kicker mb-2" for="login-setup-token">{"Setup Token (First run only)"}</label>
+                <label class="mt-3 block card-kicker mb-2" for="login-setup-token">{i18n.t("auth.setup_token")}</label>
                 <input id="login-setup-token" oninput={on_setup_input} value={(*setup_token).clone()} type="password" class="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)]" />
 
-                <button onclick={on_login} id="login-btn" class="mt-4 w-full rounded-md bg-primary-solid px-3 py-2 font-medium">{"Login / Setup"}</button>
+                <button onclick={on_login} id="login-btn" class="mt-4 w-full rounded-md bg-primary-solid px-3 py-2 font-medium">{i18n.t("auth.login_or_setup")}</button>
                 <button onclick={on_passkey_login} type="button" class="mt-2 w-full rounded-md border border-token px-3 py-2 font-medium flex items-center justify-center gap-2">
                     <iconify-icon icon="radix-icons:lock-closed" class="radix-icon" aria-hidden="true"></iconify-icon>
-                    <span>{"Passkey Login"}</span>
+                    <span>{i18n.t("auth.passkey_login")}</span>
                 </button>
             </div>
         </section>
