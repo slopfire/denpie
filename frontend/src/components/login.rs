@@ -27,19 +27,35 @@ pub fn login_panel() -> Html {
     let username = use_state(String::new);
     let password = use_state(String::new);
     let setup_token = use_state(String::new);
+    let login_loading = use_state(|| false);
+    let passkey_loading = use_state(|| false);
+
+    let form_disabled = *login_loading || *passkey_loading;
 
     let on_passkey_login = {
         let app_state = app_state.clone();
         let i18n = i18n.clone();
+        let passkey_loading = passkey_loading.clone();
+        let login_loading = login_loading.clone();
         Callback::from(move |_| {
+            if *passkey_loading || *login_loading {
+                return;
+            }
+
             let app_state = app_state.clone();
             let i18n = i18n.clone();
+            let passkey_loading = passkey_loading.clone();
+            passkey_loading.set(true);
+
             wasm_bindgen_futures::spawn_local(async move {
+                let finish = || passkey_loading.set(false);
+
                 // 1. Get challenge
                 let challenge_res = match Request::post("/auth/passkeys/login/start").send().await {
                     Ok(r) if r.ok() => r.text().await.unwrap_or_default(),
                     _ => {
                         toast_key(&app_state, &i18n, "toast.failed_passkey_start");
+                        finish();
                         return;
                     }
                 };
@@ -54,6 +70,7 @@ pub fn login_panel() -> Html {
                             i18n.t("toast.passkey_error")
                         };
                         toast(&app_state, err_msg);
+                        finish();
                         return;
                     }
                 };
@@ -69,8 +86,7 @@ pub fn login_panel() -> Html {
                     Ok(res) if res.ok() => {
                         if let Ok(user_res) = Request::get("/auth/me").send().await {
                             if let Ok(user) = user_res.json::<UserProfile>().await {
-                                app_state.dispatch(AppAction::SetUser(Some(user)));
-                                app_state.dispatch(AppAction::SetAuthed(true));
+                                app_state.dispatch(AppAction::SetSession(Some(user)));
                                 toast_key(&app_state, &i18n, "toast.logged_in_passkey");
                             }
                         }
@@ -86,6 +102,8 @@ pub fn login_panel() -> Html {
                         toast(&app_state, err.to_string());
                     }
                 }
+
+                finish();
             });
         })
     };
@@ -96,15 +114,26 @@ pub fn login_panel() -> Html {
         let password = password.clone();
         let setup_token = setup_token.clone();
         let i18n = i18n.clone();
+        let login_loading = login_loading.clone();
+        let passkey_loading = passkey_loading.clone();
 
         Callback::from(move |_| {
+            if *login_loading || *passkey_loading {
+                return;
+            }
+
             let app_state = app_state.clone();
             let user = (*username).clone();
             let pass = (*password).clone();
             let token = (*setup_token).clone();
             let i18n = i18n.clone();
+            let login_loading = login_loading.clone();
+
+            login_loading.set(true);
 
             wasm_bindgen_futures::spawn_local(async move {
+                let finish = || login_loading.set(false);
+
                 let res = if !token.is_empty() {
                     let req = SetupReq {
                         username: user,
@@ -132,8 +161,7 @@ pub fn login_panel() -> Html {
                     Ok(res) if res.ok() => {
                         if let Ok(user_res) = Request::get("/auth/me").send().await {
                             if let Ok(user) = user_res.json::<UserProfile>().await {
-                                app_state.dispatch(AppAction::SetUser(Some(user)));
-                                app_state.dispatch(AppAction::SetAuthed(true));
+                                app_state.dispatch(AppAction::SetSession(Some(user)));
                                 toast_key(&app_state, &i18n, "toast.logged_in");
                             }
                         }
@@ -156,6 +184,8 @@ pub fn login_panel() -> Html {
                         toast(&app_state, err.to_string());
                     }
                 }
+
+                finish();
             });
         })
     };
@@ -199,18 +229,30 @@ pub fn login_panel() -> Html {
                 </div>
 
                 <label class="block card-kicker mb-2" for="login-username">{i18n.t("auth.username")}</label>
-                <input id="login-username" oninput={on_username_input} value={(*username).clone()} type="text" class="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)]" autocomplete="username" />
+                <input id="login-username" oninput={on_username_input} value={(*username).clone()} type="text" disabled={form_disabled} class="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)] disabled:opacity-60" autocomplete="username" />
 
                 <label class="mt-3 block card-kicker mb-2" for="login-password">{i18n.t("auth.password")}</label>
-                <input id="login-password" oninput={on_password_input} value={(*password).clone()} type="password" class="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)]" autocomplete="current-password" />
+                <input id="login-password" oninput={on_password_input} value={(*password).clone()} type="password" disabled={form_disabled} class="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)] disabled:opacity-60" autocomplete="current-password" />
 
                 <label class="mt-3 block card-kicker mb-2" for="login-setup-token">{i18n.t("auth.setup_token")}</label>
-                <input id="login-setup-token" oninput={on_setup_input} value={(*setup_token).clone()} type="password" class="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)]" />
+                <input id="login-setup-token" oninput={on_setup_input} value={(*setup_token).clone()} type="password" disabled={form_disabled} class="w-full rounded-md border px-3 py-2 outline-none focus:ring-2 focus:ring-[var(--primary)] disabled:opacity-60" />
 
-                <button onclick={on_login} id="login-btn" class="mt-4 w-full rounded-md bg-primary-solid px-3 py-2 font-medium">{i18n.t("auth.login_or_setup")}</button>
-                <button onclick={on_passkey_login} type="button" class="mt-2 w-full rounded-md border border-token px-3 py-2 font-medium flex items-center justify-center gap-2">
+                <button onclick={on_login} id="login-btn" disabled={form_disabled} class="mt-4 w-full rounded-md bg-primary-solid px-3 py-2 font-medium disabled:opacity-60">
+                    if *login_loading {
+                        {i18n.t("auth.signing_in")}
+                    } else {
+                        {i18n.t("auth.login_or_setup")}
+                    }
+                </button>
+                <button onclick={on_passkey_login} type="button" disabled={form_disabled} class="mt-2 w-full rounded-md border border-token px-3 py-2 font-medium flex items-center justify-center gap-2 disabled:opacity-60">
                     <iconify-icon icon="radix-icons:lock-closed" class="radix-icon" aria-hidden="true"></iconify-icon>
-                    <span>{i18n.t("auth.passkey_login")}</span>
+                    <span>
+                        if *passkey_loading {
+                            {i18n.t("auth.waiting_passkey")}
+                        } else {
+                            {i18n.t("auth.passkey_login")}
+                        }
+                    </span>
                 </button>
             </div>
         </section>

@@ -12,6 +12,14 @@ pub struct UserProfile {
     pub build_sha: String,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum AuthStatus {
+    #[default]
+    Checking,
+    Guest,
+    Authenticated,
+}
+
 #[derive(Clone, PartialEq, Default)]
 pub struct ToastMessage {
     pub message: String,
@@ -21,12 +29,12 @@ pub struct ToastMessage {
 #[derive(Clone, PartialEq, Default)]
 pub struct AppState {
     pub user: Option<UserProfile>,
-    pub authed: bool,
+    pub auth_status: AuthStatus,
     pub toast: ToastMessage,
 }
 
 pub enum AppAction {
-    SetAuthed(bool),
+    SetSession(Option<UserProfile>),
     SetUser(Option<UserProfile>),
     ShowToast(String),
     HideToast,
@@ -37,11 +45,19 @@ impl Reducible for AppState {
 
     fn reduce(self: Rc<Self>, action: Self::Action) -> Rc<Self> {
         match action {
-            AppAction::SetAuthed(authed) => AppState {
-                authed,
-                ..(*self).clone()
+            AppAction::SetSession(user) => {
+                let auth_status = if user.is_some() {
+                    AuthStatus::Authenticated
+                } else {
+                    AuthStatus::Guest
+                };
+                AppState {
+                    user,
+                    auth_status,
+                    ..(*self).clone()
+                }
+                .into()
             }
-            .into(),
             AppAction::SetUser(user) => AppState {
                 user,
                 ..(*self).clone()
