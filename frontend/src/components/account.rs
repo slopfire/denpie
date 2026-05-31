@@ -211,8 +211,7 @@ pub fn account_settings() -> Html {
                 wasm_bindgen_futures::spawn_local(async move {
                     match Request::delete("/auth/me").send().await {
                         Ok(res) if res.ok() => {
-                            app_state.dispatch(AppAction::SetAuthed(false));
-                            app_state.dispatch(AppAction::SetUser(None));
+                            app_state.dispatch(AppAction::SetSession(None));
                             toast(&app_state, "Account deleted");
                         }
                         Ok(res) => toast(

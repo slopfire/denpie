@@ -1,5 +1,5 @@
 use crate::i18n::{I18n, use_i18n};
-use crate::state::{AppAction, AppState, UserProfile};
+use crate::state::{AppAction, AppState, AuthStatus, UserProfile};
 use gloo_net::http::Request;
 use yew::prelude::*;
 use yew_router::prelude::*;
@@ -50,12 +50,16 @@ fn app_root() -> Html {
         let app_state = app_state.clone();
         use_effect_with((), move |_| {
             wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(res) = Request::get("/auth/me").send().await {
-                    if res.ok() {
+                match Request::get("/auth/me").send().await {
+                    Ok(res) if res.ok() => {
                         if let Ok(user) = res.json::<UserProfile>().await {
-                            app_state.dispatch(AppAction::SetUser(Some(user)));
-                            app_state.dispatch(AppAction::SetAuthed(true));
+                            app_state.dispatch(AppAction::SetSession(Some(user)));
+                        } else {
+                            app_state.dispatch(AppAction::SetSession(None));
                         }
+                    }
+                    _ => {
+                        app_state.dispatch(AppAction::SetSession(None));
                     }
                 }
             });
@@ -64,9 +68,9 @@ fn app_root() -> Html {
     }
 
     {
-        let authed = app_state.authed;
-        use_effect_with(authed, move |authed| {
-            if *authed {
+        let auth_status = app_state.auth_status;
+        use_effect_with(auth_status, move |auth_status| {
+            if *auth_status == AuthStatus::Authenticated {
                 wasm_bindgen_futures::spawn_local(async move {
                     if let Ok(settings_res) = Request::get("/admin/settings").send().await {
                         if settings_res.ok() {
@@ -84,13 +88,17 @@ fn app_root() -> Html {
     html! {
         <ContextProvider<I18n> context={I18n::default()}>
             <ContextProvider<UseReducerHandle<AppState>> context={app_state.clone()}>
-                if !app_state.authed {
-                    <LoginPanel />
-                } else {
-                    <div id="app-shell" class="min-h-screen">
-                        <Switch<View> render={|_| html! { <AppShell /> }} />
-                        <MobileNav />
-                    </div>
+                {
+                    match app_state.auth_status {
+                        AuthStatus::Checking => html! { <AuthChecking /> },
+                        AuthStatus::Guest => html! { <LoginPanel /> },
+                        AuthStatus::Authenticated => html! {
+                            <div id="app-shell" class="min-h-screen">
+                                <Switch<View> render={|_| html! { <AppShell /> }} />
+                                <MobileNav />
+                            </div>
+                        },
+                    }
                 }
 
                 <div id="toast" class={classes!("toast", "surface", "border", "rounded-md", "px-3", "py-2", "text-sm", "font-medium", app_state.toast.show.then_some("show"))}>
@@ -98,6 +106,20 @@ fn app_root() -> Html {
                 </div>
             </ContextProvider<UseReducerHandle<AppState>>>
         </ContextProvider<I18n>>
+    }
+}
+
+#[function_component(AuthChecking)]
+fn auth_checking() -> Html {
+    let i18n = use_i18n();
+
+    html! {
+        <section id="auth-checking" class="min-h-screen flex items-center justify-center p-4">
+            <div class="surface border rounded-md w-full max-w-md p-6 text-center">
+                <iconify-icon icon="radix-icons:reload" class="radix-icon text-primary text-3xl animate-spin mx-auto block" aria-hidden="true"></iconify-icon>
+                <p class="mt-4 text-sm text-muted">{i18n.t("auth.checking_session")}</p>
+            </div>
+        </section>
     }
 }
 

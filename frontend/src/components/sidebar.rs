@@ -51,8 +51,7 @@ pub fn sidebar(props: &SidebarProps) -> Html {
             let i18n = i18n.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 if Request::post("/auth/logout").send().await.is_ok() {
-                    app_state.dispatch(AppAction::SetAuthed(false));
-                    app_state.dispatch(AppAction::SetUser(None));
+                    app_state.dispatch(AppAction::SetSession(None));
                     toast_key(&app_state, &i18n, "toast.logged_out");
                 }
             });
