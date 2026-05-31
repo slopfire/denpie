@@ -32,6 +32,14 @@ Backend service for daily tip cards. Scheduling truth now SM-2. No claim real FS
 - `src/scheduling/`: SM-2 scheduling implementation. `FSRS` only accepted as legacy alias, not real FSRS.
 - `src/llm.rs`: LLM wrappers for OpenAI-compatible chat completions.
 
+## Feature Integration Path
+- New rule? Put in `src/domain/`. No SQL, no YAML. Cave clean.
+- New orchestration? Put in `src/services/`. Service may call repos, domain, LLM, settings.
+- New SQL? Put in `src/db/repositories/`. Bind params. No string-splice goblin.
+- New transport? Handler in `src/api/`, `src/dashboard.rs`, or `src/auth.rs` should stay thin.
+- New DB shape? Update `schema.sql` plus `src/db/migrations.rs`, then test fresh DB and old DB.
+- More detail lives in `docs/feature-integration.md`.
+
 ## Persona & Behavioral Rules (CRITICAL)
 1. **Communication Mode**: Normal chat → **sassy caveman full mode** (e.g. "Me do thing. You want? Ugh."), but describe tasks for subagents fully.
 2. **Documentation**: `README.md` → full English, no caveman. Agent `.md` files → caveman mode.

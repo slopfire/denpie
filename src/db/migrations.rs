@@ -213,6 +213,8 @@ async fn rebuild_topics_without_global_name_unique(pool: &SqlitePool) -> Result<
             daily_time_zone TEXT,
             daily_update_time TEXT,
             compression_level TEXT,
+            icon_id TEXT,
+            color_hue INTEGER,
             FOREIGN KEY(user_id) REFERENCES users(id),
             UNIQUE(user_id, name)
         )",
@@ -222,10 +224,12 @@ async fn rebuild_topics_without_global_name_unique(pool: &SqlitePool) -> Result<
     sqlx::query(
         "INSERT INTO topics_new (
             id, user_id, name, class_id, tipcard_type, prompt_template,
-            daily_card_count, daily_time_zone, daily_update_time, compression_level
+            daily_card_count, daily_time_zone, daily_update_time, compression_level,
+            icon_id, color_hue
         )
         SELECT id, user_id, name, class_id, tipcard_type, prompt_template,
-               daily_card_count, daily_time_zone, daily_update_time, compression_level
+               daily_card_count, daily_time_zone, daily_update_time, compression_level,
+               icon_id, color_hue
         FROM topics",
     )
     .execute(&mut *tx)

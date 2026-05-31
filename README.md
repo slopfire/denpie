@@ -83,18 +83,28 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 
 ### Prerequisites
 
-- Rust 1.95.0 or newer (latest stable)
-- SQLite
+- Rust 1.95.0. The repository includes `rust-toolchain.toml`, so rustup will select it automatically.
+- `wasm32-unknown-unknown` Rust target for the Yew frontend.
+- Trunk for frontend builds.
+- `protoc` / `protobuf-compiler` for `prost-build`.
+- SQLite.
+- Optional: `just` for the documented development commands, plus `oha` and `jq` for benchmarks.
+
+Check your local machine with:
+
+```bash
+sh scripts/bootstrap-dev.sh
+```
 
 ### Setup
 
 1. **Clone the repository.**
 
-2. **Configure environment** (only needed for SQLx compile-time checks):
+2. **Configure environment** (optional for local development):
    ```bash
    cp .env.example .env
    ```
-   The only required variable is `DATABASE_URL`. LLM credentials are **not** set via environment variables.
+   `DATABASE_URL` is kept for future SQLx compile-time query validation. LLM credentials are **not** set via environment variables.
 
 3. **Run the server:**
    ```bash
@@ -121,6 +131,34 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
    Each topic can also define its own prompt, daily card count, and card refresh time with `update_topic`; empty topic time fields fall back to the current user's default time zone setting. Topics can be deleted from the browser control panel or with `delete_topic`; deleting a topic also deletes its cards and review state for that user. The browser control panel has a type switcher for Casual, Repeatable, and Manual cards; Manual cards are saved from user-entered text and do not call the LLM. In Manual mode, Tab moves from the topic field straight to the manual card content textarea, and in the textarea, Shift+Enter saves/adds the card. External systems can use `submit_custom_tipcard` to store `custom_tip` cards for summaries and reminders; these cards return `tipcard_type = "custom_tip"` and do not create scheduling review state. Active cards can be pinned so they remain in a separate top section even before their next review time; unpinning returns them to normal scheduling. Daily refresh runs inside the server once per topic window and uses the same behavior as **Force Daily Refresh**: it adds fresh generated cards without moving, dismissing, or rescheduling current cards. Protobuf clients can call `force_daily_refresh` for generated topic targeting. Set **Max Active Cards** to stop creating new cards once your active review state reaches that number; `0` means unlimited, and existing due/pinned cards remain available. When a new generated card is created, the server sends generated titles from existing and dismissed cards for the same topic/type so the model can avoid repeats.
 
 7. **Use the API key** in `ApiRequest.auth` for every operation except `bootstrap_api_key`. All reads and writes are scoped to the user that owns the key.
+
+## Development Workflow
+
+The fastest local loop uses `just`:
+
+```bash
+just setup   # verify Rust, Trunk, protoc, SQLite, and benchmark extras
+just dev     # run backend and frontend watch tasks together
+just check   # backend compile check without rebuilding frontend
+just test    # full Rust test suite without rebuilding frontend
+just ci      # local version of the CI gate
+```
+
+For backend-only work, run:
+
+```bash
+just backend
+```
+
+That sets `DENPIE_SKIP_FRONTEND_BUILD=1` so Rust changes do not wait on Trunk. For frontend-heavy work, run `just frontend` in a second terminal and keep the backend running separately.
+
+Debug logs use `tracing` and honor `RUST_LOG`:
+
+```bash
+RUST_LOG=denpie=debug,tower_http=debug just backend
+```
+
+Request logs include method, URI, status, and latency through `tower-http`.
 
 ## User Model
 
@@ -263,6 +301,7 @@ The unified protobuf API is the only public API:
 
 - [Unified Protobuf API](docs/protobuf-api.md): canonical `POST /api` surface for both client and admin operations.
 - [Agent Server Talk Guide](docs/agent-server-guide.md): operational playbook for agents that need to talk with a running server.
+- [Feature Integration Guide](docs/feature-integration.md): where to put domain rules, services, repositories, handlers, migrations, and tests.
 
 ## Database Schema
 
@@ -288,10 +327,10 @@ Tip content can include markdown such as headings, lists, emphasis, links, block
 ## Running Tests
 
 ```bash
-cargo test
+just test
 ```
 
-The test suite spawns a real server on an ephemeral port for each test group and exercises bootstrap auth, settings CRUD, key management, the full tips→review flow, and error handling through `POST /api`.
+The test suite spawns a real server on an ephemeral port for each test group and exercises bootstrap auth, settings CRUD, key management, the full tips→review flow, and error handling through `POST /api`. Run `just ci` before opening larger changes; it checks formatting, Clippy, Rust tests, and a release frontend build.
 Tests use isolated temporary settings files, so running them does not overwrite your local `settings.yaml`.
 
 > **Note:** The `test_full_api_flow` test uses the missing-key fallback and does not call a real LLM endpoint by default.

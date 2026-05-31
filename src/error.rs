@@ -31,8 +31,31 @@ impl AppError {
         }
     }
 
+    fn is_internal(&self) -> bool {
+        matches!(
+            self,
+            AppError::Db(_) | AppError::Io(_) | AppError::Yaml(_) | AppError::Json(_)
+        )
+    }
+
     pub fn message(&self) -> String {
         match self {
+            AppError::Db(err) if production_errors_are_redacted() => {
+                tracing::error!(error = ?err, "database error");
+                "Internal server error".to_string()
+            }
+            AppError::Io(err) if production_errors_are_redacted() => {
+                tracing::error!(error = ?err, "io error");
+                "Internal server error".to_string()
+            }
+            AppError::Yaml(err) if production_errors_are_redacted() => {
+                tracing::error!(error = ?err, "yaml error");
+                "Internal server error".to_string()
+            }
+            AppError::Json(err) if production_errors_are_redacted() => {
+                tracing::error!(error = ?err, "json error");
+                "Internal server error".to_string()
+            }
             AppError::Db(err) => err.to_string(),
             AppError::Io(err) => err.to_string(),
             AppError::Yaml(err) => err.to_string(),
@@ -46,8 +69,15 @@ impl AppError {
     }
 
     pub fn into_status_body(self) -> (StatusCode, String) {
+        if self.is_internal() && !production_errors_are_redacted() {
+            tracing::error!(error = ?self, "internal application error");
+        }
         (self.status(), self.message())
     }
+}
+
+fn production_errors_are_redacted() -> bool {
+    std::env::var_os("DENPIE_PROD").is_some()
 }
 
 impl IntoResponse for AppError {

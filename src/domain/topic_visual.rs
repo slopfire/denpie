@@ -18,7 +18,7 @@ pub fn color_from_hue(hue: i32) -> String {
 }
 
 pub fn topic_color(name: &str) -> String {
-    color_from_hue(color_hue_from_name(name))
+    color_from_hue(resolve_color_hue(None, name))
 }
 
 pub fn resolve_color_hue(stored: Option<i32>, name: &str) -> i32 {
@@ -28,7 +28,10 @@ pub fn resolve_color_hue(stored: Option<i32>, name: &str) -> i32 {
 }
 
 pub fn resolve_topic_color(stored: Option<i32>, name: &str) -> String {
-    color_from_hue(resolve_color_hue(stored, name))
+    match stored.filter(|hue| (0..360).contains(hue)) {
+        Some(hue) => color_from_hue(hue),
+        None => topic_color(name),
+    }
 }
 
 pub fn random_color_hue() -> i32 {

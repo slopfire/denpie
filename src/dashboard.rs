@@ -639,7 +639,9 @@ pub async fn regenerate_topic_icon(
     Json(req): Json<RegenerateTopicIconReq>,
 ) -> Result<Json<RegenerateTopicIconRes>, (StatusCode, String)> {
     let user = crate::auth::current_user(&state, &session).await?;
-    let update = api::regenerate_topic_icon(&state, &user.id, req.id).await?;
+    let update =
+        crate::services::topics::TopicService::regenerate_topic_icon(&state, &user.id, req.id)
+            .await?;
     Ok(Json(RegenerateTopicIconRes {
         icon_id: update.icon_id,
         topic_color: update.topic_color,
@@ -815,7 +817,12 @@ pub async fn flow_cards(
             image_count: row.image_count,
             thumbnail_urls: images_map
                 .get(&row.id)
-                .map(|imgs| imgs.iter().take(4).map(|image| image_url(image.id)).collect())
+                .map(|imgs| {
+                    imgs.iter()
+                        .take(4)
+                        .map(|image| image_url(image.id))
+                        .collect()
+                })
                 .unwrap_or_default(),
         });
     }
@@ -885,7 +892,9 @@ pub async fn app_tips(
     Json(req): Json<api::TipsJsonRequest>,
 ) -> Result<Json<Vec<api::TipCardJson>>, (StatusCode, String)> {
     let user = crate::auth::current_user(&state, &session).await?;
-    api::build_tips(&state, &user.id, req).await.map(Json)
+    crate::services::tips::TipService::build_tips(&state, &user.id, req)
+        .await
+        .map(Json)
 }
 
 pub async fn app_review(
@@ -906,7 +915,7 @@ pub async fn force_daily_refresh(
     Json(req): Json<api::ForceDailyRefreshRequest>,
 ) -> Result<Json<api::ForceDailyRefreshResponse>, (StatusCode, String)> {
     let user = crate::auth::current_user(&state, &session).await?;
-    api::force_daily_refresh(&state, &user.id, req)
+    crate::services::tips::TipService::force_daily_refresh(&state, &user.id, req)
         .await
         .map(Json)
 }

@@ -1,6 +1,7 @@
 use axum::{body::Bytes, extract::State, http::StatusCode, response::Response};
 use prost::Message;
 use std::sync::Arc;
+use tracing::Instrument;
 
 use crate::AppState;
 
@@ -26,41 +27,46 @@ pub async fn unified_api(
     let op = request
         .op
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing API operation".to_string()))?;
+    let op_name = api_op_name(&op);
 
-    let response = match op {
-        pb::api_request::Op::BootstrapApiKey(req) => {
-            let settings = state
-                .settings
-                .get_settings()
-                .map_err(|err| err.into_status_body())?;
-            if settings.admin_token.is_empty() || req.admin_token != settings.admin_token {
-                return Err((StatusCode::UNAUTHORIZED, "Invalid admin token".to_string()));
+    let response = async {
+        Ok::<_, (StatusCode, String)>(match op {
+            pb::api_request::Op::BootstrapApiKey(req) => {
+                let settings = state
+                    .settings
+                    .get_settings()
+                    .map_err(|err| err.into_status_body())?;
+                if settings.admin_token.is_empty() || req.admin_token != settings.admin_token {
+                    return Err((StatusCode::UNAUTHORIZED, "Invalid admin token".to_string()));
+                }
+                let admin = crate::db::repositories::users::first_admin(&state.db)
+                    .await
+                    .map_err(|err| err.into_status_body())?;
+                let user_id = if let Some(admin) = admin {
+                    admin.id
+                } else {
+                    return Err((
+                        StatusCode::CONFLICT,
+                        "Setup required before bootstrapping API keys".to_string(),
+                    ));
+                };
+                let api_key = create_raw_api_key(&state, &user_id, Some(req.client_name)).await?;
+                pb::ApiResponse {
+                    result: Some(pb::api_response::Result::ApiKeyCreated(pb::ApiKeyCreated {
+                        api_key,
+                    })),
+                }
             }
-            let admin = crate::db::repositories::users::first_admin(&state.db)
-                .await
-                .map_err(|err| err.into_status_body())?;
-            let user_id = if let Some(admin) = admin {
-                admin.id
-            } else {
-                return Err((
-                    StatusCode::CONFLICT,
-                    "Setup required before bootstrapping API keys".to_string(),
-                ));
-            };
-            let api_key = create_raw_api_key(&state, &user_id, Some(req.client_name)).await?;
-            pb::ApiResponse {
-                result: Some(pb::api_response::Result::ApiKeyCreated(pb::ApiKeyCreated {
-                    api_key,
-                })),
+            other => {
+                let user = require_api_key(&state, &request.auth).await?;
+                handle_authenticated_op(&state, &user, other).await?
             }
-        }
-        other => {
-            let user = require_api_key(&state, &request.auth).await?;
-            handle_authenticated_op(&state, &user, other).await?
-        }
-    };
+        })
+    }
+    .instrument(tracing::info_span!("api_request", op = op_name))
+    .await;
 
-    Ok(protobuf_response(&response))
+    Ok(protobuf_response(&response?))
 }
 
 async fn handle_authenticated_op(
@@ -203,5 +209,29 @@ async fn handle_authenticated_op(
             Ok(empty_response())
         }
         pb::api_request::Op::BootstrapApiKey(_) => unreachable!(),
+    }
+}
+
+fn api_op_name(op: &pb::api_request::Op) -> &'static str {
+    match op {
+        pb::api_request::Op::BootstrapApiKey(_) => "bootstrap_api_key",
+        pb::api_request::Op::Tips(_) => "tips",
+        pb::api_request::Op::SubmitCustomTipcard(_) => "submit_custom_tipcard",
+        pb::api_request::Op::ForceDailyRefresh(_) => "force_daily_refresh",
+        pb::api_request::Op::Review(_) => "review",
+        pb::api_request::Op::GetTopics(_) => "get_topics",
+        pb::api_request::Op::GetSettings(_) => "get_settings",
+        pb::api_request::Op::UpdateSettings(_) => "update_settings",
+        pb::api_request::Op::CreateApiKey(_) => "create_api_key",
+        pb::api_request::Op::ListApiKeys(_) => "list_api_keys",
+        pb::api_request::Op::DeleteApiKey(_) => "delete_api_key",
+        pb::api_request::Op::ListAdminTopics(_) => "list_admin_topics",
+        pb::api_request::Op::ListTipcards(_) => "list_tipcards",
+        pb::api_request::Op::DeleteTipcard(_) => "delete_tipcard",
+        pb::api_request::Op::PinTipcard(_) => "pin_tipcard",
+        pb::api_request::Op::DeleteTopic(_) => "delete_topic",
+        pb::api_request::Op::GetSummary(_) => "get_summary",
+        pb::api_request::Op::ListAppTopics(_) => "list_app_topics",
+        pb::api_request::Op::UpdateTopic(_) => "update_topic",
     }
 }
