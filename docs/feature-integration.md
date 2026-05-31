@@ -24,6 +24,14 @@ Handlers should translate transport details into service calls. Services may com
 3. Reuse the same service path as protobuf operations when behavior overlaps.
 4. Add a session-backed HTTP test for the endpoint.
 
+## New Frontend Strings
+
+1. Put user-facing dashboard copy in `frontend/src/i18n/en.json` and read it through `use_i18n().t("group.key")`.
+2. Use `use_i18n().tf("group.key", &[("name", value)])` for strings with placeholders such as counts or HTTP status text.
+3. Keep keys grouped by surface (`nav.*`, `auth.*`, `toast.*`, `confirm.*`, `api_keys.*`) so translators can work one page at a time.
+4. Use translated toast and confirm strings for frontend-authored messages. Backend error bodies may still be shown as-is until backend message codes are added.
+5. Do not translate protocol or storage identifiers such as `tipcard_type`, review actions, roles, route paths, localStorage keys, MIME types, or API enum values. Map those values to translated display labels at the UI boundary instead.
+
 ## New Database Field
 
 1. Update `schema.sql` for fresh installs.
