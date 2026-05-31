@@ -82,4 +82,4 @@ pub struct ForceDailyRefreshResponse {
     pub refreshed_cards: u64,
 }
 
-pub(crate) type ApiResult<T> = Result<T, (StatusCode, String)>;
+pub type ApiResult<T> = Result<T, (StatusCode, String)>;

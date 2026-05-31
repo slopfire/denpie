@@ -338,12 +338,51 @@ echo "=========================================="
     echo "Tool: oha v$(oha --version 2>/dev/null | awk '{print $2}')"
     echo "Build: debug (unoptimized)"
     echo ""
-    echo "| # | Endpoint | p50(ms) | p90(ms) | p95(ms) | p99(ms) | req/s | success |"
-    echo "|---|---|---|---|---|---|---|---|"
+
+    echo "## Benchmarked Endpoints"
+    echo ""
+    echo "| # | Endpoint | Method | Path |"
+    echo "|---|----------|--------|------|"
+    echo "| 01 | Static root (no auth) | GET | / |"
+    echo "| 02 | Static WASM (no auth) | GET | /static/*.wasm |"
+    echo "| 03 | App summary (auth) | GET | /app/summary |"
+    echo "| 04 | App topics (auth) | GET | /app/topics |"
+    echo "| 05 | Admin settings (auth) | GET | /admin/settings |"
+    echo "| 06 | Admin API keys (auth) | GET | /admin/keys |"
+    echo "| 07 | Token spend (auth) | GET | /admin/token-spend |"
+    echo "| 08 | Admin tipcards (auth) | GET | /admin/tipcards |"
+    echo "| 09 | Auth me (auth) | GET | /auth/me |"
+    echo "| 10 | Flow cards - N+1 hotspot (auth) | GET | /app/flow-cards |"
+    echo "| 11 | Login (rate limited) | POST | /auth/login |"
+    echo "| 12 | Tipcard pin toggle (auth) | PATCH | /admin/tipcards |"
+    echo "| 13 | Topic update (auth) | PATCH | /app/topics |"
+    echo ""
+
+    echo "## Results"
+    echo ""
+    echo "| # | Name | p50 (ms) | p90 (ms) | p95 (ms) | p99 (ms) | req/s | success |"
+    echo "|---|------|----------|----------|----------|----------|-------|---------|"
+
+    declare -A BENCH_NAMES
+    BENCH_NAMES[01_static_root]="Static root"
+    BENCH_NAMES[02_static_wasm]="Static WASM"
+    BENCH_NAMES[03_app_summary]="App summary"
+    BENCH_NAMES[04_app_topics]="App topics"
+    BENCH_NAMES[05_admin_settings]="Admin settings"
+    BENCH_NAMES[06_admin_keys]="Admin keys"
+    BENCH_NAMES[07_token_spend]="Token spend"
+    BENCH_NAMES[08_admin_tipcards]="Admin tipcards"
+    BENCH_NAMES[09_auth_me]="Auth me"
+    BENCH_NAMES[10_flow_cards]="Flow cards"
+    BENCH_NAMES[11_login]="Login"
+    BENCH_NAMES[12_admin_tipcards_pin]="Tipcard pin"
+    BENCH_NAMES[13_app_topics_update]="Topic update"
 
     for result in "$RESULTS_DIR"/[0-9]*.json; do
         [ -f "$result" ] || continue
         name=$(basename "$result" .json)
+        num=${name%%_*}
+        label="${BENCH_NAMES[$name]:-$name}"
         if jq -e '.summary' "$result" >/dev/null 2>&1; then
             p50=$(jq -r '(.latencyPercentiles.p50 // 0) * 1000' "$result" | awk '{printf "%.2f", $1}')
             p90=$(jq -r '(.latencyPercentiles.p90 // 0) * 1000' "$result" | awk '{printf "%.2f", $1}')
@@ -351,11 +390,35 @@ echo "=========================================="
             p99=$(jq -r '(.latencyPercentiles.p99 // 0) * 1000' "$result" | awk '{printf "%.2f", $1}')
             rps=$(jq -r '.summary.requestsPerSec // "N/A"' "$result" | awk '{printf "%.1f", $1}')
             sr=$(jq -r '.summary.successRate // "N/A"' "$result")
-            echo "| $name | $p50 | $p90 | $p95 | $p99 | $rps | $sr |"
+            echo "| $num | $label | $p50 | $p90 | $p95 | $p99 | $rps | $sr |"
         else
-            echo "| $name | ERR | ERR | ERR | ERR | ERR | ERR |"
+            echo "| $num | $label | ERR | ERR | ERR | ERR | ERR | ERR |"
         fi
     done
+
+    echo ""
+    echo "## Metrics Explained"
+    echo ""
+    echo "**Latency Percentiles (ms)** — Time from request sent to full response received."
+    echo ""
+    echo "- **p50 (median)** — Half of all requests were faster than this. Good general indicator of typical performance."
+    echo "- **p90** — 90% of requests were faster than this. Catches outliers starting to appear."
+    echo "- **p95** — 95% of requests were faster than this. Shows tail latency; good threshold for 'worst acceptable' under load."
+    echo "- **p99** — 99% of requests were faster than this. Extreme tail latency; reveals starvation, lock contention, or GC pauses."
+    echo ""
+    echo "**Throughput & Reliability**"
+    echo ""
+    echo "- **req/s** — Requests per second. Higher is better. This is total throughput across all concurrent connections used in the test."
+    echo "- **success** — Success rate (0.0 to 1.0). 1.0 = every request got HTTP 2xx/3xx. Lower values mean timeouts, errors, or rate-limiting (see benchmark #11)."
+    echo ""
+    echo "### How to read this report"
+    echo ""
+    echo "1. Start with **p50** to see typical user-facing latency."
+    echo "2. Compare **p50** vs **p99** gap. A large gap (>10x) means inconsistent performance under load — investigate tail latency causes."
+    echo "3. Check **success** rate. Anything below 1.0 on non-rate-limited endpoints is a red flag."
+    echo "4. **req/s** shows capacity. Compare against your expected traffic. Remember: these are unoptimized debug builds."
+    echo "5. **#10 (Flow cards)** is the N+1 hotspot — it fetches images per card. If p99 is high here, that's expected and the target for optimization."
+    echo "6. **#11 (Login)** runs at low concurrency (2) because it is rate-limited. Low req/s here is by design."
 
     echo ""
     echo "## System"
@@ -363,9 +426,16 @@ echo "=========================================="
     echo "- Cores: $(nproc)"
     echo "- RAM: $(free -h | grep Mem | awk '{print $2}')"
     echo "- Rust: $(rustc --version 2>/dev/null || echo 'unknown')"
-} | tee "$RESULTS_DIR/report.md"
+} > "$RESULTS_DIR/report.md"
 
 echo ""
 echo "=== DONE ==="
 echo "Results: $RESULTS_DIR/"
 echo "Report: $RESULTS_DIR/report.md"
+
+echo ""
+if command -v glow >/dev/null 2>&1; then
+    glow "$RESULTS_DIR/report.md"
+else
+    cat "$RESULTS_DIR/report.md"
+fi

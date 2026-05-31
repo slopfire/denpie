@@ -13,6 +13,7 @@ use std::{path::PathBuf, sync::Arc};
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::compression::CompressionLayer;
 use tower_http::services::ServeDir;
+use tower_http::trace::TraceLayer;
 use tower_sessions::SessionManagerLayer;
 use webauthn_rs::Webauthn;
 
@@ -129,6 +130,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .route("/admin", get(not_found))
         .fallback_service(frontend_serve)
         .layer(CompressionLayer::new())
+        .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(cache_headers))
         .layer(session_layer)
         .with_state(shared_state)

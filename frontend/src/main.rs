@@ -1,3 +1,10 @@
+#![allow(
+    clippy::collapsible_if,
+    clippy::field_reassign_with_default,
+    clippy::let_unit_value,
+    clippy::trim_split_whitespace
+)]
+
 mod api;
 mod app;
 mod components;

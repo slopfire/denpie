@@ -1,3 +1,5 @@
+#![allow(clippy::collapsible_if)]
+
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -8,6 +10,7 @@ use std::time::SystemTime;
 use tokio::fs;
 use tower_sessions::{Expiry, SessionManagerLayer};
 use tower_sessions_sqlx_store::SqliteStore;
+use tracing_subscriber::EnvFilter;
 
 mod api;
 mod app;
@@ -32,7 +35,7 @@ pub use db::migrations::apply_schema_migrations;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    init_tracing();
     build_frontend_for_cargo_run();
 
     // Setup Admin Token
@@ -68,9 +71,11 @@ async fn main() {
     let schema_path = std::env::var_os("DENPIE_SCHEMA_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("schema.sql"));
+    tracing::info!(path = %schema_path.display(), "applying schema");
     db::migrations::apply_schema_file(&pool, &schema_path)
         .await
         .expect("Failed to apply schema.sql");
+    tracing::info!("applying compatibility migrations");
     db::migrations::apply_schema_migrations(&pool)
         .await
         .expect("Failed to apply schema migrations");
@@ -81,11 +86,12 @@ async fn main() {
         let admin_token = settings_service
             .ensure_admin_token()
             .expect("Failed to ensure admin token");
-        println!(">>> ADMIN SETUP TOKEN: {} <<<", admin_token);
+        tracing::warn!(admin_token = %admin_token, "admin setup token generated");
     }
     image_store::migrate_legacy_images(&pool, &image_dir)
         .await
         .expect("Failed to migrate legacy tipcard images");
+    tracing::info!(path = %image_dir.display(), "image store ready");
 
     let session_store = SqliteStore::new(pool.clone());
     session_store
@@ -139,7 +145,7 @@ async fn main() {
         .ok()
         .map(|value| SocketAddr::from_str(&value).expect("Invalid DENPIE_BIND_ADDR"))
         .unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 3017)));
-    println!("listening on {}", addr);
+    tracing::info!(%addr, "listening");
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(
         listener,
@@ -149,14 +155,20 @@ async fn main() {
     .unwrap();
 }
 
-const DEV_FRONTEND_BUILD_STAMP: &str = "debug-v1";
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("denpie=info,tower_http=info"));
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+}
+
+const DEV_FRONTEND_BUILD_STAMP: &str = "debug-v2";
 
 fn build_frontend_for_cargo_run() {
     if !cfg!(debug_assertions) {
         return;
     }
     if std::env::var_os("DENPIE_SKIP_FRONTEND_BUILD").is_some() {
-        println!("Skipping frontend build because DENPIE_SKIP_FRONTEND_BUILD is set");
+        tracing::info!("skipping frontend build because DENPIE_SKIP_FRONTEND_BUILD is set");
         return;
     }
     if std::env::var_os("DENPIE_FRONTEND_DIST").is_some() {
@@ -167,10 +179,10 @@ fn build_frontend_for_cargo_run() {
         return;
     }
     if dev_frontend_build_stamp_matches(&frontend_dir) && frontend_dist_is_fresh(&frontend_dir) {
-        println!("Frontend dist is up to date; skipping trunk build");
+        tracing::info!("frontend dist is up to date; skipping trunk build");
         return;
     }
-    println!("Building frontend with trunk build (debug)...");
+    tracing::info!("building frontend with trunk build (debug)");
     let status = Command::new("trunk")
         .arg("build")
         .env_remove("NO_COLOR")
@@ -214,6 +226,7 @@ fn frontend_dist_is_fresh(frontend_dir: &Path) -> bool {
         frontend_dir.join("index.html"),
         frontend_dir.join("Trunk.toml"),
         frontend_dir.join("service-worker.js"),
+        frontend_dir.join("src/passkeys.js"),
     ] {
         if path.is_file() && file_is_newer_than(&path, dist_mtime) {
             return false;
