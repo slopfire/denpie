@@ -2,11 +2,15 @@ use crate::{AppState, apply_schema_migrations, build_app};
 use prost::Message;
 use sqlx::SqlitePool;
 use sqlx::sqlite::SqlitePoolOptions;
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{Arc, OnceLock},
+};
 use tokio::fs;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
 
 pub(super) const TEST_USER_ID: &str = "usr_test_admin";
+static TEST_FRONTEND_DIST: OnceLock<PathBuf> = OnceLock::new();
 
 pub(super) async fn setup_db() -> SqlitePool {
     let pool = SqlitePoolOptions::new()
@@ -36,6 +40,7 @@ pub(super) async fn setup_db() -> SqlitePool {
 /// Write isolated test settings and spin up a real server on an ephemeral port.
 /// Returns (base_url, reqwest::Client with cookie jar).
 pub(super) async fn spawn_test_server() -> (String, reqwest::Client) {
+    ensure_test_frontend_dist();
     let test_token = "test_admin_token_xyz";
     let settings_path = unique_settings_path();
     let mut map = serde_yaml::Mapping::new();
@@ -110,6 +115,37 @@ pub(super) async fn spawn_test_server() -> (String, reqwest::Client) {
     }
 
     (base_url, client)
+}
+
+fn ensure_test_frontend_dist() {
+    let frontend_dist = TEST_FRONTEND_DIST.get_or_init(|| {
+        let path =
+            std::env::temp_dir().join(format!("denpie-test-frontend-dist-{}", std::process::id()));
+        std::fs::create_dir_all(&path).expect("create test frontend dist");
+        std::fs::write(
+            path.join("index.html"),
+            r#"<!doctype html>
+<html>
+  <head>
+    <title>Denpie</title>
+    <link rel="modulepreload" href="/frontend-test.js">
+  </head>
+  <body>
+    <script type="module" src="/frontend-test.js"></script>
+    <link rel="preload" href="/frontend-test_bg.wasm" as="fetch" type="application/wasm">
+  </body>
+</html>
+"#,
+        )
+        .expect("write test frontend index");
+        path
+    });
+
+    // Tests build the app before CI has produced frontend/dist. Point every test
+    // server at a tiny stable fixture so the SPA fallback is deterministic.
+    unsafe {
+        std::env::set_var("DENPIE_FRONTEND_DIST", frontend_dist);
+    }
 }
 
 pub(super) fn unique_settings_path() -> PathBuf {
