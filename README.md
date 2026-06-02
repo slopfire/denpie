@@ -295,6 +295,27 @@ docker logs denpie
 
 The Docker image listens on `127.0.0.1:3017` by default and stores `settings.yaml` plus `denpie.db` in `/var/lib/denpie`.
 
+### DockerHub CI/CD
+
+GitHub Actions validates the Docker image on pull requests and publishes it to DockerHub after the Rust tests and frontend build pass on pushes.
+
+Configure these repository settings in GitHub:
+
+- Secret `DOCKERHUB_USERNAME` - DockerHub account or organization name.
+- Secret `DOCKERHUB_TOKEN` - DockerHub access token with write access to the repository.
+- Optional variable `DOCKERHUB_REPOSITORY` - DockerHub repository name. If unset, the GitHub repository name is used.
+
+Published tags include the branch name, Git tag, `sha-<commit>`, and `latest` for the default branch. For example, if `DOCKERHUB_USERNAME=example` and `DOCKERHUB_REPOSITORY=denpie`:
+
+```bash
+docker pull example/denpie:latest
+docker run -d \
+  --name denpie \
+  --network host \
+  -v denpie-data:/var/lib/denpie \
+  example/denpie:latest
+```
+
 ## API Documentation
 
 The unified protobuf API is the only public API:
