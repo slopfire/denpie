@@ -213,7 +213,9 @@ The server can run from the project directory with defaults, or from an installe
 |---|---|---|
 | `DENPIE_BIND_ADDR` | Listen address and port | `127.0.0.1:3017` |
 | `DENPIE_RP_ID` | WebAuthn relying party ID for passkeys. Must be the public site host or a registrable parent domain of it. | host from `DENPIE_RP_ORIGIN` |
-| `DENPIE_RP_ORIGIN` | Public HTTPS origin used for passkey registration and login. | `http://localhost:3017` |
+| `DENPIE_RP_ORIGIN` | Public HTTPS origin used for passkey registration and login. `PUBLIC_URL` is accepted as a fallback. | `http://localhost:3017` |
+| `DENPIE_RP_EXTRA_ORIGINS` | Comma-separated extra allowed WebAuthn origins (for alternate hostnames). | none |
+| `DENPIE_PROD` | Force `Secure` session cookies. Also enabled automatically when `DENPIE_RP_ORIGIN` uses `https`. | off |
 | `DENPIE_DATA_DIR` | Directory for `settings.yaml` and `denpie.db` | current directory |
 | `DENPIE_SCHEMA_PATH` | Path to `schema.sql` | `schema.sql` in the current directory |
 | `DENPIE_FRONTEND_DIST` | Directory containing the built Yew frontend | `frontend/dist` in the current directory |
@@ -283,6 +285,8 @@ docker build -t denpie .
 docker run -d \
   --name denpie \
   --network host \
+  -e DENPIE_RP_ORIGIN=https://denpie.example.com \
+  -e DENPIE_RP_ID=denpie.example.com \
   -v denpie-data:/var/lib/denpie \
   denpie
 ```
@@ -293,7 +297,9 @@ Read the first-start admin token:
 docker logs denpie
 ```
 
-The Docker image listens on `127.0.0.1:3017` by default and stores `settings.yaml` plus `denpie.db` in `/var/lib/denpie`. The included Compose file bind-mounts server-local storage into that path. Set `DENPIE_UID` and `DENPIE_GID` to the numeric owner of the host data directory so the container can write the database, settings file, and tipcard images.
+The Docker image listens on `127.0.0.1:3017` by default and stores `settings.yaml` plus `denpie.db` in `/var/lib/denpie`. The included Compose file bind-mounts server-local storage into that path. Set `DENPIE_UID` and `DENPIE_GID` to the numeric owner of the host data directory so the container can write the database, settings file, and tipcard images. Set `DENPIE_BIND_ADDR=0.0.0.0:3017` in Dokploy when exposing the service through a reverse proxy. Optionally set `DENPIE_HOST_DATA_DIR` if the data directory is not `/var/lib/denpie`.
+
+**Passkeys behind Docker or a reverse proxy:** set `DENPIE_RP_ORIGIN` to the public HTTPS origin users open in the browser (for example `https://denpie.example.com`), not `http://localhost:3017`. Set `DENPIE_RP_ID` to the site hostname or registrable parent domain when it differs from the origin host. The bundled `docker-compose.yml` requires `DENPIE_RP_ORIGIN` via an `.env` file or shell export. A `www` hostname variant is allowed automatically when the primary origin uses `https`.
 
 On the server:
 
@@ -309,6 +315,8 @@ Use the `uid` and `gid` from `id denpie` as Dokploy environment variables:
 DENPIE_UID=998
 DENPIE_GID=998
 DENPIE_HOST_DATA_DIR=/var/lib/denpie
+DENPIE_RP_ORIGIN=https://denpie.example.com
+DENPIE_RP_ID=denpie.example.com
 ```
 
 ### DockerHub CI/CD
@@ -328,6 +336,8 @@ docker pull example/denpie:latest
 docker run -d \
   --name denpie \
   --network host \
+  -e DENPIE_RP_ORIGIN=https://denpie.example.com \
+  -e DENPIE_RP_ID=denpie.example.com \
   -v denpie-data:/var/lib/denpie \
   example/denpie:latest
 ```

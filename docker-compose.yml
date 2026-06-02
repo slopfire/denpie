@@ -5,6 +5,11 @@ services:
     environment:
       DENPIE_BIND_ADDR: "0.0.0.0:3017"
       DENPIE_DATA_DIR: "/var/lib/denpie"
+      # Passkeys: set to the HTTPS URL users open in the browser (not the internal container URL).
+      DENPIE_RP_ORIGIN: "${DENPIE_RP_ORIGIN:?Set DENPIE_RP_ORIGIN to your public origin, e.g. https://denpie.example.com}"
+      DENPIE_RP_ID: "${DENPIE_RP_ID:-}"
+      # Optional comma-separated extra origins (e.g. alternate hostnames).
+      # DENPIE_RP_EXTRA_ORIGINS: "https://www.denpie.example.com"
     volumes:
       - "${DENPIE_HOST_DATA_DIR:-/var/lib/denpie}:/var/lib/denpie"
     ports:

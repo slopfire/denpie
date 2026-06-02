@@ -102,25 +102,7 @@ async fn main() {
     let api_key_service = services::api_keys::ApiKeyService::new(pool.clone());
     let review_service = services::review::ReviewService::new(pool.clone());
 
-    let rp_origin_str =
-        std::env::var("DENPIE_RP_ORIGIN").unwrap_or_else(|_| "http://localhost:3017".to_string());
-    let rp_origin = url::Url::parse(&rp_origin_str).expect("Invalid DENPIE_RP_ORIGIN");
-    let rp_id = std::env::var("DENPIE_RP_ID").unwrap_or_else(|_| {
-        rp_origin
-            .host_str()
-            .expect("DENPIE_RP_ORIGIN must include a host")
-            .to_string()
-    });
-    let webauthn_builder = webauthn_rs::WebauthnBuilder::new(&rp_id, &rp_origin)
-        .expect("Invalid webauthn configuration")
-        .append_allowed_origin(&url::Url::parse("https://denpie.com").unwrap())
-        .append_allowed_origin(&url::Url::parse("https://www.denpie.com").unwrap());
-
-    let webauthn = Arc::new(
-        webauthn_builder
-            .build()
-            .expect("Invalid webauthn configuration"),
-    );
+    let webauthn_setup = config::webauthn::setup();
 
     let shared_state = Arc::new(AppState {
         db: pool,
@@ -129,13 +111,12 @@ async fn main() {
         settings: settings_service,
         api_keys: api_key_service,
         reviews: review_service,
-        webauthn,
+        webauthn: webauthn_setup.webauthn,
     });
     autoupdate::spawn(shared_state.settings_path.clone());
     daily_refresh::spawn(shared_state.clone());
-    let is_prod = std::env::var("DENPIE_PROD").is_ok();
     let session_layer = SessionManagerLayer::new(session_store)
-        .with_secure(is_prod)
+        .with_secure(webauthn_setup.session_secure)
         .with_same_site(tower_sessions::cookie::SameSite::Strict)
         .with_expiry(Expiry::OnInactivity(time::Duration::days(1)));
 
@@ -145,6 +126,7 @@ async fn main() {
         .ok()
         .map(|value| SocketAddr::from_str(&value).expect("Invalid DENPIE_BIND_ADDR"))
         .unwrap_or_else(|| SocketAddr::from(([127, 0, 0, 1], 3017)));
+    config::webauthn::warn_if_passkeys_misconfigured(&addr, &webauthn_setup.rp_origin);
     tracing::info!(%addr, "listening");
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(
