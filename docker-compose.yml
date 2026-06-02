@@ -1,11 +1,11 @@
 services:
   denpie:
     image: slopsphere/denpie:latest
-    user: "denpie:denpie"
+    user: "${DENPIE_UID}:${DENPIE_GID}"
     environment:
       DENPIE_BIND_ADDR: "0.0.0.0:3017"
       DENPIE_DATA_DIR: "/var/lib/denpie"
     volumes:
-      - /var/lib/denpie:/var/lib/denpie
+      - "${DENPIE_HOST_DATA_DIR:-/var/lib/denpie}:/var/lib/denpie"
     ports:
       - "3017:3017"
