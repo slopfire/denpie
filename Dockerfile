@@ -10,6 +10,7 @@ RUN rustup target add wasm32-unknown-unknown \
 COPY Cargo.toml build.rs schema.sql ./
 COPY proto ./proto
 COPY src ./src
+COPY config ./config
 COPY frontend ./frontend
 COPY static ./static
 RUN cd frontend && trunk build --release
