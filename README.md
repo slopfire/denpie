@@ -293,7 +293,23 @@ Read the first-start admin token:
 docker logs denpie
 ```
 
-The Docker image listens on `127.0.0.1:3017` by default and stores `settings.yaml` plus `denpie.db` in `/var/lib/denpie`.
+The Docker image listens on `127.0.0.1:3017` by default and stores `settings.yaml` plus `denpie.db` in `/var/lib/denpie`. The included Compose file bind-mounts server-local storage into that path. Set `DENPIE_UID` and `DENPIE_GID` to the numeric owner of the host data directory so the container can write the database, settings file, and tipcard images.
+
+On the server:
+
+```bash
+sudo mkdir -p /var/lib/denpie
+sudo chown -R denpie:denpie /var/lib/denpie
+id denpie
+```
+
+Use the `uid` and `gid` from `id denpie` as Dokploy environment variables:
+
+```env
+DENPIE_UID=998
+DENPIE_GID=998
+DENPIE_HOST_DATA_DIR=/var/lib/denpie
+```
 
 ### DockerHub CI/CD
 
