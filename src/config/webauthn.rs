@@ -20,8 +20,8 @@ pub fn setup() -> WebauthnSetup {
             .to_string()
     });
 
-    let mut builder =
-        webauthn_rs::WebauthnBuilder::new(&rp_id, &rp_origin).expect("Invalid webauthn configuration");
+    let mut builder = webauthn_rs::WebauthnBuilder::new(&rp_id, &rp_origin)
+        .expect("Invalid webauthn configuration");
 
     if let Some(sibling) = www_sibling_origin(&rp_origin) {
         builder = builder.append_allowed_origin(&sibling);
@@ -32,8 +32,7 @@ pub fn setup() -> WebauthnSetup {
     }
 
     let webauthn = Arc::new(builder.build().expect("Invalid webauthn configuration"));
-    let session_secure =
-        std::env::var_os("DENPIE_PROD").is_some() || rp_origin.scheme() == "https";
+    let session_secure = std::env::var_os("DENPIE_PROD").is_some() || rp_origin.scheme() == "https";
 
     WebauthnSetup {
         webauthn,
@@ -44,8 +43,8 @@ pub fn setup() -> WebauthnSetup {
 
 pub fn warn_if_passkeys_misconfigured(bind_addr: &std::net::SocketAddr, rp_origin: &Url) {
     let localhost_origin = matches!(rp_origin.host_str(), Some("localhost") | Some("127.0.0.1"));
-    let listens_beyond_loopback = bind_addr.ip().is_unspecified()
-        || (!bind_addr.ip().is_loopback() && bind_addr.port() != 0);
+    let listens_beyond_loopback =
+        bind_addr.ip().is_unspecified() || (!bind_addr.ip().is_loopback() && bind_addr.port() != 0);
     if localhost_origin && listens_beyond_loopback {
         tracing::warn!(
             %bind_addr,
