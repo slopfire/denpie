@@ -747,25 +747,33 @@ pub async fn list_tipcards(
         },
     )
     .await
-    .unwrap_or_default()
-    .into_iter()
-    .map(|r| TipcardInfo {
-        id: r.id,
-        topic_name: r.topic_name,
-        topic_icon: r.topic_icon,
-        topic_color: r.topic_color,
-        title: r.title,
-        full_content: r.full_content,
-        compressed_content: r.compressed_content,
-        image_data: r.image_data,
-        created_at: r.created_at,
-        tipcard_type: r.tipcard_type,
-        status: r.status,
-        next_review_at: r.next_review_at,
-        repeat_count: r.repeats,
-        pinned: r.pinned,
-    })
-    .collect();
+    .unwrap_or_default();
+    let card_ids: Vec<i64> = cards.iter().map(|card| card.id).collect();
+    let images_map = tipcards::list_images_for_cards(&state.db, &user.id, &card_ids)
+        .await
+        .unwrap_or_default();
+    let cards = cards
+        .into_iter()
+        .map(|r| TipcardInfo {
+            id: r.id,
+            topic_name: r.topic_name,
+            topic_icon: r.topic_icon,
+            topic_color: r.topic_color,
+            title: r.title,
+            full_content: r.full_content,
+            compressed_content: r.compressed_content,
+            image_data: images_map
+                .get(&r.id)
+                .map(|images| images.iter().map(|image| image_url(image.id)).collect())
+                .unwrap_or_default(),
+            created_at: r.created_at,
+            tipcard_type: r.tipcard_type,
+            status: r.status,
+            next_review_at: r.next_review_at,
+            repeat_count: r.repeats,
+            pinned: r.pinned,
+        })
+        .collect();
 
     Json(cards)
 }

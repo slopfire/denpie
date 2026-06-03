@@ -1876,6 +1876,44 @@ async fn test_manual_tipcards_store_and_update_images() {
 }
 
 #[tokio::test]
+async fn test_list_images_for_cards_returns_stored_images() {
+    let settings_path = unique_settings_path();
+    fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+        .await
+        .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+    let image = "data:image/png;base64,iVBORw0KGgo=".to_string();
+
+    let tips = crate::api::build_tips(
+        &state,
+        TEST_USER_ID,
+        crate::api::TipsJsonRequest {
+            count: Some(1),
+            topics: "rust".into(),
+            tipcard_type: Some("manual_tip".into()),
+            exclude_card_ids: None,
+            manual_content: Some("Manual card with image".into()),
+            manual_compressed_content: None,
+            manual_image_data: Some(vec![image]),
+        },
+    )
+    .await
+    .unwrap();
+
+    let card_id = tips[0].id;
+    let images = crate::db::repositories::tipcards::list_images_for_cards(
+        &state.db,
+        TEST_USER_ID,
+        &[card_id],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(images.get(&card_id).map(|rows| rows.len()), Some(1));
+}
+
+#[tokio::test]
 async fn test_custom_tipcards_do_not_create_review_state() {
     let (url, client) = spawn_test_server().await;
     let api_key = bootstrap_api_key(&url, &client, "custom_cards").await;

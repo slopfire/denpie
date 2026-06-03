@@ -23,6 +23,7 @@ mod dashboard;
 mod db;
 mod domain;
 mod error;
+mod image_compress;
 mod image_store;
 mod llm;
 mod scheduling;

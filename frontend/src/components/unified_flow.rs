@@ -1,15 +1,11 @@
 use crate::api::toast;
 use crate::components::flow_card::{FlowCard, FlowCardSkeleton};
+use crate::image_compress::{collect_files, compress_files_to_data_urls};
 use crate::state::AppState;
-use gloo_file::{File, callbacks::FileReader};
 use gloo_net::http::Request;
 use gloo_storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
-use std::{
-    cell::{Cell, RefCell},
-    collections::HashMap,
-    rc::Rc,
-};
+use std::collections::HashMap;
 use wasm_bindgen::JsCast;
 use web_sys::{DragEvent, HtmlInputElement, HtmlTextAreaElement, KeyboardEvent};
 use yew::prelude::*;
@@ -166,7 +162,6 @@ pub fn unified_flow() -> Html {
     });
     let manual_content = use_state(String::new);
     let manual_images = use_state(Vec::<String>::new);
-    let image_readers = use_state(Vec::<FileReader>::new);
     let layout = use_state(|| {
         LocalStorage::get::<String>("denpie-flow-layout").unwrap_or_else(|_| "grid".to_string())
     });
@@ -634,9 +629,8 @@ pub fn unified_flow() -> Html {
 
     let on_manual_images = {
         let manual_images = manual_images.clone();
-        let image_readers = image_readers.clone();
+        let app_state = app_state.clone();
         Callback::from(move |e: Event| {
-            let mut readers = Vec::new();
             let Some(input) = e.target_dyn_into::<HtmlInputElement>() else {
                 return;
             };
@@ -645,34 +639,26 @@ pub fn unified_flow() -> Html {
             };
             if files.length() == 0 {
                 return;
-            };
-            let next_images = Rc::new(RefCell::new(Vec::<String>::new()));
-            let remaining = Rc::new(Cell::new(files.length()));
-            for index in 0..files.length() {
-                let Some(file) = files.get(index) else {
-                    continue;
-                };
-                let manual_images = manual_images.clone();
-                let next_images = next_images.clone();
-                let remaining = remaining.clone();
-                let reader =
-                    gloo_file::callbacks::read_as_data_url(&File::from(file), move |result| {
-                        if let Ok(data) = result {
-                            next_images.borrow_mut().push(data);
-                        }
-                        let left = remaining.get().saturating_sub(1);
-                        remaining.set(left);
-                        if left == 0 {
-                            let mut next = (*manual_images).clone();
-                            next.extend(next_images.borrow().iter().cloned());
-                            manual_images.set(next);
-                        }
-                    });
-                readers.push(reader);
             }
+            let selected = collect_files(&files);
             input.set_value("");
-            image_readers.set(readers);
+            let manual_images = manual_images.clone();
+            let app_state = app_state.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match compress_files_to_data_urls(selected).await {
+                    Ok(mut compressed) => {
+                        let mut next = (*manual_images).clone();
+                        next.append(&mut compressed);
+                        manual_images.set(next);
+                    }
+                    Err(message) => toast(&app_state, message),
+                }
+            });
         })
+    };
+    let on_upload_error = {
+        let app_state = app_state.clone();
+        Callback::from(move |message: String| toast(&app_state, message))
     };
     let on_flow_dragover = Callback::from(|e: DragEvent| {
         e.prevent_default();
@@ -718,7 +704,9 @@ pub fn unified_flow() -> Html {
                     <div class="tip-type-switch muted-surface border border-token rounded-md p-1 grid grid-cols-3 sm:col-span-2" role="group">
                         <button type="button" onclick={let t = tip_type.clone(); Callback::from(move |_| t.set("casual_tip".to_string()))} class={classes!("rounded-md", "px-3", "py-2", "text-sm", "font-medium", (*tip_type == "casual_tip").then_some("active"))}>{"Casual"}</button>
                         <button type="button" onclick={let t = tip_type.clone(); Callback::from(move |_| t.set("repeatable_tip".to_string()))} class={classes!("rounded-md", "px-3", "py-2", "text-sm", "font-medium", (*tip_type == "repeatable_tip").then_some("active"))}>{"Repeat"}</button>
-                        <button type="button" onclick={let t = tip_type.clone(); Callback::from(move |_| t.set("manual_tip".to_string()))} class={classes!("rounded-md", "px-3", "py-2", "text-sm", "font-medium", (*tip_type == "manual_tip").then_some("active"))}>{"Manual"}</button>
+                        <button type="button" onclick={let t = tip_type.clone(); Callback::from(move |_| t.set("manual_tip".to_string()))} class={classes!("rounded-md", "px-3", "py-2", "text-sm", "font-medium", "inline-flex", "items-center", "justify-center", "gap-1.5", (*tip_type == "manual_tip").then_some("active"))}>
+                            {"Manual"}
+                        </button>
                     </div>
                     <button
                         id="tips-submit-btn"
@@ -726,7 +714,7 @@ pub fn unified_flow() -> Html {
                         class={classes!("rounded-md", "bg-primary-solid", "px-4", "py-2", "font-medium", "flex", "items-center", "justify-center", "gap-2", (*pending_count > 0).then_some("opacity-60 cursor-not-allowed"))}
                         disabled={*pending_count > 0}
                     >
-                        <iconify-icon icon={if *pending_count > 0 { "radix-icons:update" } else { "radix-icons:magic-wand" }} class={classes!("radix-icon", (*pending_count > 0).then_some("animate-spin"))} aria-hidden="true"></iconify-icon>
+                        <iconify-icon icon={if *pending_count > 0 { "radix-icons:update" } else if *tip_type == "manual_tip" { "material-symbols:accessible-forward" } else { "radix-icons:magic-wand" }} class={classes!("radix-icon", (*pending_count > 0).then_some("animate-spin"))} aria-hidden="true"></iconify-icon>
                         <span>{ if *pending_count > 0 { "Adding..." } else { "Add" } }</span>
                     </button>
                     if *tip_type == "manual_tip" {
@@ -850,6 +838,7 @@ pub fn unified_flow() -> Html {
                                 on_delete={on_delete_cb.clone()}
                                 on_reorder={on_reorder_cb.clone()}
                                 on_update_images={on_update_images_cb.clone()}
+                                on_upload_error={on_upload_error.clone()}
                                 on_toggle_fullscreen={on_toggle_fullscreen.clone()}
                                 on_request_detail={request_detail.clone()}
                                 on_measure={on_measure.clone()}

@@ -1,12 +1,14 @@
 use crate::api::toast;
 use crate::app::View;
+use crate::components::select::{SelectOption, ShadcnSelect};
+use crate::components::tooltip::ShadcnTooltip;
 use crate::i18n::{I18n, use_i18n};
 use crate::state::AppState;
 use crate::topic_visual::display_icon;
 use gloo_net::http::Request;
 use gloo_storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
-use web_sys::{HtmlDialogElement, HtmlInputElement, HtmlSelectElement, HtmlTextAreaElement};
+use web_sys::{HtmlDialogElement, HtmlInputElement, HtmlTextAreaElement};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -374,10 +376,10 @@ pub fn dashboard() -> Html {
                                 <div class="surface border rounded-md p-4 flex flex-col">
                                     <div class="flex justify-between items-start mb-2 gap-2">
                                         <h3 class="font-semibold text-lg truncate flex items-center gap-2 min-w-0">
+                                            <ShadcnTooltip content="Pick new icon with AI">
                                             <button
                                                 type="button"
                                                 class="topic-icon-btn shrink-0 inline-flex items-center justify-center rounded-sm border border-transparent hover:border-token disabled:opacity-50"
-                                                title="Pick new icon with AI"
                                                 disabled={icon_loading}
                                                 onclick={Callback::from(move |_| on_regenerate_icon.emit(topic_id))}
                                             >
@@ -396,6 +398,7 @@ pub fn dashboard() -> Html {
                                                     ></iconify-icon>
                                                 }
                                             </button>
+                                            </ShadcnTooltip>
                                             <span class="truncate">{&t.name}</span>
                                         </h3>
                                         <span class="badge shrink-0">{tip_type_label(&i18n, &t.tipcard_type)}</span>
@@ -585,12 +588,19 @@ fn topic_editor(props: &TopicEditorProps) -> Html {
                     </div>
                     <div>
                         <label class="block card-kicker mb-2">{"Compression Level"}</label>
-                        <select value={(*compression_level).clone()} onchange={Callback::from({ let state = compression_level.clone(); move |e: Event| if let Some(t) = e.target_dyn_into::<HtmlSelectElement>() { state.set(t.value()); }})} class="w-full rounded-md border px-3 py-2">
-                            <option value="light">{"Light"}</option>
-                            <option value="balanced">{"Balanced"}</option>
-                            <option value="strong">{"Strong"}</option>
-                            <option value="ultra">{"Ultra"}</option>
-                        </select>
+                        <ShadcnSelect
+                            value={(*compression_level).clone()}
+                            onchange={Callback::from({
+                                let state = compression_level.clone();
+                                move |value: String| state.set(value)
+                            })}
+                            options={vec![
+                                SelectOption { value: "light".into(), label: "Light".into() },
+                                SelectOption { value: "balanced".into(), label: "Balanced".into() },
+                                SelectOption { value: "strong".into(), label: "Strong".into() },
+                                SelectOption { value: "ultra".into(), label: "Ultra".into() },
+                            ]}
+                        />
                     </div>
                     <div>
                         <label class="block card-kicker mb-2">{"Time Zone"}</label>

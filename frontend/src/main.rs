@@ -9,6 +9,7 @@ mod api;
 mod app;
 mod components;
 mod i18n;
+mod image_compress;
 mod markdown;
 mod passkeys;
 mod state;

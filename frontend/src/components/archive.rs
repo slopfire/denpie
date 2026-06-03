@@ -1,13 +1,19 @@
 use crate::api::{toast, toast_key};
 use crate::components::flow_card::FlowCard;
+use crate::components::select::{SelectOption, ShadcnSelect};
 use crate::components::unified_flow::TipcardInfo;
 use crate::i18n::use_i18n;
 use crate::state::AppState;
 use gloo_net::http::Request;
 use gloo_storage::{LocalStorage, Storage};
+use gloo_timers::callback::Timeout;
 use serde::Serialize;
-use web_sys::{HtmlInputElement, HtmlSelectElement};
+use web_sys::HtmlInputElement;
 use yew::prelude::*;
+
+const ARCHIVE_PAGE_SIZE: usize = 24;
+const ARCHIVE_GLASS_THRESHOLD: usize = 8;
+const ARCHIVE_SEARCH_DEBOUNCE_MS: u32 = 300;
 
 #[derive(Serialize)]
 struct PatchTipcardReq {
@@ -16,12 +22,50 @@ struct PatchTipcardReq {
     image_data: Option<Vec<String>>,
 }
 
+fn filter_and_sort_archive_cards(
+    cards: &[TipcardInfo],
+    search: &str,
+    status: &str,
+    sort_by: &str,
+) -> Vec<TipcardInfo> {
+    let q = search.to_lowercase();
+    let mut filtered: Vec<_> = cards
+        .iter()
+        .filter(|card| {
+            let status_ok = status == "all" || card.status == status;
+            let text_ok = q.is_empty()
+                || card.title.to_lowercase().contains(&q)
+                || card.topic_name.to_lowercase().contains(&q)
+                || card.full_content.to_lowercase().contains(&q);
+            status_ok && text_ok
+        })
+        .cloned()
+        .collect();
+    match sort_by {
+        "date" => filtered.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| b.id.cmp(&a.id))
+        }),
+        _ => filtered.sort_by(|a, b| {
+            a.topic_name
+                .to_lowercase()
+                .cmp(&b.topic_name.to_lowercase())
+                .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
+                .then_with(|| a.id.cmp(&b.id))
+        }),
+    }
+    filtered
+}
+
 #[function_component(Archive)]
 pub fn archive() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
     let i18n = use_i18n();
     let cards = use_state(Vec::<TipcardInfo>::new);
-    let search = use_state(String::new);
+    let search_input = use_state(String::new);
+    let search_query = use_state(String::new);
+    let search_timer = use_mut_ref(|| None::<Timeout>);
     let status = use_state(|| "all".to_string());
     let sort_by = use_state(|| {
         LocalStorage::get::<String>("denpie-archive-sort").unwrap_or_else(|_| "topic".to_string())
@@ -51,34 +95,20 @@ pub fn archive() -> Html {
         });
     }
 
-    let mut filtered: Vec<_> = cards
-        .iter()
-        .filter(|card| {
-            let q = search.to_lowercase();
-            let status_ok = *status == "all" || card.status == *status;
-            let text_ok = q.is_empty()
-                || card.title.to_lowercase().contains(&q)
-                || card.topic_name.to_lowercase().contains(&q)
-                || card.full_content.to_lowercase().contains(&q);
-            status_ok && text_ok
-        })
-        .cloned()
-        .collect();
-    match sort_by.as_str() {
-        "date" => filtered.sort_by(|a, b| {
-            b.created_at
-                .cmp(&a.created_at)
-                .then_with(|| b.id.cmp(&a.id))
-        }),
-        _ => filtered.sort_by(|a, b| {
-            a.topic_name
-                .to_lowercase()
-                .cmp(&b.topic_name.to_lowercase())
-                .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
-                .then_with(|| a.id.cmp(&b.id))
-        }),
-    }
-    let visible: Vec<_> = filtered.iter().take(*page * 24).cloned().collect();
+    let filtered = use_memo(
+        (
+            (*cards).clone(),
+            (*search_query).clone(),
+            (*status).clone(),
+            (*sort_by).clone(),
+        ),
+        |(cards, search, status, sort_by)| {
+            filter_and_sort_archive_cards(cards, search, status, sort_by)
+        },
+    );
+    let visible_count = (*page * ARCHIVE_PAGE_SIZE).min(filtered.len());
+    let visible: Vec<_> = filtered.iter().take(visible_count).cloned().collect();
+    let disable_glass = visible.len() > ARCHIVE_GLASS_THRESHOLD;
 
     let on_review = Callback::from(|_: (i64, Option<u8>, Option<String>)| {});
     let on_reorder = Callback::from(|_: (i64, i64)| {});
@@ -200,22 +230,75 @@ pub fn archive() -> Html {
         })
     };
 
+    let on_search_input = {
+        let search_input = search_input.clone();
+        let search_query = search_query.clone();
+        let search_timer = search_timer.clone();
+        let page = page.clone();
+        Callback::from(move |e: InputEvent| {
+            let Some(target) = e.target_dyn_into::<HtmlInputElement>() else {
+                return;
+            };
+            let value = target.value();
+            search_input.set(value.clone());
+            if let Some(timer) = search_timer.borrow_mut().take() {
+                timer.cancel();
+            }
+            let search_query = search_query.clone();
+            let page = page.clone();
+            *search_timer.borrow_mut() =
+                Some(Timeout::new(ARCHIVE_SEARCH_DEBOUNCE_MS, move || {
+                    search_query.set(value);
+                    page.set(1);
+                }));
+        })
+    };
+
+    let on_clear_filters = {
+        let search_input = search_input.clone();
+        let search_query = search_query.clone();
+        let search_timer = search_timer.clone();
+        let status = status.clone();
+        let page = page.clone();
+        Callback::from(move |_| {
+            if let Some(timer) = search_timer.borrow_mut().take() {
+                timer.cancel();
+            }
+            search_input.set(String::new());
+            search_query.set(String::new());
+            status.set("all".to_string());
+            page.set(1);
+        })
+    };
+
     html! {
-        <section id="view-archive">
-            <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-3 mb-4">
+        <section id="view-archive" class={classes!(disable_glass.then_some("flow-many-cards"))}>
+            <div class="archive-toolbar flex flex-col lg:flex-row lg:items-end justify-between gap-3 mb-4">
                 <div>
                     <h1 class="text-xl font-semibold tracking-tight">{i18n.t("archive.title")}</h1>
                     <p class="text-muted mt-2">{i18n.tf("format.archive_card_count", &[("shown", filtered.len().to_string()), ("total", cards.len().to_string())])}</p>
                 </div>
                 <div class="surface border rounded-md p-3 flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
-                    <input value={(*search).clone()} oninput={Callback::from({ let search = search.clone(); let page = page.clone(); move |e: InputEvent| if let Some(t) = e.target_dyn_into::<HtmlInputElement>() { search.set(t.value()); page.set(1); }})} class="rounded-md border px-3 py-2 flex-1 min-w-0" placeholder={i18n.t("archive.find_card")} />
+                    <input value={(*search_input).clone()} oninput={on_search_input} class="rounded-md border px-3 py-2 flex-1 min-w-0" placeholder={i18n.t("archive.find_card")} />
                     <div class="flex flex-wrap sm:flex-nowrap items-center gap-2">
-                        <select value={(*status).clone()} onchange={Callback::from({ let status = status.clone(); let page = page.clone(); move |e: Event| if let Some(t) = e.target_dyn_into::<HtmlSelectElement>() { status.set(t.value()); page.set(1); }})} class="rounded-md border px-3 py-2">
-                            <option value="all">{i18n.t("archive.status_all")}</option>
-                            <option value="active">{i18n.t("archive.status_active")}</option>
-                            <option value="completed">{i18n.t("archive.status_completed")}</option>
-                            <option value="custom">{i18n.t("archive.status_custom")}</option>
-                        </select>
+                        <ShadcnSelect
+                            value={(*status).clone()}
+                            onchange={Callback::from({
+                                let status = status.clone();
+                                let page = page.clone();
+                                move |value: String| {
+                                    status.set(value);
+                                    page.set(1);
+                                }
+                            })}
+                            class="min-w-[10rem]"
+                            options={vec![
+                                SelectOption { value: "all".into(), label: i18n.t("archive.status_all") },
+                                SelectOption { value: "active".into(), label: i18n.t("archive.status_active") },
+                                SelectOption { value: "completed".into(), label: i18n.t("archive.status_completed") },
+                                SelectOption { value: "custom".into(), label: i18n.t("archive.status_custom") },
+                            ]}
+                        />
                         <div class="flex muted-surface rounded-md p-1 border border-token" role="group" aria-label={i18n.t("archive.sort_cards")}>
                             <button
                                 type="button"
@@ -250,7 +333,7 @@ pub fn archive() -> Html {
                                 {i18n.t("archive.sort_date")}
                             </button>
                         </div>
-                        <button type="button" class="rounded-md border border-token px-3 py-2" onclick={Callback::from({ let search = search.clone(); let status = status.clone(); let page = page.clone(); move |_| { search.set(String::new()); status.set("all".to_string()); page.set(1); } })}>{i18n.t("archive.clear")}</button>
+                        <button type="button" class="rounded-md border border-token px-3 py-2" onclick={on_clear_filters}>{i18n.t("archive.clear")}</button>
                     </div>
                 </div>
             </div>
@@ -263,15 +346,22 @@ pub fn archive() -> Html {
                         html! {
                             for visible.iter().map(|card| html! {
                                 <FlowCard
+                                    key={card.id.to_string()}
                                     card={card.clone()}
                                     on_review={on_review.clone()}
                                     on_toggle_pin={on_toggle_pin.clone()}
                                     on_delete={on_delete.clone()}
                                     on_reorder={on_reorder.clone()}
                                     on_update_images={on_update_images.clone()}
+                                    on_upload_error={Callback::from({
+                                        let app_state = app_state.clone();
+                                        move |message: String| toast(&app_state, message)
+                                    })}
                                     on_toggle_fullscreen={on_toggle_fullscreen.clone()}
                                     list_mode={false}
                                     fullscreen={*fullscreen_card_id == Some(card.id)}
+                                    enable_drag={false}
+                                    enable_measure={false}
                                 />
                             })
                         }

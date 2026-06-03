@@ -1,10 +1,11 @@
 use crate::api::toast;
+use crate::components::select::{SelectOption, ShadcnSelect};
 use crate::state::AppState;
 use gloo_net::http::Request;
 use gloo_storage::{LocalStorage, Storage};
 use gloo_timers::callback::Timeout;
 use serde::{Deserialize, Serialize};
-use web_sys::{HtmlInputElement, HtmlSelectElement, HtmlTextAreaElement};
+use web_sys::{HtmlInputElement, HtmlTextAreaElement};
 use yew::prelude::*;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
@@ -269,47 +270,6 @@ fn short_commit(sha: &str) -> String {
 struct SaveRequest {
     patch: UpdateSettingsPatch,
     snapshot: SettingsRes,
-}
-
-#[derive(Properties, Clone, PartialEq)]
-struct StableSelectProps {
-    id: AttrValue,
-    name: AttrValue,
-    value: String,
-    class: AttrValue,
-    onchange: Callback<Event>,
-    #[prop_or_default]
-    children: Children,
-}
-
-#[function_component(StableSelect)]
-fn stable_select(props: &StableSelectProps) -> Html {
-    let node_ref = use_node_ref();
-    {
-        let node_ref = node_ref.clone();
-        let value = props.value.clone();
-        use_effect_with(value, move |value| {
-            if let Some(select) = node_ref.cast::<HtmlSelectElement>() {
-                select.set_value(value);
-            }
-            || ()
-        });
-    }
-
-    html! {
-        <select
-            ref={node_ref}
-            key={format!("{}-{}", props.id, props.value)}
-            id={props.id.clone()}
-            name={props.name.clone()}
-            autocomplete="off"
-            onchange={props.onchange.clone()}
-            value={props.value.clone()}
-            class={props.class.clone()}
-        >
-            {for props.children.iter()}
-        </select>
-    }
 }
 
 #[derive(Deserialize, Clone, PartialEq, Default)]
@@ -757,48 +717,40 @@ pub fn settings() -> Html {
     let on_select = |field: &'static str| {
         let settings = settings.clone();
         let save_immediately = save_immediately.clone();
-        Callback::from(move |e: Event| {
-            if let Some(target) = e.target_dyn_into::<HtmlSelectElement>() {
-                if let Some(mut current) = (*settings).clone() {
-                    match field {
-                        "reasoning_effort" => current.reasoning_effort = target.value(),
-                        "compress_reasoning_effort" => {
-                            current.compress_reasoning_effort = target.value()
-                        }
-                        "compression_level" => current.compression_level = target.value(),
-                        "color_scheme" => {
-                            current.color_scheme = target.value();
-                        }
-                        "transparency" => current.transparency = target.value(),
-                        "blur_intensity" => current.blur_intensity = target.value(),
-                        _ => {}
-                    }
-                    apply_appearance(&current);
-                    settings.set(Some(current.clone()));
-                    let mut patch = UpdateSettingsPatch::default();
-                    match field {
-                        "reasoning_effort" => {
-                            patch.reasoning_effort = Some(current.reasoning_effort.clone())
-                        }
-                        "compress_reasoning_effort" => {
-                            patch.compress_reasoning_effort =
-                                Some(current.compress_reasoning_effort.clone())
-                        }
-                        "compression_level" => {
-                            patch.compression_level = Some(current.compression_level.clone())
-                        }
-                        "color_scheme" => patch.color_scheme = Some(current.color_scheme.clone()),
-                        "transparency" => patch.transparency = Some(current.transparency.clone()),
-                        "blur_intensity" => {
-                            patch.blur_intensity = Some(current.blur_intensity.clone())
-                        }
-                        _ => {}
-                    }
-                    save_immediately.emit(SaveRequest {
-                        patch,
-                        snapshot: current,
-                    });
+        Callback::from(move |value: String| {
+            if let Some(mut current) = (*settings).clone() {
+                match field {
+                    "reasoning_effort" => current.reasoning_effort = value,
+                    "compress_reasoning_effort" => current.compress_reasoning_effort = value,
+                    "compression_level" => current.compression_level = value,
+                    "color_scheme" => current.color_scheme = value,
+                    "transparency" => current.transparency = value,
+                    "blur_intensity" => current.blur_intensity = value,
+                    _ => {}
                 }
+                apply_appearance(&current);
+                settings.set(Some(current.clone()));
+                let mut patch = UpdateSettingsPatch::default();
+                match field {
+                    "reasoning_effort" => {
+                        patch.reasoning_effort = Some(current.reasoning_effort.clone())
+                    }
+                    "compress_reasoning_effort" => {
+                        patch.compress_reasoning_effort =
+                            Some(current.compress_reasoning_effort.clone())
+                    }
+                    "compression_level" => {
+                        patch.compression_level = Some(current.compression_level.clone())
+                    }
+                    "color_scheme" => patch.color_scheme = Some(current.color_scheme.clone()),
+                    "transparency" => patch.transparency = Some(current.transparency.clone()),
+                    "blur_intensity" => patch.blur_intensity = Some(current.blur_intensity.clone()),
+                    _ => {}
+                }
+                save_immediately.emit(SaveRequest {
+                    patch,
+                    snapshot: current,
+                });
             }
         })
     };
@@ -852,35 +804,35 @@ pub fn settings() -> Html {
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
                         <label class="block card-kicker mb-2">{"LLM Reasoning"}</label>
-                        <StableSelect
+                        <ShadcnSelect
                             id="reasoning-effort-input"
                             name="reasoning-effort-input"
                             onchange={on_select("reasoning_effort")}
                             value={s.reasoning_effort.clone()}
-                            class="w-full rounded-md border px-3 py-2"
-                        >
-                            <option value="none">{"None"}</option>
-                            <option value="minimal">{"Minimal"}</option>
-                            <option value="low">{"Low"}</option>
-                            <option value="medium">{"Medium"}</option>
-                            <option value="high">{"High"}</option>
-                            <option value="xhigh">{"XHigh"}</option>
-                        </StableSelect>
+                            options={vec![
+                                SelectOption { value: "none".into(), label: "None".into() },
+                                SelectOption { value: "minimal".into(), label: "Minimal".into() },
+                                SelectOption { value: "low".into(), label: "Low".into() },
+                                SelectOption { value: "medium".into(), label: "Medium".into() },
+                                SelectOption { value: "high".into(), label: "High".into() },
+                                SelectOption { value: "xhigh".into(), label: "XHigh".into() },
+                            ]}
+                        />
                     </div>
                     <div>
                         <label class="block card-kicker mb-2">{"Compression Level"}</label>
-                        <StableSelect
+                        <ShadcnSelect
                             id="compression-level-input"
                             name="compression-level-input"
                             onchange={on_select("compression_level")}
                             value={s.compression_level.clone()}
-                            class="w-full rounded-md border px-3 py-2"
-                        >
-                            <option value="light">{"Light"}</option>
-                            <option value="balanced">{"Balanced"}</option>
-                            <option value="strong">{"Strong"}</option>
-                            <option value="ultra">{"Ultra"}</option>
-                        </StableSelect>
+                            options={vec![
+                                SelectOption { value: "light".into(), label: "Light".into() },
+                                SelectOption { value: "balanced".into(), label: "Balanced".into() },
+                                SelectOption { value: "strong".into(), label: "Strong".into() },
+                                SelectOption { value: "ultra".into(), label: "Ultra".into() },
+                            ]}
+                        />
                     </div>
                 </div>
                 <div>
@@ -923,52 +875,53 @@ pub fn settings() -> Html {
                 </div>
                 <div>
                     <label class="block card-kicker mb-2" for="theme-select-settings">{"Color Scheme"}</label>
-                    <StableSelect
+                    <ShadcnSelect
                         id="theme-select-settings"
                         name="theme-select-settings"
                         value={s.color_scheme.clone()}
-                        class="theme-select w-full rounded-md border px-3 py-2"
+                        class="theme-select"
                         onchange={on_select("color_scheme")}
-                    >
-                        <option value="shadcn">{"Shadcn (Dark)"}</option>
-                        <option value="shadcn-light">{"Shadcn (Light)"}</option>
-                        <option value="carbonfox">{"Carbonfox"}</option>
-                        <option value="ayu">{"Ayu"}</option>
-                        <option value="solarized-light">{"Solarized Light"}</option>
-                        <option value="solarized-dark">{"Solarized Dark"}</option>
-                        <option value="amoled">{"AMOLED"}</option>
-                        <option value="slate">{"Slate"}</option>
-                    </StableSelect>
+                        options={vec![
+                            SelectOption { value: "shadcn".into(), label: "Shadcn (Dark)".into() },
+                            SelectOption { value: "shadcn-light".into(), label: "Shadcn (Light)".into() },
+                            SelectOption { value: "carbonfox".into(), label: "Carbonfox".into() },
+                            SelectOption { value: "ayu".into(), label: "Ayu".into() },
+                            SelectOption { value: "solarized-light".into(), label: "Solarized Light".into() },
+                            SelectOption { value: "solarized-dark".into(), label: "Solarized Dark".into() },
+                            SelectOption { value: "amoled".into(), label: "AMOLED".into() },
+                            SelectOption { value: "slate".into(), label: "Slate".into() },
+                        ]}
+                    />
                 </div>
                 <div>
                     <label class="block card-kicker mb-2">{"Transparency"}</label>
-                    <StableSelect
+                    <ShadcnSelect
                         id="transparency-input"
                         name="transparency-input"
                         onchange={on_select("transparency")}
                         value={s.transparency.clone()}
-                        class="w-full rounded-md border px-3 py-2"
-                    >
-                        <option value="none">{"None"}</option>
-                        <option value="low">{"Low"}</option>
-                        <option value="medium">{"Medium"}</option>
-                        <option value="full">{"Full"}</option>
-                    </StableSelect>
+                        options={vec![
+                            SelectOption { value: "none".into(), label: "None".into() },
+                            SelectOption { value: "low".into(), label: "Low".into() },
+                            SelectOption { value: "medium".into(), label: "Medium".into() },
+                            SelectOption { value: "full".into(), label: "Full".into() },
+                        ]}
+                    />
                 </div>
                 <div>
                     <label class="block card-kicker mb-2">{"Blur Intensity"}</label>
-                    <StableSelect
+                    <ShadcnSelect
                         id="blur-intensity-input"
                         name="blur-intensity-input"
                         onchange={on_select("blur_intensity")}
                         value={s.blur_intensity.clone()}
-                        class="w-full rounded-md border px-3 py-2"
-                    >
-                        <option value="none">{"None"}</option>
-                        <option value="low">{"Low"}</option>
-                        <option value="medium">{"Medium"}</option>
-                        <option value="full">{"Full"}</option>
-                    </StableSelect>
+                        options={vec![
+                            SelectOption { value: "none".into(), label: "None".into() },
+                            SelectOption { value: "low".into(), label: "Low".into() },
+                            SelectOption { value: "medium".into(), label: "Medium".into() },
+                            SelectOption { value: "full".into(), label: "Full".into() },
+                        ]}
+                    />
                 </div>
                 <div class="border border-token rounded-md p-4 space-y-4">
                     <label class="flex items-center gap-3 text-sm font-medium">

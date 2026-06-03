@@ -1,4 +1,7 @@
 use axum::http::StatusCode;
+use base64::{Engine, engine::general_purpose::STANDARD};
+
+use super::image;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TipcardType {
@@ -63,7 +66,8 @@ pub fn is_queue_tipcard(value: &str) -> bool {
 
 pub fn validate_image_data(image_data: Vec<String>) -> Result<Vec<String>, (StatusCode, String)> {
     const MAX_IMAGES: usize = 4;
-    const MAX_TOTAL_CHARS: usize = 12 * 1024 * 1024;
+    // Base64 expands payloads by ~4/3; keep enough headroom for four 10 MB decoded images.
+    const MAX_TOTAL_CHARS: usize = 56 * 1024 * 1024;
     let mut normalized = Vec::new();
     let mut total_chars = 0usize;
 
@@ -89,15 +93,51 @@ pub fn validate_image_data(image_data: Vec<String>) -> Result<Vec<String>, (Stat
                 "Only PNG, JPEG, WebP, or GIF data URLs are supported".to_string(),
             ));
         }
+        let payload = image
+            .split_once(',')
+            .map(|(_, payload)| payload)
+            .ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Invalid image data URL".to_string(),
+                )
+            })?;
+        let decoded = STANDARD.decode(payload).map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                "Invalid base64 image data".to_string(),
+            )
+        })?;
+        image::validate_decoded_image_size(decoded.len())?;
         total_chars = total_chars.saturating_add(image.len());
         if total_chars > MAX_TOTAL_CHARS {
             return Err((
                 StatusCode::BAD_REQUEST,
-                "Attached images are too large".to_string(),
+                format!(
+                    "Attached images are too large (max {} MB total encoded payload)",
+                    MAX_TOTAL_CHARS / 1024 / 1024
+                ),
             ));
         }
         normalized.push(image);
     }
 
     Ok(normalized)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::image::MAX_IMAGE_BYTES;
+
+    #[test]
+    fn rejects_image_payload_over_ten_megabytes() {
+        let oversized = format!(
+            "data:image/png;base64,{}",
+            STANDARD.encode(vec![0_u8; MAX_IMAGE_BYTES + 1])
+        );
+        let err = validate_image_data(vec![oversized]).unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(err.1.contains("10 MB"));
+    }
 }

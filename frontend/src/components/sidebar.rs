@@ -1,9 +1,11 @@
 use crate::api::toast_key;
 use crate::app::View;
+use crate::components::tooltip::ShadcnTooltip;
 use crate::i18n::use_i18n;
-use crate::state::{AppAction, AppState};
+use crate::state::{AppAction, AppState, UserProfile};
 use gloo_net::http::Request;
 use wasm_bindgen::JsCast;
+use web_sys::KeyboardEvent;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -16,7 +18,14 @@ pub struct SidebarProps {
 pub fn sidebar(props: &SidebarProps) -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
     let i18n = use_i18n();
+    let navigator = use_navigator().unwrap();
     let menu_open = use_state(|| false);
+    let refreshing = use_state(|| false);
+
+    let close_menu = {
+        let menu_open = menu_open.clone();
+        Callback::from(move |_| menu_open.set(false))
+    };
 
     let toggle_menu = {
         let menu_open = menu_open.clone();
@@ -43,10 +52,22 @@ pub fn sidebar(props: &SidebarProps) -> Html {
         })
     };
 
+    let on_menu_keydown = {
+        let close_menu = close_menu.clone();
+        Callback::from(move |e: KeyboardEvent| {
+            if e.key() == "Escape" {
+                e.prevent_default();
+                close_menu.emit(());
+            }
+        })
+    };
+
     let logout = {
         let app_state = app_state.clone();
         let i18n = i18n.clone();
+        let close_menu = close_menu.clone();
         Callback::from(move |_| {
+            close_menu.emit(());
             let app_state = app_state.clone();
             let i18n = i18n.clone();
             wasm_bindgen_futures::spawn_local(async move {
@@ -54,6 +75,37 @@ pub fn sidebar(props: &SidebarProps) -> Html {
                     app_state.dispatch(AppAction::SetSession(None));
                     toast_key(&app_state, &i18n, "toast.logged_out");
                 }
+            });
+        })
+    };
+
+    let refresh_profile = {
+        let app_state = app_state.clone();
+        let i18n = i18n.clone();
+        let close_menu = close_menu.clone();
+        let refreshing = refreshing.clone();
+        Callback::from(move |_| {
+            if *refreshing {
+                return;
+            }
+            refreshing.set(true);
+            let app_state = app_state.clone();
+            let i18n = i18n.clone();
+            let refreshing = refreshing.clone();
+            let close_menu = close_menu.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = match Request::get("/auth/me").send().await {
+                    Ok(res) if res.ok() => res.json::<UserProfile>().await.ok(),
+                    _ => None,
+                };
+                if let Some(user) = result {
+                    app_state.dispatch(AppAction::SetUser(Some(user)));
+                    toast_key(&app_state, &i18n, "toast.profile_refreshed");
+                } else {
+                    toast_key(&app_state, &i18n, "toast.profile_refresh_failed");
+                }
+                refreshing.set(false);
+                close_menu.emit(());
             });
         })
     };
@@ -81,9 +133,20 @@ pub fn sidebar(props: &SidebarProps) -> Html {
         build_sha.clone()
     };
     let avatar_content = if let Some(Some(avatar)) = user.as_ref().map(|u| u.avatar_data.clone()) {
-        html! { <img src={avatar} class="h-full w-full rounded-full object-cover" /> }
+        html! { <img src={avatar} class="h-full w-full rounded-full object-cover" alt="" /> }
     } else {
         html! { {username.chars().next().unwrap_or('?').to_uppercase().to_string()} }
+    };
+    let menu_expanded = if *menu_open { "true" } else { "false" };
+    let account_settings_active = props.current_view == View::AccountSettings;
+
+    let open_account_settings = {
+        let navigator = navigator.clone();
+        let close_menu = close_menu.clone();
+        Callback::from(move |_| {
+            close_menu.emit(());
+            navigator.push(&View::AccountSettings);
+        })
     };
 
     html! {
@@ -113,24 +176,71 @@ pub fn sidebar(props: &SidebarProps) -> Html {
             </div>
 
             <div ref={container_ref.clone()} class="relative" {onfocusout}>
-                <button id="account-menu-btn" onclick={toggle_menu} class="w-full rounded-md border border-token p-2 hover:opacity-90 flex items-center gap-2 text-left" title={i18n.t("account.menu_title")}>
-                    <span id="account-avatar" class={classes!("h-8", "w-8", "shrink-0", "rounded-full", "flex", "items-center", "justify-center", "text-sm", "font-semibold", (user.as_ref().map(|u| u.avatar_data.is_none()).unwrap_or(true)).then_some("bg-primary-solid"))}>{avatar_content}</span>
-                    <span class="min-w-0 flex-1">
-                        <span id="account-name" class="block truncate text-sm font-semibold">{username}</span>
-                        <span id="account-role" class="block truncate text-xs text-muted">{role}</span>
-                    </span>
-                    <iconify-icon icon="radix-icons:chevron-up" class="radix-icon shrink-0" aria-hidden="true"></iconify-icon>
-                </button>
-                <div id="account-menu" class={classes!("absolute", "bottom-12", "left-0", "right-0", "z-50", "surface", "border", "rounded-md", "p-1", "shadow-lg", (!*menu_open).then_some("hidden"))}>
-                    <Link<View> to={View::AccountSettings} classes="w-full rounded px-3 py-2 text-sm text-left hover:bg-[var(--surface-muted)] flex items-center gap-2">
+                <ShadcnTooltip content={i18n.t("account.menu_title")} class={classes!("w-full")}>
+                    <button
+                        id="account-menu-btn"
+                        type="button"
+                        onclick={toggle_menu}
+                        class="account-menu-trigger w-full rounded-md border border-token p-2 hover:opacity-90 flex items-center gap-2 text-left"
+                        aria-haspopup="menu"
+                        aria-expanded={menu_expanded}
+                        aria-controls="account-menu"
+                    >
+                        <span id="account-avatar" class={classes!("h-8", "w-8", "shrink-0", "rounded-full", "flex", "items-center", "justify-center", "text-sm", "font-semibold", (user.as_ref().map(|u| u.avatar_data.is_none()).unwrap_or(true)).then_some("bg-primary-solid"))}>{avatar_content}</span>
+                        <span class="min-w-0 flex-1">
+                            <span id="account-name" class="block truncate text-sm font-semibold">{username.clone()}</span>
+                            <span id="account-role" class="block truncate text-xs text-muted">{role.clone()}</span>
+                        </span>
+                        <iconify-icon icon="radix-icons:chevron-up" class="account-menu-chevron radix-icon shrink-0" aria-hidden="true"></iconify-icon>
+                    </button>
+                </ShadcnTooltip>
+                <div
+                    id="account-menu"
+                    role="menu"
+                    aria-label={i18n.t("account.menu_title")}
+                    class={classes!("account-menu", "surface-popover", (!*menu_open).then_some("account-menu--closed"))}
+                    onkeydown={on_menu_keydown}
+                >
+                    <div class="account-menu-header" role="presentation">
+                        <span class="account-menu-header-name">{username}</span>
+                        <span class="account-menu-header-role">{role}</span>
+                    </div>
+                    <div class="account-menu-separator" role="separator"></div>
+                    <button
+                        type="button"
+                        role="menuitem"
+                        onclick={open_account_settings}
+                        class={classes!(
+                            "account-menu-item",
+                            account_settings_active.then_some("active"),
+                        )}
+                    >
                         <iconify-icon icon="radix-icons:person" class="radix-icon" aria-hidden="true"></iconify-icon>
                         <span>{i18n.t("account.settings")}</span>
-                    </Link<View>>
-                    <button id="account-refresh-btn" type="button" class="w-full rounded px-3 py-2 text-sm text-left hover:bg-[var(--surface-muted)] flex items-center gap-2">
-                        <iconify-icon icon="radix-icons:reload" class="radix-icon" aria-hidden="true"></iconify-icon>
+                    </button>
+                    <button
+                        id="account-refresh-btn"
+                        type="button"
+                        role="menuitem"
+                        onclick={refresh_profile}
+                        disabled={*refreshing}
+                        class="account-menu-item"
+                    >
+                        <iconify-icon
+                            icon="radix-icons:reload"
+                            class={classes!("radix-icon", (*refreshing).then_some("animate-spin"))}
+                            aria-hidden="true"
+                        ></iconify-icon>
                         <span>{i18n.t("account.refresh")}</span>
                     </button>
-                    <button id="logout-btn" onclick={logout} type="button" class="w-full rounded px-3 py-2 text-sm text-left hover:bg-[var(--surface-muted)] flex items-center gap-2">
+                    <div class="account-menu-separator" role="separator"></div>
+                    <button
+                        id="logout-btn"
+                        type="button"
+                        role="menuitem"
+                        onclick={logout}
+                        class="account-menu-item account-menu-item--danger"
+                    >
                         <iconify-icon icon="radix-icons:exit" class="radix-icon" aria-hidden="true"></iconify-icon>
                         <span>{i18n.t("nav.logout")}</span>
                     </button>
@@ -138,14 +248,15 @@ pub fn sidebar(props: &SidebarProps) -> Html {
             </div>
             if !build_sha.is_empty() && build_sha != "unknown" {
                 <div class="mt-4 pt-3 border-t border-token flex justify-center">
-                    <a href={format!("https://github.com/slopfire/dailytipdraft/commit/{}", build_sha)}
-                       target="_blank"
-                       rel="noopener noreferrer"
-                       class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono font-medium tracking-wider text-muted hover:text-primary border border-token hover:border-primary/30 bg-[var(--surface-muted)] hover:bg-[var(--surface-hover)] transition-all duration-200 shadow-sm"
-                       title={i18n.t("account.view_commit")}>
-                        <iconify-icon icon="radix-icons:commit" class="radix-icon text-xs opacity-70 shrink-0"></iconify-icon>
-                        <span>{build_sha_short}</span>
-                    </a>
+                    <ShadcnTooltip content={i18n.t("account.view_commit")}>
+                        <a href={format!("https://github.com/slopfire/dailytipdraft/commit/{}", build_sha)}
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono font-medium tracking-wider text-muted hover:text-primary border border-token hover:border-primary/30 bg-[var(--surface-muted)] hover:bg-[var(--surface-hover)] transition-all duration-200 shadow-sm">
+                            <iconify-icon icon="radix-icons:commit" class="radix-icon text-xs opacity-70 shrink-0"></iconify-icon>
+                            <span>{build_sha_short}</span>
+                        </a>
+                    </ShadcnTooltip>
                 </div>
             }
         </nav>

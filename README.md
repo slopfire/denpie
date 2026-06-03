@@ -12,7 +12,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 - **Forced Card Refresh**: The settings screen and protobuf API use the same backend refresh path as the daily worker: pull one fresh generated card for every generated topic, or target selected generated topics, while keeping current cards untouched.
 - **Pinned Tipcards**: Any active card can be pinned from the control panel or API so it stays visible in a separate top section until unpinned.
 - **Topic Icons**: Each topic gets an Iconify icon picked from a curated allowlist (`config/topic_icons.json`) when first created; the dashboard lets you click a topic icon to ask the LLM for a new pick and reroll its accent color. Cards and the dashboard show that icon with the stored HSL color (initial color is derived from the topic name). Missing or failed picks fall back to a neutral default (`lucide:tag`).
-- **Tipcard Images**: Manual cards can be saved with attached images, and existing cards can receive or clear image attachments from the browser control panel.
+- **Tipcard Images**: Manual cards can be saved with attached images, and existing cards can receive or clear image attachments from the browser control panel. Uploads are compressed in the browser (WebP/JPEG at 82% quality, longest edge capped at 2048px) before upload; the server rejects any decoded image above 10 MB and recompresses larger payloads with libcaesium when they exceed 800 KB.
 - **Fast Unified Flow**: The dashboard flow uses cursor-loaded card summaries, a measured virtual grid, on-demand full-card details, and protected file-backed image URLs so large card sets keep scrolling smoothly. Sort cards alphabetically by topic (default), by newest-first date, or a saved drag order; the chosen sort is remembered across visits. Dragging unpinned cards switches to drag order for the main flow; dragging pinned cards only reorders the pinned top section and leaves the active date/topic sort unchanged.
 - **Archive Search**: The browser archive can search card titles, topics, full text, compressed text, classes, and statuses, with status filters for active, acknowledged, memorized, dismissed, and custom cards. Sort cards alphabetically by topic name (default) or newest-first date; the chosen sort is remembered across visits.
 - **Custom Tipcards**: External workflows can submit grey `custom_tip` cards for summaries or reminders without adding scheduling review state.
@@ -47,7 +47,7 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 | Async Runtime | Tokio |
 | LLM Client | `async-openai` |
 | Serialization | Protocol Buffers (`prost`) |
-| Frontend | Static HTML control panel at `/` using Tailwind plus shadcn-style design tokens |
+| Frontend | Static HTML control panel at `/` using Tailwind plus shadcn-style design tokens, selects, and tooltips (Yew components) |
 | Public API | Protocol Buffers over HTTP |
 
 ## Project Structure

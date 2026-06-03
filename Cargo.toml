@@ -33,6 +33,7 @@ webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation
 url = "2.5"
 uuid = { version = "1.10", features = ["v5", "serde"] }
 tower_governor = { version = "0.4.2", features = ["axum"] }
+libcaesium = "0.20.3"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
