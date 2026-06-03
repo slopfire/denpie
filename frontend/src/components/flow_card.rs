@@ -367,7 +367,18 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                                             lightbox_index.set(Some(index));
                                         })}
                                     >
-                                        <img src={img.clone()} alt="" loading="lazy" />
+                                        <img src={img.clone()} alt="" loading="lazy"
+                                            onload={Callback::from(|e: Event| {
+                                                if let Some(el) = e.target().and_then(|t| t.dyn_into::<web_sys::HtmlElement>().ok()) {
+                                                    let _ = el.class_list().add_1("is-loaded");
+                                                }
+                                            })}
+                                            onerror={Callback::from(|e: Event| {
+                                                if let Some(el) = e.target().and_then(|t| t.dyn_into::<web_sys::HtmlElement>().ok()) {
+                                                    let _ = el.class_list().add_1("is-loaded");
+                                                }
+                                            })}
+                                        />
                                     </button>
                                 }
                             })

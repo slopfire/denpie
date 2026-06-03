@@ -1445,12 +1445,22 @@
                 width: 100%;
                 padding: 0;
                 border: none;
-                background: transparent;
+                background: var(--surface-muted);
                 cursor: pointer;
                 border-radius: 8px;
                 overflow: hidden;
                 aspect-ratio: 16 / 9;
                 max-height: 220px;
+            }
+            .card-image-trigger:not(:has(img.is-loaded)) {
+                animation: skeleton-pulse 1.15s ease-in-out infinite;
+                background: linear-gradient(
+                    90deg,
+                    var(--surface-muted),
+                    var(--surface-strong),
+                    var(--surface-muted)
+                );
+                background-size: 240% 100%;
             }
             .card-images img,
             .card-image-trigger img {
@@ -1459,21 +1469,25 @@
                 height: 100%;
                 object-fit: cover;
                 object-position: center;
-                background: var(--surface-muted);
                 border: 1px solid var(--border);
                 border-radius: 8px;
+                opacity: 0;
                 transition:
                     border-color 120ms ease,
                     transform 120ms cubic-bezier(0.2, 0, 0, 1),
-                    box-shadow 120ms ease;
+                    box-shadow 120ms ease,
+                    opacity 220ms ease;
             }
-            .card-image-trigger:hover img,
-            .card-image-trigger:focus-visible img {
+            .card-image-trigger img.is-loaded {
+                opacity: 1;
+            }
+            .card-image-trigger:hover img.is-loaded,
+            .card-image-trigger:focus-visible img.is-loaded {
                 border-color: var(--primary);
                 transform: translateY(-1px) scale(1.02);
                 box-shadow: 0 4px 12px hsl(var(--primary-hsl) / 0.18);
             }
-            .card-image-trigger:active img {
+            .card-image-trigger:active img.is-loaded {
                 transform: translateY(0) scale(1);
                 box-shadow: none;
             }
