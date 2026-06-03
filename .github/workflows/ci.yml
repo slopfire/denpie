@@ -6,28 +6,33 @@ on:
     tags: ["v*"]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || github.event.repository.name }}
+  CARGO_TERM_COLOR: always
 
 jobs:
-  test:
+  rust:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.95.0
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci
+          cache-all-crates: true
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler sqlite3
-
-      - name: Install Trunk
-        run: cargo install trunk --locked
 
       - name: Check formatting
         run: cargo fmt --all --check
@@ -38,12 +43,41 @@ jobs:
       - name: Run tests
         run: DENPIE_SKIP_FRONTEND_BUILD=1 cargo test --workspace
 
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci
+          cache-all-crates: true
+
+      - name: Cache Trunk
+        id: trunk-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/trunk
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+          key: trunk-${{ runner.os }}-locked-v1
+
+      - name: Install Trunk
+        if: steps.trunk-cache.outputs.cache-hit != 'true'
+        run: cargo install trunk --locked
+
       - name: Build frontend
         run: cd frontend && env -u NO_COLOR trunk build --release
 
   docker:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [rust, frontend]
     permissions:
       contents: read
     env:
@@ -63,6 +97,8 @@ jobs:
           file: ./Dockerfile
           push: false
           tags: denpie:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Docker metadata
         if: github.event_name == 'push' && env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_REPOSITORY != ''
@@ -92,3 +128,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
