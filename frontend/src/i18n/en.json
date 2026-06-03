@@ -57,6 +57,8 @@
   "toast.logged_in_passkey": "Logged in with passkey",
   "toast.logged_out": "Logged out",
   "toast.passkey_error": "Passkey error",
+  "toast.profile_refreshed": "Profile refreshed",
+  "toast.profile_refresh_failed": "Could not refresh profile",
   "tip_type.casual_tip": "Casual",
   "tip_type.custom_tip": "Custom",
   "tip_type.manual_tip": "Manual",

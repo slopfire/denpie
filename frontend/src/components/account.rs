@@ -1,7 +1,7 @@
 use crate::api::toast;
+use crate::image_compress::compress_file_to_data_url;
 use crate::passkeys::registerPasskey;
 use crate::state::{AppAction, AppState, UserProfile};
-use gloo_file::{File, callbacks::FileReader};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use web_sys::HtmlInputElement;
@@ -40,8 +40,6 @@ pub fn account_settings() -> Html {
             .unwrap_or_default()
     });
     let password = use_state(String::new);
-    let avatar_reader = use_state(|| None::<FileReader>);
-
     let refresh_passkeys = {
         let passkeys = passkeys.clone();
         Callback::from(move |_| {
@@ -176,7 +174,7 @@ pub fn account_settings() -> Html {
 
     let on_avatar_file = {
         let avatar_data = avatar_data.clone();
-        let avatar_reader = avatar_reader.clone();
+        let app_state = app_state.clone();
         Callback::from(move |e: Event| {
             let Some(input) = e.target_dyn_into::<HtmlInputElement>() else {
                 return;
@@ -187,13 +185,16 @@ pub fn account_settings() -> Html {
             let Some(file) = files.get(0) else {
                 return;
             };
+            let selected = file.clone();
+            input.set_value("");
             let avatar_data = avatar_data.clone();
-            let reader = gloo_file::callbacks::read_as_data_url(&File::from(file), move |result| {
-                if let Ok(data) = result {
-                    avatar_data.set(data);
+            let app_state = app_state.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match compress_file_to_data_url(&selected).await {
+                    Ok(data) => avatar_data.set(data),
+                    Err(message) => toast(&app_state, message),
                 }
             });
-            avatar_reader.set(Some(reader));
         })
     };
 

@@ -14,6 +14,7 @@ settings.yaml
 .sqlx/
 __pycache__/
 denpie_pb2.py
+tipcard-images/
 
 # Frontend
 frontend/dist/

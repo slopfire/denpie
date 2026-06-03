@@ -26,16 +26,22 @@ pub async fn replace_card_images(
     let mut new_records = Vec::new();
     for (position, data_url) in image_data.iter().enumerate() {
         let parsed = parse_data_url(data_url)?;
-        let name = random_image_name(card_id, position, parsed.extension);
-        fs::write(image_dir.join(&name), &parsed.bytes)
+        let prepared = crate::image_compress::prepare_image_bytes(
+            parsed.bytes,
+            parsed.mime_type,
+            parsed.extension,
+        )
+        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+        let name = random_image_name(card_id, position, &prepared.extension);
+        fs::write(image_dir.join(&name), &prepared.bytes)
             .await
             .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
         new_records.push(TipcardImageRecord {
             id: 0,
             position: position as i64,
             storage_path: name,
-            mime_type: parsed.mime_type.to_string(),
-            byte_size: parsed.bytes.len() as i64,
+            mime_type: prepared.mime_type,
+            byte_size: prepared.bytes.len() as i64,
         });
     }
     tipcards::replace_image_records(pool, user_id, card_id, &new_records)

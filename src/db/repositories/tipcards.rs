@@ -28,7 +28,6 @@ pub struct TipcardInfoRecord {
     pub title: String,
     pub full_content: String,
     pub compressed_content: String,
-    pub image_data: Vec<String>,
     pub created_at: String,
     pub tipcard_type: String,
     pub status: String,
@@ -201,8 +200,10 @@ pub async fn list_images_for_cards(
     let mut qb = QueryBuilder::<Sqlite>::new(
         "SELECT card_id, id, position, storage_path, mime_type, byte_size
          FROM tipcard_images
-         WHERE user_id = ? AND card_id IN (",
+         WHERE user_id = ",
     );
+    qb.push_bind(user_id);
+    qb.push(" AND card_id IN (");
     let mut separated = qb.separated(", ");
     for id in card_ids {
         separated.push_bind(id);
@@ -210,7 +211,6 @@ pub async fn list_images_for_cards(
     separated.push_unseparated(") ORDER BY card_id ASC, position ASC, id ASC");
     let rows = qb
         .build_query_as::<(i64, i64, i64, String, String, i64)>()
-        .bind(user_id)
         .fetch_all(pool)
         .await?;
     let mut map: std::collections::HashMap<i64, Vec<TipcardImageRecord>> =
@@ -301,7 +301,6 @@ pub async fn list_admin(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<Tipca
             title: String::new(),
             full_content: row.4,
             compressed_content: row.5,
-            image_data: Vec::new(),
             created_at: row.6,
             tipcard_type: row.7,
             status: row.8,
@@ -326,7 +325,6 @@ pub async fn list_filtered(
                 COALESCE(t.title, '') AS title,
                 t.full_content,
                 t.compressed_content,
-                COALESCE(t.image_data, '[]') AS image_data,
                 COALESCE(CAST(t.created_at AS TEXT), '') AS created_at,
                 top.tipcard_type,
                 COALESCE(r.status, CASE WHEN top.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) AS status,
@@ -400,7 +398,6 @@ pub async fn list_filtered(
             String,
             String,
             String,
-            String,
             i64,
         )>()
         .fetch_all(pool)
@@ -416,14 +413,13 @@ pub async fn list_filtered(
             title: row.4,
             full_content: row.5,
             compressed_content: row.6,
-            image_data: serde_json::from_str::<Vec<String>>(&row.7).unwrap_or_default(),
-            created_at: row.8,
-            tipcard_type: row.9,
-            status: row.10,
-            next_review_at: row.11,
-            state_data: row.12.clone(),
-            pinned: row.13 != 0,
-            repeats: serde_json::from_str::<serde_json::Value>(&row.12)
+            created_at: row.7,
+            tipcard_type: row.8,
+            status: row.9,
+            next_review_at: row.10,
+            state_data: row.11.clone(),
+            pinned: row.12 != 0,
+            repeats: serde_json::from_str::<serde_json::Value>(&row.11)
                 .ok()
                 .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
                 .unwrap_or(0) as u32,
@@ -456,7 +452,7 @@ pub async fn list_flow_cards(
          FROM tipcards t
          JOIN topics top ON t.topic_id = top.id
          LEFT JOIN review_states r ON r.card_id = t.id
-         LEFT JOIN tipcard_images img ON img.card_id = t.id
+         LEFT JOIN tipcard_images img ON img.card_id = t.id AND img.user_id = t.user_id
          WHERE t.user_id = ",
     );
     builder.push_bind(user_id);
@@ -545,7 +541,6 @@ pub async fn get_tipcard_info(
             String,
             String,
             String,
-            String,
             i64,
         ),
     >(
@@ -556,7 +551,6 @@ pub async fn get_tipcard_info(
                 COALESCE(t.title, '') AS title,
                 t.full_content,
                 t.compressed_content,
-                COALESCE(t.image_data, '[]') AS image_data,
                 COALESCE(CAST(t.created_at AS TEXT), '') AS created_at,
                 top.tipcard_type,
                 COALESCE(r.status, CASE WHEN top.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) AS status,
@@ -582,14 +576,13 @@ pub async fn get_tipcard_info(
         title: row.4,
         full_content: row.5,
         compressed_content: row.6,
-        image_data: serde_json::from_str::<Vec<String>>(&row.7).unwrap_or_default(),
-        created_at: row.8,
-        tipcard_type: row.9,
-        status: row.10,
-        next_review_at: row.11,
-        state_data: row.12.clone(),
-        pinned: row.13 != 0,
-        repeats: serde_json::from_str::<serde_json::Value>(&row.12)
+        created_at: row.7,
+        tipcard_type: row.8,
+        status: row.9,
+        next_review_at: row.10,
+        state_data: row.11.clone(),
+        pinned: row.12 != 0,
+        repeats: serde_json::from_str::<serde_json::Value>(&row.11)
             .ok()
             .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
             .unwrap_or(0) as u32,

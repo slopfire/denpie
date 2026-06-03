@@ -1,11 +1,10 @@
+use crate::components::image_lightbox::ImageLightbox;
+use crate::components::tooltip::ShadcnTooltip;
 use crate::components::unified_flow::TipcardInfo;
+use crate::image_compress::{collect_files, compress_files_to_data_urls};
 use crate::markdown::render_markdown;
 use crate::topic_visual::display_icon;
-use gloo_file::{File, callbacks::FileReader};
-use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
-};
+use std::rc::Rc;
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{HtmlInputElement, ResizeObserver, ResizeObserverEntry};
 use yew::prelude::*;
@@ -18,6 +17,8 @@ pub struct FlowCardProps {
     pub on_delete: Callback<i64>,
     pub on_reorder: Callback<(i64, i64)>,
     pub on_update_images: Callback<(i64, Vec<String>)>,
+    #[prop_or_default]
+    pub on_upload_error: Callback<String>,
     pub on_toggle_fullscreen: Callback<i64>,
     #[prop_or_default]
     pub on_request_detail: Callback<i64>,
@@ -27,6 +28,10 @@ pub struct FlowCardProps {
     pub fullscreen: bool,
     #[prop_or(true)]
     pub detail_loaded: bool,
+    #[prop_or(true)]
+    pub enable_drag: bool,
+    #[prop_or(true)]
+    pub enable_measure: bool,
 }
 
 fn highlight_card_code_blocks(root: &web_sys::Element) {
@@ -56,7 +61,7 @@ fn highlight_card_code_blocks(root: &web_sys::Element) {
 pub fn flow_card(props: &FlowCardProps) -> Html {
     let expanded = use_state(|| false);
     let copied = use_state(|| false);
-    let image_readers = use_state(Vec::<FileReader>::new);
+    let lightbox_index = use_state(|| None::<usize>);
     let card = &props.card;
     let id = card.id;
     let pinned = card.pinned;
@@ -104,6 +109,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     {
         let root_ref = root_ref.clone();
         let on_measure = props.on_measure.clone();
+        let enable_measure = props.enable_measure;
         let measure_key = (
             card.id,
             props.fullscreen,
@@ -111,10 +117,13 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
             *expanded,
             card.full_content.len(),
             card.image_data.len(),
+            enable_measure,
         );
         use_effect_with(measure_key, move |_| {
-            if let Some(element) = root_ref.cast::<web_sys::Element>() {
-                on_measure.emit((id, element.get_bounding_client_rect().height()));
+            if enable_measure {
+                if let Some(element) = root_ref.cast::<web_sys::Element>() {
+                    on_measure.emit((id, element.get_bounding_client_rect().height()));
+                }
             }
             || ()
         });
@@ -122,28 +131,37 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     {
         let root_ref = root_ref.clone();
         let on_measure = props.on_measure.clone();
-        use_effect_with(id, move |_| {
-            let element = root_ref
-                .cast::<web_sys::Element>()
-                .expect("card root exists");
-            let callback = Closure::<dyn FnMut(js_sys::Array, ResizeObserver)>::wrap(Box::new({
-                let on_measure = on_measure.clone();
-                move |entries: js_sys::Array, _observer: ResizeObserver| {
-                    let Some(entry) = entries.get(0).dyn_into::<ResizeObserverEntry>().ok() else {
-                        return;
-                    };
-                    on_measure.emit((id, entry.content_rect().height()));
-                }
-            }));
-            let observer = ResizeObserver::new(callback.as_ref().unchecked_ref()).ok();
-            if let Some(observer) = observer.as_ref() {
-                observer.observe(&element);
-            }
+        let enable_measure = props.enable_measure;
+        use_effect_with((id, enable_measure), move |_| {
+            let observer = if enable_measure {
+                root_ref.cast::<web_sys::Element>().and_then(|element| {
+                    let callback =
+                        Closure::<dyn FnMut(js_sys::Array, ResizeObserver)>::wrap(Box::new({
+                            let on_measure = on_measure.clone();
+                            move |entries: js_sys::Array, _observer: ResizeObserver| {
+                                let Some(entry) =
+                                    entries.get(0).dyn_into::<ResizeObserverEntry>().ok()
+                                else {
+                                    return;
+                                };
+                                on_measure.emit((id, entry.content_rect().height()));
+                            }
+                        }));
+                    ResizeObserver::new(callback.as_ref().unchecked_ref())
+                        .ok()
+                        .map(|observer| {
+                            observer.observe(&element);
+                            (observer, callback)
+                        })
+                })
+            } else {
+                None
+            };
             move || {
-                if let Some(observer) = observer {
+                if let Some((observer, callback)) = observer {
                     observer.disconnect();
+                    drop(callback);
                 }
-                drop(callback);
             }
         });
     }
@@ -217,7 +235,8 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
 
     let on_image_upload = {
         let current_images = card.image_data.clone();
-        let image_readers = image_readers.clone();
+        let on_update_images = on_update_images.clone();
+        let on_upload_error = props.on_upload_error.clone();
         Callback::from(move |e: Event| {
             let Some(input) = e.target_dyn_into::<HtmlInputElement>() else {
                 return;
@@ -228,31 +247,21 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
             if files.length() == 0 {
                 return;
             }
-            let mut readers = Vec::new();
-            let next_images = Rc::new(RefCell::new(current_images.clone()));
-            let remaining = Rc::new(Cell::new(files.length()));
-            for index in 0..files.length() {
-                let Some(file) = files.get(index) else {
-                    continue;
-                };
-                let on_update_images = on_update_images.clone();
-                let next_images = next_images.clone();
-                let remaining = remaining.clone();
-                let reader =
-                    gloo_file::callbacks::read_as_data_url(&File::from(file), move |result| {
-                        if let Ok(data) = result {
-                            next_images.borrow_mut().push(data);
-                        }
-                        let left = remaining.get().saturating_sub(1);
-                        remaining.set(left);
-                        if left == 0 {
-                            on_update_images.emit((id, next_images.borrow().clone()));
-                        }
-                    });
-                readers.push(reader);
-            }
+            let selected = collect_files(&files);
             input.set_value("");
-            image_readers.set(readers);
+            let on_update_images = on_update_images.clone();
+            let on_upload_error = on_upload_error.clone();
+            let next_images = Rc::new(current_images.clone());
+            wasm_bindgen_futures::spawn_local(async move {
+                match compress_files_to_data_urls(selected).await {
+                    Ok(mut compressed) => {
+                        let mut images = (*next_images).clone();
+                        images.append(&mut compressed);
+                        on_update_images.emit((id, images));
+                    }
+                    Err(message) => on_upload_error.emit(message),
+                }
+            });
         })
     };
 
@@ -295,41 +304,72 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let topic_icon = display_icon(&card.topic_icon).to_string();
     let topic_color_style = format!("color: {}", card.topic_color);
 
+    let drag_handlers = props
+        .enable_drag
+        .then(|| (ondragover.clone(), ondrop.clone()));
+
     html! {
         <article
             ref={root_ref}
             class={article_classes}
             data-card-id={id.to_string()}
-            {ondragover}
-            {ondrop}
+            ondragover={drag_handlers.as_ref().map(|(over, _)| over.clone())}
+            ondrop={drag_handlers.as_ref().map(|(_, drop)| drop.clone())}
         >
             <div class={classes!("absolute", "top-0", "left-0", "w-1", "h-full", line_class)}></div>
             <div class="p-4 flex flex-col flex-1">
                 <div class="card-title-bar border-b border-token pb-3 mb-4">
                     <div class="card-title-leading flex items-center justify-self-start">
-                        <button type="button" class="card-drag-handle border border-token p-1" title="Drag to reorder" draggable={if fullscreen { "false" } else { "true" }} ondragstart={ondragstart.clone()}>
-                            <iconify-icon icon={topic_icon} class="topic-icon radix-icon shrink-0" style={topic_color_style}></iconify-icon>
-                        </button>
+                        if props.enable_drag {
+                            <ShadcnTooltip content="Drag to reorder">
+                                <button type="button" class="card-drag-handle border border-token p-1" draggable={if fullscreen { "false" } else { "true" }} ondragstart={ondragstart.clone()}>
+                                    <iconify-icon icon={topic_icon.clone()} class="topic-icon radix-icon shrink-0" style={topic_color_style.clone()}></iconify-icon>
+                                </button>
+                            </ShadcnTooltip>
+                        } else {
+                            <span class="border border-token p-1 inline-flex">
+                                <iconify-icon icon={topic_icon} class="topic-icon radix-icon shrink-0" style={topic_color_style}></iconify-icon>
+                            </span>
+                        }
                     </div>
                     <div class="card-title-center flex items-center justify-center gap-1.5 min-w-0 px-1">
                         if pinned {
-                            <iconify-icon icon="radix-icons:drawing-pin-filled" class="radix-icon text-primary shrink-0" title="Pinned"></iconify-icon>
+                            <ShadcnTooltip content="Pinned">
+                                <span class="inline-flex shrink-0">
+                                    <iconify-icon icon="radix-icons:drawing-pin-filled" class="radix-icon text-primary shrink-0"></iconify-icon>
+                                </span>
+                            </ShadcnTooltip>
                         }
                         <span class="card-topic-title truncate text-center">{&card.topic_name}</span>
                     </div>
                     <div class="card-title-controls flex items-center gap-2 justify-self-end shrink-0">
                         <span class="badge">{badge_label}</span>
-                        <button type="button" onclick={Callback::from(move |_| on_toggle_fullscreen.emit(id))} class="border border-token p-2" title={if fullscreen { "Exit fullscreen" } else { "Fullscreen" }}>
-                            <iconify-icon icon={if fullscreen { "radix-icons:exit-full-screen" } else { "radix-icons:enter-full-screen" }} class="radix-icon"></iconify-icon>
-                        </button>
+                        <ShadcnTooltip content={if fullscreen { "Exit fullscreen" } else { "Fullscreen" }}>
+                            <button type="button" onclick={Callback::from(move |_| on_toggle_fullscreen.emit(id))} class="border border-token p-2">
+                                <iconify-icon icon={if fullscreen { "radix-icons:exit-full-screen" } else { "radix-icons:enter-full-screen" }} class="radix-icon"></iconify-icon>
+                            </button>
+                        </ShadcnTooltip>
                     </div>
                 </div>
 
                 if !card.image_data.is_empty() {
                     <div class="card-images mb-4">
                         {
-                            for card.image_data.iter().enumerate().map(|(index, img)| html! {
-                                <img src={img.clone()} alt={format!("Attached image {}", index + 1)} loading="lazy" />
+                            for card.image_data.iter().enumerate().map(|(index, img)| {
+                                let lightbox_index = lightbox_index.clone();
+                                html! {
+                                    <button
+                                        type="button"
+                                        class="card-image-trigger"
+                                        aria-label={format!("View image {} of {}", index + 1, card.image_data.len())}
+                                        onclick={Callback::from(move |e: MouseEvent| {
+                                            e.stop_propagation();
+                                            lightbox_index.set(Some(index));
+                                        })}
+                                    >
+                                        <img src={img.clone()} alt="" loading="lazy" />
+                                    </button>
+                                }
                             })
                         }
                     </div>
@@ -339,9 +379,11 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                     <div class="card-text-body markdown-content">
                         { Html::from_html_unchecked(AttrValue::from(html_content)) }
                         if has_compact && !fullscreen {
-                            <button onclick={toggle_expand} class="card-inline-expand rounded-md border border-token" title={if *expanded { "Show compact text" } else { "Expand text" }}>
-                                <iconify-icon icon={if *expanded { "radix-icons:double-arrow-up" } else { "radix-icons:double-arrow-down" }} class="radix-icon"></iconify-icon>
-                            </button>
+                            <ShadcnTooltip content={if *expanded { "Show compact text" } else { "Expand text" }}>
+                                <button onclick={toggle_expand} class="card-inline-expand rounded-md border border-token">
+                                    <iconify-icon icon={if *expanded { "radix-icons:double-arrow-up" } else { "radix-icons:double-arrow-down" }} class="radix-icon"></iconify-icon>
+                                </button>
+                            </ShadcnTooltip>
                         }
                     </div>
                 </div>
@@ -351,44 +393,84 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                         <div class="muted-surface border border-token p-2 flex-1 text-center text-sm font-medium text-muted">{&card.status}</div>
                     } else if card.tipcard_type == "casual_tip" {
                         // Sassy Caveman says: Make dismiss big like acknowledge! Equal size smash!
-                        <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))} class="border border-token p-2 flex-1" title="Dismiss"><iconify-icon icon="radix-icons:cross-2" class="radix-icon"></iconify-icon></button>
-                        <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("acknowledge".to_string()))))} class="bg-primary-solid p-2 flex-1" title="Acknowledge"><iconify-icon icon="radix-icons:check" class="radix-icon"></iconify-icon></button>
+                        <ShadcnTooltip content="Dismiss" class={classes!("flex-1")}>
+                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))} class="border border-token p-2 flex-1 w-full"><iconify-icon icon="radix-icons:cross-2" class="radix-icon"></iconify-icon></button>
+                        </ShadcnTooltip>
+                        <ShadcnTooltip content="Acknowledge" class={classes!("flex-1")}>
+                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("acknowledge".to_string()))))} class="bg-primary-solid p-2 flex-1 w-full"><iconify-icon icon="radix-icons:check" class="radix-icon"></iconify-icon></button>
+                        </ShadcnTooltip>
                     } else if card.tipcard_type == "repeatable_tip" {
-                        <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))} class="border border-token p-2" title="Dismiss"><iconify-icon icon="radix-icons:cross-2" class="radix-icon"></iconify-icon></button>
-                        <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("repeat".to_string()))))} class="border border-token p-2" title="Repeat"><iconify-icon icon="radix-icons:reset" class="radix-icon"></iconify-icon></button>
-                        <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(5), Some("memorize".to_string()))))} class="bg-primary-solid p-2 flex-1" title="Memorize"><iconify-icon icon="radix-icons:lightning-bolt" class="radix-icon"></iconify-icon></button>
+                        <ShadcnTooltip content="Dismiss">
+                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))} class="border border-token p-2"><iconify-icon icon="radix-icons:cross-2" class="radix-icon"></iconify-icon></button>
+                        </ShadcnTooltip>
+                        <ShadcnTooltip content="Repeat">
+                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("repeat".to_string()))))} class="border border-token p-2"><iconify-icon icon="radix-icons:reset" class="radix-icon"></iconify-icon></button>
+                        </ShadcnTooltip>
+                        <ShadcnTooltip content="Memorize" class={classes!("flex-1")}>
+                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(5), Some("memorize".to_string()))))} class="bg-primary-solid p-2 flex-1 w-full"><iconify-icon icon="radix-icons:lightning-bolt" class="radix-icon"></iconify-icon></button>
+                        </ShadcnTooltip>
                     } else if card.tipcard_type == "manual_tip" {
                         // Sassy Caveman says: Smash dismiss button to be same width! Ugh.
-                        <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))} class="border border-token p-2 flex-1" title="Dismiss"><iconify-icon icon="radix-icons:cross-2" class="radix-icon"></iconify-icon></button>
-                        <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("acknowledge".to_string()))))} class="bg-primary-solid p-2 flex-1" title="Acknowledge"><iconify-icon icon="radix-icons:check" class="radix-icon"></iconify-icon></button>
+                        <ShadcnTooltip content="Dismiss" class={classes!("flex-1")}>
+                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))} class="border border-token p-2 flex-1 w-full"><iconify-icon icon="radix-icons:cross-2" class="radix-icon"></iconify-icon></button>
+                        </ShadcnTooltip>
+                        <ShadcnTooltip content="Acknowledge" class={classes!("flex-1")}>
+                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("acknowledge".to_string()))))} class="bg-primary-solid p-2 flex-1 w-full"><iconify-icon icon="radix-icons:check" class="radix-icon"></iconify-icon></button>
+                        </ShadcnTooltip>
                     } else {
-                        <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(1), Some(String::new()))))} class="border border-token p-2 flex-1" title="Again">{"Again"}</button>
-                        <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some(String::new()))))} class="border border-token p-2 flex-1" title="Good">{"Good"}</button>
-                        <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(5), Some(String::new()))))} class="bg-primary-solid p-2 flex-1" title="Easy">{"Easy"}</button>
+                        <ShadcnTooltip content="Again" class={classes!("flex-1")}>
+                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(1), Some(String::new()))))} class="border border-token p-2 flex-1 w-full">{"Again"}</button>
+                        </ShadcnTooltip>
+                        <ShadcnTooltip content="Good" class={classes!("flex-1")}>
+                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some(String::new()))))} class="border border-token p-2 flex-1 w-full">{"Good"}</button>
+                        </ShadcnTooltip>
+                        <ShadcnTooltip content="Easy" class={classes!("flex-1")}>
+                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(5), Some(String::new()))))} class="bg-primary-solid p-2 flex-1 w-full">{"Easy"}</button>
+                        </ShadcnTooltip>
                     }
-                    <button onclick={Callback::from(move |_| on_delete.emit(id))} class="border border-token p-2" title="Delete card">
-                        <iconify-icon icon="radix-icons:trash" class="radix-icon" style="color:var(--danger)"></iconify-icon>
-                    </button>
-                    <button onclick={Callback::from(move |_| on_toggle_pin.emit((id, !pinned)))} class={classes!("border", "border-token", "p-2", (pinned).then_some("bg-primary-soft text-primary"))} title={if pinned { "Unpin card" } else { "Pin card" }}>
-                        <iconify-icon icon={if pinned { "radix-icons:drawing-pin-filled" } else { "radix-icons:drawing-pin" }} class="radix-icon"></iconify-icon>
-                    </button>
-                    <label class="border border-token p-2 cursor-pointer" title="Attach images">
-                        <iconify-icon icon="radix-icons:image" class="radix-icon"></iconify-icon>
-                        <input type="file" accept="image/*" multiple=true class="hidden" onchange={on_image_upload} />
-                    </label>
-                    if !card.image_data.is_empty() {
-                        <button onclick={Callback::from({
-                            let on_update_images = props.on_update_images.clone();
-                            move |_| on_update_images.emit((id, Vec::new()))
-                        })} class="border border-token p-2" title="Clear images">
-                            <iconify-icon icon="radix-icons:eye-closed" class="radix-icon"></iconify-icon>
+                    <ShadcnTooltip content="Delete card">
+                        <button onclick={Callback::from(move |_| on_delete.emit(id))} class="border border-token p-2">
+                            <iconify-icon icon="radix-icons:trash" class="radix-icon" style="color:var(--danger)"></iconify-icon>
                         </button>
+                    </ShadcnTooltip>
+                    <ShadcnTooltip content={if pinned { "Unpin card" } else { "Pin card" }}>
+                        <button onclick={Callback::from(move |_| on_toggle_pin.emit((id, !pinned)))} class={classes!("border", "border-token", "p-2", (pinned).then_some("bg-primary-soft text-primary"))}>
+                            <iconify-icon icon={if pinned { "radix-icons:drawing-pin-filled" } else { "radix-icons:drawing-pin" }} class="radix-icon"></iconify-icon>
+                        </button>
+                    </ShadcnTooltip>
+                    <ShadcnTooltip content="Attach images">
+                        <label class="border border-token p-2 cursor-pointer">
+                            <iconify-icon icon="radix-icons:image" class="radix-icon"></iconify-icon>
+                            <input type="file" accept="image/*" multiple=true class="hidden" onchange={on_image_upload} />
+                        </label>
+                    </ShadcnTooltip>
+                    if !card.image_data.is_empty() {
+                        <ShadcnTooltip content="Clear images">
+                            <button onclick={Callback::from({
+                                let on_update_images = props.on_update_images.clone();
+                                move |_| on_update_images.emit((id, Vec::new()))
+                            })} class="border border-token p-2">
+                                <iconify-icon icon="radix-icons:eye-closed" class="radix-icon"></iconify-icon>
+                            </button>
+                        </ShadcnTooltip>
                     }
-                    <button onclick={on_copy} data-copy-card-id={id.to_string()} class={classes!("card-copy-btn", "border", "border-token", "p-2", (*copied).then_some("copied"))} title="Copy text">
-                        <iconify-icon icon="radix-icons:clipboard-copy" class="radix-icon"></iconify-icon>
-                    </button>
+                    <ShadcnTooltip content="Copy text">
+                        <button onclick={on_copy} data-copy-card-id={id.to_string()} class={classes!("card-copy-btn", "border", "border-token", "p-2", (*copied).then_some("copied"))}>
+                            <iconify-icon icon="radix-icons:clipboard-copy" class="radix-icon"></iconify-icon>
+                        </button>
+                    </ShadcnTooltip>
                 </div>
             </div>
+            if let Some(index) = *lightbox_index {
+                <ImageLightbox
+                    images={card.image_data.clone()}
+                    initial_index={index}
+                    on_close={Callback::from({
+                        let lightbox_index = lightbox_index.clone();
+                        move |_| lightbox_index.set(None)
+                    })}
+                />
+            }
         </article>
     }
 }
