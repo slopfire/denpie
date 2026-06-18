@@ -1,4 +1,7 @@
 set dotenv-load := true
+# Enter a Nix shell with the pinned Rust toolchain, Trunk, protoc, and build deps.
+shell:
+  nix-shell
 
 setup:
   sh scripts/bootstrap-dev.sh

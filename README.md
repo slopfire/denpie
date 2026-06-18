@@ -81,6 +81,25 @@ A Rust-based backend service that generates, serves, and schedules daily tip car
 
 ## Getting Started
 
+### Nix development shell
+
+If you have Nix installed, enter a fully provisioned shell with one command:
+
+```bash
+just shell
+```
+
+Or directly with:
+
+```bash
+nix-shell
+```
+
+The shell provides `rustup` (with the toolchain pinned by `rust-toolchain.toml`),
+`trunk`, `protoc`, `sqlite`, `just`, and the C/C++ build dependencies needed for
+`libcaesium`. Once inside, use `just setup` to verify everything and then `just dev`
+to start the backend and frontend watchers.
+
 ### Prerequisites
 
 - Rust 1.95.0. The repository includes `rust-toolchain.toml`, so rustup will select it automatically.
