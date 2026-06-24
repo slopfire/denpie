@@ -24,9 +24,15 @@ pub async fn pick_topic_icon(
          Return JSON only: {{\"icon\":\"<exact-id-from-list>\"}}\n\
          Choose the single best semantic match from this allowlist:\n{icons_list}"
     );
-    let response =
-        crate::llm::transport::create_chat_completion(model, &prompt, api_key, api_base, reasoning)
-            .await;
+    let response = crate::llm::transport::create_chat_completion(
+        model,
+        &prompt,
+        api_key,
+        api_base,
+        reasoning,
+        Some(64),
+    )
+    .await;
     if let Some(icon) = parse_topic_icon_response(&response.content) {
         if allowlist.iter().any(|candidate| candidate == &icon) {
             return LlmResponse {

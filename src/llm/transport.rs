@@ -41,10 +41,12 @@ pub async fn create_chat_completion(
     api_key: &str,
     api_base: &str,
     reasoning: &ReasoningConfig,
+    max_tokens: Option<u32>,
 ) -> LlmResponse {
     tracing::info!(
         model,
         prompt_len = prompt.len(),
+        ?max_tokens,
         "LLM chat completion request"
     );
     let config = OpenAIConfig::new()
@@ -53,7 +55,7 @@ pub async fn create_chat_completion(
     let client = Client::with_config(config);
     let base_url = client.config().api_base();
 
-    let body = build_chat_body(model, prompt, reasoning);
+    let body = build_chat_body(model, prompt, reasoning, max_tokens);
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
     let http = http_client::shared();
 
@@ -89,7 +91,12 @@ pub async fn create_chat_completion(
     }
 }
 
-fn build_chat_body(model: &str, prompt: &str, reasoning: &ReasoningConfig) -> Value {
+fn build_chat_body(
+    model: &str,
+    prompt: &str,
+    reasoning: &ReasoningConfig,
+    max_tokens: Option<u32>,
+) -> Value {
     let effort = normalize_reasoning_effort(&reasoning.effort);
     let message = ChatCompletionRequestUserMessageArgs::default()
         .content(prompt)
@@ -103,13 +110,19 @@ fn build_chat_body(model: &str, prompt: &str, reasoning: &ReasoningConfig) -> Va
             },
         );
 
-    json!({
+    let mut body = json!({
         "model": model,
         "messages": [message],
         "reasoning": {
             "effort": effort
         }
-    })
+    });
+
+    if let Some(limit) = max_tokens {
+        body["max_tokens"] = json!(limit);
+    }
+
+    body
 }
 
 fn map_response(response: CreateChatCompletionResponse) -> LlmResponse {
@@ -153,6 +166,7 @@ mod tests {
             "google/gemini-2.5-pro",
             "hello",
             &ReasoningConfig::new("xhigh"),
+            None,
         );
 
         assert_eq!(body["model"], "google/gemini-2.5-pro");
@@ -160,6 +174,7 @@ mod tests {
         assert_eq!(body["messages"][0]["content"], "hello");
         assert_eq!(body["reasoning"]["effort"], "xhigh");
         assert!(body.get("reasoning_effort").is_none());
+        assert!(body.get("max_tokens").is_none());
     }
 
     #[test]
@@ -168,10 +183,23 @@ mod tests {
             "google/gemini-2.5-pro",
             "hello",
             &ReasoningConfig::new("none"),
+            None,
         );
 
         assert_eq!(body["reasoning"]["effort"], "none");
         assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn build_chat_body_includes_max_tokens_when_provided() {
+        let body = build_chat_body(
+            "google/gemini-2.5-pro",
+            "hello",
+            &ReasoningConfig::new("none"),
+            Some(1024),
+        );
+
+        assert_eq!(body["max_tokens"], 1024);
     }
 
     #[test]

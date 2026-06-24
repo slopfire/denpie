@@ -66,6 +66,15 @@ impl CompressionLevel {
             }
         }
     }
+
+    pub(crate) fn oneshot_target(self) -> &'static str {
+        match self {
+            Self::Light => "110-150 words, or about 650-900 characters",
+            Self::Balanced => "70-110 words, or about 420-650 characters",
+            Self::Strong => "40-70 words, or about 250-420 characters",
+            Self::Ultra => "18-35 words, or about 120-240 characters",
+        }
+    }
 }
 
 #[cfg(test)]

@@ -66,8 +66,6 @@ impl TipService {
             .await
             .map_err(|err| err.into_status_body())?;
         let llm_reasoning = llm::ReasoningConfig::new(settings.llm_reasoning_effort.clone());
-        let _llm_compress_reasoning =
-            llm::ReasoningConfig::new(settings.llm_compress_reasoning_effort.clone());
         let llm_compression_level =
             llm::CompressionLevel::from_setting(&settings.llm_compression_level);
         let mut active_room = active_card_room(state, user_id, settings.max_active_cards).await?;
@@ -198,8 +196,6 @@ impl TipService {
                             api_key: &settings.llm_api_key,
                             base_url: &settings.llm_base_url,
                             reasoning: &llm_reasoning,
-                            compress_model: &settings.llm_compress_model,
-                            compress_base_url: &settings.llm_compress_base_url,
                             compression_level: llm_compression_level,
                         },
                         &mut responses,
@@ -221,8 +217,6 @@ impl TipService {
                         api_key: &settings.llm_api_key,
                         base_url: &settings.llm_base_url,
                         reasoning: &llm_reasoning,
-                        compress_model: &settings.llm_compress_model,
-                        compress_base_url: &settings.llm_compress_base_url,
                         compression_level: llm_compression_level,
                     },
                     &mut responses,
@@ -361,8 +355,6 @@ impl TipService {
             .await
             .map_err(|err| err.into_status_body())?;
         let llm_reasoning = llm::ReasoningConfig::new(settings.llm_reasoning_effort.clone());
-        let _llm_compress_reasoning =
-            llm::ReasoningConfig::new(settings.llm_compress_reasoning_effort.clone());
         let llm_compression_level =
             llm::CompressionLevel::from_setting(&settings.llm_compression_level);
         let mut active_room = active_card_room(state, user_id, settings.max_active_cards).await?;
@@ -385,8 +377,6 @@ impl TipService {
                     api_key: &settings.llm_api_key,
                     base_url: &settings.llm_base_url,
                     reasoning: &llm_reasoning,
-                    compress_model: &settings.llm_compress_model,
-                    compress_base_url: &settings.llm_compress_base_url,
                     compression_level: llm_compression_level,
                 },
                 &mut responses,
@@ -511,8 +501,6 @@ pub(crate) struct GenerationLlmConfig<'a> {
     pub(crate) api_key: &'a str,
     pub(crate) base_url: &'a str,
     pub(crate) reasoning: &'a llm::ReasoningConfig,
-    pub(crate) compress_model: &'a str,
-    pub(crate) compress_base_url: &'a str,
     pub(crate) compression_level: llm::CompressionLevel,
 }
 
@@ -545,62 +533,32 @@ impl TipService {
         )
         .await?;
         let prompt = context::render_generation_prompt(ctx.topic_name, template, &card_context);
-        let full_res =
-            llm::generate_new_card(llm.model, &prompt, llm.api_key, llm.base_url, llm.reasoning)
-                .await;
-        Self::record_llm_token_usage(
-            ctx.state,
-            ctx.user_id,
-            llm.model,
-            "generate_card",
-            &full_res.usage,
-        )
-        .await?;
-        let full_tip = full_res.content;
         let compression_level = ctx
             .topic
             .compression_level
             .as_deref()
             .map(llm::CompressionLevel::from_setting)
             .unwrap_or(llm.compression_level);
-        let compression_reasoning = llm::ReasoningConfig::new(compression_level.reasoning_effort());
-
-        let compressed_res = llm::compress_card(
-            &full_tip,
-            llm.compress_model,
-            llm.api_key,
-            llm.compress_base_url,
+        let generated = llm::generate_card(
+            &prompt,
             compression_level,
-            &compression_reasoning,
-        )
-        .await;
-        Self::record_llm_token_usage(
-            ctx.state,
-            ctx.user_id,
-            llm.compress_model,
-            "compress_card",
-            &compressed_res.usage,
-        )
-        .await?;
-        let compressed_tip = compressed_res.content;
-
-        let title_res = llm::generate_card_title(
-            &full_tip,
-            llm.compress_model,
+            llm.model,
             llm.api_key,
-            llm.compress_base_url,
-            &compression_reasoning,
+            llm.base_url,
+            llm.reasoning,
         )
         .await;
         Self::record_llm_token_usage(
             ctx.state,
             ctx.user_id,
-            llm.compress_model,
-            "generate_title",
-            &title_res.usage,
+            llm.model,
+            "generate_card",
+            &generated.usage,
         )
         .await?;
-        let card_title = title_res.content;
+        let card_title = generated.title;
+        let full_tip = generated.full_content;
+        let compressed_tip = generated.compressed_content;
 
         let card_id = tipcards::create_generated(
             &ctx.state.db,
