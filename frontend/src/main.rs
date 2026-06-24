@@ -8,6 +8,7 @@
 mod api;
 mod app;
 mod components;
+mod hooks;
 mod i18n;
 mod image_compress;
 mod markdown;

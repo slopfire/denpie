@@ -9,10 +9,10 @@ use std::{
 use tokio::fs;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
 
-pub(super) const TEST_USER_ID: &str = "usr_test_admin";
+pub const TEST_USER_ID: &str = "usr_test_admin";
 static TEST_FRONTEND_DIST: OnceLock<PathBuf> = OnceLock::new();
 
-pub(super) async fn setup_db() -> SqlitePool {
+pub async fn setup_db() -> SqlitePool {
     let pool = SqlitePoolOptions::new()
         .connect("sqlite::memory:")
         .await
@@ -39,8 +39,7 @@ pub(super) async fn setup_db() -> SqlitePool {
 
 /// Write isolated test settings and spin up a real server on an ephemeral port.
 /// Returns (base_url, reqwest::Client with cookie jar).
-pub(super) async fn spawn_test_server() -> (String, reqwest::Client) {
-    ensure_test_frontend_dist();
+pub async fn spawn_test_server() -> (String, reqwest::Client) {
     let test_token = "test_admin_token_xyz";
     let settings_path = unique_settings_path();
     let mut map = serde_yaml::Mapping::new();
@@ -117,14 +116,15 @@ pub(super) async fn spawn_test_server() -> (String, reqwest::Client) {
     (base_url, client)
 }
 
-fn ensure_test_frontend_dist() {
-    let frontend_dist = TEST_FRONTEND_DIST.get_or_init(|| {
-        let path =
-            std::env::temp_dir().join(format!("denpie-test-frontend-dist-{}", std::process::id()));
-        std::fs::create_dir_all(&path).expect("create test frontend dist");
-        std::fs::write(
-            path.join("index.html"),
-            r#"<!doctype html>
+fn test_frontend_dist() -> PathBuf {
+    TEST_FRONTEND_DIST
+        .get_or_init(|| {
+            let path = std::env::temp_dir()
+                .join(format!("denpie-test-frontend-dist-{}", std::process::id()));
+            std::fs::create_dir_all(&path).expect("create test frontend dist");
+            std::fs::write(
+                path.join("index.html"),
+                r#"<!doctype html>
 <html>
   <head>
     <title>Denpie</title>
@@ -136,24 +136,19 @@ fn ensure_test_frontend_dist() {
   </body>
 </html>
 "#,
-        )
-        .expect("write test frontend index");
-        path
-    });
-
-    // Tests build the app before CI has produced frontend/dist. Point every test
-    // server at a tiny stable fixture so the SPA fallback is deterministic.
-    unsafe {
-        std::env::set_var("DENPIE_FRONTEND_DIST", frontend_dist);
-    }
+            )
+            .expect("write test frontend index");
+            path
+        })
+        .clone()
 }
 
-pub(super) fn unique_settings_path() -> PathBuf {
+pub fn unique_settings_path() -> PathBuf {
     let suffix: u64 = rand::random();
     std::env::temp_dir().join(format!("denpie-test-settings-{suffix}.yaml"))
 }
 
-pub(super) fn make_state(db: SqlitePool, settings_path: PathBuf) -> AppState {
+pub fn make_state(db: SqlitePool, settings_path: PathBuf) -> AppState {
     let settings_store = crate::config::SettingsStore::new(settings_path.clone());
     let image_dir = settings_path.with_extension("images");
     let rp_id = "localhost";
@@ -170,16 +165,13 @@ pub(super) fn make_state(db: SqlitePool, settings_path: PathBuf) -> AppState {
         reviews: crate::services::review::ReviewService::new(db.clone()),
         db,
         image_dir,
+        frontend_dist: test_frontend_dist(),
         settings_path,
         webauthn,
     }
 }
 
-pub(super) async fn bootstrap_api_key(
-    url: &str,
-    client: &reqwest::Client,
-    client_name: &str,
-) -> String {
+pub async fn bootstrap_api_key(url: &str, client: &reqwest::Client, client_name: &str) -> String {
     let request = crate::api::pb::ApiRequest {
         auth: "".into(),
         op: Some(crate::api::pb::api_request::Op::BootstrapApiKey(
@@ -204,7 +196,7 @@ pub(super) async fn bootstrap_api_key(
     }
 }
 
-pub(super) async fn post_api(
+pub async fn post_api(
     url: &str,
     client: &reqwest::Client,
     request: crate::api::pb::ApiRequest,

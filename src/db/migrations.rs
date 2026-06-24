@@ -147,6 +147,14 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
     )
     .await?;
     ensure_column(pool, "review_states", "daily_refreshed_at", "DATETIME").await?;
+    ensure_column(
+        pool,
+        "review_states",
+        "repeats",
+        "INTEGER NOT NULL DEFAULT 0",
+    )
+    .await?;
+    backfill_review_states_repeats(pool).await?;
     ensure_column(pool, "llm_token_usage", "user_id", "TEXT").await?;
 
     // Migrate tipcard_type from classes to topics if topics.tipcard_type is default and class exists
@@ -299,6 +307,17 @@ async fn backfill_topic_colors(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             .execute(pool)
             .await?;
     }
+    Ok(())
+}
+
+async fn backfill_review_states_repeats(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE review_states
+         SET repeats = COALESCE(CAST(json_extract(state_data, '$.repeats') AS INTEGER), 0)
+         WHERE repeats = 0",
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
 

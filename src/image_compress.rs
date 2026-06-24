@@ -14,8 +14,7 @@ pub fn prepare_image_bytes(
     mime_type: &str,
     extension: &str,
 ) -> Result<PreparedImage, String> {
-    crate::domain::image::validate_decoded_image_size(bytes.len())
-        .map_err(|(_, message)| message)?;
+    crate::domain::image::validate_decoded_image_size(bytes.len()).map_err(|err| err.message())?;
 
     if !crate::domain::image::needs_server_compression(bytes.len()) {
         return Ok(PreparedImage {
@@ -26,11 +25,13 @@ pub fn prepare_image_bytes(
     }
 
     let mut params = server_compression_params();
+    // Fallback moves `bytes` instead of cloning again; worst case now holds one clone
+    // plus the original, not the original plus two concurrent clones.
     let compressed = match compress_in_memory(bytes.clone(), &params) {
         Ok(result) if result.len() < bytes.len() => result,
         Ok(_) | Err(_) => {
             warn!("libcaesium compress_in_memory did not shrink image; trying size target");
-            compress_to_size_in_memory(bytes.clone(), &mut params, TARGET_IMAGE_BYTES, true)
+            compress_to_size_in_memory(bytes, &mut params, TARGET_IMAGE_BYTES, true)
                 .map_err(|err| err.message)?
         }
     };

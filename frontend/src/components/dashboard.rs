@@ -99,11 +99,14 @@ pub fn dashboard() -> Html {
         });
     }
 
-    {
+    let refresh_dashboard = {
         let summary = summary.clone();
         let token_spend = token_spend.clone();
         let topics = topics.clone();
-        use_effect_with((), move |_| {
+        Callback::from(move |_| {
+            let summary = summary.clone();
+            let token_spend = token_spend.clone();
+            let topics = topics.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 if let Ok(res) = Request::get("/app/summary").send().await {
                     if let Ok(data) = res.json::<AppSummary>().await {
@@ -121,9 +124,10 @@ pub fn dashboard() -> Html {
                     }
                 }
             });
-            || ()
-        });
-    }
+        })
+    };
+
+    crate::hooks::use_view_refresh(View::Dashboard, refresh_dashboard);
 
     let refresh_topics = {
         let topics = topics.clone();

@@ -120,6 +120,8 @@ fn parse_data_url(value: &str) -> StatusResult<ParsedImage<'_>> {
             "Invalid base64 image data".to_string(),
         )
     })?;
+    crate::domain::image::validate_decoded_image_size(bytes.len())
+        .map_err(|err| err.into_status_body())?;
     Ok(ParsedImage {
         mime_type,
         extension,

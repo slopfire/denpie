@@ -1,6 +1,9 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::scheduling::{self, SchedulingState};
+use crate::{
+    error::{AppError, AppResult},
+    scheduling::{self, SchedulingState},
+};
 
 #[derive(Serialize, Default)]
 pub struct RepeatableState {
@@ -44,6 +47,13 @@ impl<'de> Deserialize<'de> for RepeatableState {
             repeats: 0,
             scheduling_state,
         })
+    }
+}
+
+impl RepeatableState {
+    pub fn try_from_state_data(state_data: &str) -> AppResult<Self> {
+        serde_json::from_str(state_data)
+            .map_err(|e| AppError::Validation(format!("Invalid review state data: {e}")))
     }
 }
 

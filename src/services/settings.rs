@@ -1,5 +1,7 @@
 use crate::{
+    AppState,
     config::{Settings, SettingsPatch, SettingsStore},
+    db::repositories::user_settings,
     error::AppResult,
 };
 
@@ -51,5 +53,18 @@ impl SettingsService {
 
     pub fn store(&self) -> &SettingsStore {
         &self.store
+    }
+
+    pub async fn user_settings_get(state: &AppState, user_id: &str) -> AppResult<Settings> {
+        let defaults = state.settings.get_settings()?;
+        user_settings::get(&state.db, user_id, defaults).await
+    }
+
+    pub async fn user_settings_upsert(
+        state: &AppState,
+        user_id: &str,
+        settings: &Settings,
+    ) -> AppResult<()> {
+        user_settings::upsert(&state.db, user_id, settings).await
     }
 }

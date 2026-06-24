@@ -23,6 +23,7 @@ mod dashboard;
 mod db;
 mod domain;
 mod error;
+mod http_client;
 mod image_compress;
 mod image_store;
 mod llm;
@@ -30,6 +31,7 @@ mod scheduling;
 mod services;
 #[cfg(test)]
 mod tests;
+mod types;
 
 pub use app::{AppState, build_app};
 pub use db::migrations::apply_schema_migrations;
@@ -105,10 +107,15 @@ async fn main() {
 
     let webauthn_setup = config::webauthn::setup();
 
+    let frontend_dist = std::env::var_os("DENPIE_FRONTEND_DIST")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("frontend/dist"));
+
     let shared_state = Arc::new(AppState {
         db: pool,
         image_dir,
         settings_path,
+        frontend_dist,
         settings: settings_service,
         api_keys: api_key_service,
         reviews: review_service,

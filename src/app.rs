@@ -23,6 +23,7 @@ pub struct AppState {
     pub db: SqlitePool,
     pub image_dir: PathBuf,
     pub settings_path: PathBuf,
+    pub frontend_dist: PathBuf,
     pub settings: services::settings::SettingsService,
     pub api_keys: services::api_keys::ApiKeyService,
     pub reviews: services::review::ReviewService,
@@ -36,9 +37,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
     let static_dir = std::env::var_os("DENPIE_STATIC_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("static"));
-    let frontend_dist = std::env::var_os("DENPIE_FRONTEND_DIST")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("frontend/dist"));
+    let frontend_dist = shared_state.frontend_dist.clone();
 
     let governor_conf = Arc::new(
         GovernorConfigBuilder::default()

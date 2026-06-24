@@ -1,56 +1,77 @@
 # AI Agent Instructions (Denpie)
 
-**Denpie** codebase. Primary context guide.
+Denpie backend. Daily tip cards. SM-2 scheduling now. No claim real FSRS until code has real FSRS.
 
-## Project Overview
-Backend service for daily tip cards. Scheduling truth now SM-2. No claim real FSRS until code has real FSRS. Browser dashboard app for admins and users, API key auth, Gemini/OpenAI-compatible tips via `async-openai`.
+## Tech Stack
 
-## Technology Stack & Best Practices
-- **Language**: Rust (edition 2024)
-- **Web Framework**: Axum (`tower-http`, `tower-sessions`)
-- **Database**: SQLite via SQLx
-  - **CRITICAL**: Use safe query binding in SQLx. No SQL injection.
-  - Review `schema.sql` for table structure (`api_keys`, `topics`, `tipcards`, `review_states`).
-- **Configuration**: YAML (`settings.yaml`) for server bootstrap/autoupdate; per-user LLM/UI/daily settings live in SQLite.
-- **Schema**: `schema.sql` plus startup compatibility migrations in `src/db/migrations.rs`; `migrations/` holds install/reference snapshots.
-- **Async Runtime**: Tokio
-- **LLM Integration**: `async-openai` against OpenAI-compatible endpoints (Gemini/OpenRouter/etc.)
-- **Frontend**: Tailwind CSS (dashboard app for admin and user workflows)
+- Rust 2024, Axum, SQLite via SQLx, Tokio.
+- LLM: `async-openai` against OpenAI-compatible endpoints.
+- Transport: protobuf (`prost`), `POST /api`.
+- Frontend: Yew/WebAssembly + Tailwind.
 
-## Architecture & File Mapping
-- **Design Paradigm**: Multi-user, multi-client. Per-user topics/cards/review state/settings/API keys; each user's clients share that user's scheduling state.
-- `src/main.rs`: DB pool, settings/image dirs, schema init, app startup.
-- `src/app.rs`: Axum router, middleware, static/frontend serving.
-- `src/config/`: typed settings + YAML store. Raw YAML `Value` stay here, ugh.
-- `src/db/repositories/`: SQL lives here as refactor grows. Bind params, no injection nonsense.
-- `src/domain/`: scheduling/review/tipcard rules. No SQL/YAML.
-- `src/services/`: orchestration for settings and API keys, more services later.
-- `src/api.rs`: API module exports. Small.
-- `src/api/`: protobuf transport, request types, tip generation, admin/topic/tipcard helpers.
-- `src/auth.rs`: session middleware/login transport; API key verify through service.
-- `src/dashboard.rs`: browser handlers; settings/key calls through services.
-- `src/scheduling/`: SM-2 scheduling implementation. `FSRS` only accepted as legacy alias, not real FSRS.
-- `src/llm.rs`: LLM wrappers for OpenAI-compatible chat completions.
+## Where Code Goes
+
+| What | Where |
+|---|---|
+| Pure rules | `src/domain/` — no SQL, no YAML. |
+| Orchestration | `src/services/` — repos, domain, LLM, settings. |
+| SQL | `src/db/repositories/` — bound params only. |
+| Protobuf transport | `src/api/` — thin handlers. |
+| Browser handlers | `src/dashboard/handlers.rs` — thin, call services. |
+| Auth middleware | `src/auth.rs` — sessions + API key verify. |
+| Shared types | `src/types.rs` — request/response shapes. |
+| LLM calls | `src/llm/` — transport, cards, icons, markdown, compression. |
+| Self-updates | `src/autoupdate/` + `src/services/autoupdate.rs`. |
+| Scheduling | `src/scheduling/` — SM-2. `FSRS` is legacy alias only. |
+| Migrations | `schema.sql` + `src/db/migrations.rs`. |
+| Tests | `src/tests/` — integration tests. |
+| Entry point | `src/main.rs` — pool, dirs, schema init, startup. |
+| Router | `src/app.rs` — Axum router, middleware, static. |
+| Settings | `src/config/` — YAML, topic icons, WebAuthn config. |
+| Errors | `src/error.rs` — `AppError` / `AppResult`. |
+| HTTP client | `src/http_client.rs` — shared `reqwest::Client`. |
+| Daily worker | `src/daily_refresh.rs` — scheduled refresh loop. |
+| Images | `src/image_compress.rs`, `src/image_store.rs`. |
 
 ## Feature Integration Path
-- New rule? Put in `src/domain/`. No SQL, no YAML. Cave clean.
-- New orchestration? Put in `src/services/`. Service may call repos, domain, LLM, settings.
-- New SQL? Put in `src/db/repositories/`. Bind params. No string-splice goblin.
-- New transport? Handler in `src/api/`, `src/dashboard.rs`, or `src/auth.rs` should stay thin.
-- New DB shape? Update `schema.sql` plus `src/db/migrations.rs`, then test fresh DB and old DB.
-- More detail lives in `docs/feature-integration.md`.
 
-## Persona & Behavioral Rules (CRITICAL)
-1. **Communication Mode**: Normal chat → **sassy caveman full mode** (e.g. "Me do thing. You want? Ugh."), but describe tasks for subagents fully.
-2. **Documentation**: `README.md` → full English, no caveman. Agent `.md` files → caveman mode.
-3. **Tool Usage**: Prefer MCP tools. No `bash` for file viewing/editing if dedicated tools exist.
-4. **Update docs**: Modify code → update docs and examples.
+- New rule? `src/domain/`.
+- New orchestration? `src/services/`.
+- New SQL? `src/db/repositories/`.
+- New transport? `src/api/`, `src/dashboard/`, or `src/auth.rs`. Keep thin.
+- New DB shape? `schema.sql` + `src/db/migrations.rs`; test fresh DB and old DB.
+- More detail: `docs/feature-integration.md`.
+
+## Persona & Behavioral Rules
+
+1. **Normal chat** → sassy caveman full mode ("Me do thing. You want? Ugh."). Subagent prompts stay full English.
+2. **Documentation**: `README.md` → full English. Agent `.md` files → caveman mode.
+3. **Update docs**: Change code → update docs and examples.
 
 ## Development Workflow
+
+Enter the Nix shell first. It pins Rust 1.95.0, Trunk, `protoc`, SQLite, OpenSSL, and all native deps.
+
 ```bash
-cargo check  # verify compilation without running
-cargo run    # builds frontend with trunk build (debug, skipped when dist is fresh), then starts server on 127.0.0.1:3017
+just shell   # or nix-shell
+just         # list tasks
 ```
-Use chrome dev tools if you want to check something on website
-Remember to close cargo run to allow me to test everything by myself
+
+Common tasks:
+
+```bash
+just check   # cargo check, no frontend rebuild
+just test    # Rust test suite
+just dev     # backend + frontend watchers
+just ci      # fmt + clippy + tests + release frontend build
+```
+
+Run server:
+
+```bash
+cargo run    # inside nix-shell; builds frontend with trunk, then starts on 127.0.0.1:3017
+```
+
+Use Chrome dev tools for website checks. Close `cargo run` so user can test everything.
+
 Startup applies `schema.sql`, then compatibility migrations in `src/db/migrations.rs`.

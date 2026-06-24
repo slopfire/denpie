@@ -239,10 +239,8 @@ pub fn unified_flow() -> Html {
 
     {
         let load_cards = load_cards.clone();
-        use_effect_with((), move |_| {
-            load_cards.emit(true);
-            || ()
-        });
+        let refresh = Callback::from(move |_| load_cards.emit(true));
+        crate::hooks::use_view_refresh(crate::app::View::Flow, refresh);
     }
 
     let request_detail = {

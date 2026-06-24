@@ -89,10 +89,7 @@ pub fn archive() -> Html {
 
     {
         let refresh_cards = refresh_cards.clone();
-        use_effect_with((), move |_| {
-            refresh_cards.emit(());
-            || ()
-        });
+        crate::hooks::use_view_refresh(crate::app::View::Archive, refresh_cards);
     }
 
     let filtered = use_memo(

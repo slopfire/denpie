@@ -1,12 +1,7 @@
 use chrono::{Duration, Utc};
 use sqlx::SqlitePool;
 
-use crate::{
-    db::repositories::reviews,
-    domain,
-    error::{AppError, AppResult},
-    scheduling::SchedulingState,
-};
+use crate::{db::repositories::reviews, domain, error::AppResult, scheduling::SchedulingState};
 
 #[derive(Clone)]
 pub struct ReviewService {
@@ -31,55 +26,43 @@ impl ReviewService {
             || row.tipcard_type == "repeatable_tip"
         {
             let action = action.trim();
-            let (new_state_json, status, next_review) = match action {
+            let (new_state_json, repeats, status, next_review) = match action {
                 "acknowledge" | "acknowledged" => {
-                    let mut repeat_state: domain::review::RepeatableState =
-                        serde_json::from_str(&row.state_data).map_err(|_| {
-                            AppError::Json(serde_json::Error::io(std::io::Error::new(
-                                std::io::ErrorKind::InvalidData,
-                                "Invalid repeatable state data",
-                            )))
-                        })?;
+                    let mut repeat_state =
+                        domain::review::RepeatableState::try_from_state_data(&row.state_data)?;
                     let next_review = domain::review::next_review(
                         &mut repeat_state.scheduling_state,
                         grade.max(3),
                     );
                     (
                         serde_json::to_string(&repeat_state)?,
+                        repeat_state.repeats,
                         "active".to_string(),
                         next_review,
                     )
                 }
                 "memorize" => {
-                    let mut repeat_state: domain::review::RepeatableState =
-                        serde_json::from_str(&row.state_data).map_err(|_| {
-                            AppError::Json(serde_json::Error::io(std::io::Error::new(
-                                std::io::ErrorKind::InvalidData,
-                                "Invalid repeatable state data",
-                            )))
-                        })?;
+                    let mut repeat_state =
+                        domain::review::RepeatableState::try_from_state_data(&row.state_data)?;
                     repeat_state.repeats += 1;
                     let next_review =
                         domain::review::next_review(&mut repeat_state.scheduling_state, 5);
                     (
                         serde_json::to_string(&repeat_state)?,
+                        repeat_state.repeats,
                         "active".to_string(),
                         next_review,
                     )
                 }
                 "dismiss" => (
                     row.state_data,
+                    row.repeats,
                     "dismissed".to_string(),
                     Utc::now() + Duration::days(36500),
                 ),
                 _ => {
-                    let mut repeat_state: domain::review::RepeatableState =
-                        serde_json::from_str(&row.state_data).map_err(|_| {
-                            AppError::Json(serde_json::Error::io(std::io::Error::new(
-                                std::io::ErrorKind::InvalidData,
-                                "Invalid repeatable state data",
-                            )))
-                        })?;
+                    let mut repeat_state =
+                        domain::review::RepeatableState::try_from_state_data(&row.state_data)?;
                     repeat_state.repeats += 1;
                     let next_review = domain::review::next_review(
                         &mut repeat_state.scheduling_state,
@@ -87,6 +70,7 @@ impl ReviewService {
                     );
                     (
                         serde_json::to_string(&repeat_state)?,
+                        repeat_state.repeats,
                         "active".to_string(),
                         next_review,
                     )
@@ -98,6 +82,7 @@ impl ReviewService {
                 user_id,
                 card_id,
                 new_state_json,
+                repeats,
                 status,
                 next_review,
             )
@@ -105,16 +90,17 @@ impl ReviewService {
             return Ok(());
         }
 
-        let mut scheduling_state: SchedulingState =
-            serde_json::from_str(&row.state_data).map_err(|_| {
-                AppError::Json(serde_json::Error::io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Invalid state data",
-                )))
-            })?;
+        let mut scheduling_state: SchedulingState = serde_json::from_str(&row.state_data)?;
         let next_review = domain::review::next_review(&mut scheduling_state, grade);
         let new_state_json = serde_json::to_string(&scheduling_state)?;
-        reviews::update_review_schedule(&self.pool, user_id, card_id, new_state_json, next_review)
-            .await
+        reviews::update_review_schedule(
+            &self.pool,
+            user_id,
+            card_id,
+            new_state_json,
+            row.repeats,
+            next_review,
+        )
+        .await
     }
 }

@@ -2,7 +2,6 @@ use axum::http::StatusCode;
 
 use crate::{AppState, db::repositories::tipcards};
 
-//todo
 const MAX_CONTEXT_TITLES: usize = 80;
 
 #[derive(Debug, Default)]
@@ -34,7 +33,6 @@ impl CardContext {
     }
 }
 
-//todo compressed???
 pub async fn load_card_context(
     state: &AppState,
     user_id: &str,

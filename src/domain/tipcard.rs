@@ -1,5 +1,6 @@
-use axum::http::StatusCode;
 use base64::{Engine, engine::general_purpose::STANDARD};
+
+use crate::error::{AppError, AppResult};
 
 use super::image;
 
@@ -11,7 +12,6 @@ pub enum TipcardType {
     Custom,
 }
 
-// todo huh
 impl TipcardType {
     pub fn from_setting(value: &str) -> Self {
         match value.trim() {
@@ -42,7 +42,6 @@ impl TipcardType {
     }
 }
 
-// todo huuuuh
 pub fn normalize_tipcard_type(value: &str, class_name: &str) -> String {
     match value.trim() {
         "casual" | "casual_tip" => "casual_tip".to_string(),
@@ -64,7 +63,7 @@ pub fn is_queue_tipcard(value: &str) -> bool {
     TipcardType::from_setting(value).is_queue()
 }
 
-pub fn validate_image_data(image_data: Vec<String>) -> Result<Vec<String>, (StatusCode, String)> {
+pub fn validate_image_data(image_data: Vec<String>) -> AppResult<Vec<String>> {
     const MAX_IMAGES: usize = 4;
     // Base64 expands payloads by ~4/3; keep enough headroom for four 10 MB decoded images.
     const MAX_TOTAL_CHARS: usize = 56 * 1024 * 1024;
@@ -77,10 +76,9 @@ pub fn validate_image_data(image_data: Vec<String>) -> Result<Vec<String>, (Stat
             continue;
         }
         if normalized.len() >= MAX_IMAGES {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("A tipcard can have at most {MAX_IMAGES} images"),
-            ));
+            return Err(AppError::Validation(format!(
+                "A tipcard can have at most {MAX_IMAGES} images"
+            )));
         }
         let allowed = image.starts_with("data:image/png;base64,")
             || image.starts_with("data:image/jpeg;base64,")
@@ -88,36 +86,24 @@ pub fn validate_image_data(image_data: Vec<String>) -> Result<Vec<String>, (Stat
             || image.starts_with("data:image/webp;base64,")
             || image.starts_with("data:image/gif;base64,");
         if !allowed {
-            return Err((
-                StatusCode::BAD_REQUEST,
+            return Err(AppError::Validation(
                 "Only PNG, JPEG, WebP, or GIF data URLs are supported".to_string(),
             ));
         }
         let payload = image
             .split_once(',')
             .map(|(_, payload)| payload)
-            .ok_or_else(|| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    "Invalid image data URL".to_string(),
-                )
-            })?;
-        let decoded = STANDARD.decode(payload).map_err(|_| {
-            (
-                StatusCode::BAD_REQUEST,
-                "Invalid base64 image data".to_string(),
-            )
-        })?;
+            .ok_or_else(|| AppError::Validation("Invalid image data URL".to_string()))?;
+        let decoded = STANDARD
+            .decode(payload)
+            .map_err(|_| AppError::Validation("Invalid base64 image data".to_string()))?;
         image::validate_decoded_image_size(decoded.len())?;
         total_chars = total_chars.saturating_add(image.len());
         if total_chars > MAX_TOTAL_CHARS {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!(
-                    "Attached images are too large (max {} MB total encoded payload)",
-                    MAX_TOTAL_CHARS / 1024 / 1024
-                ),
-            ));
+            return Err(AppError::Validation(format!(
+                "Attached images are too large (max {} MB total encoded payload)",
+                MAX_TOTAL_CHARS / 1024 / 1024
+            )));
         }
         normalized.push(image);
     }
@@ -137,7 +123,7 @@ mod tests {
             STANDARD.encode(vec![0_u8; MAX_IMAGE_BYTES + 1])
         );
         let err = validate_image_data(vec![oversized]).unwrap_err();
-        assert_eq!(err.0, StatusCode::BAD_REQUEST);
-        assert!(err.1.contains("10 MB"));
+        assert!(matches!(err, AppError::Validation(ref m) if m.contains("10 MB")));
+        assert_eq!(err.status().as_u16(), 400);
     }
 }

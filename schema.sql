@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS review_states (
     card_id INTEGER NOT NULL UNIQUE,
     algorithm_used TEXT NOT NULL, -- 'fsrs' or 'sm2'
     state_data TEXT NOT NULL, -- JSON
+    repeats INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'active', -- 'active', 'acknowledged', 'memorized', or 'dismissed'
     daily_refreshed_at DATETIME,
     next_review_at DATETIME NOT NULL,

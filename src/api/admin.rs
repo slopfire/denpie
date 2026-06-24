@@ -48,10 +48,7 @@ pub(crate) async fn list_tipcards_pb(state: &AppState, user_id: &str) -> ApiResu
                 tipcard_type: row.tipcard_type,
                 status: row.status,
                 next_review_at: row.next_review_at,
-                repeat_count: serde_json::from_str::<serde_json::Value>(&row.state_data)
-                    .ok()
-                    .and_then(|value| value.get("repeats").and_then(|repeats| repeats.as_u64()))
-                    .unwrap_or(0) as u32,
+                repeat_count: row.repeats,
                 pinned: row.pinned,
             })
             .collect(),
