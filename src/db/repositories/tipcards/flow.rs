@@ -79,6 +79,7 @@ pub async fn list_flow_cards(
             topic_icon: row.2,
             topic_color: topic_color_from_row(&row.1, row.3),
             title: row.4,
+            full_content: row.5,
             compressed_content: row.6,
             created_at: row.7,
             tipcard_type: row.8,

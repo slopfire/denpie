@@ -135,6 +135,7 @@ pub async fn flow_cards(
             topic_icon: row.topic_icon,
             topic_color: row.topic_color,
             title: row.title,
+            full_content: row.full_content,
             compressed_content: row.compressed_content,
             created_at: row.created_at,
             tipcard_type: row.tipcard_type,

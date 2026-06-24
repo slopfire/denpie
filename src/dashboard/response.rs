@@ -187,6 +187,7 @@ pub struct FlowCardInfo {
     pub topic_icon: String,
     pub topic_color: String,
     pub title: String,
+    pub full_content: String,
     pub compressed_content: String,
     pub created_at: String,
     pub tipcard_type: String,
