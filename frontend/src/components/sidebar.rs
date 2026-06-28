@@ -1,9 +1,11 @@
+use crate::account_switch::load_remembered;
 use crate::api::toast_key;
 use crate::app::View;
 use crate::components::tooltip::ShadcnTooltip;
 use crate::i18n::use_i18n;
 use crate::state::{AppAction, AppState, UserProfile};
 use gloo_net::http::Request;
+use gloo_storage::{LocalStorage, Storage};
 use wasm_bindgen::JsCast;
 use web_sys::KeyboardEvent;
 use yew::prelude::*;
@@ -78,6 +80,23 @@ pub fn sidebar(props: &SidebarProps) -> Html {
             });
         })
     };
+    let switch_to_account = {
+        let app_state = app_state.clone();
+        let i18n = i18n.clone();
+        let close_menu = close_menu.clone();
+        Callback::from(move |target_username: String| {
+            close_menu.emit(());
+            let app_state = app_state.clone();
+            let i18n = i18n.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let _ = LocalStorage::set("denpie.prefill_username", target_username);
+                if Request::post("/auth/logout").send().await.is_ok() {
+                    app_state.dispatch(AppAction::SetSession(None));
+                    toast_key(&app_state, &i18n, "toast.switched_account");
+                }
+            });
+        })
+    };
 
     let refresh_profile = {
         let app_state = app_state.clone();
@@ -111,6 +130,11 @@ pub fn sidebar(props: &SidebarProps) -> Html {
     };
 
     let user = app_state.user.clone();
+    let current_username = user.as_ref().map(|u| u.username.clone());
+    let other_accounts: Vec<String> = load_remembered()
+        .into_iter()
+        .filter(|name| Some(name.clone()) != current_username)
+        .collect();
     let username = user
         .as_ref()
         .map(|u| u.display_name.clone().unwrap_or(u.username.clone()))
@@ -213,11 +237,6 @@ pub fn sidebar(props: &SidebarProps) -> Html {
                     class={classes!("account-menu", "surface-popover", (!*menu_open).then_some("account-menu--closed"))}
                     onkeydown={on_menu_keydown}
                 >
-                    <div class="account-menu-header" role="presentation">
-                        <span class="account-menu-header-name">{username}</span>
-                        <span class="account-menu-header-role">{role}</span>
-                    </div>
-                    <div class="account-menu-separator" role="separator"></div>
                     <button
                         type="button"
                         role="menuitem"
@@ -245,6 +264,26 @@ pub fn sidebar(props: &SidebarProps) -> Html {
                         ></iconify-icon>
                         <span>{i18n.t("account.refresh")}</span>
                     </button>
+                    if !other_accounts.is_empty() {
+                        <>
+                            <div class="account-menu-separator" role="separator"></div>
+                            {for other_accounts.iter().map(|name| {
+                                let switch_to = switch_to_account.clone();
+                                let target_name = name.clone();
+                                html! {
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onclick={Callback::from(move |_| switch_to.emit(target_name.clone()))}
+                                        class="account-menu-item"
+                                    >
+                                        <iconify-icon icon="radix-icons:person" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                        <span class="truncate">{format!("Switch to {}", name)}</span>
+                                    </button>
+                                }
+                            })}
+                        </>
+                    }
                     <div class="account-menu-separator" role="separator"></div>
                     <button
                         id="logout-btn"

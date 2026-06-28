@@ -3,9 +3,13 @@ use crate::i18n::use_i18n;
 use crate::passkeys::loginPasskey;
 use crate::state::{AppAction, AppState, UserProfile};
 use gloo_net::http::Request;
+use gloo_storage::{LocalStorage, Storage};
 use serde::Serialize;
+use wasm_bindgen::JsCast;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
+
+use crate::account_switch::record_account;
 
 #[derive(Serialize)]
 struct LoginReq {
@@ -24,12 +28,34 @@ struct SetupReq {
 pub fn login_panel() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
     let i18n = use_i18n();
-    let username = use_state(String::new);
+    let username = use_state(|| {
+        let val = LocalStorage::get::<String>("denpie.prefill_username").unwrap_or_default();
+        let _ = LocalStorage::delete("denpie.prefill_username");
+        val
+    });
     let password = use_state(String::new);
     let setup_token = use_state(String::new);
     let login_loading = use_state(|| false);
     let passkey_loading = use_state(|| false);
 
+    {
+        let username_val = (*username).clone();
+        use_effect_with((), move |_| {
+            if !username_val.is_empty() {
+                if let Some(window) = web_sys::window() {
+                    if let Some(el) = window
+                        .document()
+                        .and_then(|d| d.get_element_by_id("login-password"))
+                    {
+                        if let Ok(input) = el.dyn_into::<HtmlInputElement>() {
+                            let _ = input.focus();
+                        }
+                    }
+                }
+            }
+            || ()
+        });
+    }
     let form_disabled = *login_loading || *passkey_loading;
 
     let on_passkey_login = {
@@ -86,7 +112,8 @@ pub fn login_panel() -> Html {
                     Ok(res) if res.ok() => {
                         if let Ok(user_res) = Request::get("/auth/me").send().await {
                             if let Ok(user) = user_res.json::<UserProfile>().await {
-                                app_state.dispatch(AppAction::SetSession(Some(user)));
+                                app_state.dispatch(AppAction::SetSession(Some(user.clone())));
+                                record_account(&user.username);
                                 toast_key(&app_state, &i18n, "toast.logged_in_passkey");
                             }
                         }
@@ -161,7 +188,8 @@ pub fn login_panel() -> Html {
                     Ok(res) if res.ok() => {
                         if let Ok(user_res) = Request::get("/auth/me").send().await {
                             if let Ok(user) = user_res.json::<UserProfile>().await {
-                                app_state.dispatch(AppAction::SetSession(Some(user)));
+                                app_state.dispatch(AppAction::SetSession(Some(user.clone())));
+                                record_account(&user.username);
                                 toast_key(&app_state, &i18n, "toast.logged_in");
                             }
                         }
@@ -216,7 +244,6 @@ pub fn login_panel() -> Html {
             }
         })
     };
-
     html! {
         <section id="login-panel" class="min-h-screen flex items-center justify-center p-4">
             <div class="surface border rounded-md w-full max-w-md p-4">

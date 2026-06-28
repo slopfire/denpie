@@ -5,6 +5,7 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 
 use crate::components::account::AccountSettings;
+use crate::components::admin_shell::AdminShell;
 use crate::components::api_keys::ApiKeys;
 use crate::components::archive::Archive;
 use crate::components::dashboard::Dashboard;
@@ -12,14 +13,13 @@ use crate::components::login::LoginPanel;
 use crate::components::settings::{Settings, SettingsRes, apply_appearance};
 use crate::components::sidebar::Sidebar;
 use crate::components::unified_flow::UnifiedFlow;
-use crate::components::admin_shell::AdminShell;
 use std::collections::HashSet;
 
 #[derive(Clone, Routable, PartialEq, Eq, Hash)]
 pub enum View {
-    #[at("/")]
+    #[at("/dashboard")]
     Dashboard,
-    #[at("/flow")]
+    #[at("/")]
     Flow,
     #[at("/settings")]
     Settings,
@@ -141,7 +141,7 @@ fn auth_checking() -> Html {
 
 fn normalize_view(view: Option<View>) -> View {
     match view {
-        Some(View::NotFound) | None => View::Dashboard,
+        Some(View::NotFound) | None => View::Flow,
         Some(view) => view,
     }
 }

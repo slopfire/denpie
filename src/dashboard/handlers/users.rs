@@ -54,7 +54,10 @@ pub async fn create_user(
         ));
     }
     if req.role != "user" && req.role != "admin" {
-        return Err((StatusCode::BAD_REQUEST, "Role must be 'user' or 'admin'".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Role must be 'user' or 'admin'".to_string(),
+        ));
     }
 
     if users::find_by_username(&state.db, username)
@@ -99,7 +102,12 @@ pub async fn create_user(
         .map_err(|err| err.into_status_body())?
         .into_iter()
         .find(|e| e.id == user.id)
-        .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "Created user not found".to_string()))?;
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Created user not found".to_string(),
+            )
+        })?;
 
     let _ = admin; // admin verified, not used further
     Ok(Json(UserInfo {
@@ -121,7 +129,10 @@ pub async fn update_user(
 
     if let Some(role) = &req.role {
         if role != "user" && role != "admin" {
-            return Err((StatusCode::BAD_REQUEST, "Role must be 'user' or 'admin'".to_string()));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Role must be 'user' or 'admin'".to_string(),
+            ));
         }
         // Block self-demotion that would lock out the last admin.
         if role != "admin" && admin.id == id {
@@ -129,7 +140,10 @@ pub async fn update_user(
                 .await
                 .map_err(|err| err.into_status_body())?;
             if count <= 1 {
-                return Err((StatusCode::CONFLICT, "Cannot demote the last admin".to_string()));
+                return Err((
+                    StatusCode::CONFLICT,
+                    "Cannot demote the last admin".to_string(),
+                ));
             }
         }
         users::update_role(&state.db, &id, role)
@@ -176,7 +190,10 @@ pub async fn delete_user(
 
     // Prevent self-deletion.
     if admin.id == id {
-        return Err((StatusCode::CONFLICT, "Cannot delete your own account".to_string()));
+        return Err((
+            StatusCode::CONFLICT,
+            "Cannot delete your own account".to_string(),
+        ));
     }
 
     // Prevent deleting the last admin.
@@ -188,7 +205,10 @@ pub async fn delete_user(
             .await
             .map_err(|err| err.into_status_body())?;
         if count <= 1 {
-            return Err((StatusCode::CONFLICT, "Cannot delete the last admin".to_string()));
+            return Err((
+                StatusCode::CONFLICT,
+                "Cannot delete the last admin".to_string(),
+            ));
         }
     }
 

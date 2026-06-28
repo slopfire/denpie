@@ -5,6 +5,7 @@
     clippy::trim_split_whitespace
 )]
 
+mod account_switch;
 mod api;
 mod app;
 mod components;

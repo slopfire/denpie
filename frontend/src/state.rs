@@ -55,6 +55,7 @@ impl Reducible for AppState {
                 AppState {
                     user,
                     auth_status,
+                    admin_mode: false,
                     ..(*self).clone()
                 }
                 .into()

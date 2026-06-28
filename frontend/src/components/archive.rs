@@ -162,32 +162,27 @@ pub fn archive() -> Html {
             let app_state = app_state.clone();
             let refresh_cards = refresh_cards.clone();
             let i18n = i18n.clone();
-            if web_sys::window()
-                .and_then(|w| w.confirm_with_message(&i18n.t("confirm.delete_card")).ok())
-                .unwrap_or(false)
-            {
-                wasm_bindgen_futures::spawn_local(async move {
-                    let req = serde_json::json!({ "id": id });
-                    match Request::delete("/admin/tipcards")
-                        .json(&req)
-                        .unwrap()
-                        .send()
-                        .await
-                    {
-                        Ok(res) if res.ok() => {
-                            toast_key(&app_state, &i18n, "toast.card_deleted");
-                            refresh_cards.emit(());
-                        }
-                        Ok(res) => toast(
-                            &app_state,
-                            res.text()
-                                .await
-                                .unwrap_or_else(|_| i18n.t("toast.failed_delete_card")),
-                        ),
-                        Err(err) => toast(&app_state, err.to_string()),
+            wasm_bindgen_futures::spawn_local(async move {
+                let req = serde_json::json!({ "id": id });
+                match Request::delete("/admin/tipcards")
+                    .json(&req)
+                    .unwrap()
+                    .send()
+                    .await
+                {
+                    Ok(res) if res.ok() => {
+                        toast_key(&app_state, &i18n, "toast.card_deleted");
+                        refresh_cards.emit(());
                     }
-                });
-            }
+                    Ok(res) => toast(
+                        &app_state,
+                        res.text()
+                            .await
+                            .unwrap_or_else(|_| i18n.t("toast.failed_delete_card")),
+                    ),
+                    Err(err) => toast(&app_state, err.to_string()),
+                }
+            });
         })
     };
 

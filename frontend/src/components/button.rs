@@ -2,6 +2,7 @@ use yew::prelude::*;
 
 /// Button visual style. Mirrors shadcn/ui variants.
 #[derive(Clone, Copy, PartialEq, Default)]
+#[allow(dead_code)]
 pub enum ButtonVariant {
     #[default]
     Default,
@@ -14,6 +15,7 @@ pub enum ButtonVariant {
 
 /// Button size. Mirrors shadcn/ui sizes.
 #[derive(Clone, Copy, PartialEq, Default)]
+#[allow(dead_code)]
 pub enum ButtonSize {
     #[default]
     Default,
@@ -26,8 +28,12 @@ impl ButtonVariant {
     fn classes(self) -> &'static str {
         match self {
             Self::Default => "bg-primary text-primary-foreground hover:bg-primary/90",
-            Self::Destructive => "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-            Self::Outline => "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+            Self::Destructive => {
+                "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            }
+            Self::Outline => {
+                "border border-input bg-background hover:bg-accent hover:text-accent-foreground"
+            }
             Self::Secondary => "bg-secondary text-secondary-foreground hover:bg-secondary/80",
             Self::Ghost => "hover:bg-accent hover:text-accent-foreground",
             Self::Link => "text-primary underline-offset-4 hover:underline",
@@ -69,6 +75,7 @@ pub struct ShadcnButtonProps {
 }
 
 #[derive(Clone, Copy, PartialEq, Default)]
+#[allow(dead_code)]
 pub enum ButtonType {
     #[default]
     Button,

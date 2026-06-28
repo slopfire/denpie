@@ -146,9 +146,10 @@ pub fn admin_shell() -> Html {
                         refresh_users.emit(());
                     }
                     Ok(res) => {
-                        let msg = res.text().await.unwrap_or_else(|_| {
-                            i18n.t("admin.create_failed")
-                        });
+                        let msg = res
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| i18n.t("admin.create_failed"));
                         toast(&app_state, msg);
                     }
                     Err(e) => toast(&app_state, e.to_string()),
@@ -205,7 +206,11 @@ pub fn admin_shell() -> Html {
                 saving.set(true);
                 let req = UpdateUserReq {
                     role: Some(role),
-                    password: if password.is_empty() { None } else { Some(password) },
+                    password: if password.is_empty() {
+                        None
+                    } else {
+                        Some(password)
+                    },
                 };
                 match Request::patch(&format!("/admin/users/{}", id))
                     .json(&req)
@@ -220,9 +225,10 @@ pub fn admin_shell() -> Html {
                         refresh_users.emit(());
                     }
                     Ok(res) => {
-                        let msg = res.text().await.unwrap_or_else(|_| {
-                            i18n.t("admin.update_failed")
-                        });
+                        let msg = res
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| i18n.t("admin.update_failed"));
                         toast(&app_state, msg);
                     }
                     Err(e) => toast(&app_state, e.to_string()),
@@ -249,11 +255,7 @@ pub fn admin_shell() -> Html {
                 return;
             }
 
-            let confirm_msg = format!(
-                "{} {}?",
-                i18n.t("admin.confirm_delete"),
-                user.username
-            );
+            let confirm_msg = format!("{} {}?", i18n.t("admin.confirm_delete"), user.username);
             if !web_sys::window()
                 .unwrap()
                 .confirm_with_message(&confirm_msg)
@@ -272,9 +274,10 @@ pub fn admin_shell() -> Html {
                         refresh_users.emit(());
                     }
                     Ok(res) => {
-                        let msg = res.text().await.unwrap_or_else(|_| {
-                            i18n.t("admin.delete_failed")
-                        });
+                        let msg = res
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| i18n.t("admin.delete_failed"));
                         toast(&app_state, msg);
                     }
                     Err(e) => toast(&app_state, e.to_string()),
