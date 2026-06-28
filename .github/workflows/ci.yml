@@ -58,22 +58,18 @@ jobs:
           shared-key: ci
           cache-all-crates: true
 
-      - name: Cache Trunk
-        id: trunk-cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/trunk
-            ~/.cargo/.crates.toml
-            ~/.cargo/.crates2.json
-          key: trunk-${{ runner.os }}-locked-v1
-
       - name: Install Trunk
-        if: steps.trunk-cache.outputs.cache-hit != 'true'
-        run: cargo install trunk --locked
+        run: curl -fsSL https://github.com/trunk-rs/trunk/releases/latest/download/trunk-x86_64-unknown-linux-gnu.tar.gz | tar xz -C ~/.cargo/bin
 
       - name: Build frontend
         run: cd frontend && env -u NO_COLOR trunk build --release
+
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 1
 
   docker:
     runs-on: ubuntu-latest
@@ -85,6 +81,11 @@ jobs:
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
