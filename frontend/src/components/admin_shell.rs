@@ -1,4 +1,5 @@
 use crate::api::toast;
+use crate::components::select::{SelectOption, ShadcnSelect};
 use crate::i18n::use_i18n;
 use crate::state::{AppAction, AppState};
 use gloo_net::http::Request;
@@ -322,10 +323,10 @@ pub fn admin_shell() -> Html {
                     <button
                         type="button"
                         onclick={let app_state = app_state.clone(); Callback::from(move |_| app_state.dispatch(AppAction::SetAdminMode(false)))}
-                        class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-left"
+                        class="account-menu-item w-full rounded-md px-3 py-2 text-sm font-semibold text-left"
                     >
-                        <iconify-icon icon="radix-icons:arrow-left" class="radix-icon justify-self-center"></iconify-icon>
-                        <span class="justify-self-start text-left">{i18n.t("admin.switch_to_app")}</span>
+                        <iconify-icon icon="radix-icons:arrow-left" class="radix-icon" aria-hidden="true"></iconify-icon>
+                        <span>{i18n.t("admin.switch_to_app")}</span>
                     </button>
                 </div>
                 <div class="border-t border-token pt-3">
@@ -414,21 +415,17 @@ pub fn admin_shell() -> Html {
                         </div>
                         <div>
                             <label class="block text-xs text-muted mb-1">{i18n.t("admin.role")}</label>
-                            <select
-                                class="w-full rounded-md border px-3 py-2 text-sm"
+                            <ShadcnSelect
                                 value={(*new_role).clone()}
                                 onchange={Callback::from({
                                     let s = new_role.clone();
-                                    move |e: Event| {
-                                        if let Some(t) = e.target_dyn_into::<web_sys::HtmlSelectElement>() {
-                                            s.set(t.value());
-                                        }
-                                    }
+                                    move |v: String| s.set(v)
                                 })}
-                            >
-                                <option value="user">{i18n.t("role.user")}</option>
-                                <option value="admin">{i18n.t("role.admin")}</option>
-                            </select>
+                                options={vec![
+                                    SelectOption { value: "user".into(), label: i18n.t("role.user") },
+                                    SelectOption { value: "admin".into(), label: i18n.t("role.admin") },
+                                ]}
+                            />
                         </div>
                         <div class="sm:col-span-2 lg:col-span-4">
                             <button
@@ -489,21 +486,17 @@ pub fn admin_shell() -> Html {
                                                         </td>
                                                         <td class="px-4 py-3">
                                                             if is_editing {
-                                                                <select
-                                                                    class="rounded-md border px-2 py-1 text-sm"
+                                                                <ShadcnSelect
                                                                     value={(*edit_role).clone()}
                                                                     onchange={Callback::from({
                                                                         let s = edit_role.clone();
-                                                                        move |e: Event| {
-                                                                            if let Some(t) = e.target_dyn_into::<web_sys::HtmlSelectElement>() {
-                                                                                s.set(t.value());
-                                                                            }
-                                                                        }
+                                                                        move |v: String| s.set(v)
                                                                     })}
-                                                                >
-                                                                    <option value="user">{i18n.t("role.user")}</option>
-                                                                    <option value="admin">{i18n.t("role.admin")}</option>
-                                                                </select>
+                                                                    options={vec![
+                                                                        SelectOption { value: "user".into(), label: i18n.t("role.user") },
+                                                                        SelectOption { value: "admin".into(), label: i18n.t("role.admin") },
+                                                                    ]}
+                                                                />
                                                             } else {
                                                                 <span class={classes!("inline-flex", "items-center", "rounded-md", "px-2", "py-1", "text-xs", "font-semibold", if user.role == "admin" { vec!["bg-primary-solid", "text-white"] } else { vec!["bg-[var(--surface-muted)]"] })}>
                                                                     {if user.role == "admin" { i18n.t("role.admin") } else { i18n.t("role.user") }}
