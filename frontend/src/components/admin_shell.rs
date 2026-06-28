@@ -323,18 +323,16 @@ pub fn admin_shell() -> Html {
                     <button
                         type="button"
                         onclick={let app_state = app_state.clone(); Callback::from(move |_| app_state.dispatch(AppAction::SetAdminMode(false)))}
-                        class="account-menu-item w-full rounded-md px-3 py-2 text-sm font-semibold text-left"
+                        class="account-menu-item"
                     >
                         <iconify-icon icon="radix-icons:arrow-left" class="radix-icon" aria-hidden="true"></iconify-icon>
                         <span>{i18n.t("admin.switch_to_app")}</span>
                     </button>
-                </div>
-                <div class="border-t border-token pt-3">
                     <div class="px-3 py-2 text-xs text-muted truncate">{admin_name}</div>
                     <button
                         type="button"
                         onclick={logout.clone()}
-                        class="account-menu-item account-menu-item--danger w-full rounded-md px-3 py-2 text-sm font-semibold text-left"
+                        class="account-menu-item account-menu-item--danger"
                     >
                         <iconify-icon icon="radix-icons:exit" class="radix-icon" aria-hidden="true"></iconify-icon>
                         <span>{i18n.t("nav.logout")}</span>
