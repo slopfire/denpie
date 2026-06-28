@@ -182,11 +182,11 @@ pub fn sidebar(props: &SidebarProps) -> Html {
                 </div>
             </div>
             <div class="space-y-1 flex-1">
-                <Link<View> to={View::Dashboard} classes={classes!("nav-item", "w-full", "grid", "grid-cols-[1.5rem_minmax(0,1fr)]", "items-center", "gap-3", "rounded-md", "px-3", "py-2", "text-sm", "font-semibold", "text-left", (props.current_view == View::Dashboard).then_some("active"))}>
-                    <iconify-icon icon="radix-icons:dashboard" class="radix-icon justify-self-center"></iconify-icon><span class="justify-self-start text-left">{i18n.t("nav.dashboard")}</span>
-                </Link<View>>
                 <Link<View> to={View::Flow} classes={classes!("nav-item", "w-full", "grid", "grid-cols-[1.5rem_minmax(0,1fr)]", "items-center", "gap-3", "rounded-md", "px-3", "py-2", "text-sm", "font-semibold", "text-left", (props.current_view == View::Flow).then_some("active"))}>
                     <iconify-icon icon="radix-icons:loop" class="radix-icon justify-self-center"></iconify-icon><span class="justify-self-start text-left">{i18n.t("nav.flow")}</span>
+                </Link<View>>
+                <Link<View> to={View::Dashboard} classes={classes!("nav-item", "w-full", "grid", "grid-cols-[1.5rem_minmax(0,1fr)]", "items-center", "gap-3", "rounded-md", "px-3", "py-2", "text-sm", "font-semibold", "text-left", (props.current_view == View::Dashboard).then_some("active"))}>
+                    <iconify-icon icon="radix-icons:dashboard" class="radix-icon justify-self-center"></iconify-icon><span class="justify-self-start text-left">{i18n.t("nav.dashboard")}</span>
                 </Link<View>>
                 <Link<View> to={View::Settings} classes={classes!("nav-item", "w-full", "grid", "grid-cols-[1.5rem_minmax(0,1fr)]", "items-center", "gap-3", "rounded-md", "px-3", "py-2", "text-sm", "font-semibold", "text-left", (props.current_view == View::Settings).then_some("active"))}>
                     <iconify-icon icon="radix-icons:gear" class="radix-icon justify-self-center"></iconify-icon><span class="justify-self-start text-left">{i18n.t("nav.settings")}</span>
