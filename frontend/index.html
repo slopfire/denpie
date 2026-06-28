@@ -8,6 +8,44 @@
             defer
             src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"
         ></script>
+        <style type="text/tailwindcss">
+            @theme inline {
+                --color-background: hsl(var(--background));
+                --color-foreground: hsl(var(--foreground));
+                --color-card: hsl(var(--card));
+                --color-card-foreground: hsl(var(--card-foreground));
+                --color-popover: hsl(var(--popover));
+                --color-popover-foreground: hsl(var(--popover-foreground));
+                --color-primary: hsl(var(--primary-hsl));
+                --color-primary-foreground: hsl(var(--primary-foreground));
+                --color-secondary: hsl(var(--secondary-hsl));
+                --color-secondary-foreground: hsl(var(--secondary-foreground));
+                --color-muted: hsl(var(--muted-hsl));
+                --color-muted-foreground: hsl(var(--muted-foreground));
+                --color-accent: hsl(var(--accent-hsl));
+                --color-accent-foreground: hsl(var(--accent-foreground));
+                --color-destructive: hsl(var(--destructive-hsl));
+                --color-destructive-foreground: hsl(var(--destructive-foreground));
+                --color-border: hsl(var(--border-hsl));
+                --color-input: hsl(var(--input-hsl));
+                --color-ring: hsl(var(--ring-hsl));
+                --color-chart-1: hsl(var(--chart-1));
+                --color-chart-2: hsl(var(--chart-2));
+                --color-chart-3: hsl(var(--chart-3));
+                --color-chart-4: hsl(var(--chart-4));
+                --color-chart-5: hsl(var(--chart-5));
+                --radius-sm: calc(var(--radius) - 4px);
+                --radius-md: calc(var(--radius) - 2px);
+                --radius-lg: var(--radius);
+                --radius-xl: calc(var(--radius) + 4px);
+            }
+            @source inline("{hover:,focus-visible:,disabled:,}bg-{primary,secondary,destructive,accent,muted,background,card,popover}");
+            @source inline("{hover:,focus-visible:,disabled:,}text-{primary,primary-foreground,secondary-foreground,destructive,destructive-foreground,accent-foreground,muted-foreground,foreground,background,card-foreground,popover-foreground}");
+            @source inline("{hover:,focus-visible:,}border-{border,input,primary,destructive}");
+            @source inline("{hover:,focus-visible:,}ring-{ring,primary,destructive}");
+            @source inline("rounded-{sm,md,lg,xl}");
+            @source inline("bg-destructive/10 bg-destructive/90 bg-primary/90 bg-secondary/80 hover:bg-destructive/80");
+        </style>
         <script
             defer
             src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"

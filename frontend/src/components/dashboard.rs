@@ -1,5 +1,6 @@
 use crate::api::toast;
 use crate::app::View;
+use crate::components::button::{ButtonVariant, ShadcnButton};
 use crate::components::select::{SelectOption, ShadcnSelect};
 use crate::components::tooltip::ShadcnTooltip;
 use crate::i18n::{I18n, use_i18n};
@@ -476,7 +477,7 @@ pub fn dashboard() -> Html {
             <dialog ref={dialog_ref} onclose={on_dialog_close} class="tailscale-dialog">
                 if let Some(topic) = &*confirm_delete {
                     <div class="flex items-start gap-4">
-                        <div class="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">
+                        <div class="flex-shrink-0 flex items-center justify-center size-10 rounded-full bg-destructive/10 text-destructive">
                             <iconify-icon icon="lucide:alert-triangle" class="text-xl"></iconify-icon>
                         </div>
                         <div class="flex-1">
@@ -487,20 +488,18 @@ pub fn dashboard() -> Html {
                                 {format!("Are you sure you want to delete topic \"{}\" and all its cards? This action cannot be undone.", topic.name)}
                             </p>
                             <div class="flex justify-end gap-3">
-                                <button
-                                    type="button"
-                                    class="rounded-md border border-token px-4 py-2 text-sm font-medium hover:bg-accent-hsl"
+                                <ShadcnButton
+                                    variant={ButtonVariant::Outline}
                                     onclick={on_cancel_delete}
                                 >
                                     {"Cancel"}
-                                </button>
-                                <button
-                                    type="button"
-                                    class="rounded-md bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-sm font-medium"
+                                </ShadcnButton>
+                                <ShadcnButton
+                                    variant={ButtonVariant::Destructive}
                                     onclick={on_confirm_delete}
                                 >
                                     {"Delete"}
-                                </button>
+                                </ShadcnButton>
                             </div>
                         </div>
                     </div>

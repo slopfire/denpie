@@ -32,7 +32,7 @@ A Rust/Axum backend that generates, serves, and schedules daily tip cards with S
 | Async Runtime | Tokio |
 | LLM Client | `async-openai` + shared `reqwest` transport |
 | Serialization | Protocol Buffers (`prost`) |
-| Frontend | Yew/WebAssembly + Tailwind |
+| Frontend | Yew/WebAssembly + Tailwind v4 (shadcn token-port) |
 | Public API | Protobuf over HTTP (`POST /api`) |
 
 ## Project Structure

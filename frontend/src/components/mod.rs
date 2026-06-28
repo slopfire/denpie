@@ -1,4 +1,5 @@
 pub mod admin_shell;
+pub mod button;
 pub mod account;
 pub mod api_keys;
 pub mod archive;

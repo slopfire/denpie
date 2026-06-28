@@ -295,7 +295,7 @@ pub fn account_settings() -> Html {
                                                 <iconify-icon icon="radix-icons:lock-closed" class="text-muted"></iconify-icon>
                                                 <span class="text-sm font-medium">{format!("Passkey {}", pk.name)}</span>
                                             </div>
-                                            <button onclick={on_delete_passkey(id)} class="text-danger hover:text-red-600 p-1">
+                                            <button onclick={on_delete_passkey(id)} class="text-destructive hover:text-destructive/80 p-1">
                                                 <iconify-icon icon="radix-icons:trash" class="radix-icon"></iconify-icon>
                                             </button>
                                         </div>
