@@ -31,11 +31,12 @@ pub struct AppState {
     pub user: Option<UserProfile>,
     pub auth_status: AuthStatus,
     pub toast: ToastMessage,
+    pub admin_mode: bool,
 }
-
 pub enum AppAction {
     SetSession(Option<UserProfile>),
     SetUser(Option<UserProfile>),
+    SetAdminMode(bool),
     ShowToast(String),
     HideToast,
 }
@@ -60,6 +61,11 @@ impl Reducible for AppState {
             }
             AppAction::SetUser(user) => AppState {
                 user,
+                ..(*self).clone()
+            }
+            .into(),
+            AppAction::SetAdminMode(enabled) => AppState {
+                admin_mode: enabled,
                 ..(*self).clone()
             }
             .into(),

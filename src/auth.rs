@@ -227,6 +227,25 @@ pub async fn require_session(
         Err(StatusCode::UNAUTHORIZED)
     }
 }
+pub async fn require_admin(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    req: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let user_id: Option<String> = session.get("user_id").await.unwrap_or(None);
+    let user_id = match user_id {
+        Some(id) => id,
+        None => return Err(StatusCode::UNAUTHORIZED),
+    };
+    let user = users::find_by_id(&state.db, &user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if user.role != "admin" {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(next.run(req).await)
+}
 
 pub async fn current_user(
     state: &AppState,
@@ -253,7 +272,7 @@ pub async fn current_user(
     })
 }
 
-fn new_user_id() -> String {
+pub fn new_user_id() -> String {
     let raw: String = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
         .take(24)

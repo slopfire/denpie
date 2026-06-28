@@ -6,7 +6,7 @@ use axum::{
     http::{HeaderValue, header},
     middleware::Next,
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
 };
 use sqlx::SqlitePool;
 use std::{path::PathBuf, sync::Arc};
@@ -98,6 +98,21 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         )
         .route_layer(axum::middleware::from_fn(auth::require_session));
 
+    // Admin-only routes — user management, strictly gated by require_admin.
+    let admin_routes = Router::new()
+        .route(
+            "/admin/users",
+            get(dashboard::list_users).post(dashboard::create_user),
+        )
+        .route(
+            "/admin/users/:id",
+            patch(dashboard::update_user).delete(dashboard::delete_user),
+        )
+        .route_layer(axum::middleware::from_fn_with_state(
+            shared_state.clone(),
+            auth::require_admin,
+        ));
+
     let auth_routes = Router::new()
         .route(
             "/me",
@@ -115,9 +130,9 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
     let frontend_serve = ServeDir::new(frontend_dist.clone()).fallback(
         tower_http::services::ServeFile::new(frontend_dist.join("index.html")),
     );
-
     Router::new()
         .merge(protected_routes)
+        .merge(admin_routes)
         .nest("/auth", auth_routes)
         .nest_service("/static", ServeDir::new(static_dir))
         .route("/service-worker.js", get(service_worker))

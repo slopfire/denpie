@@ -11,6 +11,51 @@ pub struct UserRecord {
     pub display_name: Option<String>,
     pub avatar_data: Option<String>,
 }
+#[derive(Clone, Debug)]
+pub struct UserListEntry {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+    pub display_name: Option<String>,
+    pub created_at: String,
+}
+
+pub async fn list_all(pool: &SqlitePool) -> AppResult<Vec<UserListEntry>> {
+    let rows = sqlx::query_as::<_, (String, String, String, Option<String>, String)>(
+        "SELECT id, username, role, display_name, COALESCE(CAST(created_at AS TEXT), '')
+         FROM users ORDER BY created_at ASC",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| UserListEntry {
+            id: row.0,
+            username: row.1,
+            role: row.2,
+            display_name: row.3,
+            created_at: row.4,
+        })
+        .collect())
+}
+
+pub async fn update_role(pool: &SqlitePool, id: &str, role: &str) -> AppResult<()> {
+    sqlx::query("UPDATE users SET role = ? WHERE id = ?")
+        .bind(role)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn admin_count(pool: &SqlitePool) -> AppResult<i64> {
+    Ok(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE role = 'admin'")
+            .fetch_one(pool)
+            .await?,
+    )
+}
 
 pub async fn count(pool: &SqlitePool) -> AppResult<i64> {
     Ok(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")

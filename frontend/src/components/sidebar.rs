@@ -174,6 +174,18 @@ pub fn sidebar(props: &SidebarProps) -> Html {
                     <iconify-icon icon="radix-icons:archive" class="radix-icon justify-self-center"></iconify-icon><span class="justify-self-start text-left">{i18n.t("nav.archive")}</span>
                 </Link<View>>
             </div>
+            if user.as_ref().map(|u| u.role == "admin").unwrap_or(false) {
+                <div class="border-t border-token pt-3 mt-3">
+                    <button
+                        type="button"
+                        onclick={let app_state = app_state.clone(); Callback::from(move |_| app_state.dispatch(AppAction::SetAdminMode(true)))}
+                        class="nav-item w-full grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-left"
+                    >
+                        <iconify-icon icon="radix-icons:gear" class="radix-icon justify-self-center"></iconify-icon>
+                        <span class="justify-self-start text-left">{i18n.t("admin.switch_to_admin")}</span>
+                    </button>
+                </div>
+            }
 
             <div ref={container_ref.clone()} class="relative" {onfocusout}>
                 <ShadcnTooltip content={i18n.t("account.menu_title")} class={classes!("w-full")}>

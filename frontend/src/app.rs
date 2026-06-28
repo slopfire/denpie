@@ -12,6 +12,7 @@ use crate::components::login::LoginPanel;
 use crate::components::settings::{Settings, SettingsRes, apply_appearance};
 use crate::components::sidebar::Sidebar;
 use crate::components::unified_flow::UnifiedFlow;
+use crate::components::admin_shell::AdminShell;
 use std::collections::HashSet;
 
 #[derive(Clone, Routable, PartialEq, Eq, Hash)]
@@ -92,12 +93,27 @@ fn app_root() -> Html {
                     match app_state.auth_status {
                         AuthStatus::Checking => html! { <AuthChecking /> },
                         AuthStatus::Guest => html! { <LoginPanel /> },
-                        AuthStatus::Authenticated => html! {
-                            <div id="app-shell" class="min-h-screen">
-                                <Switch<View> render={|_| html! { <AppShell /> }} />
-                                <MobileNav />
-                            </div>
-                        },
+                        AuthStatus::Authenticated => {
+                            let is_admin = app_state
+                                .user
+                                .as_ref()
+                                .map(|u| u.role == "admin")
+                                .unwrap_or(false);
+                            if is_admin && app_state.admin_mode {
+                                html! {
+                                    <div id="app-shell" class="min-h-screen">
+                                        <AdminShell />
+                                    </div>
+                                }
+                            } else {
+                                html! {
+                                    <div id="app-shell" class="min-h-screen">
+                                        <Switch<View> render={|_| html! { <AppShell /> }} />
+                                        <MobileNav />
+                                    </div>
+                                }
+                            }
+                        }
                     }
                 }
 

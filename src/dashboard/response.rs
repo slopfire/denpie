@@ -226,3 +226,26 @@ pub struct ListTipcardsQuery {
     pub topic: Option<String>,
     pub tipcard_type: Option<String>,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct UserInfo {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+    pub display_name: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Deserialize)]
+pub struct CreateUserReq {
+    pub username: String,
+    pub password: String,
+    pub role: String,
+    pub display_name: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateUserReq {
+    pub role: Option<String>,
+    pub password: Option<String>,
+}
