@@ -75,3 +75,10 @@ cargo run    # inside nix-shell; builds frontend with trunk, then starts on 127.
 Use Chrome dev tools for website checks. Close `cargo run` so user can test everything.
 
 Startup applies `schema.sql`, then compatibility migrations in `src/db/migrations.rs`.
+
+## Test User Credentials
+
+Use this user for test/login:
+- Username: test
+- Password: 23452345
+Ugh.

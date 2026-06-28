@@ -104,3 +104,4 @@ async fn test_unified_api_missing_auth() {
     .await;
     assert_eq!(res.status(), reqwest::StatusCode::UNAUTHORIZED);
 }
+
