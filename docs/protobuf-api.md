@@ -1,17 +1,19 @@
 # Denpie Unified Protobuf API
 
-Base URL: `http://127.0.0.1:3017`  
-All programmable calls: `POST /api`  
-Content-Type: `application/x-protobuf`  
-Schema: [`proto/denpie.proto`](../proto/denpie.proto)
+```
+POST /api
+Content-Type: application/x-protobuf
+Base: http://127.0.0.1:3017
+Schema: proto/denpie.proto
+```
 
-The browser dashboard at `GET /` uses the same endpoint but authenticates via session cookie. API clients authenticate with an API key.
+Browser at `GET /` uses the same endpoint with a session cookie. API clients use an API key.
 
-## Authentication
+## Auth
 
-Set `ApiRequest.auth` to the raw `sk_live_*` API key for every operation except `bootstrap_api_key`. The server stores only a SHA-256 hash of the key.
+Set `ApiRequest.auth` to raw `sk_live_*` on every call except `bootstrap_api_key`. Server stores SHA-256 only.
 
-To create the first admin-owned key, use the startup `admin_token`:
+### First key
 
 ```proto
 ApiRequest {
@@ -22,58 +24,90 @@ ApiRequest {
 }
 ```
 
-## Operations
+## Operations — core
 
 | Operation | Result | Purpose |
 |---|---|---|
-| `bootstrap_api_key` | `api_key_created` | First key from `admin_token`. |
-| `tips` | `tips` | Due cards, current daily topic cards, newly generated cards after refresh window, or a user-authored `manual_tip` card. |
-| `submit_custom_tipcard` | `tips` | Store an external card (`custom_tip`) with no review state. |
-| `review` | `ok` | Grade or queue action on a card. |
-| `get_topics` | `topics` | Known topic names. |
-| `get_settings` | `settings` | LLM, prompt, theme, appearance, autoupdate. |
-| `update_settings` | `ok` | Partial update; unset optional fields are preserved. |
-| `create_api_key` | `api_key_created` | Create another full-access key. |
-| `list_api_keys` | `api_keys` | Key metadata; raw keys never returned. |
-| `delete_api_key` | `ok` | Delete a key by database ID. |
-| `list_admin_topics` | `admin_topics` | Topics with prompt overrides. |
-| `list_tipcards` | `tipcards` | Cards with status, repeat count, pin state, next review time. |
-| `delete_tipcard` | `ok` | Delete a card and its review state. |
-| `pin_tipcard` | `ok` | Pin or unpin a card by ID. |
-| `force_daily_refresh` | `force_daily_refresh` | Generate fresh cards for all or selected generated topics without rescheduling current cards. |
-| `delete_topic` | `ok` | Delete a topic plus its cards, review states, images, and refresh runs. |
-| `get_summary` | `summary` | Card/topic counts. |
-| `list_app_topics` | `app_topics` | Topics with due/completed counts. |
-| `update_topic` | `ok` | Set or clear a topic prompt override, daily overrides, compression level, and icon. |
+| `bootstrap_api_key` | `api_key_created` | First key from `admin_token` |
+| `tips` | `tips` | Due cards, current daily cards, new cards after refresh, or `manual_tip` |
+| `review` | `ok` | Grade or queue action |
+| `get_settings` / `update_settings` | `settings` / `ok` | LLM, prompt, theme, appearance, autoupdate (`update` is partial) |
+| `force_daily_refresh` | `force_daily_refresh` | Fresh cards for all or selected generated topics; does not reschedule current cards |
 
-## Daily Retrieval
+## Operations — inventory
 
-`tips` is topic-aware. For each requested scheduled topic/type it returns:
+| Operation | Result | Purpose |
+|---|---|---|
+| `create_api_key` / `list_api_keys` / `delete_api_key` | key / list / `ok` | Full-access keys; raw key never re-returned |
+| `get_topics` / `list_app_topics` / `list_admin_topics` | topics | Names, due/completed counts, prompt overrides |
+| `list_tipcards` / `delete_tipcard` / `pin_tipcard` | cards / `ok` | Inventory, delete, pin |
+| `update_topic` / `delete_topic` | `ok` | Prompt/daily/compression/icon overrides; full topic wipe |
+| `get_summary` | `summary` | Card/topic counts |
+| `submit_custom_tipcard` | `tips` | External `custom_tip`, no review state |
 
-1. Due active cards.
-2. Existing cards created in the current daily refresh window (up to the topic's `daily_card_count`).
-3. Newly generated cards only until that per-topic count is reached.
+## Operations — documents & image pool
 
-The daily window is defined by `settings.daily_time_zone` (IANA or `UTC±HH`) and `settings.daily_update_time` (`HH:MM`, default `00:00`). A topic can override count, time zone, and update time via `update_topic`.
+| Operation | Result | Purpose |
+|---|---|---|
+| `add_document` | `ok` | Document or link + zero or more `topic_ids` |
+| `list_documents` | `documents` | Owned sources + `topic_ids` |
+| `delete_document` | `ok` | Remove a source |
+| `attach_document_topic` / `detach_document_topic` | `ok` | Add/remove one topic assignment without deleting the source |
+| `add_pool_image` / `list_pool_images` / `delete_pool_image` | ok / `pool_images` / `ok` | Local image pool |
 
-Invalid time zone/time fall back to `UTC`, midnight, and one card.
+## Daily retrieval (`tips`)
 
-### Manual and custom cards
+For each requested scheduled topic/type, returns in order:
 
-- `manual_tip`: set `TipsQuery.tipcard_type = "manual_tip"` and provide `manual_content`. Optional `manual_compressed_content`. No LLM call.
-- `custom_tip`: use `submit_custom_tipcard`. Stored as `custom_tip` with no `review_states` row; appears in lists and counts.
+1. Due active cards
+2. Cards already created in the current daily window (up to `daily_card_count`)
+3. Newly generated cards only until that count is reached
+
+Window: `settings.daily_time_zone` (IANA or `UTC±HH`) + `settings.daily_update_time` (`HH:MM`, default `00:00`). Override per topic via `update_topic`.
+
+Bad zone/time → `UTC`, midnight, one card.
+
+### Manual / custom cards
+
+| Type | How | Notes |
+|---|---|---|
+| `manual_tip` | `TipsQuery.tipcard_type = "manual_tip"` + `manual_content` | Optional `manual_compressed_content`. No LLM. |
+| `custom_tip` | `submit_custom_tipcard` | No `review_states` row. Still in lists and counts. |
 
 ## Compression
 
-`settings.compression_level` chooses the preset: `light`, `balanced`, `strong`, `ultra`. Invalid values fall back to `balanced`. A topic can override via `update_topic.compression_level` (empty string inherits global). Fenced code blocks are preserved; surrounding prose is compacted.
+`settings.compression_level`: `light` · `balanced` · `strong` · `ultra`. Invalid → `balanced`.
 
-## Active Card Limit
+Topic override: `update_topic.compression_level` (empty = inherit). Fenced code blocks stay; prose is compacted.
 
-`Settings.max_active_cards` caps cards whose review state is `active`. `0` means unlimited. When the cap is reached, `tips` still returns due or pinned cards but does not create new generated cards; manual creation returns `409 Conflict`.
+## Grounding
+
+| Setting | Role |
+|---|---|
+| `Settings.grounding_model` | Model for non-factual grounding + agentic web image search |
+| `Settings.grounding_reasoning_effort` | Reasoning override for that model |
+
+Empty → inherit `model` / `reasoning_effort`. Both are optional partial fields on `update_settings`.
+
+RAG only uses sources assigned to the current topic. Documents/links are reusable via `topic_ids`. Unassigned sources are not retrieved.
+
+**Empty title on pasted docs:** compression model titles from the first 4,000 chars (cap 32 tokens). Model down → first ten words. Links still need a title.
+
+**Dashboard URL explore:** one URL → read TOC (including mdBook `toc.html`) → up to 100 unique same-origin pages → replace the textbox with those URLs → add as individual sources.
+
+## Active card limit
+
+`Settings.max_active_cards` caps `active` review states. `0` = unlimited.
+
+At cap:
+
+- `tips` still returns due/pinned
+- does not create new generated cards
+- manual create → `409 Conflict`
 
 ## Pinning
 
-Pinned active cards stay in a top section and are returned ahead of normal scheduled cards even when not yet due. Reviews still update scheduling state; unpinning restores normal due-date behavior.
+Pinned active cards sit in a top section and return ahead of schedule even when not due. Reviews still update SM-2. Unpin → normal due-date order.
 
 ```proto
 ApiRequest {
@@ -82,17 +116,22 @@ ApiRequest {
 }
 ```
 
-## HTTP Surfaces
+## HTTP surfaces
 
-Legacy public routes (`/tips`, `/topics`, `/topic-classes`, `/review`, `/auth/login`, `/admin`) return `404`. `GET /` serves the dashboard; `/auth/*`, `/admin/*`, `/app/*` are dashboard implementation details, not the stable API-key surface.
+| Surface | Auth | Notes |
+|---|---|---|
+| `POST /api` | API key or session | Stable public surface |
+| `GET /` | session | Dashboard |
+| `/auth/*`, `/admin/*`, `/app/*` | session | Dashboard internals, not the key API |
+| Legacy public routes | — | `404` |
 
-## Status Codes
+## Status codes
 
 | Case | Status |
 |---|---:|
-| Success | `200 OK` |
-| Invalid protobuf or missing operation | `400 Bad Request` |
-| Invalid `admin_token` | `401 Unauthorized` |
-| Missing or invalid API key | `401 Unauthorized` |
-| Missing card/topic for mutation | `404 Not Found` |
-| SQL, settings, or stored-state failure | `500 Internal Server Error` |
+| Success | `200` |
+| Bad protobuf / missing operation | `400` |
+| Bad `admin_token` or API key | `401` |
+| Missing card/topic for mutation | `404` |
+| Active-card cap on manual create | `409` |
+| SQL / settings / stored-state failure | `500` |

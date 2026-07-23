@@ -1,13 +1,21 @@
 # Agent Server Talk Guide
 
-One API-key route: `POST /api` with protobuf `ApiRequest` / `ApiResponse`.  
-Schema: [`proto/denpie.proto`](../proto/denpie.proto).
+```
+POST /api
+ApiRequest / ApiResponse (protobuf)
+Schema: proto/denpie.proto
+```
 
-`GET /` is the browser dashboard. `/auth/*`, `/admin/*`, `/app/*` are session-authenticated dashboard routes. Legacy routes (`/tips`, `/topics`, `/topic-classes`, `/review`, `/auth/login`, `/admin`) return `404`.
+| Surface | Auth | Notes |
+|---|---|---|
+| `POST /api` | API key | Stable client surface |
+| `GET /` | session | Browser dashboard |
+| `/auth/*`, `/admin/*`, `/app/*` | session | Dashboard internals |
+| Legacy public routes | — | `404` |
 
-## Bootstrap
+## Bootstrap (first key)
 
-After the first admin user exists, use the startup `admin_token` to create an admin-owned key:
+After the first admin user exists:
 
 ```proto
 ApiRequest {
@@ -18,23 +26,35 @@ ApiRequest {
 }
 ```
 
-Use the returned `sk_live_*` in `ApiRequest.auth` for all later calls.
+Put returned `sk_live_*` in `ApiRequest.auth` for every later call.
 
-## Common Operations
+## Common calls
 
-- `get_settings` / `update_settings`: LLM and runtime config.
-- `create_api_key` / `list_api_keys` / `delete_api_key`: key management.
-- `tips`: due cards, current daily topic cards, or generated cards after the refresh window rolls over.
-- `force_daily_refresh`: empty fields refresh all generated topics; `topic`/`tipcard_type` target selected topics. Then call `tips` for the cards.
-- `submit_custom_tipcard`: external card stored as `custom_tip` with no review row.
-- `review`: grade or queue action on a card.
-- `get_topics` / `list_app_topics`: topic metadata.
-- `list_tipcards` / `delete_tipcard`: card inventory.
-- `delete_topic`: delete topic + cards + review state + images + daily refresh runs.
-- `get_summary`: counts.
+| Call | Use it for |
+|---|---|
+| `get_settings` / `update_settings` | LLM + runtime config |
+| `create_api_key` / `list_api_keys` / `delete_api_key` | Key management |
+| `tips` | Due cards, current daily cards, or cards after window rollover |
+| `force_daily_refresh` | Empty = all generated topics; set `topic`/`tipcard_type` to target. Then call `tips` |
+| `review` | Grade or queue action on a card |
 
-## Scheduling Notes
+## More calls
 
-- Daily refresh uses global `daily_time_zone` / `daily_update_time` unless a topic overrides `daily_card_count`, `daily_time_zone`, or `daily_update_time`.
-- Pinned active cards are returned ahead of normal due-date order.
-- `max_active_cards` caps new active cards; due and pinned cards are still returned.
+| Call | Use it for |
+|---|---|
+| `submit_custom_tipcard` | External `custom_tip` — no review row |
+| `get_topics` / `list_app_topics` | Topic metadata |
+| `list_tipcards` / `delete_tipcard` / `pin_tipcard` | Card inventory + pin |
+| `delete_topic` | Topic + cards + reviews + images + refresh runs |
+| `get_summary` | Counts |
+| `add_document` / `list_documents` / `delete_document` | Grounding sources |
+| `attach_document_topic` / `detach_document_topic` | Topic links without deleting the source |
+| `add_pool_image` / `list_pool_images` / `delete_pool_image` | Local image pool |
+
+Full reference: [`protobuf-api.md`](protobuf-api.md).
+
+## Scheduling (three rules)
+
+1. Daily refresh uses global `daily_time_zone` / `daily_update_time` unless the topic overrides count, zone, or time.
+2. Pinned active cards return ahead of normal due order.
+3. `max_active_cards` caps new actives; due and pinned still return.
