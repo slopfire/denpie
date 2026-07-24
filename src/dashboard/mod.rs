@@ -9,7 +9,7 @@ pub use handlers::documents::{
     remove_pool_image_tag, rename_pool_image, upload_document,
 };
 pub use handlers::keys::{create_api_key, delete_api_key, list_api_keys};
-pub use handlers::settings::{get_settings, update_settings};
+pub use handlers::settings::{get_settings, test_vision_model, update_settings};
 pub use handlers::tipcards::{
     append_tipcard_images, delete_tipcard, flow_card_detail, flow_cards, list_tipcards, pin_tipcard,
 };

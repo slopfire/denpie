@@ -15,6 +15,29 @@ use url::Url;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DocumentService;
 
+/// Structured result from adding a pool image (includes vision annotation diagnostics).
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct PoolImageAddResult {
+    pub id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+    /// True when the vision model produced a usable annotation.
+    pub annotated: bool,
+    /// Why annotation was skipped or failed (present when `annotated` is false).
+    pub fallback_reason: Option<String>,
+    /// Vision/default model that was considered for annotation.
+    pub model: Option<String>,
+}
+
+/// Result of a non-destructive vision-model connectivity check.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct VisionModelTestResult {
+    pub ok: bool,
+    pub model: String,
+    pub message: String,
+}
+
 const LINK_FETCH_BYTE_CAP: usize = 2 * 1024 * 1024;
 const TITLE_SOURCE_CHAR_CAP: usize = 4_000;
 const TITLE_MAX_CHARS: usize = 100;
@@ -209,13 +232,16 @@ impl DocumentService {
     /// the image dir, then record the row. If a vision model is configured, the
     /// image is automatically annotated (name, description, tags) via the LLM;
     /// on any failure the original `name` is used as fallback.
+    ///
+    /// Returns structured diagnostics so the UI can show whether annotation ran,
+    /// which model was used, and why a fallback occurred.
     pub async fn add_pool_image(
         state: &AppState,
         user_id: &str,
         image_data: &str,
         fallback_name: &str,
         _user_description: Option<&str>,
-    ) -> AppResult<i64> {
+    ) -> AppResult<PoolImageAddResult> {
         if fallback_name.trim().is_empty() {
             return Err(AppError::Validation("name is required".to_string()));
         }
@@ -242,29 +268,47 @@ impl DocumentService {
             prepared.mime_type,
             STANDARD.encode(&prepared.bytes)
         );
-        let annotation = if !annotation_model.is_empty() && !settings.llm_api_key.trim().is_empty()
-        {
-            annotate_image(
+
+        let (annotation, fallback_reason, model_used) = if annotation_model.is_empty() {
+            (
+                None,
+                Some("no vision or default model configured".to_string()),
+                None,
+            )
+        } else if settings.llm_api_key.trim().is_empty() {
+            (
+                None,
+                Some("no API key configured".to_string()),
+                Some(annotation_model.to_string()),
+            )
+        } else {
+            match annotate_image(
                 annotation_model,
                 &annotation_data,
                 &settings.llm_api_key,
                 &settings.llm_base_url,
             )
             .await
-        } else {
-            None
+            {
+                Some(ann) => (Some(ann), None, Some(annotation_model.to_string())),
+                None => (
+                    None,
+                    Some("vision model returned no usable annotation".to_string()),
+                    Some(annotation_model.to_string()),
+                ),
+            }
         };
 
-        let (name, description, tags) = match &annotation {
+        let (name, description, tags, annotated) = match &annotation {
             Some(ann) => {
                 let desc = if ann.description.is_empty() {
                     None
                 } else {
                     Some(ann.description.as_str())
                 };
-                (ann.name.as_str(), desc, tags_to_json(&ann.tags))
+                (ann.name.as_str(), desc, tags_to_json(&ann.tags), true)
             }
-            None => (fallback_name, None, "[]".to_string()),
+            None => (fallback_name, None, "[]".to_string(), false),
         };
 
         let insert_result = image_pool::insert_pool_image(
@@ -278,10 +322,76 @@ impl DocumentService {
             &tags,
         )
         .await;
-        if insert_result.is_err() {
-            let _ = tokio::fs::remove_file(state.image_dir.join(&storage_path)).await;
+        match insert_result {
+            Ok(id) => Ok(PoolImageAddResult {
+                id,
+                name: name.to_string(),
+                description: description.map(|s| s.to_string()),
+                tags: crate::llm::tags_from_json(&tags),
+                annotated,
+                fallback_reason,
+                model: model_used,
+            }),
+            Err(err) => {
+                let _ = tokio::fs::remove_file(state.image_dir.join(&storage_path)).await;
+                Err(err)
+            }
         }
-        insert_result
+    }
+
+    /// Cheap vision-model connectivity check: send a tiny PNG and expect any non-error reply.
+    /// Does not write to the image pool. Used by the Settings "Test Vision Model" button.
+    pub async fn test_vision_model(
+        state: &AppState,
+        user_id: &str,
+    ) -> AppResult<VisionModelTestResult> {
+        let settings = SettingsService::user_settings_get(state, user_id).await?;
+        let model = preferred_vision_model(&settings.llm_vision_model, &settings.llm_model);
+        if model.is_empty() {
+            return Ok(VisionModelTestResult {
+                ok: false,
+                model: String::new(),
+                message: "No vision model or default LLM model configured".to_string(),
+            });
+        }
+        if settings.llm_api_key.trim().is_empty() {
+            return Ok(VisionModelTestResult {
+                ok: false,
+                model: model.to_string(),
+                message: "No API key configured".to_string(),
+            });
+        }
+
+        // 1×1 red PNG (68 bytes). Enough for vision APIs that require an image part.
+        const TINY_PNG_B64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        let data_url = format!("data:image/png;base64,{TINY_PNG_B64}");
+        let response = crate::llm::transport::create_vision_completion(
+            model,
+            "Reply with exactly one word describing the dominant color in this image.",
+            &data_url,
+            &settings.llm_api_key,
+            &settings.llm_base_url,
+            Some(16),
+        )
+        .await;
+
+        if response.content.is_empty() || response.content.starts_with("LLM Error") {
+            return Ok(VisionModelTestResult {
+                ok: false,
+                model: model.to_string(),
+                message: if response.content.is_empty() {
+                    "Vision model returned an empty response".to_string()
+                } else {
+                    response.content
+                },
+            });
+        }
+
+        Ok(VisionModelTestResult {
+            ok: true,
+            model: model.to_string(),
+            message: response.content.trim().to_string(),
+        })
     }
 
     pub async fn list_pool_images(

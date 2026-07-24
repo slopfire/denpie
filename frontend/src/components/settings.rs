@@ -427,6 +427,8 @@ pub fn settings() -> Html {
     let update_result = use_state(|| None::<TriggerAutoupdateRes>);
     let save_status = use_state(String::new);
     let force_refreshing = use_state(|| false);
+    let vision_testing = use_state(|| false);
+    let vision_test_status = use_state(String::new);
     let save_timer = use_mut_ref(|| None::<Timeout>);
     let pending_patch = use_mut_ref(UpdateSettingsPatch::default);
     let pending_snapshot = use_mut_ref(|| None::<SettingsRes>);
@@ -649,6 +651,59 @@ pub fn settings() -> Html {
                     toast(&app_state, "Failed to refresh");
                 }
                 force_refreshing.set(false);
+            });
+        })
+    };
+
+    let on_test_vision = {
+        let app_state = app_state.clone();
+        let vision_testing = vision_testing.clone();
+        let vision_test_status = vision_test_status.clone();
+        Callback::from(move |_| {
+            if *vision_testing {
+                return;
+            }
+            let app_state = app_state.clone();
+            let vision_testing = vision_testing.clone();
+            let vision_test_status = vision_test_status.clone();
+            vision_testing.set(true);
+            vision_test_status.set("Calling vision model…".to_string());
+            wasm_bindgen_futures::spawn_local(async move {
+                #[derive(Deserialize)]
+                struct VisionTestRes {
+                    ok: bool,
+                    model: String,
+                    message: String,
+                }
+                match Request::post("/admin/settings/test-vision").send().await {
+                    Ok(res) if res.ok() => {
+                        if let Ok(data) = res.json::<VisionTestRes>().await {
+                            let status = if data.ok {
+                                format!("OK · {} · {}", data.model, data.message)
+                            } else {
+                                format!("Failed · {} · {}", data.model, data.message)
+                            };
+                            vision_test_status.set(status.clone());
+                            toast(&app_state, status);
+                        } else {
+                            vision_test_status.set("Invalid response from server".to_string());
+                            toast(&app_state, "Invalid vision test response");
+                        }
+                    }
+                    Ok(res) => {
+                        let message = res
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "Vision test failed".to_string());
+                        vision_test_status.set(message.clone());
+                        toast(&app_state, message);
+                    }
+                    Err(err) => {
+                        vision_test_status.set(err.to_string());
+                        toast(&app_state, err.to_string());
+                    }
+                }
+                vision_testing.set(false);
             });
         })
     };
@@ -892,8 +947,22 @@ pub fn settings() -> Html {
                 </div>
                 <div>
                     <label class="block card-kicker mb-2">{"Vision Model"}</label>
-                    <input id="vision-model-input" oninput={on_input("vision_model")} value={s.vision_model.clone()} class="w-full rounded-md border px-3 py-2" />
-                    <div class="mt-2 text-xs text-muted">{"Model used for automatic image naming, description, and tagging. Defaults to the LLM model if empty."}</div>
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <input id="vision-model-input" oninput={on_input("vision_model")} value={s.vision_model.clone()} class="w-full rounded-md border px-3 py-2" />
+                        <button
+                            id="test-vision-model"
+                            type="button"
+                            class="shrink-0 rounded-md border border-token px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
+                            disabled={*vision_testing}
+                            onclick={on_test_vision.clone()}
+                        >
+                            {if *vision_testing { "Testing…" } else { "Test Vision Model" }}
+                        </button>
+                    </div>
+                    <div class="mt-2 text-xs text-muted">{"Model used for automatic image naming, description, and tagging. Defaults to the LLM model if empty. Test sends a 1×1 PNG and does not write to the image pool."}</div>
+                    if !vision_test_status.is_empty() {
+                        <div id="vision-test-status" class="mt-2 text-sm text-muted">{(*vision_test_status).clone()}</div>
+                    }
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>

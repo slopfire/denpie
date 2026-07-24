@@ -7,7 +7,31 @@ use crate::AppState;
 use crate::config;
 use crate::dashboard::response::{SettingsRes, UpdateSettingsReq};
 use crate::dashboard::util::{current_user, settings_response};
+use crate::services::documents::DocumentService;
 use crate::services::settings::SettingsService;
+
+#[derive(serde::Serialize)]
+pub struct VisionModelTestRes {
+    pub ok: bool,
+    pub model: String,
+    pub message: String,
+}
+
+/// Non-destructive vision connectivity check for the Settings UI.
+pub async fn test_vision_model(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+) -> Result<Json<VisionModelTestRes>, (StatusCode, String)> {
+    let user = current_user(&state, &session).await?;
+    let result = DocumentService::test_vision_model(&state, &user.id)
+        .await
+        .map_err(|err| err.into_status_body())?;
+    Ok(Json(VisionModelTestRes {
+        ok: result.ok,
+        model: result.model,
+        message: result.message,
+    }))
+}
 
 pub async fn get_settings(
     State(state): State<Arc<AppState>>,

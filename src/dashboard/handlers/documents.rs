@@ -280,16 +280,36 @@ pub async fn list_pool_images(
     ))
 }
 
+#[derive(Serialize)]
+pub struct AddPoolImageRes {
+    pub id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+    pub annotated: bool,
+    pub fallback_reason: Option<String>,
+    pub model: Option<String>,
+}
+
 pub async fn add_pool_image(
     State(state): State<Arc<AppState>>,
     session: Session,
     Json(req): Json<AddPoolImageReq>,
-) -> Result<Json<()>, (StatusCode, String)> {
+) -> Result<Json<AddPoolImageRes>, (StatusCode, String)> {
     let user = current_user(&state, &session).await?;
-    DocumentService::add_pool_image(&state, &user.id, &req.image_data, &req.name, None)
-        .await
-        .map_err(|err| err.into_status_body())?;
-    Ok(Json(()))
+    let result =
+        DocumentService::add_pool_image(&state, &user.id, &req.image_data, &req.name, None)
+            .await
+            .map_err(|err| err.into_status_body())?;
+    Ok(Json(AddPoolImageRes {
+        id: result.id,
+        name: result.name,
+        description: result.description,
+        tags: result.tags,
+        annotated: result.annotated,
+        fallback_reason: result.fallback_reason,
+        model: result.model,
+    }))
 }
 
 pub async fn delete_pool_image(

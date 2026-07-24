@@ -53,6 +53,10 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
             "/admin/settings",
             get(dashboard::get_settings).post(dashboard::update_settings),
         )
+        .route(
+            "/admin/settings/test-vision",
+            post(dashboard::test_vision_model),
+        )
         .route("/admin/autoupdate", post(dashboard::trigger_autoupdate))
         .route(
             "/admin/autoupdate/status",

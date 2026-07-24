@@ -76,6 +76,7 @@ pub(crate) async fn add_pool_image(
     user_id: &str,
     req: pb::AddPoolImageRequest,
 ) -> ApiResult<()> {
+    // Protobuf surface stays ok-only; structured diagnostics are on the dashboard API.
     DocumentService::add_pool_image(
         state,
         user_id,
