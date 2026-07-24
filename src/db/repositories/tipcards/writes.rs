@@ -53,6 +53,7 @@ pub async fn set_pinned(pool: &SqlitePool, user_id: &str, id: i64, pinned: bool)
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_generated(
     pool: &SqlitePool,
     user_id: &str,

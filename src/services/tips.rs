@@ -838,6 +838,7 @@ impl TipService {
 
     /// Retrieve and persist a single illustration for a freshly generated card.
     /// Returns the data-URLs stored (empty on no-image or any failure).
+    #[allow(clippy::too_many_arguments)]
     async fn retrieve_card_image(
         ctx: &GenerationContext<'_>,
         llm: &GenerationLlmConfig<'_>,
