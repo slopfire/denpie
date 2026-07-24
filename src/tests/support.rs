@@ -26,14 +26,16 @@ pub async fn setup_db() -> SqlitePool {
         }
     }
     apply_schema_migrations(&pool).await.unwrap();
-    sqlx::query("INSERT OR IGNORE INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)")
-        .bind(TEST_USER_ID)
-        .bind("admin")
-        .bind("$argon2id$v=19$m=65536,t=3,p=4$vYeSOJhiAbCZq6BNzhy5QA$GZ91eZlkhpmtBYSas36hb50QqbHOL5FofnhBDFBklHM")
-        .bind("admin")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT OR IGNORE INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)",
+    )
+    .bind(TEST_USER_ID)
+    .bind("admin")
+    .bind("$argon2id$v=19$m=8,t=1,p=1$t3Ujvvsyzp/OUKztGgiM1w$UcxZO53wz0++0Bdajlq7jQ")
+    .bind("admin")
+    .execute(&pool)
+    .await
+    .unwrap();
     pool
 }
 
@@ -79,39 +81,23 @@ pub async fn spawn_test_server() -> (String, reqwest::Client) {
         .build()
         .unwrap();
 
-    let setup = client
-        .post(format!("{base_url}/auth/setup"))
+    // User is pre-seeded in setup_db with a low-cost Argon2id hash for
+    // "test_password_123" (m=8,t=1,p=1). Login still exercises the full
+    // PasswordVerifier path without production Argon2 costs.
+    let login = client
+        .post(format!("{base_url}/auth/login"))
         .json(&serde_json::json!({
-            "admin_token": test_token,
             "username": "admin",
             "password": "test_password_123"
         }))
         .send()
         .await
         .unwrap();
-
-    if setup.status() == reqwest::StatusCode::CONFLICT {
-        let login = client
-            .post(format!("{base_url}/auth/login"))
-            .json(&serde_json::json!({
-                "username": "admin",
-                "password": "test_password_123"
-            }))
-            .send()
-            .await
-            .unwrap();
-        assert!(
-            login.status().is_success(),
-            "login status after conflict {}",
-            login.status()
-        );
-    } else {
-        assert!(
-            setup.status().is_success(),
-            "setup status {}",
-            setup.status()
-        );
-    }
+    assert!(
+        login.status().is_success(),
+        "login status {}",
+        login.status()
+    );
 
     (base_url, client)
 }
