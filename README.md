@@ -52,6 +52,8 @@ Backend-only hacking: `DENPIE_SKIP_FRONTEND_BUILD=1`.
 | :---: | :---: | :---: |
 | ![Grounding](docs/assets/grounding.png) | ![Transmission](docs/assets/unified-flow.png) | ![Fullscreen Card](docs/assets/fullscreen-card.png) |
 
+Transmission keeps pinned cards in a separate top section. Beneath it, topic picks show up to three cards per topic and nine cards total, reducing the per-topic allowance evenly when the total would exceed nine. All remaining due cards continue in an "Other cards" section below the picks.
+
 ## Dev commands
 
 ```bash
@@ -97,7 +99,29 @@ Grounding/image strategies log stage progress at `info`. LLM transport detail is
 
 Empty grounding-agent fields inherit default LLM settings.
 
-**Image modes:** No Images · Local Image Pool · Tag-based Image APIs · Grounded Image Search.
+**Image modes:** No Images · Local Image Pool · Tag-based Image APIs · Isolated Image Search · Tavily-compatible Web Image Search.
+
+Local Image Pool uploads accept PNG, JPEG, WebP, and GIF images up to 10 MB decoded. Denpie
+recompresses larger uploads before sending them to the configured vision model for automatic
+naming, description, and tags. An empty Vision Model setting inherits the default LLM model;
+annotation failures retain the user-entered fallback name.
+
+Generated cards request an image only when the model marks a visual as materially useful (for
+example a diagram, physical identification, UI screenshot, or comparison). The decision and
+specific query are stored with the card, including pending agentic-backlog cards; manual and
+custom cards do not trigger automatic retrieval. `web_search` posts the query to the configured
+Tavily-shaped search endpoint and safely validates each returned image URL before storing it.
+Isolated Image Search uses the same endpoint with `include_domains` set from each enabled
+source's allowed image domains, then enforces that allowlist again before downloading a result.
+
+### Card image append endpoint
+
+`POST /app/tipcard-images/append` is session-authenticated and accepts
+`{ "card_id": 1, "image_data": [], "pool_image_ids": [], "urls": [] }`. It appends up to
+four card images total rather than replacing existing attachments. Data URLs and remote downloads
+are limited to 10 MB decoded each; the JSON request limit is 56 MB. Pool images are copied into
+card-owned storage. URL downloads allow only credential-free HTTP(S) targets, reject private and
+local network addresses, validate every redirect, and cap redirects and response bytes.
 
 - UI shows only providers for the selected mode.
 - Providers start disabled — enable at least one.

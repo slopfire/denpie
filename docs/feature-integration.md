@@ -2,6 +2,8 @@
 
 Match the work to a layer. Put the code there.
 
+Agent procedure (same content, checklist form): [`.agents/skills/add-feature`](../.agents/skills/add-feature/SKILL.md).
+
 | Step | Path | Rule |
 |---|---|---|
 | 1 | `src/domain/` | Pure rules only. No SQL. No YAML. |

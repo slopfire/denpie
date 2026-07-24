@@ -89,7 +89,7 @@ Topic override: `update_topic.compression_level` (empty = inherit). Fenced code 
 
 Empty → inherit `model` / `reasoning_effort`. Both are optional partial fields on `update_settings`.
 
-RAG only uses sources assigned to the current topic. Documents/links are reusable via `topic_ids`. Unassigned sources are not retrieved.
+The "From My Data" grounding strategy (protocol id `rag`) only uses sources assigned to the current topic. Documents/links are reusable via `topic_ids`. Unassigned sources are not retrieved.
 
 **Empty title on pasted docs:** compression model titles from the first 4,000 chars (cap 32 tokens). Model down → first ten words. Links still need a title.
 
