@@ -172,6 +172,8 @@ async fn test_topic_daily_card_is_reused_after_review() {
                     daily_time_zone: Some("Asia/Vladivostok".into()),
                     daily_update_time: Some("06:30".into()),
                     compression_level: Some("strong".into()),
+                    grounding_strategy: None,
+                    image_strategy: None,
                 },
             )),
         },
@@ -466,6 +468,213 @@ async fn test_list_images_for_cards_returns_stored_images() {
     .unwrap();
 
     assert_eq!(images.get(&card_id).map(|rows| rows.len()), Some(1));
+}
+
+#[tokio::test]
+async fn test_concurrent_image_appends_respect_cap_positions_and_cleanup() {
+    let settings_path = unique_settings_path();
+    fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+        .await
+        .unwrap();
+    let db = setup_db().await;
+    let state = std::sync::Arc::new(make_state(db, settings_path));
+    let topic_id = sqlx::query("INSERT INTO topics (user_id, name, tipcard_type) VALUES (?, ?, ?)")
+        .bind(TEST_USER_ID)
+        .bind("images")
+        .bind("manual_tip")
+        .execute(&state.db)
+        .await
+        .unwrap()
+        .last_insert_rowid();
+    let card_id = sqlx::query(
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(TEST_USER_ID)
+    .bind(topic_id)
+    .bind("manual_tip")
+    .bind("Image cap")
+    .bind("Image cap")
+    .bind("Image cap")
+    .execute(&state.db)
+    .await
+    .unwrap()
+    .last_insert_rowid();
+    for position in 0..3 {
+        sqlx::query(
+            "INSERT INTO tipcard_images (user_id, card_id, position, storage_path, mime_type, byte_size)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(TEST_USER_ID)
+        .bind(card_id)
+        .bind(position)
+        .bind(format!("existing-{position}.png"))
+        .bind("image/png")
+        .bind(1_i64)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    }
+
+    let image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL0XwAAAABJRU5ErkJggg==";
+    let first_state = state.clone();
+    let second_state = state.clone();
+    let (first, second) = tokio::join!(
+        crate::services::tipcards::TipcardService::append_images(
+            &first_state,
+            TEST_USER_ID,
+            card_id,
+            vec![image.to_string()],
+            vec![],
+            vec![],
+        ),
+        crate::services::tipcards::TipcardService::append_images(
+            &second_state,
+            TEST_USER_ID,
+            card_id,
+            vec![image.to_string()],
+            vec![],
+            vec![],
+        )
+    );
+
+    assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+    for result in [first, second] {
+        if let Err((status, message)) = result {
+            assert_eq!(status, axum::http::StatusCode::BAD_REQUEST);
+            assert_eq!(message, "A tipcard can have at most 4 images");
+        }
+    }
+
+    let images = crate::db::repositories::tipcards::list_images(&state.db, TEST_USER_ID, card_id)
+        .await
+        .unwrap();
+    assert_eq!(images.len(), 4);
+    assert_eq!(
+        images
+            .iter()
+            .map(|image| image.position)
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2, 3]
+    );
+    let mut stored_files = fs::read_dir(&state.image_dir).await.unwrap();
+    assert!(
+        stored_files.next_entry().await.unwrap().is_some(),
+        "the successful append stores its file"
+    );
+    assert!(
+        stored_files.next_entry().await.unwrap().is_none(),
+        "the rejected append cleans up its file"
+    );
+}
+
+#[tokio::test]
+async fn test_image_append_rejects_foreign_card_and_pool_image_before_writing() {
+    let settings_path = unique_settings_path();
+    fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+        .await
+        .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+    let other_user = "usr_other_images";
+    sqlx::query("INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)")
+        .bind(other_user)
+        .bind("other-images")
+        .bind("")
+        .bind("user")
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    let foreign_topic =
+        sqlx::query("INSERT INTO topics (user_id, name, tipcard_type) VALUES (?, ?, ?)")
+            .bind(other_user)
+            .bind("foreign")
+            .bind("manual_tip")
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+    let foreign_card = sqlx::query(
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(other_user)
+    .bind(foreign_topic)
+    .bind("manual_tip")
+    .bind("Foreign")
+    .bind("Foreign")
+    .bind("Foreign")
+    .execute(&state.db)
+    .await
+    .unwrap()
+    .last_insert_rowid();
+    let foreign_card_result = crate::services::tipcards::TipcardService::append_images(
+        &state,
+        TEST_USER_ID,
+        foreign_card,
+        vec!["data:image/png;base64,iVBORw0KGgo=".to_string()],
+        vec![],
+        vec![],
+    )
+    .await;
+    assert_eq!(
+        foreign_card_result.unwrap_err().0,
+        axum::http::StatusCode::NOT_FOUND
+    );
+
+    let own_topic =
+        sqlx::query("INSERT INTO topics (user_id, name, tipcard_type) VALUES (?, ?, ?)")
+            .bind(TEST_USER_ID)
+            .bind("own")
+            .bind("manual_tip")
+            .execute(&state.db)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+    let own_card = sqlx::query(
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(TEST_USER_ID)
+    .bind(own_topic)
+    .bind("manual_tip")
+    .bind("Own")
+    .bind("Own")
+    .bind("Own")
+    .execute(&state.db)
+    .await
+    .unwrap()
+    .last_insert_rowid();
+    let foreign_pool_image = crate::db::repositories::image_pool::insert_pool_image(
+        &state.db,
+        other_user,
+        "foreign.png",
+        "image/png",
+        1,
+        "Foreign image",
+        None,
+        "[]",
+    )
+    .await
+    .unwrap();
+    let foreign_pool_result = crate::services::tipcards::TipcardService::append_images(
+        &state,
+        TEST_USER_ID,
+        own_card,
+        vec![],
+        vec![foreign_pool_image],
+        vec![],
+    )
+    .await;
+    assert_eq!(
+        foreign_pool_result.unwrap_err().0,
+        axum::http::StatusCode::NOT_FOUND
+    );
+    assert!(
+        !state.image_dir.exists(),
+        "rejected requests do not write files"
+    );
 }
 
 #[tokio::test]

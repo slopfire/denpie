@@ -191,12 +191,13 @@ async fn test_daily_refresh_keeps_current_unpinned_daily_card_and_exclude_adds_n
         .unwrap();
     assert_eq!(card_count, 1);
 
+    // Browser settings sends an empty topic list and JSON null card type.
     let forced = crate::api::tips::force_daily_refresh(
         &state,
         TEST_USER_ID,
         crate::api::ForceDailyRefreshRequest {
-            topics: "rust".into(),
-            tipcard_type: Some("repeatable_tip".into()),
+            topics: "".into(),
+            tipcard_type: None,
         },
     )
     .await
@@ -230,7 +231,7 @@ async fn test_daily_refresh_keeps_current_unpinned_daily_card_and_exclude_adds_n
 }
 
 #[tokio::test]
-async fn test_server_daily_refresh_runs_once_per_window() {
+async fn test_initial_card_counts_as_current_daily_refresh_window() {
     let settings_path = unique_settings_path();
     fs::write(&settings_path, "{}").await.unwrap();
     let db = setup_db().await;
@@ -253,7 +254,7 @@ async fn test_server_daily_refresh_runs_once_per_window() {
     .unwrap();
 
     let first_refresh = crate::api::refresh_due_daily_topics(&state).await.unwrap();
-    assert_eq!(first_refresh, 1);
+    assert_eq!(first_refresh, 0);
 
     let second_refresh = crate::api::refresh_due_daily_topics(&state).await.unwrap();
     assert_eq!(second_refresh, 0);
@@ -262,7 +263,7 @@ async fn test_server_daily_refresh_runs_once_per_window() {
         .fetch_one(&state.db)
         .await
         .unwrap();
-    assert_eq!(card_count, 2);
+    assert_eq!(card_count, 1);
 }
 
 #[tokio::test]

@@ -32,3 +32,21 @@ async fn test_root_page_serves_html() {
     assert!(body.contains("modulepreload"));
     assert!(body.contains(".wasm"));
 }
+
+#[tokio::test]
+async fn test_tipcard_image_append_requires_session_auth() {
+    let (url, _client) = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{url}/app/tipcard-images/append"))
+        .json(&serde_json::json!({
+            "card_id": 1,
+            "image_data": [],
+            "pool_image_ids": [],
+            "urls": []
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+}

@@ -26,11 +26,10 @@ async fn test_admin_settings_roundtrip_persists() {
         .post(format!("{url}/admin/settings"))
         .json(&serde_json::json!({
             "model": "google/gemini-2.5-pro",
+            "grounding_model": "openai/gpt-5-mini",
             "reasoning_effort": "low",
+            "grounding_reasoning_effort": "high",
             "compression_level": "strong",
-            "color_scheme": "solarized-dark",
-            "transparency": "full",
-            "blur_intensity": "low",
             "daily_time_zone": "UTC+10",
             "daily_update_time": "06:30",
             "max_active_cards": 7
@@ -48,11 +47,10 @@ async fn test_admin_settings_roundtrip_persists() {
     assert_eq!(read.status(), reqwest::StatusCode::OK);
     let body = read.json::<serde_json::Value>().await.unwrap();
     assert_eq!(body["model"], "google/gemini-2.5-pro");
+    assert_eq!(body["grounding_model"], "openai/gpt-5-mini");
     assert_eq!(body["reasoning_effort"], "low");
+    assert_eq!(body["grounding_reasoning_effort"], "high");
     assert_eq!(body["compression_level"], "strong");
-    assert_eq!(body["color_scheme"], "solarized-dark");
-    assert_eq!(body["transparency"], "full");
-    assert_eq!(body["blur_intensity"], "low");
     assert_eq!(body["daily_time_zone"], "UTC+10");
     assert_eq!(body["daily_update_time"], "06:30");
     assert_eq!(body["max_active_cards"], 7);
@@ -91,7 +89,8 @@ async fn test_unified_protobuf_api_bootstrap_and_manage() {
         op: Some(crate::api::pb::api_request::Op::UpdateSettings(
             crate::api::pb::UpdateSettingsRequest {
                 model: Some("google/gemini-2.5-pro".into()),
-                color_scheme: Some("solarized".into()),
+                grounding_model: Some("openai/gpt-5-mini".into()),
+                grounding_reasoning_effort: Some("high".into()),
                 daily_time_zone: Some("UTC+10".into()),
                 daily_update_time: Some("06:30".into()),
                 max_active_cards: Some(7),
@@ -124,7 +123,8 @@ async fn test_unified_protobuf_api_bootstrap_and_manage() {
     match resp.result.unwrap() {
         crate::api::pb::api_response::Result::Settings(settings) => {
             assert_eq!(settings.model, "google/gemini-2.5-pro");
-            assert_eq!(settings.color_scheme, "solarized");
+            assert_eq!(settings.grounding_model, "openai/gpt-5-mini");
+            assert_eq!(settings.grounding_reasoning_effort, "high");
             assert_eq!(settings.daily_time_zone, "UTC+10");
             assert_eq!(settings.daily_update_time, "06:30");
             assert_eq!(settings.max_active_cards, 7);
