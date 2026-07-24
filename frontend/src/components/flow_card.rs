@@ -1,12 +1,11 @@
+use crate::components::card_image_picker::CardImagePicker;
 use crate::components::image_lightbox::ImageLightbox;
 use crate::components::tooltip::ShadcnTooltip;
 use crate::components::unified_flow::TipcardInfo;
-use crate::image_compress::{collect_files, compress_files_to_data_urls};
 use crate::markdown::render_markdown;
 use crate::topic_visual::display_icon;
-use std::rc::Rc;
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
-use web_sys::{HtmlInputElement, ResizeObserver, ResizeObserverEntry};
+use web_sys::{ResizeObserver, ResizeObserverEntry};
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
@@ -19,6 +18,8 @@ pub struct FlowCardProps {
     pub on_update_images: Callback<(i64, Vec<String>)>,
     #[prop_or_default]
     pub on_upload_error: Callback<String>,
+    #[prop_or_default]
+    pub on_images_attached: Callback<i64>,
     pub on_toggle_fullscreen: Callback<i64>,
     #[prop_or_default]
     pub on_request_detail: Callback<i64>,
@@ -62,6 +63,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let expanded = use_state(|| false);
     let copied = use_state(|| false);
     let lightbox_index = use_state(|| None::<usize>);
+    let image_picker_open = use_state(|| false);
     let card = &props.card;
     let id = card.id;
     let pinned = card.pinned;
@@ -93,7 +95,6 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let on_toggle_pin = props.on_toggle_pin.clone();
     let on_delete = props.on_delete.clone();
     let on_reorder = props.on_reorder.clone();
-    let on_update_images = props.on_update_images.clone();
     let on_toggle_fullscreen = props.on_toggle_fullscreen.clone();
     let fullscreen = props.fullscreen;
     {
@@ -230,38 +231,6 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                 let copied = copied.clone();
                 gloo_timers::callback::Timeout::new(1200, move || copied.set(false)).forget();
             }
-        })
-    };
-
-    let on_image_upload = {
-        let current_images = card.image_data.clone();
-        let on_update_images = on_update_images.clone();
-        let on_upload_error = props.on_upload_error.clone();
-        Callback::from(move |e: Event| {
-            let Some(input) = e.target_dyn_into::<HtmlInputElement>() else {
-                return;
-            };
-            let Some(files) = input.files() else {
-                return;
-            };
-            if files.length() == 0 {
-                return;
-            }
-            let selected = collect_files(&files);
-            input.set_value("");
-            let on_update_images = on_update_images.clone();
-            let on_upload_error = on_upload_error.clone();
-            let next_images = Rc::new(current_images.clone());
-            wasm_bindgen_futures::spawn_local(async move {
-                match compress_files_to_data_urls(selected).await {
-                    Ok(mut compressed) => {
-                        let mut images = (*next_images).clone();
-                        images.append(&mut compressed);
-                        on_update_images.emit((id, images));
-                    }
-                    Err(message) => on_upload_error.emit(message),
-                }
-            });
         })
     };
 
@@ -450,10 +419,12 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                         </button>
                     </ShadcnTooltip>
                     <ShadcnTooltip content="Attach images">
-                        <label class="border border-token p-2 cursor-pointer">
+                        <button type="button" class="border border-token p-2" onclick={Callback::from({
+                            let image_picker_open = image_picker_open.clone();
+                            move |_| image_picker_open.set(true)
+                        })}>
                             <iconify-icon icon="radix-icons:image" class="radix-icon"></iconify-icon>
-                            <input type="file" accept="image/*" multiple=true class="hidden" onchange={on_image_upload} />
-                        </label>
+                        </button>
                     </ShadcnTooltip>
                     if !card.image_data.is_empty() {
                         <ShadcnTooltip content="Clear images">
@@ -482,6 +453,27 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                     })}
                 />
             }
+            <CardImagePicker
+                open={*image_picker_open}
+                card_id={id}
+                existing_count={card.image_data.len()}
+                context={format!("{} {}", card.topic_name, card.title)}
+                on_close={Callback::from({
+                    let image_picker_open = image_picker_open.clone();
+                    move |_| image_picker_open.set(false)
+                })}
+                on_success={Callback::from({
+                    let image_picker_open = image_picker_open.clone();
+                    let on_request_detail = props.on_request_detail.clone();
+                    let on_images_attached = props.on_images_attached.clone();
+                    move |_| {
+                        image_picker_open.set(false);
+                        on_request_detail.emit(id);
+                        on_images_attached.emit(id);
+                    }
+                })}
+                on_error={props.on_upload_error.clone()}
+            />
         </article>
     }
 }

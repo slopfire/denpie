@@ -1,16 +1,19 @@
 use crate::api::toast;
 use crate::components::flow_card::{FlowCard, FlowCardSkeleton};
+use crate::i18n::use_i18n;
 use crate::image_compress::{collect_files, compress_files_to_data_urls};
 use crate::state::AppState;
 use gloo_net::http::Request;
 use gloo_storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use wasm_bindgen::JsCast;
 use web_sys::{DragEvent, HtmlInputElement, HtmlTextAreaElement, KeyboardEvent};
 use yew::prelude::*;
 
 const PAGE_LIMIT: i64 = 48;
+const TRANSMISSION_MAX_PICKS: usize = 9;
+const TRANSMISSION_MAX_PICKS_PER_TOPIC: usize = 3;
 const DRAG_SCROLL_EDGE_PX: f64 = 96.0;
 const DRAG_SCROLL_MAX_STEP_PX: f64 = 32.0;
 
@@ -144,6 +147,7 @@ struct PinReq {
 #[function_component(UnifiedFlow)]
 pub fn unified_flow() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
+    let i18n = use_i18n();
     let cards = use_state(Vec::<TipcardInfo>::new);
     let detail_loaded = use_state(HashMap::<i64, bool>::new);
     let card_heights = use_state(HashMap::<i64, f64>::new);
@@ -605,19 +609,24 @@ pub fn unified_flow() -> Html {
         &normalize_card_order((*card_order).clone(), &unpinned_ids),
     );
 
-    let mut flow_cards = pinned_cards;
-    flow_cards.extend(unpinned_cards);
-    let current_ids: Vec<i64> = flow_cards.iter().map(|card| card.id).collect();
+    let (transmission_picks, remaining_cards) = split_topic_picks(&unpinned_cards);
+    let current_ids: Vec<i64> = pinned_cards
+        .iter()
+        .chain(transmission_picks.iter())
+        .chain(remaining_cards.iter())
+        .map(|card| card.id)
+        .collect();
 
     let list_mode = *layout == "list";
+    let visible_card_count = current_ids.len();
     let disable_flow_glass =
-        should_disable_flow_glass(list_mode, flow_cards.len(), &card_heights, &current_ids);
+        should_disable_flow_glass(list_mode, visible_card_count, &card_heights, &current_ids);
 
     {
         let load_cards = load_cards.clone();
         let has_more = *has_more;
         let loading = *loading;
-        let loaded_count = flow_cards.len();
+        let loaded_count = cards.len();
         use_effect_with((has_more, loading, loaded_count), move |_| {
             if has_more && !loading && loaded_count == 0 {
                 load_cards.emit(false);
@@ -663,6 +672,33 @@ pub fn unified_flow() -> Html {
         e.prevent_default();
         auto_scroll_for_drag(&e);
     });
+    let render_flow_card = |card: &TipcardInfo| {
+        let card = card.clone();
+        let id = card.id;
+        html! {
+            <FlowCard
+                key={id.to_string()}
+                card={card}
+                on_review={on_review_cb.clone()}
+                on_toggle_pin={on_toggle_pin_cb.clone()}
+                on_delete={on_delete_cb.clone()}
+                on_reorder={on_reorder_cb.clone()}
+                on_update_images={on_update_images_cb.clone()}
+                on_upload_error={on_upload_error.clone()}
+                on_toggle_fullscreen={on_toggle_fullscreen.clone()}
+                on_request_detail={request_detail.clone()}
+                on_measure={on_measure.clone()}
+                list_mode={list_mode}
+                fullscreen={*fullscreen_card_id == Some(id)}
+                detail_loaded={detail_loaded.get(&id).copied().unwrap_or(false)}
+            />
+        }
+    };
+    let grid_classes = if list_mode {
+        "grid grid-cols-1 gap-3 items-start w-full max-w-4xl mx-auto"
+    } else {
+        "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start"
+    };
 
     html! {
         <section
@@ -671,7 +707,7 @@ pub fn unified_flow() -> Html {
         >
             <div class="flex flex-col xl:flex-row xl:items-end justify-between gap-3 mb-4">
                 <div>
-                    <h1 class="text-xl font-semibold tracking-tight">{"Unified Flow"}</h1>
+                    <h1 class="text-xl font-semibold tracking-tight">{"Transmission"}</h1>
                     <p class="text-muted mt-2">{"All cards in one review surface."}</p>
                 </div>
                 <form id="tips-form" onsubmit={on_submit} class="surface border rounded-md p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 w-full xl:w-auto">
@@ -755,9 +791,35 @@ pub fn unified_flow() -> Html {
                 </form>
             </div>
 
+            if !pinned_cards.is_empty() {
+                <section id="flow-pins" class="mb-8" aria-labelledby="flow-pins-heading">
+                    <div class="flex items-center justify-between gap-3 mb-4">
+                        <h2 id="flow-pins-heading" class="text-lg font-semibold tracking-tight">
+                            {i18n.t("flow.pins")}
+                        </h2>
+                        <span id="flow-pinned-count" class="text-sm text-muted">
+                            {pinned_cards.len()}
+                        </span>
+                    </div>
+                    <div
+                        id="flow-pinned-grid"
+                        class={grid_classes}
+                        ondragover={on_flow_dragover.clone()}
+                    >
+                        {for pinned_cards.iter().map(&render_flow_card)}
+                    </div>
+                </section>
+            }
+
             <div class="flex justify-between items-center gap-3 mb-4">
-                <div class="text-sm text-muted">
-                    <span id="flow-count">{flow_cards.len()}</span>{"/"}{PAGE_LIMIT}{" loaded cards"}
+                <div>
+                    <h2 id="flow-picks-heading" class="text-lg font-semibold tracking-tight">
+                        {i18n.t("flow.picks")}
+                    </h2>
+                    <div class="text-sm text-muted mt-1">
+                        <span id="flow-count">{transmission_picks.len()}</span>
+                        {format!("/{TRANSMISSION_MAX_PICKS} {}", i18n.t("flow.picks_count_suffix"))}
+                    </div>
                 </div>
                 <div class="flex flex-wrap items-center justify-end gap-2">
                     <div class="flex muted-surface rounded-md p-1 border border-token" role="group" aria-label="Sort cards">
@@ -817,8 +879,9 @@ pub fn unified_flow() -> Html {
 
             <div
                 id="flow-grid"
-                class={if list_mode { "grid grid-cols-1 gap-3 items-start w-full max-w-4xl mx-auto" } else { "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start" }}
-                ondragover={on_flow_dragover}
+                class={grid_classes}
+                aria-labelledby="flow-picks-heading"
+                ondragover={on_flow_dragover.clone()}
             >
                 {
                     for (0..*pending_count).map(|i| html! {
@@ -826,29 +889,30 @@ pub fn unified_flow() -> Html {
                     })
                 }
                 {
-                    for flow_cards.iter().map(|card| {
-                        let card = card.clone();
-                        let id = card.id;
-                        html! {
-                            <FlowCard
-                                card={card}
-                                on_review={on_review_cb.clone()}
-                                on_toggle_pin={on_toggle_pin_cb.clone()}
-                                on_delete={on_delete_cb.clone()}
-                                on_reorder={on_reorder_cb.clone()}
-                                on_update_images={on_update_images_cb.clone()}
-                                on_upload_error={on_upload_error.clone()}
-                                on_toggle_fullscreen={on_toggle_fullscreen.clone()}
-                                on_request_detail={request_detail.clone()}
-                                on_measure={on_measure.clone()}
-                                list_mode={list_mode}
-                                fullscreen={*fullscreen_card_id == Some(id)}
-                                detail_loaded={detail_loaded.get(&id).copied().unwrap_or(false)}
-                            />
-                        }
-                    })
+                    for transmission_picks.iter().map(render_flow_card)
                 }
             </div>
+
+            if !remaining_cards.is_empty() {
+                <section id="flow-other-cards" class="mt-8" aria-labelledby="flow-other-cards-heading">
+                    <div class="flex items-center justify-between gap-3 mb-4">
+                        <h2 id="flow-other-cards-heading" class="text-lg font-semibold tracking-tight">
+                            {i18n.t("flow.other_cards")}
+                        </h2>
+                        <span id="flow-other-count" class="text-sm text-muted">
+                            {remaining_cards.len()}
+                        </span>
+                    </div>
+                    <div
+                        id="flow-other-grid"
+                        class={grid_classes}
+                        ondragover={on_flow_dragover.clone()}
+                    >
+                        {for remaining_cards.iter().map(render_flow_card)}
+                    </div>
+                </section>
+            }
+
             if *loading {
                 <div class="flex justify-center py-8 text-sm text-muted">{"Loading cards..."}</div>
             } else if *has_more {
@@ -857,7 +921,7 @@ pub fn unified_flow() -> Html {
                 </div>
             }
 
-            if flow_cards.is_empty() && !*loading {
+            if visible_card_count == 0 && !*loading {
                 <div id="empty-flow" class="surface border rounded-md p-10 text-center text-muted">
                     {"No cards yet."}
                 </div>
@@ -968,6 +1032,47 @@ fn sort_flow_cards(cards: &mut [TipcardInfo], sort_by: &str, drag_order: &[i64])
     }
 }
 
+fn select_topic_picks(cards: &[TipcardInfo]) -> Vec<TipcardInfo> {
+    let topic_count = cards
+        .iter()
+        .map(|card| card.topic_name.as_str())
+        .collect::<HashSet<_>>()
+        .len();
+    if topic_count == 0 {
+        return Vec::new();
+    }
+
+    let per_topic_limit =
+        TRANSMISSION_MAX_PICKS_PER_TOPIC.min((TRANSMISSION_MAX_PICKS / topic_count).max(1));
+    let mut topic_counts = HashMap::<&str, usize>::new();
+    let mut picks = Vec::with_capacity(TRANSMISSION_MAX_PICKS.min(cards.len()));
+
+    for card in cards {
+        let count = topic_counts.entry(card.topic_name.as_str()).or_default();
+        if *count >= per_topic_limit {
+            continue;
+        }
+        picks.push(card.clone());
+        *count += 1;
+        if picks.len() == TRANSMISSION_MAX_PICKS {
+            break;
+        }
+    }
+
+    picks
+}
+
+fn split_topic_picks(cards: &[TipcardInfo]) -> (Vec<TipcardInfo>, Vec<TipcardInfo>) {
+    let picks = select_topic_picks(cards);
+    let pick_ids = picks.iter().map(|card| card.id).collect::<HashSet<_>>();
+    let remaining = cards
+        .iter()
+        .filter(|card| !pick_ids.contains(&card.id))
+        .cloned()
+        .collect();
+    (picks, remaining)
+}
+
 fn normalize_card_order(mut order: Vec<i64>, current_ids: &[i64]) -> Vec<i64> {
     order.retain(|id| current_ids.contains(id));
     for id in current_ids {
@@ -1016,4 +1121,104 @@ fn set_fullscreen_body_class(fullscreen: bool) {
 fn scroll_step(edge_overlap: f64) -> f64 {
     let intensity = (edge_overlap / DRAG_SCROLL_EDGE_PX).clamp(0.0, 1.0);
     (intensity * DRAG_SCROLL_MAX_STEP_PX).max(4.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn card(id: i64, topic_name: &str) -> TipcardInfo {
+        TipcardInfo {
+            id,
+            topic_name: topic_name.to_string(),
+            topic_icon: String::new(),
+            topic_color: String::new(),
+            title: format!("Card {id}"),
+            full_content: String::new(),
+            compressed_content: String::new(),
+            image_data: Vec::new(),
+            created_at: String::new(),
+            tipcard_type: "casual_tip".to_string(),
+            status: "active".to_string(),
+            next_review_at: String::new(),
+            repeat_count: 0,
+            pinned: false,
+        }
+    }
+
+    #[test]
+    fn transmission_selects_three_picks_from_each_of_three_topics() {
+        let cards = ["A", "B", "C"]
+            .into_iter()
+            .flat_map(|topic| (0..4).map(move |index| card(index, topic)))
+            .collect::<Vec<_>>();
+
+        let picks = select_topic_picks(&cards);
+
+        assert_eq!(picks.len(), 9);
+        for topic in ["A", "B", "C"] {
+            assert_eq!(
+                picks.iter().filter(|card| card.topic_name == topic).count(),
+                3
+            );
+        }
+    }
+
+    #[test]
+    fn transmission_reduces_each_topic_to_two_when_four_topics_exceed_nine() {
+        let cards = ["A", "B", "C", "D"]
+            .into_iter()
+            .flat_map(|topic| (0..3).map(move |index| card(index, topic)))
+            .collect::<Vec<_>>();
+
+        let picks = select_topic_picks(&cards);
+
+        assert_eq!(picks.len(), 8);
+        for topic in ["A", "B", "C", "D"] {
+            assert_eq!(
+                picks.iter().filter(|card| card.topic_name == topic).count(),
+                2
+            );
+        }
+    }
+
+    #[test]
+    fn transmission_never_shows_more_than_nine_topics() {
+        let cards = (0..12)
+            .map(|index| card(index, &format!("Topic {index}")))
+            .collect::<Vec<_>>();
+
+        let picks = select_topic_picks(&cards);
+
+        assert_eq!(picks.len(), 9);
+        assert!(picks.iter().all(|pick| {
+            picks
+                .iter()
+                .filter(|other| other.topic_name == pick.topic_name)
+                .count()
+                == 1
+        }));
+    }
+
+    #[test]
+    fn transmission_keeps_every_non_pick_as_a_remaining_card() {
+        let cards = ["A", "B", "C"]
+            .into_iter()
+            .enumerate()
+            .flat_map(|(topic_index, topic)| {
+                (0..4).map(move |index| card((topic_index * 10 + index) as i64, topic))
+            })
+            .collect::<Vec<_>>();
+
+        let (picks, remaining) = split_topic_picks(&cards);
+        let visible_ids = picks
+            .iter()
+            .chain(remaining.iter())
+            .map(|card| card.id)
+            .collect::<HashSet<_>>();
+
+        assert_eq!(picks.len(), 9);
+        assert_eq!(remaining.len(), 3);
+        assert_eq!(visible_ids.len(), cards.len());
+    }
 }

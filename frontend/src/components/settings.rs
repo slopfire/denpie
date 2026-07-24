@@ -13,6 +13,7 @@ pub struct SettingsRes {
     pub server_version: String,
     pub build_sha: String,
     pub model: String,
+    pub vision_model: String,
     pub compress_model: String,
     pub template: String,
     pub api_key: String,
@@ -33,6 +34,11 @@ pub struct SettingsRes {
     pub daily_time_zone: String,
     pub daily_update_time: String,
     pub max_active_cards: u64,
+    pub grounding_strategy: String,
+    pub image_strategy: String,
+    pub search_api_key: String,
+    pub search_base_url: String,
+    pub image_sources: String,
 }
 
 impl SettingsRes {
@@ -51,6 +57,7 @@ impl SettingsRes {
         }
 
         let mut patch = UpdateSettingsPatch::default();
+        changed!(patch, vision_model);
         changed!(patch, model);
         changed!(patch, compress_model);
         changed!(patch, template);
@@ -60,9 +67,6 @@ impl SettingsRes {
         changed!(patch, reasoning_effort);
         changed!(patch, compress_reasoning_effort);
         changed!(patch, compression_level);
-        changed!(patch, color_scheme);
-        changed!(patch, transparency);
-        changed!(patch, blur_intensity);
         changed!(patch, autoupdate_enabled, copy);
         changed!(patch, autoupdate_repo);
         changed!(patch, autoupdate_branch);
@@ -71,6 +75,11 @@ impl SettingsRes {
         changed!(patch, daily_time_zone);
         changed!(patch, daily_update_time);
         changed!(patch, max_active_cards, copy);
+        changed!(patch, grounding_strategy);
+        changed!(patch, image_strategy);
+        changed!(patch, search_api_key);
+        changed!(patch, search_base_url);
+        changed!(patch, image_sources);
         patch
     }
 
@@ -86,9 +95,11 @@ impl SettingsRes {
         apply!(reasoning_effort);
         apply!(compress_reasoning_effort);
         apply!(compression_level);
-        apply!(color_scheme);
-        apply!(transparency);
-        apply!(blur_intensity);
+        apply!(grounding_strategy);
+        apply!(image_strategy);
+        apply!(search_api_key);
+        apply!(search_base_url);
+        apply!(image_sources);
     }
 }
 
@@ -98,10 +109,16 @@ struct ForceDailyRefreshRequest {
     tipcard_type: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct ForceDailyRefreshResponse {
+    refreshed_cards: u64,
+}
+
 const PENDING_SETTINGS_KEY: &str = "denpie-pending-settings";
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct UpdateSettingsPatch {
+    vision_model: Option<String>,
     model: Option<String>,
     compress_model: Option<String>,
     template: Option<String>,
@@ -111,17 +128,19 @@ struct UpdateSettingsPatch {
     reasoning_effort: Option<String>,
     compress_reasoning_effort: Option<String>,
     compression_level: Option<String>,
-    color_scheme: Option<String>,
-    transparency: Option<String>,
-    blur_intensity: Option<String>,
     autoupdate_enabled: Option<bool>,
     autoupdate_repo: Option<String>,
     autoupdate_branch: Option<String>,
+    max_active_cards: Option<u64>,
+    grounding_strategy: Option<String>,
+    image_strategy: Option<String>,
+    search_api_key: Option<String>,
+    search_base_url: Option<String>,
+    image_sources: Option<String>,
     autoupdate_check_interval_secs: Option<u64>,
     autoupdate_command: Option<String>,
     daily_time_zone: Option<String>,
     daily_update_time: Option<String>,
-    max_active_cards: Option<u64>,
 }
 
 impl UpdateSettingsPatch {
@@ -130,15 +149,13 @@ impl UpdateSettingsPatch {
             reasoning_effort: self.reasoning_effort.clone(),
             compress_reasoning_effort: self.compress_reasoning_effort.clone(),
             compression_level: self.compression_level.clone(),
-            color_scheme: self.color_scheme.clone(),
-            transparency: self.transparency.clone(),
-            blur_intensity: self.blur_intensity.clone(),
             ..Default::default()
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.model.is_none()
+        self.vision_model.is_none()
+            && self.model.is_none()
             && self.compress_model.is_none()
             && self.template.is_none()
             && self.api_key.is_none()
@@ -147,9 +164,6 @@ impl UpdateSettingsPatch {
             && self.reasoning_effort.is_none()
             && self.compress_reasoning_effort.is_none()
             && self.compression_level.is_none()
-            && self.color_scheme.is_none()
-            && self.transparency.is_none()
-            && self.blur_intensity.is_none()
             && self.autoupdate_enabled.is_none()
             && self.autoupdate_repo.is_none()
             && self.autoupdate_branch.is_none()
@@ -158,6 +172,11 @@ impl UpdateSettingsPatch {
             && self.daily_time_zone.is_none()
             && self.daily_update_time.is_none()
             && self.max_active_cards.is_none()
+            && self.grounding_strategy.is_none()
+            && self.image_strategy.is_none()
+            && self.search_api_key.is_none()
+            && self.search_base_url.is_none()
+            && self.image_sources.is_none()
     }
 
     fn merge_from(&mut self, other: Self) {
@@ -169,6 +188,7 @@ impl UpdateSettingsPatch {
             };
         }
 
+        merge!(vision_model);
         merge!(model);
         merge!(compress_model);
         merge!(template);
@@ -178,9 +198,6 @@ impl UpdateSettingsPatch {
         merge!(reasoning_effort);
         merge!(compress_reasoning_effort);
         merge!(compression_level);
-        merge!(color_scheme);
-        merge!(transparency);
-        merge!(blur_intensity);
         merge!(autoupdate_enabled);
         merge!(autoupdate_repo);
         merge!(autoupdate_branch);
@@ -189,6 +206,11 @@ impl UpdateSettingsPatch {
         merge!(daily_time_zone);
         merge!(daily_update_time);
         merge!(max_active_cards);
+        merge!(grounding_strategy);
+        merge!(image_strategy);
+        merge!(search_api_key);
+        merge!(search_base_url);
+        merge!(image_sources);
     }
 }
 
@@ -205,6 +227,44 @@ fn load_pending_selects() -> Option<UpdateSettingsPatch> {
 
 fn clear_pending_selects() {
     LocalStorage::delete(PENDING_SETTINGS_KEY);
+}
+
+const APPEARANCE_KEY: &str = "denpie-appearance";
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct AppearancePrefs {
+    color_scheme: Option<String>,
+    transparency: Option<String>,
+    blur_intensity: Option<String>,
+}
+
+fn load_appearance() -> AppearancePrefs {
+    LocalStorage::get(APPEARANCE_KEY).ok().unwrap_or_default()
+}
+
+fn save_appearance_field(field: &str, value: &str) {
+    let mut prefs = load_appearance();
+    match field {
+        "color_scheme" => prefs.color_scheme = Some(value.to_string()),
+        "transparency" => prefs.transparency = Some(value.to_string()),
+        "blur_intensity" => prefs.blur_intensity = Some(value.to_string()),
+        _ => {}
+    }
+    let _ = LocalStorage::set(APPEARANCE_KEY, prefs);
+}
+
+/// Override appearance fields with device-local prefs stored in LocalStorage.
+pub fn apply_local_appearance_overrides(settings: &mut SettingsRes) {
+    let prefs = load_appearance();
+    if let Some(value) = prefs.color_scheme {
+        settings.color_scheme = value;
+    }
+    if let Some(value) = prefs.transparency {
+        settings.transparency = value;
+    }
+    if let Some(value) = prefs.blur_intensity {
+        settings.blur_intensity = value;
+    }
 }
 
 fn refresh_autoupdate_status(update_status: UseStateHandle<Option<AutoupdateStatus>>) {
@@ -319,8 +379,9 @@ fn save_settings_now(
             Ok(res) if res.ok() => {
                 match Request::get("/admin/settings").send().await {
                     Ok(refresh) if refresh.ok() => {
-                        if let Ok(server_settings) = refresh.json::<SettingsRes>().await {
+                        if let Ok(mut server_settings) = refresh.json::<SettingsRes>().await {
                             clear_pending_selects();
+                            apply_local_appearance_overrides(&mut server_settings);
                             apply_appearance(&server_settings);
                             settings_state.set(Some(server_settings.clone()));
                             last_saved.set(Some(server_settings));
@@ -365,6 +426,7 @@ pub fn settings() -> Html {
     let update_status = use_state(|| None::<AutoupdateStatus>);
     let update_result = use_state(|| None::<TriggerAutoupdateRes>);
     let save_status = use_state(String::new);
+    let force_refreshing = use_state(|| false);
     let save_timer = use_mut_ref(|| None::<Timeout>);
     let pending_patch = use_mut_ref(UpdateSettingsPatch::default);
     let pending_snapshot = use_mut_ref(|| None::<SettingsRes>);
@@ -380,6 +442,7 @@ pub fn settings() -> Html {
                     Ok(res) if res.ok() => {
                         if let Ok(data) = res.json::<SettingsRes>().await {
                             let mut data = data;
+                            apply_local_appearance_overrides(&mut data);
                             let pending = load_pending_selects();
                             if let Some(pending) = &pending {
                                 data.apply_patch(pending);
@@ -552,8 +615,14 @@ pub fn settings() -> Html {
 
     let on_force_refresh = {
         let app_state = app_state.clone();
+        let force_refreshing = force_refreshing.clone();
         Callback::from(move |_| {
+            if *force_refreshing {
+                return;
+            }
             let app_state = app_state.clone();
+            let force_refreshing = force_refreshing.clone();
+            force_refreshing.set(true);
             wasm_bindgen_futures::spawn_local(async move {
                 let req = ForceDailyRefreshRequest {
                     topics: String::new(),
@@ -566,11 +635,20 @@ pub fn settings() -> Html {
                     .await
                 {
                     if res.ok() {
-                        toast(&app_state, "Force refresh triggered");
+                        match res.json::<ForceDailyRefreshResponse>().await {
+                            Ok(result) => toast(
+                                &app_state,
+                                format!("Force refresh loaded {} cards", result.refreshed_cards),
+                            ),
+                            Err(_) => toast(&app_state, "Force refresh completed"),
+                        }
                     } else {
                         toast(&app_state, "Failed to refresh");
                     }
+                } else {
+                    toast(&app_state, "Failed to refresh");
                 }
+                force_refreshing.set(false);
             });
         })
     };
@@ -634,6 +712,7 @@ pub fn settings() -> Html {
                 if let Some(mut current) = (*settings).clone() {
                     match field {
                         "model" => current.model = target.value(),
+                        "vision_model" => current.vision_model = target.value(),
                         "compress_model" => current.compress_model = target.value(),
                         "api_key" => current.api_key = target.value(),
                         "base_url" => current.base_url = target.value(),
@@ -655,6 +734,7 @@ pub fn settings() -> Html {
                     let mut patch = UpdateSettingsPatch::default();
                     match field {
                         "model" => patch.model = Some(current.model.clone()),
+                        "vision_model" => patch.vision_model = Some(current.vision_model.clone()),
                         "compress_model" => {
                             patch.compress_model = Some(current.compress_model.clone())
                         }
@@ -719,6 +799,8 @@ pub fn settings() -> Html {
         let save_immediately = save_immediately.clone();
         Callback::from(move |value: String| {
             if let Some(mut current) = (*settings).clone() {
+                let is_appearance =
+                    matches!(field, "color_scheme" | "transparency" | "blur_intensity");
                 match field {
                     "reasoning_effort" => current.reasoning_effort = value,
                     "compress_reasoning_effort" => current.compress_reasoning_effort = value,
@@ -730,6 +812,16 @@ pub fn settings() -> Html {
                 }
                 apply_appearance(&current);
                 settings.set(Some(current.clone()));
+                if is_appearance {
+                    let value = match field {
+                        "color_scheme" => &current.color_scheme,
+                        "transparency" => &current.transparency,
+                        "blur_intensity" => &current.blur_intensity,
+                        _ => unreachable!(),
+                    };
+                    save_appearance_field(field, value);
+                    return;
+                }
                 let mut patch = UpdateSettingsPatch::default();
                 match field {
                     "reasoning_effort" => {
@@ -742,9 +834,6 @@ pub fn settings() -> Html {
                     "compression_level" => {
                         patch.compression_level = Some(current.compression_level.clone())
                     }
-                    "color_scheme" => patch.color_scheme = Some(current.color_scheme.clone()),
-                    "transparency" => patch.transparency = Some(current.transparency.clone()),
-                    "blur_intensity" => patch.blur_intensity = Some(current.blur_intensity.clone()),
                     _ => {}
                 }
                 save_immediately.emit(SaveRequest {
@@ -800,6 +889,11 @@ pub fn settings() -> Html {
                 <div>
                     <label class="block card-kicker mb-2">{"Compression Model"}</label>
                     <input id="compress-model-input" oninput={on_input("compress_model")} value={s.compress_model.clone()} class="w-full rounded-md border px-3 py-2" />
+                </div>
+                <div>
+                    <label class="block card-kicker mb-2">{"Vision Model"}</label>
+                    <input id="vision-model-input" oninput={on_input("vision_model")} value={s.vision_model.clone()} class="w-full rounded-md border px-3 py-2" />
+                    <div class="mt-2 text-xs text-muted">{"Model used for automatic image naming, description, and tagging. Defaults to the LLM model if empty."}</div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
@@ -863,9 +957,9 @@ pub fn settings() -> Html {
                 </div>
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div class="text-sm text-muted">{"Force-refresh generated topics now."}</div>
-                    <button id="force-daily-refresh-btn" type="button" onclick={on_force_refresh} class="rounded-md border border-token px-4 py-2 font-medium flex items-center justify-center gap-2">
-                        <iconify-icon icon="radix-icons:update" class="radix-icon" aria-hidden="true"></iconify-icon>
-                        <span>{"Force Daily Refresh"}</span>
+                    <button id="force-daily-refresh-btn" type="button" disabled={*force_refreshing} onclick={on_force_refresh} class="rounded-md border border-token px-4 py-2 font-medium flex items-center justify-center gap-2 disabled:opacity-60">
+                        <iconify-icon icon="radix-icons:update" class={classes!("radix-icon", (*force_refreshing).then_some("animate-spin"))} aria-hidden="true"></iconify-icon>
+                        <span>{if *force_refreshing { "Refreshing..." } else { "Force Daily Refresh" }}</span>
                     </button>
                 </div>
                 <div>

@@ -7,13 +7,20 @@ use crate::state::AppState;
 use gloo_net::http::Request;
 use gloo_storage::{LocalStorage, Storage};
 use gloo_timers::callback::Timeout;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
+use yew_router::prelude::*;
 
 const ARCHIVE_PAGE_SIZE: usize = 24;
 const ARCHIVE_GLASS_THRESHOLD: usize = 8;
 const ARCHIVE_SEARCH_DEBOUNCE_MS: u32 = 300;
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct ArchiveQuery {
+    pub status: Option<String>,
+    pub topic: Option<String>,
+}
 
 #[derive(Serialize)]
 struct PatchTipcardReq {
@@ -26,6 +33,7 @@ fn filter_and_sort_archive_cards(
     cards: &[TipcardInfo],
     search: &str,
     status: &str,
+    topic: &str,
     sort_by: &str,
 ) -> Vec<TipcardInfo> {
     let q = search.to_lowercase();
@@ -37,7 +45,8 @@ fn filter_and_sort_archive_cards(
                 || card.title.to_lowercase().contains(&q)
                 || card.topic_name.to_lowercase().contains(&q)
                 || card.full_content.to_lowercase().contains(&q);
-            status_ok && text_ok
+            let topic_ok = topic.is_empty() || card.topic_name.eq_ignore_ascii_case(topic);
+            status_ok && topic_ok && text_ok
         })
         .cloned()
         .collect();
@@ -62,16 +71,47 @@ fn filter_and_sort_archive_cards(
 pub fn archive() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
     let i18n = use_i18n();
+    let location = use_location();
+    let navigator = use_navigator();
     let cards = use_state(Vec::<TipcardInfo>::new);
     let search_input = use_state(String::new);
     let search_query = use_state(String::new);
     let search_timer = use_mut_ref(|| None::<Timeout>);
     let status = use_state(|| "all".to_string());
+    let topic_filter = use_state(String::new);
     let sort_by = use_state(|| {
         LocalStorage::get::<String>("denpie-archive-sort").unwrap_or_else(|_| "topic".to_string())
     });
     let page = use_state(|| 1usize);
     let fullscreen_card_id = use_state(|| None::<i64>);
+
+    {
+        let status = status.clone();
+        let topic_filter = topic_filter.clone();
+        let page = page.clone();
+        let path = location
+            .as_ref()
+            .map(|location| location.path().to_string())
+            .unwrap_or_default();
+        let query = location
+            .as_ref()
+            .and_then(|location| location.query::<ArchiveQuery>().ok())
+            .unwrap_or_default();
+        use_effect_with((path, query), move |(path, query)| {
+            if path == "/archive" {
+                let next_status = match query.status.as_deref() {
+                    Some("active" | "completed" | "custom" | "pending") => {
+                        query.status.clone().unwrap_or_default()
+                    }
+                    _ => "all".to_string(),
+                };
+                status.set(next_status);
+                topic_filter.set(query.topic.clone().unwrap_or_default());
+                page.set(1);
+            }
+            || ()
+        });
+    }
 
     let refresh_cards = {
         let cards = cards.clone();
@@ -97,10 +137,11 @@ pub fn archive() -> Html {
             (*cards).clone(),
             (*search_query).clone(),
             (*status).clone(),
+            (*topic_filter).clone(),
             (*sort_by).clone(),
         ),
-        |(cards, search, status, sort_by)| {
-            filter_and_sort_archive_cards(cards, search, status, sort_by)
+        |(cards, search, status, topic, sort_by)| {
+            filter_and_sort_archive_cards(cards, search, status, topic, sort_by)
         },
     );
     let visible_count = (*page * ARCHIVE_PAGE_SIZE).min(filtered.len());
@@ -251,6 +292,8 @@ pub fn archive() -> Html {
         let search_query = search_query.clone();
         let search_timer = search_timer.clone();
         let status = status.clone();
+        let topic_filter = topic_filter.clone();
+        let navigator = navigator.clone();
         let page = page.clone();
         Callback::from(move |_| {
             if let Some(timer) = search_timer.borrow_mut().take() {
@@ -259,6 +302,10 @@ pub fn archive() -> Html {
             search_input.set(String::new());
             search_query.set(String::new());
             status.set("all".to_string());
+            topic_filter.set(String::new());
+            if let Some(navigator) = navigator.clone() {
+                navigator.replace(&crate::app::View::Archive);
+            }
             page.set(1);
         })
     };
@@ -288,6 +335,7 @@ pub fn archive() -> Html {
                                 SelectOption { value: "all".into(), label: i18n.t("archive.status_all") },
                                 SelectOption { value: "active".into(), label: i18n.t("archive.status_active") },
                                 SelectOption { value: "completed".into(), label: i18n.t("archive.status_completed") },
+                                SelectOption { value: "pending".into(), label: i18n.t("archive.status_pending") },
                                 SelectOption { value: "custom".into(), label: i18n.t("archive.status_custom") },
                             ]}
                         />
@@ -329,6 +377,12 @@ pub fn archive() -> Html {
                     </div>
                 </div>
             </div>
+            if !topic_filter.is_empty() {
+                <div class="mb-4 inline-flex items-center gap-2 rounded-md border border-token bg-primary-soft px-3 py-2 text-sm text-primary">
+                    <iconify-icon icon="radix-icons:layers" class="radix-icon" aria-hidden="true"></iconify-icon>
+                    {format!("Pending cards for {}", *topic_filter)}
+                </div>
+            }
 
             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
                 {
@@ -345,6 +399,10 @@ pub fn archive() -> Html {
                                     on_delete={on_delete.clone()}
                                     on_reorder={on_reorder.clone()}
                                     on_update_images={on_update_images.clone()}
+                                    on_images_attached={Callback::from({
+                                        let refresh_cards = refresh_cards.clone();
+                                        move |_| refresh_cards.emit(())
+                                    })}
                                     on_upload_error={Callback::from({
                                         let app_state = app_state.clone();
                                         move |message: String| toast(&app_state, message)

@@ -8,17 +8,19 @@ use crate::components::account::AccountSettings;
 use crate::components::admin_shell::AdminShell;
 use crate::components::api_keys::ApiKeys;
 use crate::components::archive::Archive;
-use crate::components::dashboard::Dashboard;
+use crate::components::grounding::Grounding;
 use crate::components::login::LoginPanel;
-use crate::components::settings::{Settings, SettingsRes, apply_appearance};
+use crate::components::settings::{
+    Settings, SettingsRes, apply_appearance, apply_local_appearance_overrides,
+};
 use crate::components::sidebar::Sidebar;
 use crate::components::unified_flow::UnifiedFlow;
 use std::collections::HashSet;
 
 #[derive(Clone, Routable, PartialEq, Eq, Hash)]
 pub enum View {
-    #[at("/dashboard")]
-    Dashboard,
+    #[at("/grounding")]
+    Grounding,
     #[at("/")]
     Flow,
     #[at("/settings")]
@@ -75,7 +77,8 @@ fn app_root() -> Html {
                 wasm_bindgen_futures::spawn_local(async move {
                     if let Ok(settings_res) = Request::get("/admin/settings").send().await {
                         if settings_res.ok() {
-                            if let Ok(settings) = settings_res.json::<SettingsRes>().await {
+                            if let Ok(mut settings) = settings_res.json::<SettingsRes>().await {
+                                apply_local_appearance_overrides(&mut settings);
                                 apply_appearance(&settings);
                             }
                         }
@@ -191,8 +194,8 @@ fn app_shell() -> Html {
         <>
             <Sidebar current_view={current.clone()} />
             <main class="lg:ml-56 px-4 sm:px-6 lg:px-6 py-5 pb-20 max-w-none">
-                <RouteView active={is_active(View::Dashboard)} mounted={is_mounted(&View::Dashboard)}>
-                    <Dashboard />
+                <RouteView active={is_active(View::Grounding)} mounted={is_mounted(&View::Grounding)}>
+                    <Grounding />
                 </RouteView>
                 <RouteView active={is_active(View::Flow)} mounted={is_mounted(&View::Flow)}>
                     <UnifiedFlow />
@@ -221,12 +224,12 @@ fn mobile_nav() -> Html {
 
     html! {
         <nav class="lg:hidden fixed bottom-0 inset-x-0 z-50 surface border-t grid grid-cols-5 px-2 py-2 rounded-none">
-            <Link<View> to={View::Dashboard} classes={classes!("nav-item", "rounded-md", "px-2", "py-2", "text-xs", "font-semibold", "text-center", (active_view == Some(View::Dashboard)).then_some("active"))}>
-                <iconify-icon icon="radix-icons:dashboard" class="radix-icon block mx-auto"></iconify-icon>
-                <span class="sr-only">{i18n.t("nav.dashboard")}</span>
+            <Link<View> to={View::Grounding} classes={classes!("nav-item", "rounded-md", "px-2", "py-2", "text-xs", "font-semibold", "text-center", (active_view == Some(View::Grounding)).then_some("active"))}>
+                <iconify-icon icon="tabler:circuit-ground" class="radix-icon block mx-auto"></iconify-icon>
+                <span class="sr-only">{i18n.t("nav.grounding")}</span>
             </Link<View>>
             <Link<View> to={View::Flow} classes={classes!("nav-item", "rounded-md", "px-2", "py-2", "text-xs", "font-semibold", "text-center", (active_view == Some(View::Flow)).then_some("active"))}>
-                <iconify-icon icon="radix-icons:loop" class="radix-icon block mx-auto"></iconify-icon>
+                <iconify-icon icon="tabler:antenna" class="radix-icon block mx-auto"></iconify-icon>
                 <span class="sr-only">{i18n.t("nav.flow")}</span>
             </Link<View>>
             <Link<View> to={View::Archive} classes={classes!("nav-item", "rounded-md", "px-2", "py-2", "text-xs", "font-semibold", "text-center", (active_view == Some(View::Archive)).then_some("active"))}>

@@ -2,6 +2,7 @@ pub mod pb;
 
 mod admin;
 mod auth;
+mod documents;
 pub(crate) mod response;
 mod reviews;
 mod settings;

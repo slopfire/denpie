@@ -510,6 +510,66 @@
             * {
                 box-sizing: border-box;
             }
+            * {
+                scrollbar-width: thin;
+                scrollbar-color: hsl(var(--muted-foreground) / 0.4) transparent;
+            }
+            *::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+            *::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            *::-webkit-scrollbar-thumb {
+                background: hsl(var(--muted-foreground) / 0.4);
+                border-radius: 999px;
+            }
+            *::-webkit-scrollbar-thumb:hover {
+                background: hsl(var(--muted-foreground) / 0.6);
+            }
+            textarea::-webkit-resizer {
+                background:
+                    linear-gradient(
+                        135deg,
+                        transparent 0%,
+                        transparent 55%,
+                        hsl(var(--muted-foreground) / 0.3) 55%,
+                        hsl(var(--muted-foreground) / 0.3) 60%,
+                        transparent 60%,
+                        transparent 70%,
+                        hsl(var(--muted-foreground) / 0.3) 70%,
+                        hsl(var(--muted-foreground) / 0.3) 75%,
+                        transparent 75%,
+                        transparent 85%,
+                        hsl(var(--muted-foreground) / 0.3) 85%,
+                        hsl(var(--muted-foreground) / 0.3) 90%,
+                        transparent 90%
+                    );
+            }
+            textarea::-webkit-resizer:hover {
+                background:
+                    linear-gradient(
+                        135deg,
+                        transparent 0%,
+                        transparent 55%,
+                        hsl(var(--muted-foreground) / 0.5) 55%,
+                        hsl(var(--muted-foreground) / 0.5) 60%,
+                        transparent 60%,
+                        transparent 70%,
+                        hsl(var(--muted-foreground) / 0.5) 70%,
+                        hsl(var(--muted-foreground) / 0.5) 75%,
+                        transparent 75%,
+                        transparent 85%,
+                        hsl(var(--muted-foreground) / 0.5) 85%,
+                        hsl(var(--muted-foreground) / 0.5) 90%,
+                        transparent 90%
+                    );
+            }
+            textarea {
+                scrollbar-width: thin;
+                scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+            }
             body {
                 margin: 0;
                 background-color: hsl(var(--background));
