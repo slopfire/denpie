@@ -16,18 +16,34 @@ description: >
 | **`:3017`** | Human / user | **Never** bind, reuse, inspect, restart, or stop |
 | **`:3027`** | Agents | Only port for agent UI and server work |
 
+## Preferred: automated recipe
+
 ```bash
-DENPIE_BIND_ADDR=127.0.0.1:3027 DENPIE_RP_ORIGIN=http://localhost:3027 cargo run
+just agent-server            # isolated data dir, bind :3027, test login, smoke, foreground
+just agent-server --oneshot  # same but exit after smoke (used by just ui-check)
+just agent-server --stop     # stop a server started by the recipe
+just agent-server --smoke    # smoke only against an already-running :3027
+just ui-check                # trunk release build + oneshot agent-server
 ```
 
-Any skill or habit that says “reuse :3017” is wrong for this repo. Use **:3027 only**.
+The recipe:
 
-## Server lifecycle
+1. Uses **only** `127.0.0.1:3027` / `http://localhost:3027`
+2. Creates isolated data under `.agent-data/` (settings, DB, images)
+3. Reuses a listener already on :3027 (never kills a pre-existing process)
+4. Bootstraps test login when needed
+5. Smoke-checks `GET /`, `GET /auth/me`, `GET /app/summary`
+6. Cleans up the process **it** started (and data unless `--keep-data`)
 
-1. Check whether something already listens on **:3027**.
-2. If Denpie is already up there → **reuse it**. Never kill a pre-existing process.
-3. If not running → start with the env above (or `just backend` with the same bind overrides).
-4. Stop **only** servers you started. Close your own `cargo run` when done.
+Manual equivalent (only if you cannot use the recipe):
+
+```bash
+DENPIE_BIND_ADDR=127.0.0.1:3027 \
+DENPIE_RP_ORIGIN=http://localhost:3027 \
+DENPIE_DATA_DIR=.agent-data \
+DENPIE_SKIP_FRONTEND_BUILD=1 \
+cargo run
+```
 
 ## Test login
 
@@ -39,7 +55,7 @@ Any skill or habit that says “reuse :3017” is wrong for this repo. Use **:30
 - Target: **`http://localhost:3027` only**
 - Assert **concrete DOM IDs and placement**
 - Skip brittle a11y names and `waitForUrl` for SPA routes
-- Simple visible UI change → `just check` + targeted DOM check
+- Simple visible UI change → `just quick` + targeted DOM check
 - Stop if the user already sees the change or waives the check
 - No over-verification unless asked
 

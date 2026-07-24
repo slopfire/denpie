@@ -25,3 +25,6 @@ benches/results/*.json
 benches/results/*.txt
 benches/results/baseline.md
 benches/results/report.md
+
+# Isolated agent-server runtime data
+.agent-data/

@@ -27,10 +27,13 @@ Invariants below stay here. Do not duplicate long procedures in this file.
 ## Quick start
 
 ```bash
-just shell   # pinned toolchain
-just check   # fast feedback
-just test
-just ci      # full gate
+just shell          # pinned toolchain
+just quick          # fmt check + compile (default while editing)
+just test-one <f>   # targeted tests
+just verify         # one full gate at end of a task
+just agent-server   # isolated :3027 runtime + test login + smoke
+just ui-check       # frontend release build + agent oneshot smoke
+just ci             # full gate including frontend release build
 ```
 
 Detail: `dev-loop` skill. Feature paths: `docs/feature-integration.md`. API for agents: `docs/agent-server-guide.md`.

@@ -1,5 +1,22 @@
 # Agent Server Talk Guide
 
+## Local agent runtime
+
+```bash
+just agent-server            # isolated data, bind :3027 only, test login, smoke
+just agent-server --oneshot  # start → smoke → stop
+just ui-check                # frontend release build + oneshot smoke
+```
+
+Test login after bootstrap: `test` / `23452345`. Never bind or touch `:3017`.
+
+Dashboard vision diagnostics:
+
+| Call | Purpose |
+|---|---|
+| `POST /admin/settings/test-vision` | Cheap vision connectivity check (1×1 PNG, no pool write) |
+| `POST /app/image-pool` response | `{ annotated, fallback_reason, model, name, … }` |
+
 ```
 POST /api
 ApiRequest / ApiResponse (protobuf)

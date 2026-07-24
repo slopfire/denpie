@@ -57,9 +57,12 @@ Transmission keeps pinned cards in a separate top section. Beneath it, topic pic
 ## Dev commands
 
 ```bash
-just check   # cargo check, no frontend rebuild
-just test    # Rust test suite
-just ci      # fmt + clippy + tests + release frontend build
+just quick            # fmt check + compile (default while editing)
+just test-one <filter>  # targeted tests
+just verify           # one full gate: fmt + clippy + tests
+just agent-server     # isolated :3027 runtime, test login, smoke
+just ui-check         # frontend release build + agent oneshot smoke
+just ci               # verify + release frontend build
 ```
 
 ```bash
