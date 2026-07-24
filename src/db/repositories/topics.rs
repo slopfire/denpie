@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 
 use crate::{
     domain::{tipcard, topic_visual},
@@ -18,6 +18,8 @@ pub struct TopicRecord {
     pub compression_level: Option<String>,
     pub icon_id: Option<String>,
     pub color_hue: Option<i32>,
+    pub grounding_strategy: Option<String>,
+    pub image_strategy: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -38,10 +40,13 @@ pub struct AppTopicRecord {
     pub daily_time_zone: String,
     pub daily_update_time: String,
     pub compression_level: String,
+    pub grounding_strategy: String,
+    pub image_strategy: String,
     pub icon_id: String,
     pub topic_color: String,
     pub total_cards: i64,
     pub due_cards: i64,
+    pub pending_cards: i64,
     pub completed_cards: i64,
 }
 
@@ -52,6 +57,8 @@ pub struct TopicSettingsRecord {
     pub daily_time_zone: Option<String>,
     pub daily_update_time: Option<String>,
     pub compression_level: Option<String>,
+    pub grounding_strategy: Option<String>,
+    pub image_strategy: Option<String>,
 }
 
 type TopicRow = (
@@ -65,6 +72,8 @@ type TopicRow = (
     Option<String>,
     Option<String>,
     Option<i64>,
+    Option<String>,
+    Option<String>,
 );
 
 fn map_topic_row(row: TopicRow) -> TopicRecord {
@@ -79,10 +88,12 @@ fn map_topic_row(row: TopicRow) -> TopicRecord {
         compression_level: row.7,
         icon_id: row.8,
         color_hue: row.9.map(|hue| hue as i32),
+        grounding_strategy: row.10,
+        image_strategy: row.11,
     }
 }
 
-const TOPIC_SELECT: &str = "SELECT id, name, tipcard_type, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level, icon_id, color_hue";
+const TOPIC_SELECT: &str = "SELECT id, name, tipcard_type, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level, icon_id, color_hue, grounding_strategy, image_strategy";
 
 pub async fn list_admin(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<TopicRecord>> {
     let query = format!("{TOPIC_SELECT} FROM topics WHERE user_id = ? ORDER BY name ASC");
@@ -195,6 +206,8 @@ pub async fn get_or_create_topic(
             compression_level: None,
             icon_id: Some(icon_id),
             color_hue: Some(color_hue),
+            grounding_strategy: None,
+            image_strategy: None,
         }),
         Err(insert_error) => find_by_name(pool, user_id, topic_name)
             .await?
@@ -303,9 +316,11 @@ pub async fn get_settings(
             Option<String>,
             Option<String>,
             Option<String>,
+            Option<String>,
+            Option<String>,
         ),
     >(
-        "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level
+        "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level, grounding_strategy, image_strategy
          FROM topics
          WHERE id = ? AND user_id = ?",
     )
@@ -321,6 +336,8 @@ pub async fn get_settings(
         daily_time_zone: row.2,
         daily_update_time: row.3,
         compression_level: row.4,
+        grounding_strategy: row.5,
+        image_strategy: row.6,
     })
 }
 
@@ -332,7 +349,7 @@ pub async fn update_settings(
 ) -> AppResult<()> {
     sqlx::query(
         "UPDATE topics
-         SET prompt_template = ?, daily_card_count = ?, daily_time_zone = ?, daily_update_time = ?, compression_level = ?
+         SET prompt_template = ?, daily_card_count = ?, daily_time_zone = ?, daily_update_time = ?, compression_level = ?, grounding_strategy = ?, image_strategy = ?
          WHERE id = ? AND user_id = ?",
     )
     .bind(settings.prompt_template)
@@ -340,6 +357,8 @@ pub async fn update_settings(
     .bind(settings.daily_time_zone)
     .bind(settings.daily_update_time)
     .bind(settings.compression_level)
+    .bind(settings.grounding_strategy)
+    .bind(settings.image_strategy)
     .bind(id)
     .bind(user_id)
     .execute(pool)
@@ -381,24 +400,7 @@ pub async fn list_app_topics(
     user_id: &str,
     now: DateTime<Utc>,
 ) -> AppResult<Vec<AppTopicRecord>> {
-    let rows = sqlx::query_as::<
-        _,
-        (
-            i64,
-            String,
-            String,
-            Option<String>,
-            Option<i64>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<i64>,
-            i64,
-            i64,
-            i64,
-        ),
-    >(
+    let rows = sqlx::query(
         "SELECT top.id,
                 top.name,
                 top.tipcard_type,
@@ -409,14 +411,17 @@ pub async fn list_app_topics(
                 top.compression_level,
                 top.icon_id,
                 top.color_hue,
+                top.grounding_strategy,
+                top.image_strategy,
                 COUNT(t.id) AS total_cards,
                 SUM(CASE WHEN r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1) THEN 1 ELSE 0 END) AS due_cards,
+                SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) AS pending_cards,
                 SUM(CASE WHEN r.status != 'active' THEN 1 ELSE 0 END) AS completed_cards
          FROM topics top
          LEFT JOIN tipcards t ON t.topic_id = top.id
          LEFT JOIN review_states r ON r.card_id = t.id
          WHERE top.user_id = ?
-         GROUP BY top.id, top.name, top.tipcard_type, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level, top.icon_id, top.color_hue
+         GROUP BY top.id, top.name, top.tipcard_type, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level, top.icon_id, top.color_hue, top.grounding_strategy, top.image_strategy
          ORDER BY due_cards DESC, top.name ASC",
     )
     .bind(now)
@@ -427,23 +432,44 @@ pub async fn list_app_topics(
     Ok(rows
         .into_iter()
         .map(|row| {
-            let name = row.1.clone();
+            let name: String = row.get("name");
             AppTopicRecord {
-                id: row.0,
+                id: row.get("id"),
                 name: name.clone(),
-                tipcard_type: row.2,
-                prompt_template: row.3.unwrap_or_default(),
-                daily_card_count: row.4.unwrap_or(1).max(1) as u32,
-                daily_time_zone: row.5.unwrap_or_default(),
-                daily_update_time: row.6.unwrap_or_default(),
-                compression_level: row.7.unwrap_or_default(),
+                tipcard_type: row.get("tipcard_type"),
+                prompt_template: row
+                    .get::<Option<String>, _>("prompt_template")
+                    .unwrap_or_default(),
+                daily_card_count: row
+                    .get::<Option<i64>, _>("daily_card_count")
+                    .unwrap_or(1)
+                    .max(1) as u32,
+                daily_time_zone: row
+                    .get::<Option<String>, _>("daily_time_zone")
+                    .unwrap_or_default(),
+                daily_update_time: row
+                    .get::<Option<String>, _>("daily_update_time")
+                    .unwrap_or_default(),
+                compression_level: row
+                    .get::<Option<String>, _>("compression_level")
+                    .unwrap_or_default(),
+                grounding_strategy: row
+                    .get::<Option<String>, _>("grounding_strategy")
+                    .unwrap_or_default(),
+                image_strategy: row
+                    .get::<Option<String>, _>("image_strategy")
+                    .unwrap_or_default(),
                 icon_id: row
-                    .8
+                    .get::<Option<String>, _>("icon_id")
                     .unwrap_or_else(|| topic_visual::DEFAULT_TOPIC_ICON.to_string()),
-                topic_color: topic_visual::resolve_topic_color(row.9.map(|hue| hue as i32), &name),
-                total_cards: row.10,
-                due_cards: row.11,
-                completed_cards: row.12,
+                topic_color: topic_visual::resolve_topic_color(
+                    row.get::<Option<i64>, _>("color_hue").map(|hue| hue as i32),
+                    &name,
+                ),
+                total_cards: row.get("total_cards"),
+                due_cards: row.get("due_cards"),
+                pending_cards: row.get("pending_cards"),
+                completed_cards: row.get("completed_cards"),
             }
         })
         .collect())

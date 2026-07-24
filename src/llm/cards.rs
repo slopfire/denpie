@@ -20,31 +20,56 @@ const MIN_COMPRESS_CHARS: usize = 420;
 const MIN_COMPRESS_WORDS: usize = 70;
 pub const DEFAULT_COMPRESSION_LEVEL: &str = "strong";
 
-const ONE_SHOT_FORMAT_INSTRUCTIONS: &str = "\
+pub(crate) const ONE_SHOT_FORMAT_INSTRUCTIONS: &str = "\
 Return your response as a single JSON object with exactly these keys:
 - \"title\": a concise, specific card title, maximum 8 words, no quotes, no markdown.
 - \"content\": the full tip in markdown, practical and specific.
 - \"compressed\": a compact, mobile-friendly version of the same tip in markdown.
+- \"use_image\": true only when a visual materially improves understanding or retention (a diagram, spatial/physical identification, meaningful UI screenshot, or comparison).
+- \"image_query\": a short, specific image-search query when \"use_image\" is true; otherwise an empty string.
 
 Rules:
 - Output ONLY valid JSON. Do not wrap it in markdown code fences.
 - Do not add commentary outside the JSON object.
 - Keep all facts, examples, commands, and caveats in the full \"content\".
-- The \"compressed\" version must only shorten the prose; do not invent new claims.";
+- The \"compressed\" version must only shorten the prose; do not invent new claims.
+- Do not request generic decoration, logos, repeated prose, or images that do not add information.";
+
+pub(crate) const ARRAY_FORMAT_INSTRUCTIONS: &str = "\
+Return your response as a single JSON array of card objects, each with exactly these keys:
+- \"title\": a concise, specific card title, maximum 8 words, no quotes, no markdown.
+- \"content\": the full tip in markdown, practical and specific.
+- \"compressed\": a compact, mobile-friendly version of the same tip in markdown.
+- \"use_image\": true only when a visual materially improves understanding or retention (a diagram, spatial/physical identification, meaningful UI screenshot, or comparison).
+- \"image_query\": a short, specific image-search query when \"use_image\" is true; otherwise an empty string.
+
+Rules:
+- Output ONLY a valid JSON array. Do not wrap it in markdown code fences.
+- Do not add commentary outside the JSON array.
+- Each card must cover a distinct, non-overlapping idea.
+- Keep all facts, examples, commands, and caveats in each card's full \"content\".
+- The \"compressed\" version must only shorten the prose; do not invent new claims.
+- Do not request generic decoration, logos, repeated prose, or images that do not add information.";
 
 #[derive(Debug, Clone)]
 pub struct GeneratedCard {
     pub title: String,
     pub full_content: String,
     pub compressed_content: String,
+    pub use_image: bool,
+    pub image_query: String,
     pub usage: TokenUsage,
 }
 
 #[derive(Debug, serde::Deserialize, Default)]
-struct ParsedGeneratedCard {
-    title: Option<String>,
-    content: Option<String>,
-    compressed: Option<String>,
+pub(crate) struct ParsedGeneratedCard {
+    pub(crate) title: Option<String>,
+    pub(crate) content: Option<String>,
+    pub(crate) compressed: Option<String>,
+    #[serde(default)]
+    pub(crate) use_image: Option<serde_json::Value>,
+    #[serde(default)]
+    pub(crate) image_query: Option<serde_json::Value>,
 }
 
 pub async fn generate_card(
@@ -66,6 +91,8 @@ pub async fn generate_card(
             title: fallback_title(&fallback),
             full_content: fallback.clone(),
             compressed_content: fallback,
+            use_image: false,
+            image_query: String::new(),
             usage: TokenUsage::default(),
         };
     }
@@ -79,22 +106,53 @@ pub async fn generate_card(
 
     let response =
         create_chat_completion(model, &prompt, api_key, api_base, reasoning, Some(2048)).await;
-    let usage = response.usage;
-    let raw = response.content;
 
-    let (title, full_content, compressed_content, compress_usage) = if let Some(parsed) =
-        parse_generated_card_response(&raw)
-    {
-        let full_content = parsed
-            .content
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| raw.trim().to_string());
-        let title = parsed
-            .title
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| fallback_title(&full_content));
-        let (compressed_content, compress_usage) =
-            if let Some(compressed) = parsed.compressed.filter(|value| !value.trim().is_empty()) {
+    let parsed = parse_generated_card_response(&response.content);
+    if parsed.is_none() {
+        tracing::warn!(
+            content_len = response.content.len(),
+            "Failed to parse one-shot card response as JSON; using raw content"
+        );
+    }
+    build_card_from_parsed(
+        parsed,
+        &response.content,
+        response.usage,
+        compression_level,
+        model,
+        api_key,
+        api_base,
+    )
+    .await
+}
+
+/// Finalize a parsed card into a [`GeneratedCard`]: resolve title/content with
+/// fallbacks, fill the `compressed` field via the compression path when absent,
+/// and accumulate compression token usage onto `base_usage`. When `parsed` is
+/// `None` the raw response text becomes both full and compressed content.
+/// Shared by [`generate_card`] and the grounding strategies.
+pub(crate) async fn build_card_from_parsed(
+    parsed: Option<ParsedGeneratedCard>,
+    raw: &str,
+    base_usage: TokenUsage,
+    compression_level: CompressionLevel,
+    model: &str,
+    api_key: &str,
+    api_base: &str,
+) -> GeneratedCard {
+    let (title, full_content, compressed_content, use_image, image_query, compress_usage) =
+        if let Some(parsed) = parsed {
+            let full_content = parsed
+                .content
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| raw.trim().to_string());
+            let title = parsed
+                .title
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| fallback_title(&full_content));
+            let (compressed_content, compress_usage) = if let Some(compressed) =
+                parsed.compressed.filter(|value| !value.trim().is_empty())
+            {
                 (compressed, TokenUsage::default())
             } else if should_keep_full_card(&full_content) {
                 (full_content.clone(), TokenUsage::default())
@@ -111,23 +169,30 @@ pub async fn generate_card(
                 .await;
                 (response.content, response.usage)
             };
-        (title, full_content, compressed_content, compress_usage)
-    } else {
-        tracing::warn!(
-            content_len = raw.len(),
-            "Failed to parse one-shot card response as JSON; using raw content"
-        );
-        let full_content = raw.trim().to_string();
-        let title = fallback_title(&full_content);
-        (
-            title,
-            full_content.clone(),
-            full_content,
-            TokenUsage::default(),
-        )
-    };
+            let (use_image, image_query) =
+                normalize_image_decision(parsed.use_image, parsed.image_query);
+            (
+                title,
+                full_content,
+                compressed_content,
+                use_image,
+                image_query,
+                compress_usage,
+            )
+        } else {
+            let full_content = raw.trim().to_string();
+            let title = fallback_title(&full_content);
+            (
+                title,
+                full_content.clone(),
+                full_content,
+                false,
+                String::new(),
+                TokenUsage::default(),
+            )
+        };
 
-    let mut usage = usage;
+    let mut usage = base_usage;
     usage.prompt_tokens += compress_usage.prompt_tokens;
     usage.completion_tokens += compress_usage.completion_tokens;
     usage.total_tokens += compress_usage.total_tokens;
@@ -136,11 +201,30 @@ pub async fn generate_card(
         title,
         full_content,
         compressed_content,
+        use_image,
+        image_query,
         usage,
     }
 }
 
-fn parse_generated_card_response(raw: &str) -> Option<ParsedGeneratedCard> {
+fn normalize_image_decision(
+    use_image: Option<serde_json::Value>,
+    image_query: Option<serde_json::Value>,
+) -> (bool, String) {
+    let use_image = use_image.and_then(|value| value.as_bool()).unwrap_or(false);
+    let image_query = image_query
+        .and_then(|value| value.as_str().map(str::trim).map(str::to_owned))
+        .filter(|value| !value.is_empty())
+        .map(|value| value.chars().take(256).collect::<String>())
+        .unwrap_or_default();
+    if use_image && !image_query.is_empty() {
+        (true, image_query)
+    } else {
+        (false, String::new())
+    }
+}
+
+pub(crate) fn parse_generated_card_response(raw: &str) -> Option<ParsedGeneratedCard> {
     let cleaned = raw.trim();
     let json_text = strip_markdown_fences(cleaned).unwrap_or(cleaned);
     let json_text = json_text.trim();
@@ -152,6 +236,74 @@ fn parse_generated_card_response(raw: &str) -> Option<ParsedGeneratedCard> {
     if let Some(obj) = extract_json_object(json_text) {
         if let Ok(parsed) = serde_json::from_str::<ParsedGeneratedCard>(obj) {
             return Some(parsed);
+        }
+    }
+
+    None
+}
+
+/// Parse a JSON array of cards `[{title, content, compressed}, ...]`. Tolerates
+/// markdown fences and surrounding prose by extracting the first `[...]` span.
+pub(crate) fn parse_card_array(raw: &str) -> Vec<ParsedGeneratedCard> {
+    let cleaned = raw.trim();
+    let json_text = strip_markdown_fences(cleaned).unwrap_or(cleaned);
+    let json_text = json_text.trim();
+
+    if let Ok(parsed) = serde_json::from_str::<Vec<ParsedGeneratedCard>>(json_text) {
+        return valid_generated_cards(parsed);
+    }
+
+    if let Some(arr) = extract_json_array(json_text) {
+        if let Ok(parsed) = serde_json::from_str::<Vec<ParsedGeneratedCard>>(arr) {
+            return valid_generated_cards(parsed);
+        }
+    }
+
+    Vec::new()
+}
+
+fn valid_generated_cards(cards: Vec<ParsedGeneratedCard>) -> Vec<ParsedGeneratedCard> {
+    cards
+        .into_iter()
+        .filter(|card| {
+            card.content
+                .as_deref()
+                .is_some_and(|content| !content.trim().is_empty())
+        })
+        .collect()
+}
+
+/// Extract the first balanced top-level `[...]` array span, skipping brackets
+/// that appear inside JSON string literals. Mirrors [`extract_json_object`].
+fn extract_json_array(raw: &str) -> Option<&str> {
+    let start = raw.find('[')?;
+    let bytes = raw.as_bytes();
+    let mut depth = 0;
+    let mut in_string = false;
+    let mut escape = false;
+
+    for i in start..raw.len() {
+        let c = bytes[i] as char;
+        if in_string {
+            if escape {
+                escape = false;
+            } else if c == '\\' {
+                escape = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+        } else {
+            match c {
+                '"' => in_string = true,
+                '[' => depth += 1,
+                ']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(&raw[start..=i]);
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
@@ -219,6 +371,7 @@ async fn compress_text_segment(
         return LlmResponse {
             content: trimmed.to_string(),
             usage: TokenUsage::default(),
+            citations: Vec::new(),
         };
     }
 
@@ -226,6 +379,7 @@ async fn compress_text_segment(
         return LlmResponse {
             content: format!("Compressed: {}", trimmed),
             usage: TokenUsage::default(),
+            citations: Vec::new(),
         };
     }
 
@@ -263,6 +417,7 @@ pub async fn compress_card(
         return LlmResponse {
             content: full_content.trim().to_string(),
             usage: TokenUsage::default(),
+            citations: Vec::new(),
         };
     }
 
@@ -271,6 +426,7 @@ pub async fn compress_card(
         return LlmResponse {
             content: full_content.trim().to_string(),
             usage: TokenUsage::default(),
+            citations: Vec::new(),
         };
     }
 
@@ -313,6 +469,7 @@ pub async fn compress_card(
                 return LlmResponse {
                     content: format!("LLM Error: compression segment task panicked: {err}"),
                     usage: total_usage,
+                    citations: Vec::new(),
                 };
             }
         }
@@ -324,6 +481,7 @@ pub async fn compress_card(
     LlmResponse {
         content: join_markdown_segments(&compressed_segments),
         usage: total_usage,
+        citations: Vec::new(),
     }
 }
 
@@ -363,8 +521,9 @@ fn fallback_title(full_content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ParsedGeneratedCard, extract_json_object, fallback_title, parse_generated_card_response,
-        should_keep_full_card, strip_markdown_fences,
+        ParsedGeneratedCard, extract_json_object, fallback_title, normalize_image_decision,
+        parse_card_array, parse_generated_card_response, should_keep_full_card,
+        strip_markdown_fences,
     };
 
     #[test]
@@ -475,5 +634,46 @@ mod tests {
         assert_eq!(parsed.title, Some("Only title".to_string()));
         assert_eq!(parsed.content, None);
         assert_eq!(parsed.compressed, None);
+    }
+
+    #[test]
+    fn card_array_discards_entries_without_content() {
+        let cards = parse_card_array(
+            r#"[{"title":"Empty"},{"title":"Blank","content":"  "},{"title":"Useful","content":"Body","use_image":true,"image_query":"diagram"}]"#,
+        );
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].title.as_deref(), Some("Useful"));
+    }
+
+    #[test]
+    fn image_decision_requires_boolean_and_nonblank_query() {
+        assert_eq!(
+            normalize_image_decision(
+                Some(serde_json::json!(true)),
+                Some(serde_json::json!("  diagram  "))
+            ),
+            (true, "diagram".to_string())
+        );
+        assert_eq!(
+            normalize_image_decision(Some(serde_json::json!(true)), Some(serde_json::json!("  "))),
+            (false, String::new())
+        );
+        assert_eq!(
+            normalize_image_decision(
+                Some(serde_json::json!("true")),
+                Some(serde_json::json!("diagram"))
+            ),
+            (false, String::new())
+        );
+    }
+
+    #[test]
+    fn image_decision_trims_and_caps_query() {
+        let query = "x".repeat(300);
+        let (_, normalized) = normalize_image_decision(
+            Some(serde_json::json!(true)),
+            Some(serde_json::json!(format!(" {query} "))),
+        );
+        assert_eq!(normalized.chars().count(), 256);
     }
 }

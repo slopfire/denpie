@@ -5,6 +5,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
 };
+use serde::Deserialize;
 use tower_sessions::Session;
 
 use crate::AppState;
@@ -14,6 +15,35 @@ use crate::dashboard::response::{
 };
 use crate::dashboard::util::{current_user, image_url, optional_user, parse_flow_cursor};
 use crate::services::tipcards::{TipcardFilter, TipcardService};
+
+#[derive(Deserialize)]
+pub struct AppendTipcardImagesReq {
+    pub card_id: i64,
+    #[serde(default)]
+    pub image_data: Vec<String>,
+    #[serde(default)]
+    pub pool_image_ids: Vec<i64>,
+    #[serde(default)]
+    pub urls: Vec<String>,
+}
+
+pub async fn append_tipcard_images(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Json(req): Json<AppendTipcardImagesReq>,
+) -> Result<Json<()>, (StatusCode, String)> {
+    let user = current_user(&state, &session).await?;
+    TipcardService::append_images(
+        &state,
+        &user.id,
+        req.card_id,
+        req.image_data,
+        req.pool_image_ids,
+        req.urls,
+    )
+    .await?;
+    Ok(Json(()))
+}
 
 pub async fn pin_tipcard(
     State(state): State<Arc<AppState>>,

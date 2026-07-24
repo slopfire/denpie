@@ -63,10 +63,12 @@ pub fn is_queue_tipcard(value: &str) -> bool {
     TipcardType::from_setting(value).is_queue()
 }
 
+pub const MAX_CARD_IMAGES: usize = 4;
+/// Largest JSON body accepted by image endpoints. This accommodates four
+/// 10 MB decoded data URLs after base64 expansion.
+pub const MAX_IMAGE_REQUEST_BYTES: usize = 56 * 1024 * 1024;
+
 pub fn validate_image_data(image_data: Vec<String>) -> AppResult<Vec<String>> {
-    const MAX_IMAGES: usize = 4;
-    // Base64 expands payloads by ~4/3; keep enough headroom for four 10 MB decoded images.
-    const MAX_TOTAL_CHARS: usize = 56 * 1024 * 1024;
     let mut normalized = Vec::new();
     let mut total_chars = 0usize;
 
@@ -75,9 +77,9 @@ pub fn validate_image_data(image_data: Vec<String>) -> AppResult<Vec<String>> {
         if image.trim().is_empty() {
             continue;
         }
-        if normalized.len() >= MAX_IMAGES {
+        if normalized.len() >= MAX_CARD_IMAGES {
             return Err(AppError::Validation(format!(
-                "A tipcard can have at most {MAX_IMAGES} images"
+                "A tipcard can have at most {MAX_CARD_IMAGES} images"
             )));
         }
         let allowed = image.starts_with("data:image/png;base64,")
@@ -99,10 +101,10 @@ pub fn validate_image_data(image_data: Vec<String>) -> AppResult<Vec<String>> {
             .map_err(|_| AppError::Validation("Invalid base64 image data".to_string()))?;
         image::validate_decoded_image_size(decoded.len())?;
         total_chars = total_chars.saturating_add(image.len());
-        if total_chars > MAX_TOTAL_CHARS {
+        if total_chars > MAX_IMAGE_REQUEST_BYTES {
             return Err(AppError::Validation(format!(
                 "Attached images are too large (max {} MB total encoded payload)",
-                MAX_TOTAL_CHARS / 1024 / 1024
+                MAX_IMAGE_REQUEST_BYTES / 1024 / 1024
             )));
         }
         normalized.push(image);

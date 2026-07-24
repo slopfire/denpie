@@ -21,6 +21,9 @@ pub struct ScheduledCardRecord {
     pub id: i64,
     pub full_content: String,
     pub compressed_content: String,
+    pub title: String,
+    pub use_image: bool,
+    pub image_query: String,
     pub pinned: bool,
     pub image_data: String,
 }

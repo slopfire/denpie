@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use tokio::fs;
 use tower_sessions::{Expiry, SessionManagerLayer};
 use tower_sessions_sqlx_store::SqliteStore;
@@ -63,7 +63,10 @@ async fn main() {
     let db_path = data_dir.join("denpie.db");
     let db_options = SqliteConnectOptions::new()
         .filename(&db_path)
-        .create_if_missing(true);
+        .create_if_missing(true)
+        // Immediate image-write transactions serialize concurrent append/replace
+        // operations instead of failing immediately with SQLITE_BUSY.
+        .busy_timeout(Duration::from_secs(10));
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect_with(db_options)

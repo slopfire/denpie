@@ -111,7 +111,7 @@ async fn card_rows(
     mut query: QueryBuilder<'_, Sqlite>,
 ) -> AppResult<Vec<ScheduledCardRecord>> {
     let rows = query
-        .build_query_as::<(i64, String, String, i64, String)>()
+        .build_query_as::<(i64, String, String, String, i64, String, i64, String)>()
         .fetch_all(pool)
         .await?;
 
@@ -121,8 +121,11 @@ async fn card_rows(
             id: row.0,
             full_content: row.1,
             compressed_content: row.2,
-            pinned: row.3 != 0,
-            image_data: row.4,
+            title: row.3,
+            use_image: row.4 != 0,
+            image_query: row.5,
+            pinned: row.6 != 0,
+            image_data: row.7,
         })
         .collect())
 }

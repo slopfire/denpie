@@ -5,12 +5,15 @@ pub struct SettingsRes {
     pub server_version: String,
     pub build_sha: String,
     pub model: String,
+    pub grounding_model: String,
+    pub vision_model: String,
     pub compress_model: String,
     pub template: String,
     pub api_key: String,
     pub base_url: String,
     pub compress_base_url: String,
     pub reasoning_effort: String,
+    pub grounding_reasoning_effort: String,
     pub compress_reasoning_effort: String,
     pub compression_level: String,
     pub color_scheme: String,
@@ -25,22 +28,34 @@ pub struct SettingsRes {
     pub daily_time_zone: String,
     pub daily_update_time: String,
     pub max_active_cards: u64,
+    pub grounding_strategy: String,
+    pub image_strategy: String,
+    pub search_api_key: String,
+    pub search_base_url: String,
+    pub image_sources: String,
 }
 
 #[derive(Deserialize)]
 pub struct UpdateSettingsReq {
+    pub vision_model: Option<String>,
     pub model: Option<String>,
+    pub grounding_model: Option<String>,
     pub compress_model: Option<String>,
     pub template: Option<String>,
     pub api_key: Option<String>,
     pub base_url: Option<String>,
     pub compress_base_url: Option<String>,
     pub reasoning_effort: Option<String>,
+    pub grounding_reasoning_effort: Option<String>,
     pub compress_reasoning_effort: Option<String>,
     pub compression_level: Option<String>,
+    #[allow(dead_code)]
     pub color_scheme: Option<String>,
+    #[allow(dead_code)]
     pub transparency: Option<String>,
+    #[allow(dead_code)]
     pub blur_intensity: Option<String>,
+    #[allow(dead_code)]
     pub ui_blur: Option<String>,
     pub autoupdate_enabled: Option<bool>,
     pub autoupdate_repo: Option<String>,
@@ -50,6 +65,11 @@ pub struct UpdateSettingsReq {
     pub daily_time_zone: Option<String>,
     pub daily_update_time: Option<String>,
     pub max_active_cards: Option<u64>,
+    pub grounding_strategy: Option<String>,
+    pub image_strategy: Option<String>,
+    pub search_api_key: Option<String>,
+    pub search_base_url: Option<String>,
+    pub image_sources: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -102,6 +122,8 @@ pub struct TopicInfo {
     pub daily_time_zone: String,
     pub daily_update_time: String,
     pub compression_level: String,
+    pub grounding_strategy: String,
+    pub image_strategy: String,
 }
 
 #[derive(Serialize)]
@@ -129,11 +151,14 @@ pub struct AppTopicInfo {
     pub prompt_template: String,
     pub total_cards: i64,
     pub due_cards: i64,
+    pub pending_cards: i64,
     pub completed_cards: i64,
     pub daily_card_count: u32,
     pub daily_time_zone: String,
     pub daily_update_time: String,
     pub compression_level: String,
+    pub grounding_strategy: String,
+    pub image_strategy: String,
 }
 
 #[derive(Deserialize)]
@@ -144,6 +169,8 @@ pub struct UpdateTopicReq {
     pub daily_time_zone: Option<String>,
     pub daily_update_time: Option<String>,
     pub compression_level: Option<String>,
+    pub grounding_strategy: Option<String>,
+    pub image_strategy: Option<String>,
 }
 
 #[derive(Deserialize)]

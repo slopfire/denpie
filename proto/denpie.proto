@@ -70,6 +70,14 @@ message ApiRequest {
         PinTipcardRequest pin_tipcard = 19;
         CustomTipcardRequest submit_custom_tipcard = 20;
         ForceDailyRefreshRequest force_daily_refresh = 21;
+        AddDocumentRequest add_document = 22;
+        Empty list_documents = 23;
+        DeleteByIdRequest delete_document = 24;
+        AddPoolImageRequest add_pool_image = 25;
+        Empty list_pool_images = 26;
+        DeleteByIdRequest delete_pool_image = 27;
+        AttachDocumentTopicRequest attach_document_topic = 28;
+        AttachDocumentTopicRequest detach_document_topic = 29;
     }
 }
 
@@ -86,6 +94,8 @@ message ApiResponse {
         AppSummary summary = 10;
         AppTopics app_topics = 11;
         ForceDailyRefreshResponse force_daily_refresh = 12;
+        Documents documents = 13;
+        PoolImages pool_images = 14;
     }
 }
 
@@ -128,6 +138,13 @@ message Settings {
     string daily_update_time = 17;
     uint64 max_active_cards = 18;
     string compression_level = 19;
+    string grounding_strategy = 20;
+    string image_strategy = 21;
+    string search_api_key = 22;
+    string search_base_url = 23;
+    string image_sources = 24;
+    string grounding_model = 25;
+    string grounding_reasoning_effort = 26;
 }
 
 message UpdateSettingsRequest {
@@ -149,6 +166,13 @@ message UpdateSettingsRequest {
     optional string daily_update_time = 16;
     optional uint64 max_active_cards = 17;
     optional string compression_level = 18;
+    optional string grounding_strategy = 19;
+    optional string image_strategy = 20;
+    optional string search_api_key = 21;
+    optional string search_base_url = 22;
+    optional string image_sources = 23;
+    optional string grounding_model = 24;
+    optional string grounding_reasoning_effort = 25;
 }
 
 message ApiKeyInfo {
@@ -169,6 +193,9 @@ message AdminTopic {
     string daily_time_zone = 5;
     string daily_update_time = 6;
     string compression_level = 7;
+    string grounding_strategy = 8;
+    string image_strategy = 9;
+    reserved 10;
 }
 
 message AdminTopics {
@@ -212,7 +239,10 @@ message AppTopicInfo {
     string daily_time_zone = 10;
     string daily_update_time = 11;
     string compression_level = 12;
+    string grounding_strategy = 13;
+    string image_strategy = 14;
     reserved 3; // was class_name
+    reserved 15;
 }
 
 message AppTopics {
@@ -226,6 +256,9 @@ message UpdateTopicRequest {
     optional string daily_time_zone = 4;
     optional string daily_update_time = 5;
     optional string compression_level = 6;
+    optional string grounding_strategy = 7;
+    optional string image_strategy = 8;
+    reserved 9;
 }
 
 message PinTipcardRequest {
@@ -241,4 +274,49 @@ message ForceDailyRefreshRequest {
 
 message ForceDailyRefreshResponse {
     uint64 refreshed_cards = 1;
+}
+
+message AddDocumentRequest {
+    string topic_id_opt = 1; // legacy single-topic assignment; empty = unassigned
+    string source_type = 2;  // "document" or "link"
+    string title = 3;
+    string url = 4;
+    string content = 5;
+    repeated int64 topic_ids = 6;
+}
+
+message DocumentInfo {
+    int64 id = 1;
+    int64 topic_id = 2; // legacy single-topic assignment
+    string source_type = 3;
+    string title = 4;
+    string url = 5;
+    string created_at = 6;
+    repeated int64 topic_ids = 7;
+}
+
+message Documents {
+    repeated DocumentInfo docs = 1;
+}
+
+message AddPoolImageRequest {
+    string image_data = 1; // data-URL
+    string name = 2;
+    string description = 3;
+}
+
+message PoolImageInfo {
+    int64 id = 1;
+    string name = 2;
+    string description = 3;
+    string created_at = 4;
+}
+
+message PoolImages {
+    repeated PoolImageInfo images = 1;
+}
+
+message AttachDocumentTopicRequest {
+    int64 document_id = 1;
+    int64 topic_id = 2;
 }

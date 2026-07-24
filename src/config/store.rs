@@ -12,12 +12,15 @@ pub struct SettingsStore {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub llm_model: String,
+    pub llm_grounding_model: String,
+    pub llm_vision_model: String,
     pub llm_compress_model: String,
     pub prompt_template: String,
     pub llm_api_key: String,
     pub llm_base_url: String,
     pub llm_compress_base_url: String,
     pub llm_reasoning_effort: String,
+    pub llm_grounding_reasoning_effort: String,
     pub llm_compress_reasoning_effort: String,
     pub llm_compression_level: String,
     pub color_scheme: String,
@@ -33,17 +36,25 @@ pub struct Settings {
     pub daily_time_zone: String,
     pub daily_update_time: String,
     pub max_active_cards: u64,
+    pub grounding_strategy: String,
+    pub image_strategy: String,
+    pub search_api_key: String,
+    pub search_base_url: String,
+    pub image_sources: String,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct SettingsPatch {
     pub model: Option<String>,
+    pub grounding_model: Option<String>,
+    pub vision_model: Option<String>,
     pub compress_model: Option<String>,
     pub template: Option<String>,
     pub api_key: Option<String>,
     pub base_url: Option<String>,
     pub compress_base_url: Option<String>,
     pub reasoning_effort: Option<String>,
+    pub grounding_reasoning_effort: Option<String>,
     pub compress_reasoning_effort: Option<String>,
     pub compression_level: Option<String>,
     pub color_scheme: Option<String>,
@@ -58,6 +69,11 @@ pub struct SettingsPatch {
     pub daily_time_zone: Option<String>,
     pub daily_update_time: Option<String>,
     pub max_active_cards: Option<u64>,
+    pub grounding_strategy: Option<String>,
+    pub image_strategy: Option<String>,
+    pub search_api_key: Option<String>,
+    pub search_base_url: Option<String>,
+    pub image_sources: Option<String>,
 }
 
 impl SettingsStore {
@@ -94,12 +110,19 @@ impl SettingsStore {
         let mut raw = self.load_raw()?;
         if let Value::Mapping(ref mut map) = raw {
             put_string(map, "llm_model", patch.model);
+            put_string(map, "llm_grounding_model", patch.grounding_model);
+            put_string(map, "llm_vision_model", patch.vision_model);
             put_string(map, "llm_compress_model", patch.compress_model);
             put_string(map, "prompt_template", patch.template);
             put_string(map, "llm_api_key", patch.api_key);
             put_string(map, "llm_base_url", patch.base_url);
             put_string(map, "llm_compress_base_url", patch.compress_base_url);
             put_string(map, "llm_reasoning_effort", patch.reasoning_effort);
+            put_string(
+                map,
+                "llm_grounding_reasoning_effort",
+                patch.grounding_reasoning_effort,
+            );
             if let Some(compression_level) = patch.compression_level {
                 let level = llm::CompressionLevel::from_setting(&compression_level);
                 put_string(
@@ -140,6 +163,27 @@ impl SettingsStore {
             put_string(map, "daily_time_zone", patch.daily_time_zone);
             put_string(map, "daily_update_time", patch.daily_update_time);
             put_u64(map, "max_active_cards", patch.max_active_cards);
+            put_string(
+                map,
+                "grounding_strategy",
+                patch.grounding_strategy.map(|value| {
+                    crate::domain::grounding::GroundingStrategy::from_setting(&value)
+                        .as_str()
+                        .to_string()
+                }),
+            );
+            put_string(
+                map,
+                "image_strategy",
+                patch.image_strategy.map(|value| {
+                    crate::domain::grounding::ImageStrategy::from_setting(&value)
+                        .as_str()
+                        .to_string()
+                }),
+            );
+            put_string(map, "search_api_key", patch.search_api_key);
+            put_string(map, "search_base_url", patch.search_base_url);
+            put_string(map, "image_sources", patch.image_sources);
         }
         self.save_raw(&raw)?;
         Settings::from_value(&raw)
@@ -180,6 +224,8 @@ impl Settings {
 
         Ok(Self {
             llm_model: string(settings, "llm_model", "google/gemini-3.1-flash"),
+            llm_grounding_model: string(settings, "llm_grounding_model", ""),
+            llm_vision_model: string(settings, "llm_vision_model", "google/gemini-3.1-flash"),
             llm_compress_model: string(
                 settings,
                 "llm_compress_model",
@@ -190,6 +236,7 @@ impl Settings {
             llm_base_url: base_url.clone(),
             llm_compress_base_url: string(settings, "llm_compress_base_url", &base_url),
             llm_reasoning_effort: string(settings, "llm_reasoning_effort", "none"),
+            llm_grounding_reasoning_effort: string(settings, "llm_grounding_reasoning_effort", ""),
             llm_compress_reasoning_effort: string(
                 settings,
                 "llm_compress_reasoning_effort",
@@ -223,12 +270,39 @@ impl Settings {
                 .get("max_active_cards")
                 .and_then(Value::as_u64)
                 .unwrap_or(0),
+            grounding_strategy: crate::domain::grounding::GroundingStrategy::from_setting(&string(
+                settings,
+                "grounding_strategy",
+                "factual",
+            ))
+            .as_str()
+            .to_string(),
+            image_strategy: crate::domain::grounding::ImageStrategy::from_setting(&string(
+                settings,
+                "image_strategy",
+                "none",
+            ))
+            .as_str()
+            .to_string(),
+            search_api_key: string(settings, "search_api_key", ""),
+            search_base_url: string(settings, "search_base_url", "https://api.tavily.com"),
+            image_sources: string(
+                settings,
+                "image_sources",
+                crate::domain::grounding::DEFAULT_IMAGE_SOURCES_SETTING,
+            ),
         })
     }
 
     pub fn apply_patch(mut self, patch: SettingsPatch) -> Self {
         if let Some(value) = patch.model {
             self.llm_model = value;
+        }
+        if let Some(value) = patch.grounding_model {
+            self.llm_grounding_model = value;
+        }
+        if let Some(value) = patch.vision_model {
+            self.llm_vision_model = value;
         }
         if let Some(value) = patch.compress_model {
             self.llm_compress_model = value;
@@ -247,6 +321,9 @@ impl Settings {
         }
         if let Some(value) = patch.reasoning_effort {
             self.llm_reasoning_effort = value;
+        }
+        if let Some(value) = patch.grounding_reasoning_effort {
+            self.llm_grounding_reasoning_effort = value;
         }
         if let Some(value) = patch.compression_level {
             let level = llm::CompressionLevel::from_setting(&value);
@@ -273,7 +350,44 @@ impl Settings {
         if let Some(value) = patch.max_active_cards {
             self.max_active_cards = value;
         }
+        if let Some(value) = patch.grounding_strategy {
+            self.grounding_strategy =
+                crate::domain::grounding::GroundingStrategy::from_setting(&value)
+                    .as_str()
+                    .to_string();
+        }
+        if let Some(value) = patch.image_strategy {
+            self.image_strategy = crate::domain::grounding::ImageStrategy::from_setting(&value)
+                .as_str()
+                .to_string();
+        }
+        if let Some(value) = patch.search_api_key {
+            self.search_api_key = value;
+        }
+        if let Some(value) = patch.search_base_url {
+            self.search_base_url = value;
+        }
+        if let Some(value) = patch.image_sources {
+            self.image_sources = value;
+        }
         self
+    }
+    pub fn grounding_model(&self) -> &str {
+        let model = self.llm_grounding_model.trim();
+        if model.is_empty() {
+            self.llm_model.trim()
+        } else {
+            model
+        }
+    }
+
+    pub fn grounding_reasoning_effort(&self) -> &str {
+        let effort = self.llm_grounding_reasoning_effort.trim();
+        if effort.is_empty() {
+            self.llm_reasoning_effort.trim()
+        } else {
+            effort
+        }
     }
 }
 
@@ -325,13 +439,37 @@ mod tests {
     fn settings_defaults_are_stable() {
         let settings = Settings::from_value(&Value::Mapping(Mapping::new())).unwrap();
         assert_eq!(settings.llm_model, "google/gemini-3.1-flash");
+        assert_eq!(settings.llm_grounding_model, "");
         assert_eq!(settings.llm_base_url, "https://openrouter.ai/api/v1");
         assert_eq!(settings.llm_reasoning_effort, "none");
+        assert_eq!(settings.llm_grounding_reasoning_effort, "");
         assert_eq!(settings.llm_compress_reasoning_effort, "none");
         assert_eq!(settings.llm_compression_level, "strong");
         assert_eq!(settings.daily_time_zone, "UTC");
         assert_eq!(settings.daily_update_time, "03:00");
         assert_eq!(settings.max_active_cards, 0);
+        assert_eq!(
+            settings.image_sources,
+            crate::domain::grounding::DEFAULT_IMAGE_SOURCES_SETTING
+        );
+    }
+
+    #[test]
+    fn grounding_agent_settings_override_llm_defaults() {
+        let defaults = Settings::default();
+        assert_eq!(defaults.grounding_model(), defaults.llm_model);
+        assert_eq!(
+            defaults.grounding_reasoning_effort(),
+            defaults.llm_reasoning_effort
+        );
+
+        let overridden = defaults.apply_patch(SettingsPatch {
+            grounding_model: Some("openai/gpt-5-mini".to_string()),
+            grounding_reasoning_effort: Some("high".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(overridden.grounding_model(), "openai/gpt-5-mini");
+        assert_eq!(overridden.grounding_reasoning_effort(), "high");
     }
 
     #[test]

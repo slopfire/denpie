@@ -26,6 +26,8 @@ pub(crate) async fn list_admin_topics_pb(
                 daily_time_zone: row.daily_time_zone.unwrap_or_default(),
                 daily_update_time: row.daily_update_time.unwrap_or_default(),
                 compression_level: row.compression_level.unwrap_or_default(),
+                grounding_strategy: row.grounding_strategy.unwrap_or_default(),
+                image_strategy: row.image_strategy.unwrap_or_default(),
             })
             .collect(),
     })
@@ -85,6 +87,8 @@ pub(crate) async fn app_topics_pb(state: &AppState, user_id: &str) -> ApiResult<
                 daily_time_zone: row.daily_time_zone,
                 daily_update_time: row.daily_update_time,
                 compression_level: row.compression_level,
+                grounding_strategy: row.grounding_strategy,
+                image_strategy: row.image_strategy,
                 total_cards: row.total_cards,
                 due_cards: row.due_cards,
                 completed_cards: row.completed_cards,

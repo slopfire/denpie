@@ -82,23 +82,34 @@ pub async fn replace_image_records(
     user_id: &str,
     card_id: i64,
     images: &[TipcardImageRecord],
-) -> AppResult<()> {
-    let mut tx = pool.begin().await?;
+) -> AppResult<Vec<TipcardImageRecord>> {
+    let mut conn = pool.acquire().await?;
+    sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
 
+    let result = async {
     let exists: Option<i64> =
         sqlx::query_scalar("SELECT id FROM tipcards WHERE id = ? AND user_id = ?")
             .bind(card_id)
             .bind(user_id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut *conn)
             .await?;
     if exists.is_none() {
         return Err(AppError::NotFound("Card not found".to_string()));
     }
 
+    let old_images = sqlx::query_as::<_, TipcardImageRecord>(&format!(
+        "{} WHERE user_id = ? AND card_id = ? ORDER BY position ASC, id ASC",
+        queries::IMAGE_SELECT
+    ))
+    .bind(user_id)
+    .bind(card_id)
+    .fetch_all(&mut *conn)
+    .await?;
+
     sqlx::query("DELETE FROM tipcard_images WHERE card_id = ? AND user_id = ?")
         .bind(card_id)
         .bind(user_id)
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await?;
 
     for image in images {
@@ -112,18 +123,97 @@ pub async fn replace_image_records(
         .bind(&image.storage_path)
         .bind(&image.mime_type)
         .bind(image.byte_size)
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await?;
     }
 
     sqlx::query("UPDATE tipcards SET image_data = '[]' WHERE id = ? AND user_id = ?")
         .bind(card_id)
         .bind(user_id)
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await?;
+    Ok(old_images)
+    }
+    .await;
 
-    tx.commit().await?;
+    finish_immediate_transaction(&mut conn, result).await
+}
+
+/// Append image metadata while preserving the card's existing attachments.
+/// The card ownership check and inserts share one transaction.
+pub async fn append_image_records(
+    pool: &SqlitePool,
+    user_id: &str,
+    card_id: i64,
+    images: &mut [TipcardImageRecord],
+) -> AppResult<()> {
+    let mut conn = pool.acquire().await?;
+    sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+    let result = async {
+    let exists: Option<i64> =
+        sqlx::query_scalar("SELECT id FROM tipcards WHERE id = ? AND user_id = ?")
+            .bind(card_id)
+            .bind(user_id)
+            .fetch_optional(&mut *conn)
+            .await?;
+    if exists.is_none() {
+        return Err(AppError::NotFound("Card not found".to_string()));
+    }
+
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tipcard_images WHERE card_id = ? AND user_id = ?",
+    )
+    .bind(card_id)
+    .bind(user_id)
+    .fetch_one(&mut *conn)
+    .await?;
+    if count.saturating_add(images.len() as i64) > 4 {
+        return Err(AppError::Validation(
+            "A tipcard can have at most 4 images".to_string(),
+        ));
+    }
+
+    for (offset, image) in images.iter_mut().enumerate() {
+        image.position = count + offset as i64;
+        sqlx::query(
+            "INSERT INTO tipcard_images (user_id, card_id, position, storage_path, mime_type, byte_size)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(user_id)
+        .bind(card_id)
+        .bind(image.position)
+        .bind(&image.storage_path)
+        .bind(&image.mime_type)
+        .bind(image.byte_size)
+        .execute(&mut *conn)
+        .await?;
+    }
+    sqlx::query("UPDATE tipcards SET image_data = '[]' WHERE id = ? AND user_id = ?")
+        .bind(card_id)
+        .bind(user_id)
+        .execute(&mut *conn)
+        .await?;
     Ok(())
+    }
+    .await;
+
+    finish_immediate_transaction(&mut conn, result).await
+}
+
+async fn finish_immediate_transaction<T>(
+    conn: &mut sqlx::pool::PoolConnection<Sqlite>,
+    result: AppResult<T>,
+) -> AppResult<T> {
+    match result {
+        Ok(value) => {
+            sqlx::query("COMMIT").execute(&mut **conn).await?;
+            Ok(value)
+        }
+        Err(error) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut **conn).await;
+            Err(error)
+        }
+    }
 }
 
 #[derive(sqlx::FromRow)]

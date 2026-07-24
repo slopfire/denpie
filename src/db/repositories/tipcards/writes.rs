@@ -61,9 +61,42 @@ pub async fn create_generated(
     title: &str,
     full_content: &str,
     compressed_content: &str,
+    use_image: bool,
+    image_query: &str,
+) -> AppResult<i64> {
+    create_generated_with_status(
+        pool,
+        user_id,
+        topic_id,
+        tipcard_type,
+        title,
+        full_content,
+        compressed_content,
+        use_image,
+        image_query,
+        "active",
+    )
+    .await
+}
+
+/// Create a generated card with an explicit review status. For `"pending"` the
+/// review state is dated far in the future so the card is never "due" until it is
+/// promoted to `"active"` at serve time.
+#[allow(clippy::too_many_arguments)]
+pub async fn create_generated_with_status(
+    pool: &SqlitePool,
+    user_id: &str,
+    topic_id: i64,
+    tipcard_type: &str,
+    title: &str,
+    full_content: &str,
+    compressed_content: &str,
+    use_image: bool,
+    image_query: &str,
+    status: &str,
 ) -> AppResult<i64> {
     let card_id = sqlx::query(
-        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content, use_image, image_query) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(user_id)
     .bind(topic_id)
@@ -71,18 +104,26 @@ pub async fn create_generated(
     .bind(title)
     .bind(full_content)
     .bind(compressed_content)
+    .bind(if use_image { 1 } else { 0 })
+    .bind(image_query)
     .execute(pool)
     .await?
     .last_insert_rowid();
 
     let state = RepeatableState::default();
+    let next_review_at = if status == "pending" {
+        Utc::now() + chrono::Duration::days(36500)
+    } else {
+        Utc::now()
+    };
     create_review_state(
         pool,
         card_id,
         state.scheduling_state.algorithm.storage_name(),
         serde_json::to_string(&state)?,
         state.repeats,
-        Utc::now(),
+        status,
+        next_review_at,
     )
     .await?;
     Ok(card_id)
@@ -110,6 +151,7 @@ pub async fn create_manual(pool: &SqlitePool, params: CreateManualParams<'_>) ->
         state.scheduling_state.algorithm.storage_name(),
         serde_json::to_string(&state)?,
         state.repeats,
+        "active",
         Utc::now(),
     )
     .await?;
@@ -143,15 +185,17 @@ async fn create_review_state(
     algorithm_used: &str,
     state_data: String,
     repeats: u32,
+    status: &str,
     next_review_at: chrono::DateTime<chrono::Utc>,
 ) -> AppResult<()> {
     sqlx::query(
-        "INSERT INTO review_states (card_id, algorithm_used, state_data, repeats, status, next_review_at) VALUES (?, ?, ?, ?, 'active', ?)",
+        "INSERT INTO review_states (card_id, algorithm_used, state_data, repeats, status, next_review_at) VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(card_id)
     .bind(algorithm_used)
     .bind(state_data)
     .bind(repeats)
+    .bind(status)
     .bind(next_review_at)
     .execute(pool)
     .await?;

@@ -8,6 +8,10 @@ use crate::AppState;
 use super::{
     admin::{app_summary_pb, app_topics_pb, list_admin_topics_pb, list_tipcards_pb},
     auth::{create_raw_api_key, delete_api_key_by_id, list_api_keys_pb, require_api_key},
+    documents::{
+        add_document, add_pool_image, attach_document_topic, delete_document, delete_pool_image,
+        detach_document_topic, list_documents, list_pool_images,
+    },
     pb,
     response::{empty_response, protobuf_response, tip_to_pb},
     reviews::apply_review,
@@ -208,6 +212,40 @@ async fn handle_authenticated_op(
             update_topic_prompt(state, &user.id, req).await?;
             Ok(empty_response())
         }
+        pb::api_request::Op::AddDocument(req) => {
+            add_document(state, &user.id, req).await?;
+            Ok(empty_response())
+        }
+        pb::api_request::Op::ListDocuments(_) => Ok(pb::ApiResponse {
+            result: Some(pb::api_response::Result::Documents(
+                list_documents(state, &user.id).await?,
+            )),
+        }),
+        pb::api_request::Op::DeleteDocument(req) => {
+            delete_document(state, &user.id, req.id).await?;
+            Ok(empty_response())
+        }
+        pb::api_request::Op::AttachDocumentTopic(req) => {
+            attach_document_topic(state, &user.id, req).await?;
+            Ok(empty_response())
+        }
+        pb::api_request::Op::DetachDocumentTopic(req) => {
+            detach_document_topic(state, &user.id, req).await?;
+            Ok(empty_response())
+        }
+        pb::api_request::Op::AddPoolImage(req) => {
+            add_pool_image(state, &user.id, req).await?;
+            Ok(empty_response())
+        }
+        pb::api_request::Op::ListPoolImages(_) => Ok(pb::ApiResponse {
+            result: Some(pb::api_response::Result::PoolImages(
+                list_pool_images(state, &user.id).await?,
+            )),
+        }),
+        pb::api_request::Op::DeletePoolImage(req) => {
+            delete_pool_image(state, &user.id, req.id).await?;
+            Ok(empty_response())
+        }
         pb::api_request::Op::BootstrapApiKey(_) => unreachable!(),
     }
 }
@@ -233,5 +271,13 @@ fn api_op_name(op: &pb::api_request::Op) -> &'static str {
         pb::api_request::Op::GetSummary(_) => "get_summary",
         pb::api_request::Op::ListAppTopics(_) => "list_app_topics",
         pb::api_request::Op::UpdateTopic(_) => "update_topic",
+        pb::api_request::Op::AddDocument(_) => "add_document",
+        pb::api_request::Op::ListDocuments(_) => "list_documents",
+        pb::api_request::Op::DeleteDocument(_) => "delete_document",
+        pb::api_request::Op::AttachDocumentTopic(_) => "attach_document_topic",
+        pb::api_request::Op::DetachDocumentTopic(_) => "detach_document_topic",
+        pb::api_request::Op::AddPoolImage(_) => "add_pool_image",
+        pb::api_request::Op::ListPoolImages(_) => "list_pool_images",
+        pb::api_request::Op::DeletePoolImage(_) => "delete_pool_image",
     }
 }

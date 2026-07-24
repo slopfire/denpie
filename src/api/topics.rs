@@ -23,6 +23,8 @@ pub(crate) async fn update_topic_prompt(
             daily_time_zone: req.daily_time_zone,
             daily_update_time: req.daily_update_time,
             compression_level: req.compression_level,
+            grounding_strategy: req.grounding_strategy,
+            image_strategy: req.image_strategy,
         },
     )
     .await

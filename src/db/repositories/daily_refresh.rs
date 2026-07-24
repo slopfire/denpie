@@ -46,3 +46,27 @@ pub async fn mark_window_refreshed(
     .await?;
     Ok(())
 }
+
+pub async fn clear_window_refreshed(
+    pool: &SqlitePool,
+    user_id: &str,
+    topic_id: i64,
+    tipcard_type: &str,
+    window_start: DateTime<Utc>,
+) -> AppResult<()> {
+    let window_start = window_start
+        .naive_utc()
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+    sqlx::query(
+        "DELETE FROM daily_refresh_runs
+         WHERE user_id = ? AND topic_id = ? AND tipcard_type = ? AND window_start = ?",
+    )
+    .bind(user_id)
+    .bind(topic_id)
+    .bind(tipcard_type)
+    .bind(window_start)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

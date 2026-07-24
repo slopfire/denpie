@@ -1,3 +1,4 @@
+pub mod grounding;
 pub mod image;
 pub mod review;
 pub mod scheduling;

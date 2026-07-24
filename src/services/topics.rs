@@ -74,6 +74,26 @@ impl TopicService {
             })
             .unwrap_or(current.compression_level);
 
+        let grounding_strategy = settings
+            .grounding_strategy
+            .map(|value| {
+                trimmed_optional(value).map(|value| {
+                    crate::domain::grounding::GroundingStrategy::from_setting(&value)
+                        .as_str()
+                        .to_string()
+                })
+            })
+            .unwrap_or(current.grounding_strategy);
+        let image_strategy = settings
+            .image_strategy
+            .map(|value| {
+                trimmed_optional(value).map(|value| {
+                    crate::domain::grounding::ImageStrategy::from_setting(&value)
+                        .as_str()
+                        .to_string()
+                })
+            })
+            .unwrap_or(current.image_strategy);
         topics::update_settings(
             &state.db,
             user_id,
@@ -84,6 +104,8 @@ impl TopicService {
                 daily_time_zone,
                 daily_update_time,
                 compression_level,
+                grounding_strategy,
+                image_strategy,
             },
         )
         .await
@@ -131,6 +153,8 @@ impl TopicService {
                 daily_time_zone: row.daily_time_zone.unwrap_or_default(),
                 daily_update_time: row.daily_update_time.unwrap_or_default(),
                 compression_level: row.compression_level.unwrap_or_default(),
+                grounding_strategy: row.grounding_strategy.unwrap_or_default(),
+                image_strategy: row.image_strategy.unwrap_or_default(),
             })
             .collect())
     }
@@ -161,6 +185,8 @@ pub struct UpdateTopicSettings {
     pub daily_time_zone: Option<String>,
     pub daily_update_time: Option<String>,
     pub compression_level: Option<String>,
+    pub grounding_strategy: Option<String>,
+    pub image_strategy: Option<String>,
 }
 
 pub struct AdminTopicInfo {
@@ -174,6 +200,8 @@ pub struct AdminTopicInfo {
     pub daily_time_zone: String,
     pub daily_update_time: String,
     pub compression_level: String,
+    pub grounding_strategy: String,
+    pub image_strategy: String,
 }
 
 async fn ensure_topic_icon(

@@ -34,6 +34,8 @@ pub async fn list_topics(
             daily_time_zone: r.daily_time_zone,
             daily_update_time: r.daily_update_time,
             compression_level: r.compression_level,
+            grounding_strategy: r.grounding_strategy,
+            image_strategy: r.image_strategy,
         })
         .collect();
     Json(topics)
@@ -91,8 +93,11 @@ pub async fn app_topics(
                 daily_time_zone: r.daily_time_zone,
                 daily_update_time: r.daily_update_time,
                 compression_level: r.compression_level,
+                grounding_strategy: r.grounding_strategy,
+                image_strategy: r.image_strategy,
                 total_cards: r.total_cards,
                 due_cards: r.due_cards,
+                pending_cards: r.pending_cards,
                 completed_cards: r.completed_cards,
             })
             .collect(),
@@ -115,6 +120,8 @@ pub async fn update_topic(
             daily_time_zone: req.daily_time_zone,
             daily_update_time: req.daily_update_time,
             compression_level: req.compression_level,
+            grounding_strategy: req.grounding_strategy,
+            image_strategy: req.image_strategy,
         },
     )
     .await

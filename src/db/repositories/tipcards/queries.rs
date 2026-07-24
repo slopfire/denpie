@@ -28,6 +28,9 @@ pub(crate) const IMAGE_SELECT: &str =
 pub(crate) const SCHEDULED_SELECT: &str = "SELECT t.id,
        t.full_content,
        t.compressed_content,
+       COALESCE(t.title, '') AS title,
+       COALESCE(t.use_image, 0) AS use_image,
+       COALESCE(t.image_query, '') AS image_query,
        COALESCE(t.pinned, 0) AS pinned,
        COALESCE(t.image_data, '[]') AS image_data
 FROM tipcards t";

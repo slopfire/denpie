@@ -3,10 +3,15 @@ pub mod response;
 pub mod util;
 
 pub use handlers::autoupdate::{autoupdate_status, trigger_autoupdate};
+pub use handlers::documents::{
+    add_document, add_pool_image, attach_document_topic, delete_document, delete_pool_image,
+    detach_document_topic, explore_link, get_document, list_documents, list_pool_images,
+    remove_pool_image_tag, rename_pool_image, upload_document,
+};
 pub use handlers::keys::{create_api_key, delete_api_key, list_api_keys};
 pub use handlers::settings::{get_settings, update_settings};
 pub use handlers::tipcards::{
-    delete_tipcard, flow_card_detail, flow_cards, list_tipcards, pin_tipcard,
+    append_tipcard_images, delete_tipcard, flow_card_detail, flow_cards, list_tipcards, pin_tipcard,
 };
 pub use handlers::tips::{app_review, app_tips, force_daily_refresh, token_spend};
 pub use handlers::topics::{

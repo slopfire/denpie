@@ -2,7 +2,9 @@ use axum::http::StatusCode;
 
 use crate::{
     AppState, context,
-    db::repositories::{daily_refresh, tipcards, token_usage, topics, user_settings, users},
+    db::repositories::{
+        daily_refresh, documents, image_pool, tipcards, token_usage, topics, user_settings, users,
+    },
     domain, image_store, llm,
     services::{
         tipcards::{active_card_room, image_data_json, parse_image_data, validate_image_data},
@@ -66,6 +68,7 @@ impl TipService {
             .await
             .map_err(|err| err.into_status_body())?;
         let llm_reasoning = llm::ReasoningConfig::new(settings.llm_reasoning_effort.clone());
+        let grounding_reasoning = llm::ReasoningConfig::new(settings.grounding_reasoning_effort());
         let llm_compression_level =
             llm::CompressionLevel::from_setting(&settings.llm_compression_level);
         let mut active_room = active_card_room(state, user_id, settings.max_active_cards).await?;
@@ -108,6 +111,7 @@ impl TipService {
                         user_id,
                         topic_name,
                         topic: &topic,
+                        settings: &settings,
                     },
                     manual_content.clone(),
                     compact,
@@ -182,46 +186,99 @@ impl TipService {
                 let cards_to_generate = active_room.map_or(remaining_daily_cards, |room| {
                     remaining_daily_cards.min(room)
                 });
+                if cards_to_generate > 0 {
+                    daily_refresh::mark_window_refreshed(
+                        &state.db,
+                        user_id,
+                        topic.id,
+                        &topic.tipcard_type,
+                        daily_window_start,
+                    )
+                    .await
+                    .map_err(|err| err.into_status_body())?;
+                }
                 for _ in 0..cards_to_generate {
-                    Self::generate_tipcard(
+                    if let Err(err) = Self::generate_tipcard(
                         GenerationContext {
                             state,
                             user_id,
                             topic_name,
                             topic: &topic,
+                            settings: &settings,
                         },
                         &settings.prompt_template,
                         GenerationLlmConfig {
                             model: &settings.llm_model,
+                            grounding_model: settings.grounding_model(),
                             api_key: &settings.llm_api_key,
                             base_url: &settings.llm_base_url,
                             reasoning: &llm_reasoning,
+                            grounding_reasoning: &grounding_reasoning,
                             compression_level: llm_compression_level,
                         },
                         &mut responses,
                     )
-                    .await?;
+                    .await
+                    {
+                        let _ = daily_refresh::clear_window_refreshed(
+                            &state.db,
+                            user_id,
+                            topic.id,
+                            &topic.tipcard_type,
+                            daily_window_start,
+                        )
+                        .await;
+                        return Err(err);
+                    }
                     decrement_room(&mut active_room);
                 }
             } else if active_room.is_none_or(|room| room > 0) {
-                Self::generate_tipcard(
+                let daily_window_start = domain::scheduling::topic_daily_window_start(
+                    &topic,
+                    &settings.daily_time_zone,
+                    &settings.daily_update_time,
+                );
+                daily_refresh::mark_window_refreshed(
+                    &state.db,
+                    user_id,
+                    topic.id,
+                    &topic.tipcard_type,
+                    daily_window_start,
+                )
+                .await
+                .map_err(|err| err.into_status_body())?;
+                if let Err(err) = Self::generate_tipcard(
                     GenerationContext {
                         state,
                         user_id,
                         topic_name,
                         topic: &topic,
+                        settings: &settings,
                     },
                     &settings.prompt_template,
                     GenerationLlmConfig {
                         model: &settings.llm_model,
+                        grounding_model: settings.grounding_model(),
                         api_key: &settings.llm_api_key,
                         base_url: &settings.llm_base_url,
                         reasoning: &llm_reasoning,
+                        grounding_reasoning: &grounding_reasoning,
                         compression_level: llm_compression_level,
                     },
                     &mut responses,
                 )
-                .await?;
+                .await
+                {
+                    let _ = daily_refresh::clear_window_refreshed(
+                        &state.db,
+                        user_id,
+                        topic.id,
+                        &topic.tipcard_type,
+                        daily_window_start,
+                    )
+                    .await;
+                    return Err(err);
+                }
                 decrement_room(&mut active_room);
             }
         }
@@ -236,6 +293,14 @@ impl TipService {
     ) -> ApiResult<ForceDailyRefreshResponse> {
         let targets = Self::force_refresh_targets(state, user_id, req).await?;
         let refreshed_cards = Self::generate_fresh_daily_cards(state, user_id, &targets).await?;
+        if refreshed_cards > 0 {
+            Self::mark_targets_current_window(
+                state,
+                user_id,
+                &targets[..(refreshed_cards as usize).min(targets.len())],
+            )
+            .await?;
+        }
         Ok(ForceDailyRefreshResponse { refreshed_cards })
     }
 
@@ -275,12 +340,6 @@ impl TipService {
                     continue;
                 }
 
-                let refreshed = Self::generate_fresh_daily_cards(
-                    state,
-                    &user_id,
-                    &[(topic.clone(), topic.name.clone())],
-                )
-                .await?;
                 daily_refresh::mark_window_refreshed(
                     &state.db,
                     &user_id,
@@ -290,6 +349,26 @@ impl TipService {
                 )
                 .await
                 .map_err(|err| err.into_status_body())?;
+                let refreshed = match Self::generate_fresh_daily_cards(
+                    state,
+                    &user_id,
+                    &[(topic.clone(), topic.name.clone())],
+                )
+                .await
+                {
+                    Ok(refreshed) => refreshed,
+                    Err(err) => {
+                        let _ = daily_refresh::clear_window_refreshed(
+                            &state.db,
+                            &user_id,
+                            topic.id,
+                            &tipcard_type,
+                            window_start,
+                        )
+                        .await;
+                        return Err(err);
+                    }
+                };
                 refreshed_cards += refreshed;
             }
         }
@@ -309,9 +388,7 @@ impl TipService {
             .filter(|topic| !topic.is_empty())
             .map(str::to_string)
             .collect();
-        let requested_type = req
-            .tipcard_type
-            .unwrap_or_else(|| "repeatable_tip".to_string());
+        let requested_type = req.tipcard_type.unwrap_or_default();
         let all_generated_topics = topic_names.is_empty() && requested_type.trim().is_empty();
 
         let targets = if all_generated_topics {
@@ -338,6 +415,38 @@ impl TipService {
         Ok(targets)
     }
 
+    async fn mark_targets_current_window(
+        state: &AppState,
+        user_id: &str,
+        targets: &[(topics::TopicRecord, String)],
+    ) -> ApiResult<()> {
+        let defaults = state
+            .settings
+            .get_settings()
+            .map_err(|err| err.into_status_body())?;
+        let settings = user_settings::get(&state.db, user_id, defaults)
+            .await
+            .map_err(|err| err.into_status_body())?;
+
+        for (topic, _) in targets {
+            let window_start = domain::scheduling::topic_daily_window_start(
+                topic,
+                &settings.daily_time_zone,
+                &settings.daily_update_time,
+            );
+            daily_refresh::mark_window_refreshed(
+                &state.db,
+                user_id,
+                topic.id,
+                &topic.tipcard_type,
+                window_start,
+            )
+            .await
+            .map_err(|err| err.into_status_body())?;
+        }
+        Ok(())
+    }
+
     async fn generate_fresh_daily_cards(
         state: &AppState,
         user_id: &str,
@@ -355,6 +464,7 @@ impl TipService {
             .await
             .map_err(|err| err.into_status_body())?;
         let llm_reasoning = llm::ReasoningConfig::new(settings.llm_reasoning_effort.clone());
+        let grounding_reasoning = llm::ReasoningConfig::new(settings.grounding_reasoning_effort());
         let llm_compression_level =
             llm::CompressionLevel::from_setting(&settings.llm_compression_level);
         let mut active_room = active_card_room(state, user_id, settings.max_active_cards).await?;
@@ -370,13 +480,16 @@ impl TipService {
                     user_id,
                     topic_name,
                     topic,
+                    settings: &settings,
                 },
                 &settings.prompt_template,
                 GenerationLlmConfig {
                     model: &settings.llm_model,
+                    grounding_model: settings.grounding_model(),
                     api_key: &settings.llm_api_key,
                     base_url: &settings.llm_base_url,
                     reasoning: &llm_reasoning,
+                    grounding_reasoning: &grounding_reasoning,
                     compression_level: llm_compression_level,
                 },
                 &mut responses,
@@ -498,9 +611,11 @@ pub struct CustomTipcardData {
 
 pub(crate) struct GenerationLlmConfig<'a> {
     pub(crate) model: &'a str,
+    pub(crate) grounding_model: &'a str,
     pub(crate) api_key: &'a str,
     pub(crate) base_url: &'a str,
     pub(crate) reasoning: &'a llm::ReasoningConfig,
+    pub(crate) grounding_reasoning: &'a llm::ReasoningConfig,
     pub(crate) compression_level: llm::CompressionLevel,
 }
 
@@ -509,6 +624,7 @@ pub(crate) struct GenerationContext<'a> {
     pub(crate) user_id: &'a str,
     pub(crate) topic_name: &'a str,
     pub(crate) topic: &'a topics::TopicRecord,
+    pub(crate) settings: &'a crate::config::Settings,
 }
 
 impl TipService {
@@ -518,6 +634,69 @@ impl TipService {
         llm: GenerationLlmConfig<'_>,
         responses: &mut Vec<TipCardJson>,
     ) -> ApiResult<()> {
+        let grounding = domain::grounding::GroundingStrategy::from_setting(
+            ctx.topic
+                .grounding_strategy
+                .as_deref()
+                .unwrap_or(&ctx.settings.grounding_strategy),
+        );
+        let image_strategy = domain::grounding::ImageStrategy::from_setting(
+            ctx.topic
+                .image_strategy
+                .as_deref()
+                .unwrap_or(&ctx.settings.image_strategy),
+        );
+        let (generation_model, generation_reasoning) =
+            if matches!(grounding, domain::grounding::GroundingStrategy::Factual) {
+                (llm.model, llm.reasoning)
+            } else {
+                (llm.grounding_model, llm.grounding_reasoning)
+            };
+
+        // Serve a pending backlog card without any LLM call when one exists.
+        if grounding.is_pending_capable() {
+            match tipcards::take_pending_card(
+                &ctx.state.db,
+                ctx.user_id,
+                ctx.topic.id,
+                &ctx.topic.tipcard_type,
+            )
+            .await
+            {
+                Ok(Some(card)) => {
+                    let image_data = Self::retrieve_card_image(
+                        &ctx,
+                        &llm,
+                        image_strategy,
+                        card.id,
+                        &card.title,
+                        &card.full_content,
+                        card.use_image,
+                        &card.image_query,
+                    )
+                    .await;
+                    responses.push(tip_response_json(
+                        card.id,
+                        ctx.topic_name,
+                        card.full_content,
+                        card.compressed_content,
+                        if image_data.is_empty() {
+                            parse_image_data(&card.image_data)
+                        } else {
+                            image_data
+                        },
+                        ctx.topic.tipcard_type.clone(),
+                        card.pinned,
+                    ));
+                    return Ok(());
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    tracing::warn!(error = ?err, "failed to take pending card; generating fresh");
+                }
+            }
+        }
+
         let template = ctx
             .topic
             .prompt_template
@@ -539,49 +718,238 @@ impl TipService {
             .as_deref()
             .map(llm::CompressionLevel::from_setting)
             .unwrap_or(llm.compression_level);
-        let generated = llm::generate_card(
-            &prompt,
-            compression_level,
-            llm.model,
-            llm.api_key,
-            llm.base_url,
-            llm.reasoning,
+
+        // For RAG, retrieve top-k chunks explicitly assigned to this topic.
+        let documents: Vec<llm::DocChunk> =
+            if matches!(grounding, domain::grounding::GroundingStrategy::Rag) {
+                documents::retrieve_chunks(
+                    &ctx.state.db,
+                    ctx.user_id,
+                    ctx.topic.id,
+                    ctx.topic_name,
+                    12,
+                )
+                .await
+                .map_err(|err| err.into_status_body())?
+                .into_iter()
+                .map(|chunk| llm::DocChunk { chunk })
+                .collect()
+            } else {
+                Vec::new()
+            };
+
+        let outcome = llm::ground_and_generate(
+            grounding,
+            llm::GroundingInput {
+                topic_name: ctx.topic_name,
+                rendered_prompt: &prompt,
+                compression_level,
+                model: generation_model,
+                api_key: llm.api_key,
+                api_base: llm.base_url,
+                reasoning: generation_reasoning,
+                existing_titles: card_context.existing_titles(),
+                documents: &documents,
+                daily_card_count: domain::scheduling::topic_daily_card_count(ctx.topic) as i64,
+                search: llm::SearchConfig {
+                    external_key: &ctx.settings.search_api_key,
+                    base_url: &ctx.settings.search_base_url,
+                },
+            },
         )
         .await;
+
         Self::record_llm_token_usage(
             ctx.state,
             ctx.user_id,
-            llm.model,
+            generation_model,
             "generate_card",
-            &generated.usage,
+            &outcome.usage,
         )
         .await?;
-        let card_title = generated.title;
-        let full_tip = generated.full_content;
-        let compressed_tip = generated.compressed_content;
 
+        if !outcome.citations.is_empty() {
+            tracing::info!(
+                topic = ctx.topic_name,
+                citations = ?outcome.citations,
+                "grounded card citations"
+            );
+        }
+
+        // Persist pending backlog cards (agentic) for later promotion.
+        for pending in &outcome.pending {
+            if let Err(err) = tipcards::create_generated_with_status(
+                &ctx.state.db,
+                ctx.user_id,
+                ctx.topic.id,
+                &ctx.topic.tipcard_type,
+                &pending.title,
+                &pending.full_content,
+                &pending.compressed_content,
+                pending.use_image,
+                &pending.image_query,
+                "pending",
+            )
+            .await
+            {
+                tracing::warn!(error = ?err, "failed to persist pending card");
+            }
+        }
+
+        let primary = outcome.primary;
         let card_id = tipcards::create_generated(
             &ctx.state.db,
             ctx.user_id,
             ctx.topic.id,
             &ctx.topic.tipcard_type,
-            &card_title,
-            &full_tip,
-            &compressed_tip,
+            &primary.title,
+            &primary.full_content,
+            &primary.compressed_content,
+            primary.use_image,
+            &primary.image_query,
         )
         .await
         .map_err(|err| err.into_status_body())?;
 
+        // Retrieve an image for the primary card; failures degrade to no image.
+        let image_data = Self::retrieve_card_image(
+            &ctx,
+            &llm,
+            image_strategy,
+            card_id,
+            &primary.title,
+            &primary.full_content,
+            primary.use_image,
+            &primary.image_query,
+        )
+        .await;
+
         responses.push(tip_response_json(
             card_id,
             ctx.topic_name,
-            full_tip,
-            compressed_tip,
-            Vec::new(),
+            primary.full_content,
+            primary.compressed_content,
+            image_data,
             ctx.topic.tipcard_type.clone(),
             false,
         ));
         Ok(())
+    }
+
+    /// Retrieve and persist a single illustration for a freshly generated card.
+    /// Returns the data-URLs stored (empty on no-image or any failure).
+    async fn retrieve_card_image(
+        ctx: &GenerationContext<'_>,
+        llm: &GenerationLlmConfig<'_>,
+        strategy: domain::grounding::ImageStrategy,
+        card_id: i64,
+        card_title: &str,
+        card_content: &str,
+        use_image: bool,
+        image_query: &str,
+    ) -> Vec<String> {
+        if !use_image
+            || image_query.trim().is_empty()
+            || matches!(strategy, domain::grounding::ImageStrategy::None)
+        {
+            return Vec::new();
+        }
+
+        let pool = match image_pool::list_pool_images(&ctx.state.db, ctx.user_id).await {
+            Ok(rows) => rows,
+            Err(err) => {
+                tracing::warn!(error = ?err, "failed to list pool images");
+                Vec::new()
+            }
+        };
+        let pool_meta: Vec<llm::PoolImageMeta> = pool
+            .iter()
+            .map(|row| llm::PoolImageMeta {
+                id: row.id,
+                name: row.name.clone(),
+                description: row.description.clone(),
+            })
+            .collect();
+        let image_sources =
+            domain::grounding::image_sources_from_setting(&ctx.settings.image_sources);
+
+        let (image_model, image_reasoning) =
+            if matches!(strategy, domain::grounding::ImageStrategy::Agentic) {
+                (llm.grounding_model, llm.grounding_reasoning)
+            } else {
+                (llm.model, llm.reasoning)
+            };
+
+        let retrieved = llm::retrieve_image(
+            strategy,
+            llm::ImageInput {
+                topic_name: ctx.topic_name,
+                card_title,
+                card_content,
+                image_query,
+                model: image_model,
+                api_key: llm.api_key,
+                api_base: llm.base_url,
+                reasoning: image_reasoning,
+                pool: &pool_meta,
+                sources: &image_sources,
+                search_api_key: &ctx.settings.search_api_key,
+                search_base_url: &ctx.settings.search_base_url,
+            },
+        )
+        .await;
+
+        let Some(image) = retrieved else {
+            return Vec::new();
+        };
+
+        // Resolve the data-URL: pool strategy returns a pool_id whose bytes live on disk.
+        let data_url = match image.pool_id {
+            Some(pool_id) => match pool.iter().find(|row| row.id == pool_id) {
+                Some(row) => match Self::pool_image_data_url(ctx, row).await {
+                    Some(data_url) => data_url,
+                    None => return Vec::new(),
+                },
+                None => return Vec::new(),
+            },
+            None => image.data_url,
+        };
+
+        match image_store::replace_card_images(
+            &ctx.state.db,
+            &ctx.state.image_dir,
+            ctx.user_id,
+            card_id,
+            vec![data_url.clone()],
+        )
+        .await
+        {
+            Ok(()) => vec![data_url],
+            Err((_, message)) => {
+                tracing::warn!(message, "failed to store retrieved card image");
+                Vec::new()
+            }
+        }
+    }
+
+    /// Load a pool image's bytes from disk and encode to a base64 data-URL.
+    async fn pool_image_data_url(
+        ctx: &GenerationContext<'_>,
+        row: &image_pool::ImagePoolRecord,
+    ) -> Option<String> {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        let path = ctx.state.image_dir.join(&row.storage_path);
+        match tokio::fs::read(&path).await {
+            Ok(bytes) => Some(format!(
+                "data:{};base64,{}",
+                row.mime_type,
+                STANDARD.encode(&bytes)
+            )),
+            Err(err) => {
+                tracing::warn!(error = ?err, path = ?path, "failed to read pool image bytes");
+                None
+            }
+        }
     }
 
     pub async fn record_llm_token_usage(

@@ -1,4 +1,5 @@
 pub mod autoupdate;
+pub mod documents;
 pub mod keys;
 pub mod settings;
 pub mod tipcards;

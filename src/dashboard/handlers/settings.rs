@@ -29,18 +29,21 @@ pub async fn update_settings(
     let user = current_user(&state, &session).await?;
     let patch = config::SettingsPatch {
         model: req.model,
+        grounding_model: req.grounding_model,
+        vision_model: req.vision_model,
         compress_model: req.compress_model,
         template: req.template,
         api_key: req.api_key,
         base_url: req.base_url,
         compress_base_url: req.compress_base_url,
         reasoning_effort: req.reasoning_effort,
+        grounding_reasoning_effort: req.grounding_reasoning_effort,
         compress_reasoning_effort: req.compress_reasoning_effort,
         compression_level: req.compression_level,
-        color_scheme: req.color_scheme,
-        transparency: req.transparency,
-        blur_intensity: req.blur_intensity,
-        ui_blur: req.ui_blur,
+        color_scheme: None,
+        transparency: None,
+        blur_intensity: None,
+        ui_blur: None,
         autoupdate_enabled: req.autoupdate_enabled,
         autoupdate_repo: req.autoupdate_repo,
         autoupdate_branch: req.autoupdate_branch,
@@ -49,6 +52,11 @@ pub async fn update_settings(
         daily_time_zone: req.daily_time_zone,
         daily_update_time: req.daily_update_time,
         max_active_cards: req.max_active_cards,
+        grounding_strategy: req.grounding_strategy,
+        image_strategy: req.image_strategy,
+        search_api_key: req.search_api_key,
+        search_base_url: req.search_base_url,
+        image_sources: req.image_sources,
     };
     if user.role == "admin"
         && (patch.autoupdate_enabled.is_some()

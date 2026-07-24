@@ -20,6 +20,17 @@ pub struct TokenUsage {
 pub struct LlmResponse {
     pub content: String,
     pub usage: TokenUsage,
+    pub citations: Vec<String>,
+}
+
+impl LlmResponse {
+    fn error(message: String) -> Self {
+        Self {
+            content: message,
+            usage: TokenUsage::default(),
+            citations: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -43,11 +54,30 @@ pub async fn create_chat_completion(
     reasoning: &ReasoningConfig,
     max_tokens: Option<u32>,
 ) -> LlmResponse {
+    create_chat_completion_grounded(
+        model, prompt, api_key, api_base, reasoning, max_tokens, false,
+    )
+    .await
+}
+
+/// Send a vision request: an image (as a data URL) plus a text prompt, using the
+/// OpenAI-compatible chat completions format with `image_url` content. Returns
+/// the model's text response. Uses a direct JSON payload (not async-openai's
+/// typed builder) because the typed builder's image support is cumbersome.
+pub async fn create_vision_completion(
+    model: &str,
+    prompt: &str,
+    image_data_url: &str,
+    api_key: &str,
+    api_base: &str,
+    max_tokens: Option<u32>,
+) -> LlmResponse {
     tracing::info!(
         model,
         prompt_len = prompt.len(),
+        image_len = image_data_url.len(),
         ?max_tokens,
-        "LLM chat completion request"
+        "LLM vision completion request"
     );
     let config = OpenAIConfig::new()
         .with_api_key(api_key)
@@ -55,7 +85,22 @@ pub async fn create_chat_completion(
     let client = Client::with_config(config);
     let base_url = client.config().api_base();
 
-    let body = build_chat_body(model, prompt, reasoning, max_tokens);
+    let body = json!({
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": image_data_url}}
+            ]
+        }]
+    });
+
+    let mut body = body;
+    if let Some(limit) = max_tokens {
+        body["max_tokens"] = json!(limit);
+    }
+
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
     let http = http_client::shared();
 
@@ -64,30 +109,74 @@ pub async fn create_chat_completion(
             if !res.status().is_success() {
                 let status = res.status();
                 let error_body = res.text().await.unwrap_or_default();
-                return LlmResponse {
-                    content: format!("LLM Error: HTTP {} {}", status, error_body),
-                    usage: TokenUsage::default(),
-                };
+                return LlmResponse::error(format!("LLM Error: HTTP {} {}", status, error_body));
             }
 
             match res.json::<Value>().await {
-                Ok(value) => match serde_json::from_value::<CreateChatCompletionResponse>(value) {
-                    Ok(response) => map_response(response),
-                    Err(e) => LlmResponse {
-                        content: format!("LLM Error: {}", e),
-                        usage: TokenUsage::default(),
-                    },
-                },
-                Err(e) => LlmResponse {
-                    content: format!("LLM Error: {}", e),
-                    usage: TokenUsage::default(),
-                },
+                Ok(value) => {
+                    let citations = extract_citations(&value);
+                    match serde_json::from_value::<CreateChatCompletionResponse>(value) {
+                        Ok(response) => map_response(response, citations),
+                        Err(e) => LlmResponse::error(format!("LLM Error: {}", e)),
+                    }
+                }
+                Err(e) => LlmResponse::error(format!("LLM Error: {}", e)),
             }
         }
-        Err(e) => LlmResponse {
-            content: format!("LLM Error: {}", e),
-            usage: TokenUsage::default(),
-        },
+        Err(e) => LlmResponse::error(format!("LLM Error: {}", e)),
+    }
+}
+
+/// Same as [`create_chat_completion`] but optionally injects OpenRouter's
+/// server-side web grounding plugin. When `web_search` is true and the provider
+/// supports it, the response carries inline URL citations in `LlmResponse::citations`.
+/// For providers that ignore the `plugins` field the flag is harmless.
+pub async fn create_chat_completion_grounded(
+    model: &str,
+    prompt: &str,
+    api_key: &str,
+    api_base: &str,
+    reasoning: &ReasoningConfig,
+    max_tokens: Option<u32>,
+    web_search: bool,
+) -> LlmResponse {
+    tracing::info!(
+        model,
+        prompt_len = prompt.len(),
+        ?max_tokens,
+        web_search,
+        "LLM chat completion request"
+    );
+    let config = OpenAIConfig::new()
+        .with_api_key(api_key)
+        .with_api_base(api_base);
+    let client = Client::with_config(config);
+    let base_url = client.config().api_base();
+
+    let body = build_chat_body(model, prompt, reasoning, max_tokens, web_search);
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    let http = http_client::shared();
+
+    match http.post(url).bearer_auth(api_key).json(&body).send().await {
+        Ok(res) => {
+            if !res.status().is_success() {
+                let status = res.status();
+                let error_body = res.text().await.unwrap_or_default();
+                return LlmResponse::error(format!("LLM Error: HTTP {} {}", status, error_body));
+            }
+
+            match res.json::<Value>().await {
+                Ok(value) => {
+                    let citations = extract_citations(&value);
+                    match serde_json::from_value::<CreateChatCompletionResponse>(value) {
+                        Ok(response) => map_response(response, citations),
+                        Err(e) => LlmResponse::error(format!("LLM Error: {}", e)),
+                    }
+                }
+                Err(e) => LlmResponse::error(format!("LLM Error: {}", e)),
+            }
+        }
+        Err(e) => LlmResponse::error(format!("LLM Error: {}", e)),
     }
 }
 
@@ -96,6 +185,7 @@ fn build_chat_body(
     prompt: &str,
     reasoning: &ReasoningConfig,
     max_tokens: Option<u32>,
+    web_search: bool,
 ) -> Value {
     let effort = normalize_reasoning_effort(&reasoning.effort);
     let message = ChatCompletionRequestUserMessageArgs::default()
@@ -122,10 +212,41 @@ fn build_chat_body(
         body["max_tokens"] = json!(limit);
     }
 
+    if web_search {
+        body["plugins"] = json!([{ "id": "web", "max_results": 5 }]);
+    }
+
     body
 }
 
-fn map_response(response: CreateChatCompletionResponse) -> LlmResponse {
+/// Extract URL citations from the raw chat-completion response. OpenRouter returns
+/// them under `choices[0].message.annotations[].url_citation.url`; these may not
+/// deserialize cleanly into the typed struct, so read them from the `Value` first.
+fn extract_citations(value: &Value) -> Vec<String> {
+    value
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(|message| message.get("annotations"))
+        .and_then(Value::as_array)
+        .map(|annotations| {
+            annotations
+                .iter()
+                .filter_map(|annotation| {
+                    annotation
+                        .get("url_citation")
+                        .and_then(|citation| citation.get("url"))
+                        .or_else(|| annotation.get("url"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn map_response(response: CreateChatCompletionResponse, citations: Vec<String>) -> LlmResponse {
     let content = response
         .choices
         .into_iter()
@@ -142,7 +263,11 @@ fn map_response(response: CreateChatCompletionResponse) -> LlmResponse {
         })
         .unwrap_or_default();
 
-    LlmResponse { content, usage }
+    LlmResponse {
+        content,
+        usage,
+        citations,
+    }
 }
 
 fn normalize_reasoning_effort(effort: &str) -> &'static str {
@@ -167,6 +292,7 @@ mod tests {
             "hello",
             &ReasoningConfig::new("xhigh"),
             None,
+            false,
         );
 
         assert_eq!(body["model"], "google/gemini-2.5-pro");
@@ -184,6 +310,7 @@ mod tests {
             "hello",
             &ReasoningConfig::new("none"),
             None,
+            false,
         );
 
         assert_eq!(body["reasoning"]["effort"], "none");
@@ -197,6 +324,7 @@ mod tests {
             "hello",
             &ReasoningConfig::new("none"),
             Some(1024),
+            false,
         );
 
         assert_eq!(body["max_tokens"], 1024);
@@ -235,7 +363,7 @@ mod tests {
             }),
         };
 
-        let result = map_response(response);
+        let result = map_response(response, Vec::new());
 
         assert_eq!(result.content, "tip content");
         assert_eq!(result.usage.prompt_tokens, 10);
@@ -270,7 +398,7 @@ mod tests {
             usage: None,
         };
 
-        let result = map_response(response);
+        let result = map_response(response, Vec::new());
 
         assert_eq!(result.content, "Failed parsing text");
         assert_eq!(result.usage.prompt_tokens, 0);

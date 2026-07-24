@@ -36,12 +36,15 @@ pub fn settings_response(settings: config::Settings, show_autoupdate: bool) -> S
             .unwrap_or("unknown")
             .to_string(),
         model: settings.llm_model,
+        grounding_model: settings.llm_grounding_model,
+        vision_model: settings.llm_vision_model,
         compress_model: settings.llm_compress_model,
         template: settings.prompt_template,
         api_key: settings.llm_api_key,
         base_url: settings.llm_base_url,
         compress_base_url: settings.llm_compress_base_url,
         reasoning_effort: settings.llm_reasoning_effort,
+        grounding_reasoning_effort: settings.llm_grounding_reasoning_effort,
         compress_reasoning_effort: settings.llm_compress_reasoning_effort,
         compression_level: settings.llm_compression_level,
         color_scheme: settings.color_scheme,
@@ -76,6 +79,11 @@ pub fn settings_response(settings: config::Settings, show_autoupdate: bool) -> S
         daily_time_zone: settings.daily_time_zone,
         daily_update_time: settings.daily_update_time,
         max_active_cards: settings.max_active_cards,
+        grounding_strategy: settings.grounding_strategy,
+        image_strategy: settings.image_strategy,
+        search_api_key: settings.search_api_key,
+        search_base_url: settings.search_base_url,
+        image_sources: settings.image_sources,
     }
 }
 

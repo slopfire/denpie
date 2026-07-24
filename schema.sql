@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS topics (
     compression_level TEXT,
     icon_id TEXT,
     color_hue INTEGER,
+    grounding_strategy TEXT,
+    image_strategy TEXT,
     FOREIGN KEY(user_id) REFERENCES users(id),
     UNIQUE(user_id, name)
 );
@@ -33,6 +35,8 @@ CREATE TABLE IF NOT EXISTS tipcards (
     title TEXT,
     full_content TEXT NOT NULL,
     compressed_content TEXT NOT NULL,
+    use_image INTEGER NOT NULL DEFAULT 0,
+    image_query TEXT NOT NULL DEFAULT '',
     image_data TEXT NOT NULL DEFAULT '[]',
     pinned INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -65,6 +69,9 @@ CREATE TABLE IF NOT EXISTS tipcard_images (
     FOREIGN KEY(card_id) REFERENCES tipcards(id)
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tipcard_images_card_position
+ON tipcard_images(card_id, position);
+
 CREATE TABLE IF NOT EXISTS llm_token_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL,
@@ -89,20 +96,25 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS user_settings (
     user_id TEXT PRIMARY KEY,
     llm_model TEXT NOT NULL,
+    llm_grounding_model TEXT NOT NULL DEFAULT '',
+    llm_vision_model TEXT NOT NULL,
     llm_compress_model TEXT NOT NULL,
     prompt_template TEXT NOT NULL,
     llm_api_key TEXT NOT NULL,
     llm_base_url TEXT NOT NULL,
     llm_compress_base_url TEXT NOT NULL,
     llm_reasoning_effort TEXT NOT NULL,
+    llm_grounding_reasoning_effort TEXT NOT NULL DEFAULT '',
     llm_compress_reasoning_effort TEXT NOT NULL,
     llm_compression_level TEXT NOT NULL,
-    color_scheme TEXT NOT NULL,
-    transparency TEXT NOT NULL,
-    blur_intensity TEXT NOT NULL,
     daily_time_zone TEXT NOT NULL,
     daily_update_time TEXT NOT NULL,
     max_active_cards INTEGER NOT NULL DEFAULT 0,
+    grounding_strategy TEXT NOT NULL DEFAULT 'factual',
+    image_strategy TEXT NOT NULL DEFAULT 'none',
+    search_api_key TEXT NOT NULL DEFAULT '',
+    search_base_url TEXT NOT NULL DEFAULT 'https://api.tavily.com',
+    image_sources TEXT NOT NULL DEFAULT '[]',
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
 
@@ -123,3 +135,45 @@ CREATE TABLE IF NOT EXISTS passkeys (
     passkey TEXT NOT NULL, -- JSON serialized webauthn_rs::Passkey
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
+
+CREATE TABLE IF NOT EXISTS user_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    source_type TEXT NOT NULL, -- 'document' or 'link'
+    title TEXT NOT NULL,
+    url TEXT,
+    content TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS document_topics (
+    document_id INTEGER NOT NULL,
+    topic_id INTEGER NOT NULL,
+    PRIMARY KEY(document_id, topic_id),
+    FOREIGN KEY(document_id) REFERENCES user_documents(id),
+    FOREIGN KEY(topic_id) REFERENCES topics(id)
+);
+
+CREATE TABLE IF NOT EXISTS image_pool (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '[]',
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS document_chunks USING fts5(
+    document_id UNINDEXED,
+    user_id UNINDEXED,
+    chunk
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_documents_user_id ON user_documents(user_id);
+CREATE INDEX IF NOT EXISTS idx_document_topics_topic_id ON document_topics(topic_id);
+CREATE INDEX IF NOT EXISTS idx_image_pool_user_id ON image_pool(user_id);

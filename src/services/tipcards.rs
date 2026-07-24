@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use crate::{
-    AppState, db::repositories::tipcards as tipcards_repo, domain, image_store, types::ApiResult,
+    AppState,
+    db::repositories::{image_pool, tipcards as tipcards_repo},
+    domain, image_store,
+    types::ApiResult,
 };
 
 pub use tipcards_repo::TipcardFilter;
@@ -69,6 +72,73 @@ impl TipcardService {
     ) -> ApiResult<()> {
         let image_data = validate_image_data(image_data)?;
         image_store::replace_card_images(&state.db, &state.image_dir, user_id, id, image_data).await
+    }
+
+    pub async fn append_images(
+        state: &AppState,
+        user_id: &str,
+        card_id: i64,
+        image_data: Vec<String>,
+        pool_image_ids: Vec<i64>,
+        urls: Vec<String>,
+    ) -> ApiResult<()> {
+        // Verify ownership before any remote request or filesystem write.
+        let existing = tipcards_repo::list_images(&state.db, user_id, card_id)
+            .await
+            .map_err(|err| err.into_status_body())?;
+        tipcards_repo::get_tipcard_info(&state.db, user_id, card_id)
+            .await
+            .map_err(|err| err.into_status_body())?;
+        let image_data = validate_image_data(image_data)?;
+        let urls: Vec<String> = urls
+            .into_iter()
+            .filter(|url| !url.trim().is_empty())
+            .collect();
+        if existing
+            .len()
+            .saturating_add(image_data.len())
+            .saturating_add(pool_image_ids.len())
+            .saturating_add(urls.len())
+            > domain::tipcard::MAX_CARD_IMAGES
+        {
+            return Err((
+                axum::http::StatusCode::BAD_REQUEST,
+                "A tipcard can have at most 4 images".to_string(),
+            ));
+        }
+        let mut incoming: Vec<image_store::IncomingImage> = image_data
+            .into_iter()
+            .map(image_store::IncomingImage::DataUrl)
+            .collect();
+
+        for pool_id in pool_image_ids {
+            let image = image_pool::find_pool_image(&state.db, user_id, pool_id)
+                .await
+                .map_err(|err| err.into_status_body())?
+                .ok_or_else(|| {
+                    (
+                        axum::http::StatusCode::NOT_FOUND,
+                        "Pool image not found".to_string(),
+                    )
+                })?;
+            let bytes = tokio::fs::read(state.image_dir.join(image.storage_path))
+                .await
+                .map_err(|_| {
+                    (
+                        axum::http::StatusCode::NOT_FOUND,
+                        "Pool image file not found".to_string(),
+                    )
+                })?;
+            incoming.push(image_store::IncomingImage::Bytes {
+                bytes,
+                mime_type: image.mime_type,
+            });
+        }
+        for url in urls {
+            incoming.push(image_store::download_remote_image(&url).await?);
+        }
+        image_store::append_card_images(&state.db, &state.image_dir, user_id, card_id, incoming)
+            .await
     }
 }
 

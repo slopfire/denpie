@@ -19,6 +19,10 @@ impl CardContext {
         render_titles(&self.dismissed_titles)
     }
 
+    pub fn existing_titles(&self) -> &[String] {
+        &self.existing_titles
+    }
+
     pub fn render_all(&self) -> String {
         let existing = self.render_existing();
         let dismissed = self.render_dismissed();

@@ -1,7 +1,7 @@
 use axum::{
     Router,
     body::Body,
-    extract::{Path, Request, State},
+    extract::{DefaultBodyLimit, Path, Request, State},
     http::{HeaderMap, StatusCode},
     http::{HeaderValue, header},
     middleware::Next,
@@ -86,9 +86,47 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .route("/app/tips", post(dashboard::app_tips))
         .route("/app/flow-cards", get(dashboard::flow_cards))
         .route("/app/flow-cards/:id", get(dashboard::flow_card_detail))
+        .route(
+            "/app/tipcard-images/append",
+            post(dashboard::append_tipcard_images).layer(DefaultBodyLimit::max(
+                crate::domain::tipcard::MAX_IMAGE_REQUEST_BYTES,
+            )),
+        )
         .route("/app/tipcard-images/:id", get(serve_tipcard_image))
+        .route("/app/pool-images/:id", get(serve_pool_image))
         .route("/app/daily-refresh", post(dashboard::force_daily_refresh))
         .route("/app/review", post(dashboard::app_review))
+        .route(
+            "/app/documents",
+            get(dashboard::list_documents)
+                .post(dashboard::add_document)
+                .delete(dashboard::delete_document),
+        )
+        .route("/app/documents/:id", get(dashboard::get_document))
+        .route("/app/documents/explore", post(dashboard::explore_link))
+        .route(
+            "/app/documents/:id/topics",
+            post(dashboard::attach_document_topic),
+        )
+        .route(
+            "/app/documents/:id/topics/:topic_id",
+            delete(dashboard::detach_document_topic),
+        )
+        .route("/app/documents/upload", post(dashboard::upload_document))
+        .route(
+            "/app/image-pool",
+            get(dashboard::list_pool_images)
+                .post(dashboard::add_pool_image)
+                .delete(dashboard::delete_pool_image)
+                .patch(dashboard::rename_pool_image)
+                .layer(DefaultBodyLimit::max(
+                    crate::domain::image::MAX_IMAGE_UPLOAD_REQUEST_BYTES,
+                )),
+        )
+        .route(
+            "/app/image-pool/tag",
+            delete(dashboard::remove_pool_image_tag),
+        )
         .route("/auth/passkeys", get(auth::list_passkeys))
         .route("/auth/passkeys/:id", delete(auth::delete_passkey))
         .route("/auth/passkeys/register/start", post(auth::register_start))
@@ -163,6 +201,55 @@ async fn serve_tipcard_image(
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
     let etag = format!("\"tipcard-image-{}-{}\"", image.id, image.byte_size);
+    let etag_header =
+        HeaderValue::from_str(&etag).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if etag_matches(headers.get(header::IF_NONE_MATCH), &etag) {
+        return Ok((
+            StatusCode::NOT_MODIFIED,
+            [
+                (
+                    header::CACHE_CONTROL,
+                    HeaderValue::from_static("private, no-cache, max-age=0, must-revalidate"),
+                ),
+                (header::ETAG, etag_header),
+            ],
+        )
+            .into_response());
+    }
+    let path = state.image_dir.join(&image.storage_path);
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let content_type = HeaderValue::from_str(&image.mime_type)
+        .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
+    Ok((
+        [
+            (header::CONTENT_TYPE, content_type),
+            (
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, no-cache, max-age=0, must-revalidate"),
+            ),
+            (header::ETAG, etag_header),
+        ],
+        bytes,
+    )
+        .into_response())
+}
+
+async fn serve_pool_image(
+    State(state): State<Arc<AppState>>,
+    session: tower_sessions::Session,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<Response, StatusCode> {
+    let user = crate::auth::current_user(&state, &session)
+        .await
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let image = crate::db::repositories::image_pool::find_pool_image(&state.db, &user.id, id)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let etag = format!("\"pool-image-{}-{}\"", image.id, image.byte_size);
     let etag_header =
         HeaderValue::from_str(&etag).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if etag_matches(headers.get(header::IF_NONE_MATCH), &etag) {

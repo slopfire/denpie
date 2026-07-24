@@ -15,6 +15,7 @@ pub async fn pick_topic_icon(
         return LlmResponse {
             content: fallback,
             usage: TokenUsage::default(),
+            citations: Vec::new(),
         };
     }
 
@@ -38,6 +39,7 @@ pub async fn pick_topic_icon(
             return LlmResponse {
                 content: icon,
                 usage: response.usage,
+                citations: Vec::new(),
             };
         }
     }
@@ -45,6 +47,7 @@ pub async fn pick_topic_icon(
     LlmResponse {
         content: fallback,
         usage: response.usage,
+        citations: Vec::new(),
     }
 }
 
