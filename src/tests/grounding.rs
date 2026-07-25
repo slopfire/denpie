@@ -208,6 +208,8 @@ async fn migration_adds_grounding_schema_to_old_db() {
     assert!(has_col("topics", "image_strategy").await);
     assert!(has_col("tipcards", "use_image").await);
     assert!(has_col("tipcards", "image_query").await);
+    assert!(has_col("review_states", "feedback").await);
+    assert!(has_col("review_states", "reviewed_at").await);
     assert!(has_col("user_settings", "grounding_strategy").await);
     assert!(has_col("user_settings", "llm_grounding_model").await);
     assert!(has_col("user_settings", "llm_grounding_reasoning_effort").await);
@@ -481,4 +483,59 @@ async fn pending_backlog_promotes_oldest_first() {
             .unwrap()
             .is_none()
     );
+}
+
+#[tokio::test]
+async fn pending_only_topic_promotes_one_card_for_page_load() {
+    let pool = setup_db().await;
+    let user = "reload_pending_user";
+    sqlx::query(
+        "INSERT OR IGNORE INTO users (id, username, role) VALUES (?, 'reload-pending', 'user')",
+    )
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let topic_id: i64 = sqlx::query_scalar(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES (?, 'reload deck', 'repeatable_tip') RETURNING id",
+    )
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    for index in 0..3 {
+        tipcards::create_generated_with_status(
+            &pool,
+            user,
+            topic_id,
+            "repeatable_tip",
+            &format!("Card {index}"),
+            &format!("Full {index}"),
+            &format!("Compact {index}"),
+            false,
+            "",
+            "pending",
+        )
+        .await
+        .unwrap();
+    }
+
+    tipcards::promote_pending_for_empty_topics(&pool, user)
+        .await
+        .unwrap();
+
+    let (active, pending) = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT
+            SUM(CASE WHEN r.status = 'active' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END)
+         FROM review_states r
+         JOIN tipcards t ON t.id = r.card_id
+         WHERE t.user_id = ?",
+    )
+    .bind(user)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(active, 1);
+    assert_eq!(pending, 2);
 }

@@ -5,9 +5,9 @@ use crate::llm::cards::{ARRAY_FORMAT_INSTRUCTIONS, build_card_from_parsed, parse
 use crate::llm::transport::create_chat_completion_grounded;
 
 use super::search::{render_hits, search_external};
-use super::{GroundingInput, GroundingOutcome, add_usage, factual_fallback};
+use super::{GroundingInput, GroundingOutcome, factual_fallback};
 
-const MIN_CARDS: i64 = 1;
+const MIN_CARDS: i64 = 5;
 const MAX_CARDS: i64 = 10;
 
 pub async fn generate(input: GroundingInput<'_>) -> GroundingOutcome {
@@ -32,7 +32,10 @@ pub async fn generate(input: GroundingInput<'_>) -> GroundingOutcome {
     let avoid = render_avoid_list(input.existing_titles);
 
     let (research_prompt, web_search) = if input.search.provider_native() {
-        (build_prompt(input.topic_name, n, &avoid, None), true)
+        (
+            build_prompt(input.rendered_prompt, input.topic_name, n, &avoid, None),
+            true,
+        )
     } else {
         let hits = search_external(&input.search, input.topic_name, 5).await;
         tracing::info!(
@@ -42,7 +45,13 @@ pub async fn generate(input: GroundingInput<'_>) -> GroundingOutcome {
         );
         let sources = render_hits(&hits);
         (
-            build_prompt(input.topic_name, n, &avoid, Some(&sources)),
+            build_prompt(
+                input.rendered_prompt,
+                input.topic_name,
+                n,
+                &avoid,
+                Some(&sources),
+            ),
             false,
         )
     };
@@ -77,7 +86,10 @@ pub async fn generate(input: GroundingInput<'_>) -> GroundingOutcome {
     );
 
     let citations = response.citations.clone();
-    let parsed = parse_card_array(&response.content);
+    let parsed = parse_card_array(&response.content)
+        .into_iter()
+        .take(n as usize)
+        .collect::<Vec<_>>();
     tracing::info!(
         topic = input.topic_name,
         parsed_cards = parsed.len(),
@@ -119,32 +131,27 @@ pub async fn generate(input: GroundingInput<'_>) -> GroundingOutcome {
         cards.push(card);
     }
 
-    let mut iter = cards.into_iter();
-    let primary = iter.next().expect("non-empty after is_empty check");
-    let pending: Vec<_> = iter.collect();
-
-    let mut usage = primary.usage.clone();
-    for card in &pending {
-        usage = add_usage(&usage, &card.usage);
-    }
+    let outcome = GroundingOutcome::from_cards(cards, citations.clone())
+        .expect("non-empty after is_empty check");
 
     tracing::info!(
         topic = input.topic_name,
-        pending_cards = pending.len(),
+        pending_cards = outcome.pending.len(),
         citations = citations.len(),
-        total_tokens = usage.total_tokens,
+        total_tokens = outcome.usage.total_tokens,
         "agentic grounding completed"
     );
 
-    GroundingOutcome {
-        primary,
-        pending,
-        citations,
-        usage,
-    }
+    outcome
 }
 
-fn build_prompt(topic: &str, n: i64, avoid: &str, sources: Option<&str>) -> String {
+fn build_prompt(
+    rendered_prompt: &str,
+    topic: &str,
+    n: i64,
+    avoid: &str,
+    sources: Option<&str>,
+) -> String {
     let sources_block = match sources {
         Some(sources) if !sources.is_empty() => {
             format!("\n\nWeb sources to ground your facts:\n{sources}\n")
@@ -152,7 +159,8 @@ fn build_prompt(topic: &str, n: i64, avoid: &str, sources: Option<&str>) -> Stri
         _ => String::new(),
     };
     format!(
-        "Research the topic \"{topic}\" and write {n} genuinely useful, distinct daily tip cards.\n\
+        "Apply this learner-specific generation brief to every card:\n{rendered_prompt}\n\n\
+         Research the topic \"{topic}\" and write {n} genuinely useful, distinct daily tip cards.\n\
          Each card must be practical, specific, accurate, and worth saving.\n\
          {avoid}{sources_block}\n\
          {format}",
@@ -171,4 +179,24 @@ fn render_avoid_list(existing_titles: &[String]) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!("Do NOT duplicate these existing card titles or ideas:\n{list}\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_prompt;
+
+    #[test]
+    fn batch_prompt_keeps_learner_feedback() {
+        let prompt = build_prompt(
+            "Known: basic kana. Too difficult: literary kanji.",
+            "Japanese",
+            3,
+            "",
+            None,
+        );
+
+        assert!(prompt.contains("Known: basic kana"));
+        assert!(prompt.contains("Too difficult: literary kanji"));
+        assert!(prompt.contains("write 3"));
+    }
 }

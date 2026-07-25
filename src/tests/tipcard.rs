@@ -87,7 +87,7 @@ async fn test_legacy_global_topic_unique_index_is_removed() {
 }
 
 #[tokio::test]
-async fn test_topic_daily_card_is_reused_after_review() {
+async fn test_repeatable_topic_returns_one_new_card_after_review() {
     let (url, client) = spawn_test_server().await;
     let api_key = bootstrap_api_key(&url, &client, "daily_topic").await;
 
@@ -98,7 +98,7 @@ async fn test_topic_daily_card_is_reused_after_review() {
             auth: api_key.clone(),
             op: Some(crate::api::pb::api_request::Op::Tips(
                 crate::api::pb::TipsQuery {
-                    count: 1,
+                    count: 5,
                     topics: "rust".into(),
                     tipcard_type: "repeatable_tip".into(),
                     exclude_card_ids: vec![],
@@ -158,7 +158,6 @@ async fn test_topic_daily_card_is_reused_after_review() {
             _ => None,
         })
         .expect("rust topic");
-
     let update_topic = post_api(
         &url,
         &client,
@@ -210,8 +209,8 @@ async fn test_topic_daily_card_is_reused_after_review() {
             other => panic!("unexpected response: {:?}", other),
         };
 
-    assert_eq!(second_tips.len(), 2);
-    assert_eq!(second_tips[0].id, first.id);
+    assert_eq!(second_tips.len(), 1);
+    assert_ne!(second_tips[0].id, first.id);
 
     let topics_response = post_api(
         &url,
@@ -804,6 +803,66 @@ async fn test_max_active_cards_blocks_new_manual_card_but_keeps_due_cards_availa
     .unwrap();
     assert_eq!(due_cards.len(), 1);
     assert_eq!(due_cards[0].id, card_id);
+
+    let pending_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "Pending",
+        "Pending full",
+        "Pending compact",
+        false,
+        "",
+        "pending",
+    )
+    .await
+    .unwrap();
+    let blocked_promotion = crate::api::build_tips(
+        &state,
+        TEST_USER_ID,
+        crate::api::TipsJsonRequest {
+            count: Some(1),
+            topics: "spanish".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+            exclude_card_ids: Some(vec![card_id]),
+            manual_content: None,
+            manual_compressed_content: None,
+            manual_image_data: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(blocked_promotion.is_empty());
+    let pending_status: String =
+        sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = ?")
+            .bind(pending_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(pending_status, "pending");
+
+    crate::api::apply_review(&state, TEST_USER_ID, card_id, 1, "again")
+        .await
+        .unwrap();
+    let promoted = crate::api::build_tips(
+        &state,
+        TEST_USER_ID,
+        crate::api::TipsJsonRequest {
+            count: Some(1),
+            topics: "spanish".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+            exclude_card_ids: Some(vec![card_id]),
+            manual_content: None,
+            manual_compressed_content: None,
+            manual_image_data: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(promoted.len(), 1);
+    assert_ne!(promoted[0].id, card_id);
+    assert_ne!(promoted[0].id, pending_id);
 
     let err = match crate::api::build_tips(
         &state,

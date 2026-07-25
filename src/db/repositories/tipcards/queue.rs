@@ -25,6 +25,10 @@ pub async fn find_daily_topic_cards(
     daily_query.push(" AND t.tipcard_type = ");
     daily_query.push_bind(tipcard_type);
     daily_query.push(" AND r.status = 'active'");
+    if tipcard_type == "repeatable_tip" {
+        daily_query.push(" AND r.reviewed_at IS NULL");
+    }
+    push_personalized_freshness(&mut daily_query, user_id, topic_id, tipcard_type);
     daily_query.push(" AND (r.daily_refreshed_at IS NULL OR r.daily_refreshed_at < ");
     daily_query.push_bind(
         daily_window_start
@@ -59,7 +63,9 @@ pub async fn find_due_topic_cards(
     due_query.push_bind(topic_id);
     due_query.push(" AND t.tipcard_type = ");
     due_query.push_bind(tipcard_type);
-    due_query.push(" AND r.status = 'active' AND (r.next_review_at <= ");
+    due_query.push(" AND r.status = 'active'");
+    push_personalized_freshness(&mut due_query, user_id, topic_id, tipcard_type);
+    due_query.push(" AND (r.next_review_at <= ");
     due_query.push_bind(now);
     due_query.push(" OR t.pinned = 1)");
     push_exclusions(&mut due_query, exclude_card_ids);
@@ -85,11 +91,32 @@ pub async fn active_card_count(pool: &SqlitePool, user_id: &str) -> AppResult<i6
         "SELECT COUNT(*)
          FROM review_states r
          JOIN tipcards t ON t.id = r.card_id
-         WHERE t.user_id = ? AND r.status = 'active'",
+         WHERE t.user_id = ? AND r.status = 'active'
+           AND (t.tipcard_type != 'repeatable_tip' OR r.next_review_at <= ?)",
     )
     .bind(user_id)
+    .bind(Utc::now())
     .fetch_one(pool)
     .await?)
+}
+
+pub async fn has_active_topic_card(
+    pool: &SqlitePool,
+    user_id: &str,
+    topic_id: i64,
+) -> AppResult<bool> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT EXISTS(
+            SELECT 1 FROM review_states r
+            JOIN tipcards t ON t.id = r.card_id
+            WHERE t.user_id = ? AND t.topic_id = ? AND r.status = 'active'
+        )",
+    )
+    .bind(user_id)
+    .bind(topic_id)
+    .fetch_one(pool)
+    .await?
+        != 0)
 }
 
 fn push_exclusions<'args>(
@@ -104,6 +131,33 @@ fn push_exclusions<'args>(
         }
         separated.push_unseparated(")");
     }
+}
+
+fn push_personalized_freshness<'args>(
+    builder: &mut QueryBuilder<'args, Sqlite>,
+    user_id: &'args str,
+    topic_id: i64,
+    tipcard_type: &'args str,
+) {
+    if tipcard_type != "repeatable_tip" {
+        return;
+    }
+    builder.push(
+        " AND (t.pinned = 1 OR COALESCE(r.repeats, 0) > 0 OR t.created_at >= COALESCE((
+            SELECT MAX(r2.reviewed_at)
+            FROM review_states r2
+            JOIN tipcards t2 ON t2.id = r2.card_id
+            WHERE t2.user_id = ",
+    );
+    builder.push_bind(user_id);
+    builder.push(" AND t2.topic_id = ");
+    builder.push_bind(topic_id);
+    builder.push(" AND t2.tipcard_type = ");
+    builder.push_bind(tipcard_type);
+    builder.push(
+        " AND r2.feedback IN ('known', 'not_interested', 'too_difficult')),
+          '0000-01-01 00:00:00'))",
+    );
 }
 
 async fn card_rows(

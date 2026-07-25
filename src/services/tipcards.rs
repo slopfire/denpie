@@ -27,6 +27,8 @@ impl TipcardService {
         cursor: Option<(i64, String, i64)>,
         limit: i64,
     ) -> crate::error::AppResult<Vec<tipcards_repo::FlowCardRecord>> {
+        tipcards_repo::stack_due_repeatable_cards(&state.db, user_id).await?;
+        tipcards_repo::promote_pending_for_empty_topics(&state.db, user_id).await?;
         tipcards_repo::list_flow_cards(&state.db, user_id, cursor, limit).await
     }
 

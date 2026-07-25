@@ -66,7 +66,7 @@ async fn test_unified_tip_review_flow() {
     match resp.result.unwrap() {
         crate::api::pb::api_response::Result::Summary(summary) => {
             assert_eq!(summary.topics, 1);
-            assert_eq!(summary.total_cards, 1);
+            assert_eq!(summary.total_cards, 5);
         }
         other => panic!("unexpected response: {:?}", other),
     }

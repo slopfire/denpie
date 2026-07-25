@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::fs;
 
 #[tokio::test]
-async fn test_force_daily_refresh_keeps_current_daily_card_and_allows_new_card() {
+async fn test_force_daily_refresh_respects_pending_low_water_mark() {
     let (url, client) = spawn_test_server().await;
     let api_key = bootstrap_api_key(&url, &client, "force_daily_refresh").await;
 
@@ -64,7 +64,7 @@ async fn test_force_daily_refresh_keeps_current_daily_card_and_allows_new_card()
             }
             other => panic!("unexpected response: {:?}", other),
         };
-    assert_eq!(refreshed_cards, 1);
+    assert_eq!(refreshed_cards, 0);
 
     let second_response = post_api(
         &url,
@@ -145,7 +145,7 @@ async fn test_force_daily_refresh_keeps_current_daily_card_and_allows_new_card()
 }
 
 #[tokio::test]
-async fn test_daily_refresh_keeps_current_unpinned_daily_card_and_exclude_adds_new_card() {
+async fn test_daily_refresh_keeps_current_card_and_exclude_promotes_pending_card() {
     let settings_path = unique_settings_path();
     fs::write(&settings_path, "{}").await.unwrap();
     let db = setup_db().await;
@@ -189,7 +189,7 @@ async fn test_daily_refresh_keeps_current_unpinned_daily_card_and_exclude_adds_n
         .fetch_one(&state.db)
         .await
         .unwrap();
-    assert_eq!(card_count, 1);
+    assert_eq!(card_count, 5);
 
     // Browser settings sends an empty topic list and JSON null card type.
     let forced = crate::api::tips::force_daily_refresh(
@@ -202,13 +202,13 @@ async fn test_daily_refresh_keeps_current_unpinned_daily_card_and_exclude_adds_n
     )
     .await
     .unwrap();
-    assert_eq!(forced.refreshed_cards, 1);
+    assert_eq!(forced.refreshed_cards, 0);
 
     let after_force = crate::api::build_tips(&state, TEST_USER_ID, request.clone())
         .await
         .unwrap();
     assert_eq!(after_force.len(), 1);
-    assert_ne!(after_force[0].id, first_id);
+    assert_eq!(after_force[0].id, first_id);
 
     let fresh = crate::api::build_tips(
         &state,
@@ -222,12 +222,11 @@ async fn test_daily_refresh_keeps_current_unpinned_daily_card_and_exclude_adds_n
     .unwrap();
     assert_eq!(fresh.len(), 1);
     assert_ne!(fresh[0].id, first_id);
-    assert_eq!(fresh[0].id, after_force[0].id);
     let card_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tipcards")
         .fetch_one(&state.db)
         .await
         .unwrap();
-    assert_eq!(card_count, 2);
+    assert_eq!(card_count, 5);
 }
 
 #[tokio::test]
@@ -263,7 +262,7 @@ async fn test_initial_card_counts_as_current_daily_refresh_window() {
         .fetch_one(&state.db)
         .await
         .unwrap();
-    assert_eq!(card_count, 1);
+    assert_eq!(card_count, 5);
 }
 
 #[tokio::test]
@@ -307,14 +306,37 @@ async fn test_repeatable_review_uses_srs_schedule() {
     .await
     .unwrap();
 
+    let stacked_pending_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "stacked next card",
+        "stacked full content",
+        "stacked compact content",
+        false,
+        "",
+        "pending",
+    )
+    .await
+    .unwrap();
+
     let before = chrono::Utc::now();
-    crate::api::apply_review(&state, TEST_USER_ID, card_id, 1, "repeat")
+    crate::api::apply_review(&state, TEST_USER_ID, card_id, 1, "again")
         .await
         .unwrap();
 
-    let (status, state_data, next_review_at) =
-        sqlx::query_as::<_, (String, String, chrono::DateTime<chrono::Utc>)>(
-            "SELECT status, state_data, next_review_at FROM review_states WHERE card_id = ?",
+    let (status, state_data, feedback, reviewed_at, next_review_at) = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            String,
+            Option<chrono::DateTime<chrono::Utc>>,
+            chrono::DateTime<chrono::Utc>,
+        ),
+    >(
+            "SELECT status, state_data, feedback, reviewed_at, next_review_at FROM review_states WHERE card_id = ?",
         )
         .bind(card_id)
         .fetch_one(&state.db)
@@ -325,7 +347,150 @@ async fn test_repeatable_review_uses_srs_schedule() {
     assert_eq!(state_json["repeats"], 1);
     assert_eq!(state_json["scheduling_state"]["repetitions"], 0);
     assert_eq!(state_json["scheduling_state"]["interval"], 1);
+    assert_eq!(feedback, "again");
+    assert!(reviewed_at.is_some());
     assert!(next_review_at > before);
+    let stacked_status: String =
+        sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = ?")
+            .bind(stacked_pending_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(stacked_status, "pending");
+    let promoted = crate::api::build_tips(
+        &state,
+        TEST_USER_ID,
+        crate::api::TipsJsonRequest {
+            count: Some(1),
+            topics: "spanish".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+            exclude_card_ids: Some(vec![card_id]),
+            manual_content: None,
+            manual_compressed_content: None,
+            manual_image_data: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(promoted.len(), 1);
+    assert_eq!(promoted[0].id, stacked_pending_id);
+
+    let stale_pending_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "stale next card",
+        "stale full content",
+        "stale compact content",
+        false,
+        "",
+        "pending",
+    )
+    .await
+    .unwrap();
+    let stale_active_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "stale unseen card",
+        "stale unseen full content",
+        "stale unseen compact content",
+        false,
+        "",
+        "active",
+    )
+    .await
+    .unwrap();
+
+    crate::api::apply_review(&state, TEST_USER_ID, card_id, 1, "skip_too_difficult")
+        .await
+        .unwrap();
+    let (status, feedback) = sqlx::query_as::<_, (String, String)>(
+        "SELECT status, feedback FROM review_states WHERE card_id = ?",
+    )
+    .bind(card_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(status, "dismissed");
+    assert_eq!(feedback, "too_difficult");
+    let (status, feedback) = sqlx::query_as::<_, (String, String)>(
+        "SELECT status, feedback FROM review_states WHERE card_id = ?",
+    )
+    .bind(stale_pending_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(status, "dismissed");
+    assert_eq!(feedback, "superseded");
+    let (status, feedback) = sqlx::query_as::<_, (String, String)>(
+        "SELECT status, feedback FROM review_states WHERE card_id = ?",
+    )
+    .bind(stale_active_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(status, "dismissed");
+    assert_eq!(feedback, "superseded");
+    assert_eq!(
+        crate::db::repositories::tipcards::active_card_count(&state.db, TEST_USER_ID)
+            .await
+            .unwrap(),
+        0
+    );
+
+    let fresh_active_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "fresh personalized card",
+        "fresh personalized full content",
+        "fresh personalized compact content",
+        false,
+        "",
+        "active",
+    )
+    .await
+    .unwrap();
+    let due = crate::db::repositories::tipcards::find_due_topic_cards(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        &[],
+        10,
+    )
+    .await
+    .unwrap();
+    assert!(due.iter().any(|card| card.id == fresh_active_id));
+
+    let fresh_pending_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "fresh pending card",
+        "fresh pending full content",
+        "fresh pending compact content",
+        false,
+        "",
+        "pending",
+    )
+    .await
+    .unwrap();
+    let promoted = crate::db::repositories::tipcards::take_pending_card(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+    )
+    .await
+    .unwrap()
+    .expect("post-feedback pending card remains eligible");
+    assert_eq!(promoted.id, fresh_pending_id);
 }
 
 #[tokio::test]
@@ -411,8 +576,11 @@ async fn test_repeatable_due_selection_prefers_known_cards() {
     let now = chrono::Utc::now();
     let mut card_ids = Vec::new();
     for (label, repeats, due_at) in [
-        ("new", 0_u32, now - chrono::Duration::minutes(30)),
+        ("new one", 0_u32, now - chrono::Duration::minutes(30)),
         ("known", 2_u32, now - chrono::Duration::minutes(5)),
+        ("new two", 0_u32, now - chrono::Duration::minutes(20)),
+        ("new three", 0_u32, now - chrono::Duration::minutes(15)),
+        ("new four", 0_u32, now - chrono::Duration::minutes(10)),
     ] {
         let card_id = sqlx::query(
             "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', ?, ?, ?, ?, ?)",
@@ -458,6 +626,105 @@ async fn test_repeatable_due_selection_prefers_known_cards() {
 
     assert_eq!(tips.len(), 1);
     assert_eq!(tips[0].id, card_ids[1]);
+    assert_eq!(
+        crate::db::repositories::tipcards::count_pending(
+            &state.db,
+            TEST_USER_ID,
+            topic_id,
+            "repeatable_tip",
+        )
+        .await
+        .unwrap(),
+        4
+    );
+
+    let flow_cards =
+        crate::db::repositories::tipcards::list_flow_cards(&state.db, TEST_USER_ID, None, 10)
+            .await
+            .unwrap();
+    assert_eq!(flow_cards.len(), 1);
+    assert_eq!(flow_cards[0].id, card_ids[1]);
+
+    crate::api::apply_review(&state, TEST_USER_ID, card_ids[1], 3, "skip_not_interested")
+        .await
+        .unwrap();
+    let replacement = crate::api::build_tips(
+        &state,
+        TEST_USER_ID,
+        crate::api::TipsJsonRequest {
+            count: Some(1),
+            topics: "spanish".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+            exclude_card_ids: Some(vec![card_ids[1]]),
+            manual_content: None,
+            manual_compressed_content: None,
+            manual_image_data: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(replacement.len(), 1);
+    assert_ne!(replacement[0].id, card_ids[1]);
+}
+
+#[tokio::test]
+async fn test_repeatable_load_creates_one_active_card_and_pending_deck() {
+    let settings_path = unique_settings_path();
+    fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+        .await
+        .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+
+    let initial = crate::api::build_tips(
+        &state,
+        TEST_USER_ID,
+        crate::api::TipsJsonRequest {
+            count: Some(1),
+            topics: "japanese".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+            exclude_card_ids: None,
+            manual_content: None,
+            manual_compressed_content: None,
+            manual_image_data: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(initial.len(), 1);
+
+    let cards = crate::api::build_tips(
+        &state,
+        TEST_USER_ID,
+        crate::api::TipsJsonRequest {
+            count: Some(5),
+            topics: "japanese".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+            exclude_card_ids: None,
+            manual_content: None,
+            manual_compressed_content: None,
+            manual_image_data: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].id, initial[0].id);
+    let (active, pending) = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT
+            SUM(CASE WHEN r.status = 'active' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END)
+         FROM review_states r
+         JOIN tipcards t ON t.id = r.card_id
+         WHERE t.user_id = ? AND t.tipcard_type = 'repeatable_tip'",
+    )
+    .bind(TEST_USER_ID)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(active, 1);
+    assert_eq!(pending, 4);
 }
 
 #[tokio::test]

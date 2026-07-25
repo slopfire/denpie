@@ -28,6 +28,26 @@ pub async fn list_flow_cards(
     );
     builder.push_bind(now);
     builder.push(")");
+    builder.push(
+        " AND (top.tipcard_type != 'repeatable_tip' OR t.id = (
+            SELECT t2.id
+            FROM tipcards t2
+            JOIN review_states r2 ON r2.card_id = t2.id
+            WHERE t2.user_id = t.user_id
+              AND t2.topic_id = t.topic_id
+              AND t2.tipcard_type = 'repeatable_tip'
+              AND r2.status = 'active'
+              AND (t2.pinned = 1 OR r2.next_review_at <= ",
+    );
+    builder.push_bind(now);
+    builder.push(
+        ")
+            ORDER BY t2.pinned DESC,
+                     CASE WHEN COALESCE(r2.repeats, 0) > 0 THEN 0 ELSE 1 END ASC,
+                     r2.next_review_at ASC, t2.created_at ASC, t2.id ASC
+            LIMIT 1
+        ))",
+    );
 
     if let Some((pinned, created_at, id)) = cursor {
         builder.push(" AND (COALESCE(t.pinned, 0) < ");

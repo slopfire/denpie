@@ -23,11 +23,15 @@ pub use models::{
     TipcardImageRecord, TipcardInfoRecord,
 };
 #[allow(unused_imports)]
-pub use pending::{count_pending, take_pending_card};
-pub use queue::{active_card_count, find_daily_topic_cards, find_due_topic_cards};
+pub use pending::{
+    count_pending, park_unseen_active_topic_cards, promote_pending_for_empty_topics,
+    stack_due_repeatable_cards, take_pending_card,
+};
+pub use queue::{
+    active_card_count, find_daily_topic_cards, find_due_topic_cards, has_active_topic_card,
+};
 pub use writes::{
-    create_custom, create_generated, create_generated_with_status, create_manual,
-    delete_with_review, set_pinned,
+    create_custom, create_generated_with_status, create_manual, delete_with_review, set_pinned,
 };
 
 pub(crate) fn topic_color_from_row(name: &str, color_hue: Option<i64>) -> String {

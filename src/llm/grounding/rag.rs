@@ -1,12 +1,10 @@
 //! RAG grounding: generate a card using ONLY user-provided document chunks that
 //! the service pre-retrieved (FTS5 keyword retrieval).
 
-use crate::llm::cards::{
-    ONE_SHOT_FORMAT_INSTRUCTIONS, build_card_from_parsed, parse_generated_card_response,
-};
+use crate::llm::cards::ARRAY_FORMAT_INSTRUCTIONS;
 use crate::llm::transport::create_chat_completion;
 
-use super::{GroundingInput, GroundingOutcome, factual_fallback};
+use super::{GroundingInput, GroundingOutcome, batch_size, build_batch, factual_fallback};
 
 pub async fn generate(input: GroundingInput<'_>) -> GroundingOutcome {
     // No key → offline fallback card.
@@ -20,9 +18,10 @@ pub async fn generate(input: GroundingInput<'_>) -> GroundingOutcome {
             "{base}\n\n\
              Note: no grounding documents are available for this topic. Write the best \
              accurate tip you can from general knowledge, and do not fabricate citations.\n\n\
-             {format}",
+             Write {count} distinct cards for this load.\n\n{format}",
             base = input.rendered_prompt,
-            format = ONE_SHOT_FORMAT_INSTRUCTIONS,
+            count = batch_size(&input),
+            format = ARRAY_FORMAT_INSTRUCTIONS,
         )
     } else {
         format!(
@@ -31,10 +30,11 @@ pub async fn generate(input: GroundingInput<'_>) -> GroundingOutcome {
              the \"content\". If the sources do not cover the topic, say so plainly rather \
              than inventing facts.\n\n\
              Sources:\n{sources}\n\n\
-             {format}",
+             Write {count} distinct cards for this load.\n\n{format}",
             base = input.rendered_prompt,
             sources = sources,
-            format = ONE_SHOT_FORMAT_INSTRUCTIONS,
+            count = batch_size(&input),
+            format = ARRAY_FORMAT_INSTRUCTIONS,
         )
     };
 
@@ -48,22 +48,13 @@ pub async fn generate(input: GroundingInput<'_>) -> GroundingOutcome {
     )
     .await;
 
-    let parsed = parse_generated_card_response(&response.content);
-    if parsed.is_none() {
-        tracing::warn!("rag grounding did not return parseable JSON; using raw content");
+    match GroundingOutcome::from_cards(build_batch(response, &input).await, Vec::new()) {
+        Some(outcome) => outcome,
+        None => {
+            tracing::warn!("rag grounding returned no parseable batch; using fallback");
+            factual_fallback(&input).await
+        }
     }
-    let card = build_card_from_parsed(
-        parsed,
-        &response.content,
-        response.usage,
-        input.compression_level,
-        input.model,
-        input.api_key,
-        input.api_base,
-    )
-    .await;
-
-    GroundingOutcome::single(card)
 }
 
 fn render_chunks(documents: &[super::DocChunk]) -> String {

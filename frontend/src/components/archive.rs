@@ -164,12 +164,28 @@ pub fn archive() -> Html {
     };
 
     {
-        use_effect_with(*fullscreen_card_id, move |fullscreen| {
-            set_fullscreen_body_class(fullscreen.is_some());
-            move || {
-                set_fullscreen_body_class(false);
-            }
-        });
+        let fullscreen_card_id = fullscreen_card_id.clone();
+        let route = use_route::<crate::app::View>();
+        let archive_active = route.as_ref() == Some(&crate::app::View::Archive);
+        let card_ids: Vec<i64> = cards.iter().map(|card| card.id).collect();
+        use_effect_with(
+            (*fullscreen_card_id, card_ids, archive_active),
+            move |(fullscreen, ids, active)| {
+                let should_lock = *active
+                    && match fullscreen {
+                        Some(id) if ids.contains(id) => true,
+                        Some(_) => {
+                            fullscreen_card_id.set(None);
+                            false
+                        }
+                        None => false,
+                    };
+                set_fullscreen_body_class(should_lock);
+                move || {
+                    set_fullscreen_body_class(false);
+                }
+            },
+        );
     }
 
     let on_toggle_pin = {
@@ -199,10 +215,12 @@ pub fn archive() -> Html {
         let app_state = app_state.clone();
         let refresh_cards = refresh_cards.clone();
         let i18n = i18n.clone();
+        let fullscreen_card_id = fullscreen_card_id.clone();
         Callback::from(move |id: i64| {
             let app_state = app_state.clone();
             let refresh_cards = refresh_cards.clone();
             let i18n = i18n.clone();
+            let fullscreen_card_id = fullscreen_card_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let req = serde_json::json!({ "id": id });
                 match Request::delete("/admin/tipcards")
@@ -212,6 +230,10 @@ pub fn archive() -> Html {
                     .await
                 {
                     Ok(res) if res.ok() => {
+                        if *fullscreen_card_id == Some(id) {
+                            set_fullscreen_body_class(false);
+                            fullscreen_card_id.set(None);
+                        }
                         toast_key(&app_state, &i18n, "toast.card_deleted");
                         refresh_cards.emit(());
                     }

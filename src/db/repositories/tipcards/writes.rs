@@ -53,33 +53,6 @@ pub async fn set_pinned(pool: &SqlitePool, user_id: &str, id: i64, pinned: bool)
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-pub async fn create_generated(
-    pool: &SqlitePool,
-    user_id: &str,
-    topic_id: i64,
-    tipcard_type: &str,
-    title: &str,
-    full_content: &str,
-    compressed_content: &str,
-    use_image: bool,
-    image_query: &str,
-) -> AppResult<i64> {
-    create_generated_with_status(
-        pool,
-        user_id,
-        topic_id,
-        tipcard_type,
-        title,
-        full_content,
-        compressed_content,
-        use_image,
-        image_query,
-        "active",
-    )
-    .await
-}
-
 /// Create a generated card with an explicit review status. For `"pending"` the
 /// review state is dated far in the future so the card is never "due" until it is
 /// promoted to `"active"` at serve time.

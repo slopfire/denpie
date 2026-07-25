@@ -157,6 +157,14 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
         "INTEGER NOT NULL DEFAULT 0",
     )
     .await?;
+    ensure_column(
+        pool,
+        "review_states",
+        "feedback",
+        "TEXT NOT NULL DEFAULT ''",
+    )
+    .await?;
+    ensure_column(pool, "review_states", "reviewed_at", "DATETIME").await?;
     backfill_review_states_repeats(pool).await?;
     ensure_column(pool, "llm_token_usage", "user_id", "TEXT").await?;
     ensure_column(

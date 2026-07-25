@@ -43,9 +43,11 @@ CREATE TABLE IF NOT EXISTS tipcards (
 CREATE TABLE IF NOT EXISTS review_states (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     card_id INTEGER NOT NULL UNIQUE,
-    algorithm_used TEXT NOT NULL, -- 'fsrs' or 'sm2'
+    algorithm_used TEXT NOT NULL, -- 'sm2' ('fsrs' is a legacy alias only)
     state_data TEXT NOT NULL, -- JSON
-    status TEXT NOT NULL DEFAULT 'active', -- 'active', 'acknowledged', 'memorized', or 'dismissed'
+    status TEXT NOT NULL DEFAULT 'active', -- 'active', 'pending', or 'dismissed'
+    feedback TEXT NOT NULL DEFAULT '', -- 'again', 'learned', 'known', 'not_interested', or 'too_difficult'
+    reviewed_at DATETIME,
     daily_refreshed_at DATETIME,
     next_review_at DATETIME NOT NULL,
     FOREIGN KEY(card_id) REFERENCES tipcards(id)

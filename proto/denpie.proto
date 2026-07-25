@@ -3,7 +3,7 @@ syntax = "proto3";
 package denpie;
 
 message TipsQuery {
-    uint64 count = 1;
+    uint64 count = 1; // repeatable: target deck load size (1 active, remainder pending; max 10)
     string topics = 2; // comma separated
     string tipcard_type = 4; // optional: "repeatable_tip", "casual_tip", or "manual_tip"
     repeated int64 exclude_card_ids = 5;
@@ -36,6 +36,8 @@ message TipsResponse {
 message ReviewPayload {
     int64 card_id = 1;
     uint32 grade = 2;
+    // Repeatable cards: again, learned, skip_known, skip_not_interested,
+    // or skip_too_difficult. Legacy repeat/memorize/dismiss remain accepted.
     string action = 3;
 }
 

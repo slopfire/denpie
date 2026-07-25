@@ -115,8 +115,9 @@ pub async fn create_vision_completion(
             match res.json::<Value>().await {
                 Ok(value) => {
                     let citations = extract_citations(&value);
+                    let raw_content = extract_message_content(&value);
                     match serde_json::from_value::<CreateChatCompletionResponse>(value) {
-                        Ok(response) => map_response(response, citations),
+                        Ok(response) => map_response(response, citations, raw_content),
                         Err(e) => LlmResponse::error(format!("LLM Error: {}", e)),
                     }
                 }
@@ -168,8 +169,9 @@ pub async fn create_chat_completion_grounded(
             match res.json::<Value>().await {
                 Ok(value) => {
                     let citations = extract_citations(&value);
+                    let raw_content = extract_message_content(&value);
                     match serde_json::from_value::<CreateChatCompletionResponse>(value) {
-                        Ok(response) => map_response(response, citations),
+                        Ok(response) => map_response(response, citations, raw_content),
                         Err(e) => LlmResponse::error(format!("LLM Error: {}", e)),
                     }
                 }
@@ -246,13 +248,41 @@ fn extract_citations(value: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn map_response(response: CreateChatCompletionResponse, citations: Vec<String>) -> LlmResponse {
+fn extract_message_content(value: &Value) -> Option<String> {
+    let content = value
+        .get("choices")?
+        .as_array()?
+        .first()?
+        .get("message")?
+        .get("content")?;
+    if let Some(text) = content.as_str() {
+        return Some(text.to_string());
+    }
+    content.as_array().map(|parts| {
+        parts
+            .iter()
+            .filter_map(|part| {
+                part.get("text")
+                    .and_then(Value::as_str)
+                    .or_else(|| part.as_str())
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
+}
+
+fn map_response(
+    response: CreateChatCompletionResponse,
+    citations: Vec<String>,
+    raw_content: Option<String>,
+) -> LlmResponse {
     let content = response
         .choices
         .into_iter()
         .next()
         .and_then(|choice| choice.message.content)
-        .unwrap_or_else(|| "Failed parsing text".to_string());
+        .or(raw_content)
+        .unwrap_or_default();
 
     let usage = response
         .usage
@@ -283,7 +313,18 @@ fn normalize_reasoning_effort(effort: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{ReasoningConfig, build_chat_body, map_response};
+    use serde_json::json;
+
+    use super::{ReasoningConfig, build_chat_body, extract_message_content, map_response};
+
+    #[test]
+    fn raw_content_supports_text_part_arrays() {
+        let value = json!({
+            "choices": [{"message": {"content": [{"type": "text", "text": "hello"}]}}]
+        });
+
+        assert_eq!(extract_message_content(&value).as_deref(), Some("hello"));
+    }
 
     #[test]
     fn build_chat_body_uses_nested_reasoning_effort_xhigh() {
@@ -363,7 +404,7 @@ mod tests {
             }),
         };
 
-        let result = map_response(response, Vec::new());
+        let result = map_response(response, Vec::new(), None);
 
         assert_eq!(result.content, "tip content");
         assert_eq!(result.usage.prompt_tokens, 10);
@@ -398,7 +439,7 @@ mod tests {
             usage: None,
         };
 
-        let result = map_response(response, Vec::new());
+        let result = map_response(response, Vec::new(), None);
 
         assert_eq!(result.content, "Failed parsing text");
         assert_eq!(result.usage.prompt_tokens, 0);

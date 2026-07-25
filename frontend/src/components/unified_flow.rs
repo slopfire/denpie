@@ -1,4 +1,5 @@
 use crate::api::toast;
+use crate::app::View;
 use crate::components::flow_card::{FlowCard, FlowCardSkeleton};
 use crate::i18n::use_i18n;
 use crate::image_compress::{collect_files, compress_files_to_data_urls};
@@ -10,14 +11,16 @@ use std::collections::{HashMap, HashSet};
 use wasm_bindgen::JsCast;
 use web_sys::{DragEvent, HtmlInputElement, HtmlTextAreaElement, KeyboardEvent};
 use yew::prelude::*;
+use yew_router::prelude::*;
 
 const PAGE_LIMIT: i64 = 48;
 const TRANSMISSION_MAX_PICKS: usize = 9;
 const TRANSMISSION_MAX_PICKS_PER_TOPIC: usize = 3;
+const REVIEWED_PLACEHOLDERS_KEY: &str = "denpie-reviewed-placeholders";
 const DRAG_SCROLL_EDGE_PX: f64 = 96.0;
 const DRAG_SCROLL_MAX_STEP_PX: f64 = 32.0;
 
-#[derive(Deserialize, Clone, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, PartialEq)]
 pub struct TipcardInfo {
     pub id: i64,
     pub topic_name: String,
@@ -33,6 +36,9 @@ pub struct TipcardInfo {
     pub next_review_at: String,
     pub repeat_count: u32,
     pub pinned: bool,
+    /// Client-only placeholder text after a review action; API responses omit this.
+    #[serde(default)]
+    pub review_message: Option<String>,
 }
 
 #[derive(Deserialize, Clone, PartialEq)]
@@ -96,6 +102,7 @@ impl From<FlowCardSummary> for TipcardInfo {
             next_review_at: card.next_review_at,
             repeat_count: card.repeat_count,
             pinned: card.pinned,
+            review_message: None,
         }
     }
 }
@@ -117,12 +124,14 @@ impl From<FlowCardDetail> for TipcardInfo {
             next_review_at: card.next_review_at,
             repeat_count: card.repeat_count,
             pinned: card.pinned,
+            review_message: None,
         }
     }
 }
 
 #[derive(Serialize)]
 struct CreateTipReq {
+    count: Option<u32>,
     topics: String,
     tipcard_type: Option<String>,
     manual_content: Option<String>,
@@ -149,6 +158,13 @@ pub fn unified_flow() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
     let i18n = use_i18n();
     let cards = use_state(Vec::<TipcardInfo>::new);
+    let reviewed_placeholders = use_state(|| {
+        LocalStorage::get::<Vec<TipcardInfo>>(REVIEWED_PLACEHOLDERS_KEY)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|card| (card.id, card))
+            .collect::<HashMap<_, _>>()
+    });
     let detail_loaded = use_state(HashMap::<i64, bool>::new);
     let card_heights = use_state(HashMap::<i64, f64>::new);
     let next_cursor = use_state(|| None::<String>);
@@ -175,10 +191,24 @@ pub fn unified_flow() -> Html {
             .map(|value| normalize_flow_sort(&value))
             .unwrap_or_else(|_| "topic".to_string())
     });
-    let fullscreen_card_id = use_state(|| None::<i64>);
+    let fullscreen_card_key = use_state(|| None::<String>);
+
+    {
+        let placeholders = (*reviewed_placeholders).clone();
+        use_effect_with(placeholders, move |placeholders| {
+            if placeholders.is_empty() {
+                LocalStorage::delete(REVIEWED_PLACEHOLDERS_KEY);
+            } else {
+                let cards = placeholders.values().cloned().collect::<Vec<_>>();
+                let _ = LocalStorage::set(REVIEWED_PLACEHOLDERS_KEY, cards);
+            }
+            || ()
+        });
+    }
 
     let load_cards = {
         let cards = cards.clone();
+        let reviewed_placeholders = reviewed_placeholders.clone();
         let detail_loaded = detail_loaded.clone();
         let next_cursor = next_cursor.clone();
         let has_more = has_more.clone();
@@ -188,6 +218,7 @@ pub fn unified_flow() -> Html {
                 return;
             }
             let cards = cards.clone();
+            let reviewed_placeholders = reviewed_placeholders.clone();
             let detail_loaded = detail_loaded.clone();
             let next_cursor = next_cursor.clone();
             let has_more = has_more.clone();
@@ -210,9 +241,29 @@ pub fn unified_flow() -> Html {
                 match Request::get(&url).send().await {
                     Ok(res) if res.ok() => {
                         if let Ok(page) = res.json::<FlowCardPage>().await {
-                            let new_cards: Vec<TipcardInfo> =
+                            let mut new_cards: Vec<TipcardInfo> =
                                 page.cards.into_iter().map(Into::into).collect();
                             if reset {
+                                let loaded_ids =
+                                    new_cards.iter().map(|card| card.id).collect::<HashSet<_>>();
+                                let active_repeatable_topics = new_cards
+                                    .iter()
+                                    .filter(|card| {
+                                        card.tipcard_type == "repeatable_tip"
+                                            && card.status == "active"
+                                    })
+                                    .map(|card| card.topic_name.as_str())
+                                    .collect::<HashSet<_>>();
+                                let mut placeholder_map = (*reviewed_placeholders).clone();
+                                placeholder_map.retain(|id, card| {
+                                    !loaded_ids.contains(id)
+                                        && !active_repeatable_topics
+                                            .contains(card.topic_name.as_str())
+                                });
+                                let placeholders =
+                                    placeholder_map.values().cloned().collect::<Vec<_>>();
+                                reviewed_placeholders.set(placeholder_map);
+                                new_cards.extend(placeholders);
                                 let loaded = new_cards
                                     .iter()
                                     .map(|card| (card.id, false))
@@ -222,12 +273,22 @@ pub fn unified_flow() -> Html {
                             } else {
                                 let mut merged = (*cards).clone();
                                 let mut loaded = (*detail_loaded).clone();
+                                let mut placeholders = (*reviewed_placeholders).clone();
                                 for card in new_cards {
-                                    if !merged.iter().any(|existing| existing.id == card.id) {
+                                    if let Some(existing) =
+                                        merged.iter_mut().find(|existing| existing.id == card.id)
+                                    {
+                                        if existing.review_message.is_some() {
+                                            placeholders.remove(&card.id);
+                                            loaded.insert(card.id, false);
+                                            *existing = card;
+                                        }
+                                    } else {
                                         loaded.entry(card.id).or_insert(false);
                                         merged.push(card);
                                     }
                                 }
+                                reviewed_placeholders.set(placeholders);
                                 detail_loaded.set(loaded);
                                 cards.set(merged);
                             }
@@ -309,6 +370,7 @@ pub fn unified_flow() -> Html {
 
             wasm_bindgen_futures::spawn_local(async move {
                 let req = CreateTipReq {
+                    count: (ttype == "repeatable_tip").then_some(5),
                     topics,
                     tipcard_type: Some(ttype.clone()),
                     manual_content: if ttype == "manual_tip" {
@@ -339,14 +401,18 @@ pub fn unified_flow() -> Html {
 
     let on_review_cb = {
         let cards = cards.clone();
+        let reviewed_placeholders = reviewed_placeholders.clone();
         let app_state = app_state.clone();
         let load_cards = load_cards.clone();
         Callback::from(
             move |(id, grade, action): (i64, Option<u8>, Option<String>)| {
                 let cards = cards.clone();
+                let reviewed_placeholders = reviewed_placeholders.clone();
                 let app_state = app_state.clone();
                 let load_cards = load_cards.clone();
                 wasm_bindgen_futures::spawn_local(async move {
+                    let reviewed_card = cards.iter().find(|card| card.id == id).cloned();
+                    let action_name = action.clone().unwrap_or_default();
                     let req = ReviewReq {
                         card_id: id,
                         grade,
@@ -359,14 +425,107 @@ pub fn unified_flow() -> Html {
                         .await
                     {
                         Ok(res) if res.ok() => {
-                            cards.set(cards.iter().filter(|card| card.id != id).cloned().collect());
-                            load_cards.emit(false);
+                            if let Some(mut placeholder) = reviewed_card {
+                                if placeholder.tipcard_type == "repeatable_tip" {
+                                    placeholder.status = "reviewed".to_string();
+                                    placeholder.review_message = Some(review_placeholder_message(
+                                        &action_name,
+                                        &placeholder.next_review_at,
+                                    ));
+                                    let mut placeholders = (*reviewed_placeholders).clone();
+                                    placeholders.retain(|_, card| {
+                                        card.topic_name != placeholder.topic_name
+                                    });
+                                    placeholders.insert(id, placeholder.clone());
+                                    reviewed_placeholders.set(placeholders);
+
+                                    let mut next = (*cards).clone();
+                                    next.retain(|card| {
+                                        !(card.status == "reviewed"
+                                            && card.topic_name == placeholder.topic_name)
+                                    });
+                                    if let Some(card) = next.iter_mut().find(|card| card.id == id) {
+                                        *card = placeholder.clone();
+                                    } else {
+                                        next.push(placeholder.clone());
+                                    }
+                                    cards.set(next);
+
+                                    let next_req = CreateTipReq {
+                                        count: Some(1),
+                                        topics: placeholder.topic_name,
+                                        tipcard_type: Some("repeatable_tip".to_string()),
+                                        manual_content: None,
+                                        manual_image_data: None,
+                                        exclude_card_ids: Some(vec![id]),
+                                    };
+                                    let next_ready = match Request::post("/app/tips")
+                                        .json(&next_req)
+                                        .unwrap()
+                                        .send()
+                                        .await
+                                    {
+                                        Ok(response) if response.ok() => response
+                                            .json::<Vec<serde_json::Value>>()
+                                            .await
+                                            .is_ok_and(|cards| !cards.is_empty()),
+                                        _ => false,
+                                    };
+                                    if !next_ready {
+                                        toast(
+                                            &app_state,
+                                            "Review saved, but the next card is unavailable",
+                                        );
+                                    }
+                                } else {
+                                    cards.set(
+                                        cards
+                                            .iter()
+                                            .filter(|card| card.id != id)
+                                            .cloned()
+                                            .collect(),
+                                    );
+                                }
+                            }
+                            load_cards.emit(true);
                         }
                         _ => toast(&app_state, "Review failed"),
                     }
                 });
             },
         )
+    };
+
+    let on_learn_more_cb = {
+        let app_state = app_state.clone();
+        let load_cards = load_cards.clone();
+        Callback::from(move |(topic, tipcard_type): (String, String)| {
+            let app_state = app_state.clone();
+            let load_cards = load_cards.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let req = CreateTipReq {
+                    count: Some(5),
+                    topics: topic,
+                    tipcard_type: Some(tipcard_type),
+                    manual_content: None,
+                    manual_image_data: None,
+                    exclude_card_ids: None,
+                };
+                let loaded = match Request::post("/app/tips").json(&req).unwrap().send().await {
+                    Ok(response) if response.ok() => response
+                        .json::<Vec<serde_json::Value>>()
+                        .await
+                        .is_ok_and(|cards| !cards.is_empty()),
+                    _ => false,
+                };
+                if loaded {
+                    toast(&app_state, "More cards loaded");
+                    load_cards.emit(true);
+                } else {
+                    toast(&app_state, "Could not load more cards");
+                }
+            });
+        })
     };
 
     let on_toggle_pin_cb = {
@@ -464,9 +623,14 @@ pub fn unified_flow() -> Html {
     let on_delete_cb = {
         let app_state = app_state.clone();
         let cards = cards.clone();
+        let reviewed_placeholders = reviewed_placeholders.clone();
+        let fullscreen_card_key = fullscreen_card_key.clone();
         Callback::from(move |id: i64| {
             let app_state = app_state.clone();
             let cards = cards.clone();
+            let reviewed_placeholders = reviewed_placeholders.clone();
+            let fullscreen_card_key = fullscreen_card_key.clone();
+            let deleted_card_key = cards.iter().find(|card| card.id == id).map(flow_card_key);
             wasm_bindgen_futures::spawn_local(async move {
                 let req = serde_json::json!({ "id": id });
                 if Request::delete("/admin/tipcards")
@@ -477,7 +641,14 @@ pub fn unified_flow() -> Html {
                     .is_ok()
                 {
                     toast(&app_state, "Card deleted");
+                    if deleted_card_key == *fullscreen_card_key {
+                        set_fullscreen_body_class(false);
+                        fullscreen_card_key.set(None);
+                    }
                     cards.set(cards.iter().filter(|card| card.id != id).cloned().collect());
+                    let mut placeholders = (*reviewed_placeholders).clone();
+                    placeholders.remove(&id);
+                    reviewed_placeholders.set(placeholders);
                 }
             });
         })
@@ -545,16 +716,20 @@ pub fn unified_flow() -> Html {
     };
 
     let on_toggle_fullscreen = {
-        let fullscreen_card_id = fullscreen_card_id.clone();
+        let fullscreen_card_key = fullscreen_card_key.clone();
         let request_detail = request_detail.clone();
+        let cards = cards.clone();
         Callback::from(move |id: i64| {
-            if *fullscreen_card_id == Some(id) {
+            let Some(card_key) = cards.iter().find(|card| card.id == id).map(flow_card_key) else {
+                return;
+            };
+            if *fullscreen_card_key == Some(card_key.clone()) {
                 set_fullscreen_body_class(false);
-                fullscreen_card_id.set(None);
+                fullscreen_card_key.set(None);
             } else {
                 set_fullscreen_body_class(true);
                 request_detail.emit(id);
-                fullscreen_card_id.set(Some(id));
+                fullscreen_card_key.set(Some(card_key));
             }
         })
     };
@@ -573,15 +748,6 @@ pub fn unified_flow() -> Html {
             }
         })
     };
-
-    {
-        use_effect_with(*fullscreen_card_id, move |fullscreen| {
-            set_fullscreen_body_class(fullscreen.is_some());
-            move || {
-                set_fullscreen_body_class(false);
-            }
-        });
-    }
 
     let mut pinned_cards: Vec<TipcardInfo> =
         cards.iter().filter(|card| card.pinned).cloned().collect();
@@ -610,12 +776,62 @@ pub fn unified_flow() -> Html {
     );
 
     let (transmission_picks, remaining_cards) = split_topic_picks(&unpinned_cards);
-    let current_ids: Vec<i64> = pinned_cards
+    let mut current_ids: Vec<i64> = pinned_cards
         .iter()
         .chain(transmission_picks.iter())
         .chain(remaining_cards.iter())
         .map(|card| card.id)
         .collect();
+
+    // Fullscreen can target a card that topic-pick filtering would otherwise hide
+    // (e.g. stacked active repeatables). Keep that card mounted so the
+    // `is-fullscreen` node remains while `body.has-fullscreen-card` is set.
+    let current_keys = pinned_cards
+        .iter()
+        .chain(transmission_picks.iter())
+        .chain(remaining_cards.iter())
+        .map(flow_card_key)
+        .collect::<HashSet<_>>();
+    let fullscreen_orphan = (*fullscreen_card_key).as_ref().and_then(|key| {
+        if current_keys.contains(key) {
+            None
+        } else {
+            cards
+                .iter()
+                .find(|card| flow_card_key(card) == *key)
+                .cloned()
+        }
+    });
+    if let Some(card) = fullscreen_orphan.as_ref() {
+        current_ids.push(card.id);
+    }
+
+    {
+        let fullscreen_card_key = fullscreen_card_key.clone();
+        let card_keys = cards.iter().map(flow_card_key).collect::<HashSet<_>>();
+        let route = use_route::<View>();
+        let flow_active = route.as_ref() == Some(&View::Flow);
+        use_effect_with(
+            ((*fullscreen_card_key).clone(), card_keys, flow_active),
+            move |(fullscreen, keys, active)| {
+                // Keep-alive routes share `body.has-fullscreen-card`. Only the active
+                // Flow view may own it, and only while its target card still exists.
+                let should_lock = *active
+                    && match fullscreen {
+                        Some(key) if keys.contains(key) => true,
+                        Some(_) => {
+                            fullscreen_card_key.set(None);
+                            false
+                        }
+                        None => false,
+                    };
+                set_fullscreen_body_class(should_lock);
+                move || {
+                    set_fullscreen_body_class(false);
+                }
+            },
+        );
+    }
 
     let list_mode = *layout == "list";
     let visible_card_count = current_ids.len();
@@ -675,11 +891,13 @@ pub fn unified_flow() -> Html {
     let render_flow_card = |card: &TipcardInfo| {
         let card = card.clone();
         let id = card.id;
+        let card_key = flow_card_key(&card);
         html! {
             <FlowCard
-                key={id.to_string()}
+                key={card_key.clone()}
                 card={card}
                 on_review={on_review_cb.clone()}
+                on_learn_more={on_learn_more_cb.clone()}
                 on_toggle_pin={on_toggle_pin_cb.clone()}
                 on_delete={on_delete_cb.clone()}
                 on_reorder={on_reorder_cb.clone()}
@@ -689,7 +907,7 @@ pub fn unified_flow() -> Html {
                 on_request_detail={request_detail.clone()}
                 on_measure={on_measure.clone()}
                 list_mode={list_mode}
-                fullscreen={*fullscreen_card_id == Some(id)}
+                fullscreen={*fullscreen_card_key == Some(card_key.clone())}
                 detail_loaded={detail_loaded.get(&id).copied().unwrap_or(false)}
             />
         }
@@ -926,6 +1144,10 @@ pub fn unified_flow() -> Html {
                     {"No cards yet."}
                 </div>
             }
+
+            if let Some(card) = fullscreen_orphan.as_ref() {
+                { render_flow_card(card) }
+            }
         </section>
     }
 }
@@ -1032,9 +1254,28 @@ fn sort_flow_cards(cards: &mut [TipcardInfo], sort_by: &str, drag_order: &[i64])
     }
 }
 
+fn flow_card_key(card: &TipcardInfo) -> String {
+    if card.tipcard_type == "repeatable_tip" {
+        format!("repeatable:{}", card.topic_name)
+    } else {
+        format!("card:{}", card.id)
+    }
+}
+
 fn select_topic_picks(cards: &[TipcardInfo]) -> Vec<TipcardInfo> {
+    let active_repeatable_topics = cards
+        .iter()
+        .filter(|card| card.tipcard_type == "repeatable_tip" && card.status == "active")
+        .map(|card| card.topic_name.as_str())
+        .collect::<HashSet<_>>();
     let topic_count = cards
         .iter()
+        .filter(|card| {
+            card.status == "active"
+                || card.tipcard_type == "repeatable_tip"
+                    && card.status == "reviewed"
+                    && !active_repeatable_topics.contains(card.topic_name.as_str())
+        })
         .map(|card| card.topic_name.as_str())
         .collect::<HashSet<_>>()
         .len();
@@ -1045,11 +1286,28 @@ fn select_topic_picks(cards: &[TipcardInfo]) -> Vec<TipcardInfo> {
     let per_topic_limit =
         TRANSMISSION_MAX_PICKS_PER_TOPIC.min((TRANSMISSION_MAX_PICKS / topic_count).max(1));
     let mut topic_counts = HashMap::<&str, usize>::new();
+    let mut repeatable_topics = HashSet::<&str>::new();
     let mut picks = Vec::with_capacity(TRANSMISSION_MAX_PICKS.min(cards.len()));
 
     for card in cards {
+        let repeatable_placeholder = card.tipcard_type == "repeatable_tip"
+            && card.status == "reviewed"
+            && !active_repeatable_topics.contains(card.topic_name.as_str());
+        if card.status != "active" && !repeatable_placeholder {
+            continue;
+        }
+        if card.tipcard_type == "repeatable_tip"
+            && !repeatable_topics.insert(card.topic_name.as_str())
+        {
+            continue;
+        }
         let count = topic_counts.entry(card.topic_name.as_str()).or_default();
-        if *count >= per_topic_limit {
+        let card_limit = if card.tipcard_type == "repeatable_tip" {
+            1
+        } else {
+            per_topic_limit
+        };
+        if *count >= card_limit {
             continue;
         }
         picks.push(card.clone());
@@ -1067,10 +1325,29 @@ fn split_topic_picks(cards: &[TipcardInfo]) -> (Vec<TipcardInfo>, Vec<TipcardInf
     let pick_ids = picks.iter().map(|card| card.id).collect::<HashSet<_>>();
     let remaining = cards
         .iter()
-        .filter(|card| !pick_ids.contains(&card.id))
+        .filter(|card| !(pick_ids.contains(&card.id) || card.tipcard_type == "repeatable_tip"))
         .cloned()
         .collect();
     (picks, remaining)
+}
+
+fn review_placeholder_message(action: &str, _previous_review_at: &str) -> String {
+    match action {
+        "again" | "repeat" => {
+            "Saved for another review. It will return on its SM-2 schedule.".to_string()
+        }
+        "learned" | "memorize" => {
+            "Marked as learned. It will return when SM-2 schedules it.".to_string()
+        }
+        "skip_known" => "Skipped as already known. The next card will build beyond it.".to_string(),
+        "skip_too_difficult" => {
+            "Skipped as too difficult. The next card will be an easier step.".to_string()
+        }
+        "skip_not_interested" | "dismiss" => {
+            "Skipped as not interesting. Future cards will change direction.".to_string()
+        }
+        _ => "Review saved. This card will return on its schedule.".to_string(),
+    }
 }
 
 fn normalize_card_order(mut order: Vec<i64>, current_ids: &[i64]) -> Vec<i64> {
@@ -1143,11 +1420,12 @@ mod tests {
             next_review_at: String::new(),
             repeat_count: 0,
             pinned: false,
+            review_message: None,
         }
     }
 
     #[test]
-    fn transmission_selects_three_picks_from_each_of_three_topics() {
+    fn transmission_keeps_three_picks_for_non_repeatable_topics() {
         let cards = ["A", "B", "C"]
             .into_iter()
             .flat_map(|topic| (0..4).map(move |index| card(index, topic)))
@@ -1165,21 +1443,53 @@ mod tests {
     }
 
     #[test]
-    fn transmission_reduces_each_topic_to_two_when_four_topics_exceed_nine() {
-        let cards = ["A", "B", "C", "D"]
-            .into_iter()
-            .flat_map(|topic| (0..3).map(move |index| card(index, topic)))
+    fn repeatable_cards_stack_behind_one_topic_pick() {
+        let cards = (0..3)
+            .map(|index| {
+                let mut card = card(index, "A");
+                card.tipcard_type = "repeatable_tip".to_string();
+                card
+            })
             .collect::<Vec<_>>();
 
-        let picks = select_topic_picks(&cards);
+        let (picks, remaining) = split_topic_picks(&cards);
 
-        assert_eq!(picks.len(), 8);
-        for topic in ["A", "B", "C", "D"] {
-            assert_eq!(
-                picks.iter().filter(|card| card.topic_name == topic).count(),
-                2
-            );
-        }
+        assert_eq!(picks.len(), 1);
+        assert!(remaining.is_empty());
+    }
+
+    #[test]
+    fn reviewed_repeatable_holds_topic_pick_until_next_card_is_active() {
+        let mut reviewed = card(1, "A");
+        reviewed.tipcard_type = "repeatable_tip".to_string();
+        reviewed.status = "reviewed".to_string();
+        reviewed.review_message = Some("Review saved".to_string());
+
+        let (picks, remaining) = split_topic_picks(&[reviewed]);
+
+        assert_eq!(
+            picks.iter().map(|card| card.id).collect::<Vec<_>>(),
+            vec![1]
+        );
+        assert!(remaining.is_empty());
+    }
+
+    #[test]
+    fn active_repeatable_replaces_placeholder_in_the_same_topic_slot() {
+        let mut reviewed = card(1, "A");
+        reviewed.tipcard_type = "repeatable_tip".to_string();
+        reviewed.status = "reviewed".to_string();
+        let mut active = card(2, "A");
+        active.tipcard_type = "repeatable_tip".to_string();
+
+        let (picks, remaining) = split_topic_picks(&[reviewed.clone(), active]);
+
+        assert_eq!(
+            picks.iter().map(|card| card.id).collect::<Vec<_>>(),
+            vec![2]
+        );
+        assert!(remaining.is_empty());
+        assert_eq!(flow_card_key(&reviewed), flow_card_key(&picks[0]));
     }
 
     #[test]
@@ -1201,24 +1511,20 @@ mod tests {
     }
 
     #[test]
-    fn transmission_keeps_every_non_pick_as_a_remaining_card() {
-        let cards = ["A", "B", "C"]
-            .into_iter()
-            .enumerate()
-            .flat_map(|(topic_index, topic)| {
-                (0..4).map(move |index| card((topic_index * 10 + index) as i64, topic))
-            })
-            .collect::<Vec<_>>();
+    fn reviewed_repeatable_is_hidden_when_its_topic_has_an_active_card() {
+        let active = card(1, "A");
+        let mut reviewed = card(2, "A");
+        reviewed.tipcard_type = "repeatable_tip".to_string();
+        reviewed.status = "reviewed".to_string();
+        reviewed.review_message = Some("Review saved".to_string());
+        let cards = vec![active, reviewed];
 
         let (picks, remaining) = split_topic_picks(&cards);
-        let visible_ids = picks
-            .iter()
-            .chain(remaining.iter())
-            .map(|card| card.id)
-            .collect::<HashSet<_>>();
 
-        assert_eq!(picks.len(), 9);
-        assert_eq!(remaining.len(), 3);
-        assert_eq!(visible_ids.len(), cards.len());
+        assert_eq!(
+            picks.iter().map(|card| card.id).collect::<Vec<_>>(),
+            vec![1]
+        );
+        assert!(remaining.is_empty());
     }
 }

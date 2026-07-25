@@ -1,3 +1,4 @@
+use crate::components::button::{ButtonSize, ButtonVariant, ShadcnButton};
 use crate::components::card_image_picker::CardImagePicker;
 use crate::components::image_lightbox::ImageLightbox;
 use crate::components::tooltip::ShadcnTooltip;
@@ -5,13 +6,15 @@ use crate::components::unified_flow::TipcardInfo;
 use crate::markdown::render_markdown;
 use crate::topic_visual::display_icon;
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
-use web_sys::{ResizeObserver, ResizeObserverEntry};
+use web_sys::{HtmlElement, ResizeObserver, ResizeObserverEntry};
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct FlowCardProps {
     pub card: TipcardInfo,
     pub on_review: Callback<(i64, Option<u8>, Option<String>)>,
+    #[prop_or_default]
+    pub on_learn_more: Callback<(String, String)>,
     pub on_toggle_pin: Callback<(i64, bool)>,
     pub on_delete: Callback<i64>,
     pub on_reorder: Callback<(i64, i64)>,
@@ -64,6 +67,8 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let copied = use_state(|| false);
     let lightbox_index = use_state(|| None::<usize>);
     let image_picker_open = use_state(|| false);
+    let skip_open = use_state(|| false);
+    let more_open = use_state(|| false);
     let card = &props.card;
     let id = card.id;
     let pinned = card.pinned;
@@ -81,9 +86,12 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
         })
     };
 
-    let has_compact =
-        !card.compressed_content.is_empty() && card.compressed_content != card.full_content;
-    let displayed_text = if !*expanded && has_compact && !props.fullscreen {
+    let has_compact = card.review_message.is_none()
+        && !card.compressed_content.is_empty()
+        && card.compressed_content != card.full_content;
+    let displayed_text = if let Some(message) = card.review_message.as_deref() {
+        message
+    } else if !*expanded && has_compact && !props.fullscreen {
         &card.compressed_content
     } else {
         &card.full_content
@@ -92,6 +100,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let html_content = render_markdown(displayed_text);
 
     let on_review = props.on_review.clone();
+    let on_learn_more = props.on_learn_more.clone();
     let on_toggle_pin = props.on_toggle_pin.clone();
     let on_delete = props.on_delete.clone();
     let on_reorder = props.on_reorder.clone();
@@ -280,7 +289,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     html! {
         <article
             ref={root_ref}
-            class={article_classes}
+            class={classes!(article_classes, (!fullscreen && card.tipcard_type == "repeatable_tip" && card.status == "active").then_some("!overflow-visible"))}
             data-card-id={id.to_string()}
             ondragover={drag_handlers.as_ref().map(|(over, _)| over.clone())}
             ondrop={drag_handlers.as_ref().map(|(_, drop)| drop.clone())}
@@ -355,7 +364,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                     </div>
                 }
 
-                <div class={classes!(content_class, "card-text", if *expanded && has_compact { "is-expanded" } else { "is-compact" })}>
+                <div class={classes!(content_class, "card-text", card.review_message.is_some().then_some("muted-surface border border-token p-4"), if *expanded && has_compact { "is-expanded" } else { "is-compact" })}>
                     <div class="card-text-body markdown-content">
                         { Html::from_html_unchecked(AttrValue::from(html_content)) }
                         if has_compact && !fullscreen {
@@ -368,79 +377,334 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                     </div>
                 </div>
 
-                <div class="mt-5 pt-4 border-t border-token flex gap-2">
+                <div class="mt-5 pt-4 border-t border-token flex items-center gap-2">
                     if card.status != "active" {
-                        <div class="muted-surface border border-token p-2 flex-1 text-center text-sm font-medium text-muted">{&card.status}</div>
-                    } else if card.tipcard_type == "casual_tip" {
-                        // Sassy Caveman says: Make dismiss big like acknowledge! Equal size smash!
+                        <div class="muted-surface border border-token p-2 flex-1 text-center text-sm font-medium text-muted">{"Review saved"}</div>
+                        if card.tipcard_type == "repeatable_tip" && card.review_message.is_some() {
+                            <ShadcnButton
+                                variant={ButtonVariant::Default}
+                                onclick={Callback::from({
+                                    let topic_name = card.topic_name.clone();
+                                    let tipcard_type = card.tipcard_type.clone();
+                                    move |_| on_learn_more.emit((topic_name.clone(), tipcard_type.clone()))
+                                })}
+                            >{"Learn more"}</ShadcnButton>
+                        }
+                    } else if card.tipcard_type == "casual_tip" || card.tipcard_type == "manual_tip" {
                         <ShadcnTooltip content="Dismiss" class={classes!("flex-1")}>
-                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))} class="border border-token p-2 flex-1 w-full"><iconify-icon icon="radix-icons:cross-2" class="radix-icon"></iconify-icon></button>
+                            <ShadcnButton
+                                variant={ButtonVariant::Outline}
+                                class={classes!("w-full")}
+                                onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))}
+                            >
+                                <iconify-icon icon="radix-icons:cross-2" class="radix-icon" aria-hidden="true"></iconify-icon>
+                            </ShadcnButton>
                         </ShadcnTooltip>
                         <ShadcnTooltip content="Acknowledge" class={classes!("flex-1")}>
-                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("acknowledge".to_string()))))} class="bg-primary-solid p-2 flex-1 w-full"><iconify-icon icon="radix-icons:check" class="radix-icon"></iconify-icon></button>
+                            <ShadcnButton
+                                variant={ButtonVariant::Default}
+                                class={classes!("w-full")}
+                                onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("acknowledge".to_string()))))}
+                            >
+                                <iconify-icon icon="radix-icons:check" class="radix-icon" aria-hidden="true"></iconify-icon>
+                            </ShadcnButton>
                         </ShadcnTooltip>
                     } else if card.tipcard_type == "repeatable_tip" {
-                        <ShadcnTooltip content="Dismiss">
-                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))} class="border border-token p-2"><iconify-icon icon="radix-icons:cross-2" class="radix-icon"></iconify-icon></button>
+                        <ShadcnTooltip content="Show this card again sooner" class={classes!("flex-1")}>
+                            <ShadcnButton
+                                variant={ButtonVariant::Outline}
+                                class={classes!("w-full")}
+                                onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(1), Some("again".to_string()))))}
+                            >{"Again"}</ShadcnButton>
                         </ShadcnTooltip>
-                        <ShadcnTooltip content="Repeat">
-                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("repeat".to_string()))))} class="border border-token p-2"><iconify-icon icon="radix-icons:reset" class="radix-icon"></iconify-icon></button>
+                        <ShadcnTooltip content="I learned this" class={classes!("flex-1")}>
+                            <ShadcnButton
+                                variant={ButtonVariant::Default}
+                                class={classes!("w-full")}
+                                onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(5), Some("learned".to_string()))))}
+                            >{"Learned"}</ShadcnButton>
                         </ShadcnTooltip>
-                        <ShadcnTooltip content="Memorize" class={classes!("flex-1")}>
-                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(5), Some("memorize".to_string()))))} class="bg-primary-solid p-2 flex-1 w-full"><iconify-icon icon="radix-icons:lightning-bolt" class="radix-icon"></iconify-icon></button>
-                        </ShadcnTooltip>
-                    } else if card.tipcard_type == "manual_tip" {
-                        // Sassy Caveman says: Smash dismiss button to be same width! Ugh.
-                        <ShadcnTooltip content="Dismiss" class={classes!("flex-1")}>
-                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))} class="border border-token p-2 flex-1 w-full"><iconify-icon icon="radix-icons:cross-2" class="radix-icon"></iconify-icon></button>
-                        </ShadcnTooltip>
-                        <ShadcnTooltip content="Acknowledge" class={classes!("flex-1")}>
-                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("acknowledge".to_string()))))} class="bg-primary-solid p-2 flex-1 w-full"><iconify-icon icon="radix-icons:check" class="radix-icon"></iconify-icon></button>
-                        </ShadcnTooltip>
+                        <div
+                            class="shadcn-dropdown shrink-0"
+                            onmouseenter={Callback::from({
+                                let skip_open = skip_open.clone();
+                                let more_open = more_open.clone();
+                                move |_| {
+                                    more_open.set(false);
+                                    skip_open.set(true);
+                                }
+                            })}
+                            onmouseleave={Callback::from({
+                                let skip_open = skip_open.clone();
+                                move |_| skip_open.set(false)
+                            })}
+                            onfocusin={Callback::from({
+                                let skip_open = skip_open.clone();
+                                let more_open = more_open.clone();
+                                move |_| {
+                                    more_open.set(false);
+                                    skip_open.set(true);
+                                }
+                            })}
+                            onfocusout={Callback::from({
+                                let skip_open = skip_open.clone();
+                                move |e: FocusEvent| {
+                                    if let Some(related) = e.related_target() {
+                                        if let Ok(node) = related.dyn_into::<web_sys::Node>() {
+                                            if let Some(current) = e.current_target().and_then(|t| t.dyn_into::<HtmlElement>().ok()) {
+                                                if current.contains(Some(&node)) {
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    skip_open.set(false);
+                                }
+                            })}
+                            onkeydown={Callback::from({
+                                let skip_open = skip_open.clone();
+                                move |event: KeyboardEvent| {
+                                    if event.key() == "Escape" {
+                                        event.prevent_default();
+                                        skip_open.set(false);
+                                    }
+                                }
+                            })}
+                        >
+                            <ShadcnTooltip content="Skip">
+                                <ShadcnButton
+                                    variant={ButtonVariant::Outline}
+                                    size={ButtonSize::Icon}
+                                    class={classes!(
+                                        "skip-trigger",
+                                        (*skip_open).then_some("is-open bg-accent text-accent-foreground")
+                                    )}
+                                >
+                                    <iconify-icon icon="radix-icons:chevron-up" class="radix-icon skip-trigger-icon" aria-hidden="true"></iconify-icon>
+                                </ShadcnButton>
+                            </ShadcnTooltip>
+                            if *skip_open {
+                                <div role="menu" aria-label="Skip reasons" class="shadcn-dropdown-menu">
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        class="shadcn-dropdown-item"
+                                        onclick={Callback::from({
+                                            let on_review = on_review.clone();
+                                            let skip_open = skip_open.clone();
+                                            move |_| {
+                                                skip_open.set(false);
+                                                on_review.emit((id, Some(5), Some("skip_known".to_string())));
+                                            }
+                                        })}
+                                    >
+                                        <iconify-icon icon="radix-icons:check-circled" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                        <span class="shadcn-dropdown-item-copy">
+                                            <span class="shadcn-dropdown-item-title">{"Known"}</span>
+                                            <span class="shadcn-dropdown-item-desc">{"Already know this"}</span>
+                                        </span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        class="shadcn-dropdown-item"
+                                        onclick={Callback::from({
+                                            let on_review = on_review.clone();
+                                            let skip_open = skip_open.clone();
+                                            move |_| {
+                                                skip_open.set(false);
+                                                on_review.emit((id, Some(3), Some("skip_not_interested".to_string())));
+                                            }
+                                        })}
+                                    >
+                                        <iconify-icon icon="radix-icons:cross-circled" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                        <span class="shadcn-dropdown-item-copy">
+                                            <span class="shadcn-dropdown-item-title">{"Not interested"}</span>
+                                            <span class="shadcn-dropdown-item-desc">{"Change direction"}</span>
+                                        </span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        class="shadcn-dropdown-item"
+                                        onclick={Callback::from({
+                                            let on_review = on_review.clone();
+                                            let skip_open = skip_open.clone();
+                                            move |_| {
+                                                skip_open.set(false);
+                                                on_review.emit((id, Some(1), Some("skip_too_difficult".to_string())));
+                                            }
+                                        })}
+                                    >
+                                        <iconify-icon icon="radix-icons:exclamation-triangle" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                        <span class="shadcn-dropdown-item-copy">
+                                            <span class="shadcn-dropdown-item-title">{"Too difficult"}</span>
+                                            <span class="shadcn-dropdown-item-desc">{"Prefer an easier step"}</span>
+                                        </span>
+                                    </button>
+                                </div>
+                            }
+                        </div>
                     } else {
                         <ShadcnTooltip content="Again" class={classes!("flex-1")}>
-                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(1), Some(String::new()))))} class="border border-token p-2 flex-1 w-full">{"Again"}</button>
+                            <ShadcnButton
+                                variant={ButtonVariant::Outline}
+                                class={classes!("w-full")}
+                                onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(1), Some(String::new()))))}
+                            >{"Again"}</ShadcnButton>
                         </ShadcnTooltip>
                         <ShadcnTooltip content="Good" class={classes!("flex-1")}>
-                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some(String::new()))))} class="border border-token p-2 flex-1 w-full">{"Good"}</button>
+                            <ShadcnButton
+                                variant={ButtonVariant::Outline}
+                                class={classes!("w-full")}
+                                onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some(String::new()))))}
+                            >{"Good"}</ShadcnButton>
                         </ShadcnTooltip>
                         <ShadcnTooltip content="Easy" class={classes!("flex-1")}>
-                            <button onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(5), Some(String::new()))))} class="bg-primary-solid p-2 flex-1 w-full">{"Easy"}</button>
+                            <ShadcnButton
+                                variant={ButtonVariant::Default}
+                                class={classes!("w-full")}
+                                onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(5), Some(String::new()))))}
+                            >{"Easy"}</ShadcnButton>
                         </ShadcnTooltip>
                     }
-                    <ShadcnTooltip content="Delete card">
-                        <button onclick={Callback::from(move |_| on_delete.emit(id))} class="border border-token p-2">
-                            <iconify-icon icon="radix-icons:trash" class="radix-icon" style="color:var(--danger)"></iconify-icon>
-                        </button>
-                    </ShadcnTooltip>
                     <ShadcnTooltip content={if pinned { "Unpin card" } else { "Pin card" }}>
-                        <button onclick={Callback::from(move |_| on_toggle_pin.emit((id, !pinned)))} class={classes!("border", "border-token", "p-2", (pinned).then_some("bg-primary-soft text-primary"))}>
-                            <iconify-icon icon={if pinned { "radix-icons:drawing-pin-filled" } else { "radix-icons:drawing-pin" }} class="radix-icon"></iconify-icon>
-                        </button>
+                        <ShadcnButton
+                            variant={ButtonVariant::Outline}
+                            size={ButtonSize::Icon}
+                            class={classes!(pinned.then_some("bg-primary-soft text-primary"))}
+                            onclick={Callback::from(move |_| on_toggle_pin.emit((id, !pinned)))}
+                        >
+                            <iconify-icon icon={if pinned { "radix-icons:drawing-pin-filled" } else { "radix-icons:drawing-pin" }} class="radix-icon" aria-hidden="true"></iconify-icon>
+                        </ShadcnButton>
                     </ShadcnTooltip>
-                    <ShadcnTooltip content="Attach images">
-                        <button type="button" class="border border-token p-2" onclick={Callback::from({
-                            let image_picker_open = image_picker_open.clone();
-                            move |_| image_picker_open.set(true)
-                        })}>
-                            <iconify-icon icon="radix-icons:image" class="radix-icon"></iconify-icon>
-                        </button>
-                    </ShadcnTooltip>
-                    if !card.image_data.is_empty() {
-                        <ShadcnTooltip content="Clear images">
-                            <button onclick={Callback::from({
-                                let on_update_images = props.on_update_images.clone();
-                                move |_| on_update_images.emit((id, Vec::new()))
-                            })} class="border border-token p-2">
-                                <iconify-icon icon="radix-icons:eye-closed" class="radix-icon"></iconify-icon>
-                            </button>
-                        </ShadcnTooltip>
-                    }
-                    <ShadcnTooltip content="Copy text">
-                        <button onclick={on_copy} data-copy-card-id={id.to_string()} class={classes!("card-copy-btn", "border", "border-token", "p-2", (*copied).then_some("copied"))}>
-                            <iconify-icon icon="radix-icons:clipboard-copy" class="radix-icon"></iconify-icon>
-                        </button>
-                    </ShadcnTooltip>
+                    <div
+                        class="shadcn-dropdown shrink-0"
+                        onmouseenter={Callback::from({
+                            let more_open = more_open.clone();
+                            let skip_open = skip_open.clone();
+                            move |_| {
+                                skip_open.set(false);
+                                more_open.set(true);
+                            }
+                        })}
+                        onmouseleave={Callback::from({
+                            let more_open = more_open.clone();
+                            move |_| more_open.set(false)
+                        })}
+                        onfocusin={Callback::from({
+                            let more_open = more_open.clone();
+                            let skip_open = skip_open.clone();
+                            move |_| {
+                                skip_open.set(false);
+                                more_open.set(true);
+                            }
+                        })}
+                        onfocusout={Callback::from({
+                            let more_open = more_open.clone();
+                            move |e: FocusEvent| {
+                                if let Some(related) = e.related_target() {
+                                    if let Ok(node) = related.dyn_into::<web_sys::Node>() {
+                                        if let Some(current) = e.current_target().and_then(|t| t.dyn_into::<HtmlElement>().ok()) {
+                                            if current.contains(Some(&node)) {
+                                                return;
+                                            }
+                                        }
+                                    }
+                                }
+                                more_open.set(false);
+                            }
+                        })}
+                        onkeydown={Callback::from({
+                            let more_open = more_open.clone();
+                            move |event: KeyboardEvent| {
+                                if event.key() == "Escape" {
+                                    event.prevent_default();
+                                    more_open.set(false);
+                                }
+                            }
+                        })}
+                    >
+                        <ShadcnButton
+                            variant={ButtonVariant::Outline}
+                            size={ButtonSize::Icon}
+                            class={classes!((*more_open).then_some("bg-accent text-accent-foreground"))}
+                        >
+                            <iconify-icon icon="radix-icons:dots-horizontal" class="radix-icon" aria-hidden="true"></iconify-icon>
+                        </ShadcnButton>
+                        if *more_open {
+                            <div role="menu" aria-label="Card actions" class="shadcn-dropdown-menu">
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    class="shadcn-dropdown-item"
+                                    onclick={Callback::from({
+                                        let image_picker_open = image_picker_open.clone();
+                                        let more_open = more_open.clone();
+                                        move |_| {
+                                            more_open.set(false);
+                                            image_picker_open.set(true);
+                                        }
+                                    })}
+                                >
+                                    <iconify-icon icon="radix-icons:image" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                    <span>{"Attach images"}</span>
+                                </button>
+                                if !card.image_data.is_empty() {
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        class="shadcn-dropdown-item"
+                                        onclick={Callback::from({
+                                            let on_update_images = props.on_update_images.clone();
+                                            let more_open = more_open.clone();
+                                            move |_| {
+                                                more_open.set(false);
+                                                on_update_images.emit((id, Vec::new()));
+                                            }
+                                        })}
+                                    >
+                                        <iconify-icon icon="radix-icons:eye-closed" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                        <span>{"Clear images"}</span>
+                                    </button>
+                                }
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    class={classes!("shadcn-dropdown-item", "card-copy-btn", (*copied).then_some("copied"))}
+                                    data-copy-card-id={id.to_string()}
+                                    onclick={Callback::from({
+                                        let on_copy = on_copy.clone();
+                                        let more_open = more_open.clone();
+                                        move |e: MouseEvent| {
+                                            more_open.set(false);
+                                            on_copy.emit(e);
+                                        }
+                                    })}
+                                >
+                                    <iconify-icon icon="radix-icons:clipboard-copy" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                    <span>{if *copied { "Copied" } else { "Copy text" }}</span>
+                                </button>
+                                <div class="shadcn-dropdown-separator" role="separator"></div>
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    class="shadcn-dropdown-item shadcn-dropdown-item--danger"
+                                    onclick={Callback::from({
+                                        let on_delete = on_delete.clone();
+                                        let more_open = more_open.clone();
+                                        move |_| {
+                                            more_open.set(false);
+                                            on_delete.emit(id);
+                                        }
+                                    })}
+                                >
+                                    <iconify-icon icon="radix-icons:trash" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                    <span>{"Delete card"}</span>
+                                </button>
+                            </div>
+                        }
+                    </div>
                 </div>
             </div>
             if let Some(index) = *lightbox_index {
@@ -510,11 +774,11 @@ pub fn flow_card_skeleton(props: &FlowCardSkeletonProps) -> Html {
                     <div class="skeleton-block" style="height: 12px; width: 78%"></div>
                 </div>
 
-                <div class="mt-5 pt-4 border-t border-token flex gap-2">
-                    <div class="skeleton-block flex-1" style="height: 36px"></div>
-                    <div class="skeleton-block flex-1" style="height: 36px"></div>
-                    <div class="skeleton-block" style="height: 36px; width: 36px"></div>
-                    <div class="skeleton-block" style="height: 36px; width: 36px"></div>
+                <div class="mt-5 pt-4 border-t border-token flex items-center gap-2">
+                    <div class="skeleton-block flex-1" style="height: 40px"></div>
+                    <div class="skeleton-block flex-1" style="height: 40px"></div>
+                    <div class="skeleton-block flex-1" style="height: 40px"></div>
+                    <div class="skeleton-block shrink-0" style="height: 40px; width: 40px"></div>
                 </div>
             </div>
         </article>

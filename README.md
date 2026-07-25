@@ -218,7 +218,7 @@ settings.yaml   # local only — do not commit
 | `users` | Profiles, roles, avatars |
 | `topics` | Type, prompt, icon, color, daily overrides |
 | `tipcards` | Content, title, pin state |
-| `review_states` | SM-2 state, status, repeats, next review |
+| `review_states` | SM-2 state, learning feedback, active/pending deck status, repeats, next review |
 | `tipcard_images` | Attachment metadata |
 | `user_documents` / `document_topics` | Grounding sources + topic links |
 | `image_pool` | Local image pool entries |

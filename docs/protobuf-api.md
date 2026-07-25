@@ -32,7 +32,7 @@ ApiRequest {
 | `tips` | `tips` | Due cards, current daily cards, new cards after refresh, or `manual_tip` |
 | `review` | `ok` | Grade or queue action |
 | `get_settings` / `update_settings` | `settings` / `ok` | LLM, prompt, theme, appearance, autoupdate (`update` is partial) |
-| `force_daily_refresh` | `force_daily_refresh` | Fresh cards for all or selected generated topics; does not reschedule current cards |
+| `force_daily_refresh` | `force_daily_refresh` | Refill selected generated-topic queues that are empty or have 1-2 pending cards; does not reschedule current cards |
 
 ## Operations — inventory
 
@@ -57,11 +57,32 @@ ApiRequest {
 
 ## Daily retrieval (`tips`)
 
+### Repeatable learning
+
+Repeatable cards use three learning actions:
+
+| Action | Effect |
+|---|---|
+| `again` | Keep the card active, schedule an earlier SM-2 review, and signal that simpler context may help |
+| `learned` | Keep the card active, schedule an easy SM-2 review, and signal that the next generated concept can be slightly more advanced |
+| `skip_known` | Dismiss the card and treat its content as known vocabulary |
+| `skip_not_interested` | Dismiss the card and steer future generation away from similar subject matter or framing |
+| `skip_too_difficult` | Dismiss the card and request an easier prerequisite or example |
+
+Generation receives recent titles and compact card content grouped by feedback. Unseen repeatable backlog cards older than the latest feedback are skipped, so stale generation cannot override the learner signal. The model infers a useful next concept; this is personalization around the existing SM-2 scheduler, not a separate scheduling algorithm.
+
+Generated topics behave as decks. Every grounding strategy, including factual generation, creates 5-10 cards in one batch and stores the entire batch as `pending`. A card request promotes and returns the oldest pending card. Page and topic loading also promote one pending card when a repeatable topic has no due card, so pending-only decks survive reloads. An empty queue is bootstrapped on demand; after that, generation runs only at the low-water mark of one or two pending cards. Repeatable topics expose one stable browser card per topic: a reviewed completion placeholder holds the same slot while the next card loads, then the active card replaces its content without remounting the slot or closing fullscreen. The placeholder's `Learn more` button refills that topic and refreshes the flow.
+
+Reviewed placeholders are persisted in browser storage, so they survive a page reload until the real card becomes due again or is deleted.
+
+
+Legacy `repeat`, `memorize`, and `dismiss` actions remain accepted as aliases for API clients already using them.
+
 For each requested scheduled topic/type, returns in order:
 
 1. Due active cards
 2. Cards already created in the current daily window (up to `daily_card_count`)
-3. Newly generated cards only until that count is reached
+3. The oldest promoted pending card after an on-demand low-water refill
 
 Window: `settings.daily_time_zone` (IANA or `UTC±HH`) + `settings.daily_update_time` (`HH:MM`, default `00:00`). Override per topic via `update_topic`.
 

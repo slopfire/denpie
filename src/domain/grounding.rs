@@ -32,11 +32,6 @@ impl GroundingStrategy {
             Self::Rag => "rag",
         }
     }
-
-    /// Only agentic produces a hidden pending backlog of cards.
-    pub fn is_pending_capable(self) -> bool {
-        matches!(self, Self::Agentic)
-    }
 }
 
 /// How a card gets illustrated.
@@ -165,14 +160,6 @@ mod tests {
             GroundingStrategy::from_setting(""),
             GroundingStrategy::Factual
         );
-    }
-
-    #[test]
-    fn only_agentic_is_pending_capable() {
-        assert!(GroundingStrategy::Agentic.is_pending_capable());
-        assert!(!GroundingStrategy::Factual.is_pending_capable());
-        assert!(!GroundingStrategy::CreateAndGround.is_pending_capable());
-        assert!(!GroundingStrategy::Rag.is_pending_capable());
     }
 
     #[test]
