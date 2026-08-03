@@ -55,9 +55,20 @@ ApiRequest {
 | `attach_document_topic` / `detach_document_topic` | `ok` | Add/remove one topic assignment without deleting the source |
 | `add_pool_image` / `list_pool_images` / `delete_pool_image` | ok / `pool_images` / `ok` | Local image pool |
 
-`get_settings` / `update_settings` expose `search_provider` (`tavily` or `firecrawl`) alongside
-`search_api_key` and `search_base_url`. When Firecrawl is selected, URL documents are converted to
-Markdown with its v2 scrape endpoint, including supported remote files such as PDFs.
+`get_settings` / `update_settings` expose `search_provider` (`tavily` or `firecrawl`) and
+`scrape_provider` (`scrapling`, `firecrawl`, or `direct`) alongside `search_api_key` and
+`search_base_url`.
+
+Link documents are scraped according to `scrape_provider` (default **`scrapling`**):
+
+| `scrape_provider` | Behavior |
+|---|---|
+| `scrapling` | Main local option. Runs the Scrapling CLI (`scrapling extract get … --ai-targeted`) when installed; falls back to capped direct HTTP if the CLI is missing. |
+| `firecrawl` | Cloud scrape via `/v2/scrape` (pages and supported remote files such as PDFs). Requires `search_api_key`. |
+| `direct` | Legacy capped HTTP GET with HTML tags stripped. |
+
+Install Scrapling with `pip install "scrapling[fetchers,shell]"`. Override the binary with
+`DENPIE_SCRAPLING_BIN`; disable with `DENPIE_DISABLE_SCRAPLING=1`.
 
 ## Daily retrieval (`tips`)
 

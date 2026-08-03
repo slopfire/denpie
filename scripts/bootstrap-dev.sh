@@ -39,6 +39,10 @@ if ! command -v jq >/dev/null 2>&1; then
   printf 'optional: jq (needed for benches/run_bench.sh reports)\n' >&2
 fi
 
+if ! command -v scrapling >/dev/null 2>&1; then
+  printf 'optional: scrapling (main link scraper; pip install "scrapling[fetchers,shell]")\n' >&2
+fi
+
 if [ "$missing" -ne 0 ]; then
   cat >&2 <<'EOF'
 

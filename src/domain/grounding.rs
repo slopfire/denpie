@@ -34,7 +34,7 @@ impl GroundingStrategy {
     }
 }
 
-/// External service used for web search and remote document extraction.
+/// External service used for web search and (optionally) remote document extraction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SearchProvider {
     Tavily,
@@ -53,6 +53,36 @@ impl SearchProvider {
         match self {
             Self::Tavily => "tavily",
             Self::Firecrawl => "firecrawl",
+        }
+    }
+}
+
+/// How linked web pages are turned into document text for grounding.
+///
+/// Scrapling is the main local option (optional CLI). Firecrawl is the cloud
+/// path. Direct is the legacy capped HTML strip fallback.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScrapeProvider {
+    Scrapling,
+    Firecrawl,
+    Direct,
+}
+
+impl ScrapeProvider {
+    pub fn from_setting(value: &str) -> Self {
+        match value.trim() {
+            "firecrawl" => Self::Firecrawl,
+            "direct" => Self::Direct,
+            // Default / main option
+            _ => Self::Scrapling,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Scrapling => "scrapling",
+            Self::Firecrawl => "firecrawl",
+            Self::Direct => "direct",
         }
     }
 }
@@ -183,6 +213,22 @@ mod tests {
             GroundingStrategy::from_setting(""),
             GroundingStrategy::Factual
         );
+    }
+
+    #[test]
+    fn scrape_provider_round_trips_and_defaults() {
+        for provider in [
+            ScrapeProvider::Scrapling,
+            ScrapeProvider::Firecrawl,
+            ScrapeProvider::Direct,
+        ] {
+            assert_eq!(ScrapeProvider::from_setting(provider.as_str()), provider);
+        }
+        assert_eq!(
+            ScrapeProvider::from_setting("unknown"),
+            ScrapeProvider::Scrapling
+        );
+        assert_eq!(ScrapeProvider::from_setting(""), ScrapeProvider::Scrapling);
     }
 
     #[test]

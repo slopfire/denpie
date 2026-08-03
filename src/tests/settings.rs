@@ -34,6 +34,7 @@ async fn test_admin_settings_roundtrip_persists() {
             "daily_update_time": "06:30",
             "max_active_cards": 7,
             "search_provider": "firecrawl",
+            "scrape_provider": "firecrawl",
             "search_base_url": "https://api.firecrawl.dev",
             "search_api_key": "fc-test"
         }))
@@ -58,6 +59,7 @@ async fn test_admin_settings_roundtrip_persists() {
     assert_eq!(body["daily_update_time"], "06:30");
     assert_eq!(body["max_active_cards"], 7);
     assert_eq!(body["search_provider"], "firecrawl");
+    assert_eq!(body["scrape_provider"], "firecrawl");
     assert_eq!(body["search_base_url"], "https://api.firecrawl.dev");
     assert_eq!(body["search_api_key"], "fc-test");
 }
@@ -101,6 +103,7 @@ async fn test_unified_protobuf_api_bootstrap_and_manage() {
                 daily_update_time: Some("06:30".into()),
                 max_active_cards: Some(7),
                 search_provider: Some("firecrawl".into()),
+                scrape_provider: Some("firecrawl".into()),
                 search_base_url: Some("https://api.firecrawl.dev".into()),
                 search_api_key: Some("fc-test".into()),
                 ..Default::default()
@@ -138,6 +141,7 @@ async fn test_unified_protobuf_api_bootstrap_and_manage() {
             assert_eq!(settings.daily_update_time, "06:30");
             assert_eq!(settings.max_active_cards, 7);
             assert_eq!(settings.search_provider, "firecrawl");
+            assert_eq!(settings.scrape_provider, "firecrawl");
             assert_eq!(settings.search_base_url, "https://api.firecrawl.dev");
             assert_eq!(settings.search_api_key, "fc-test");
         }

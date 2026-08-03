@@ -28,6 +28,7 @@ mod image_compress;
 mod image_store;
 mod llm;
 mod scheduling;
+mod scrapling;
 mod services;
 #[cfg(test)]
 mod tests;

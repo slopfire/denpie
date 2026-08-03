@@ -98,16 +98,19 @@ Grounding/image strategies log stage progress at `info`. LLM transport detail is
 | Page | Owns |
 |---|---|
 | **Settings** | Default LLM, endpoints, credentials, prompt, reasoning/compression, appearance, schedule, `max_active_cards` |
-| **Grounding** | Grounding-agent model/reasoning, fact grounding, Tavily or Firecrawl, image sources |
+| **Grounding** | Grounding-agent model/reasoning, fact grounding, Tavily or Firecrawl, link scraper, image sources |
 
 Empty grounding-agent fields inherit default LLM settings.
 
 **Image modes:** No Images · Local Image Pool · Tag-based Image APIs · Isolated Image Search · Web Image Search.
 
-The web provider can be Tavily (the default) or Firecrawl. Firecrawl powers factual web search,
-image search, and link ingestion; linked web pages and supported remote documents such as PDFs are
-scraped to clean Markdown through `/v2/scrape`. The base URL can target Firecrawl's hosted API or
-a compatible self-hosted deployment.
+The web provider can be Tavily (the default) or Firecrawl for factual web search and image search.
+
+**Link scraping** is separate. The main option is **Scrapling** (local CLI): when installed it
+converts linked pages to clean, AI-targeted Markdown. Alternatives: Firecrawl cloud scrape
+(`/v2/scrape`, including remote PDFs) or legacy direct HTTP. Install with
+`pip install "scrapling[fetchers,shell]"`. The Firecrawl search base URL can target the hosted API
+or a compatible self-hosted deployment.
 
 Local Image Pool uploads accept PNG, JPEG, WebP, and GIF images up to 10 MB decoded. Denpie
 recompresses larger uploads before sending them to the configured vision model for automatic

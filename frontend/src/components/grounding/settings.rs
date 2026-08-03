@@ -10,6 +10,10 @@ use wasm_bindgen::JsCast;
 use web_sys::{HtmlInputElement, HtmlTextAreaElement};
 use yew::prelude::*;
 
+fn default_scrape_provider() -> String {
+    "scrapling".to_string()
+}
+
 #[derive(Deserialize, Clone, PartialEq)]
 struct GroundingSettingsRes {
     grounding_strategy: String,
@@ -17,6 +21,8 @@ struct GroundingSettingsRes {
     grounding_reasoning_effort: String,
     image_strategy: String,
     search_provider: String,
+    #[serde(default = "default_scrape_provider")]
+    scrape_provider: String,
     search_api_key: String,
     search_base_url: String,
     image_sources: String,
@@ -29,6 +35,7 @@ struct GroundingSettingsPatch {
     grounding_reasoning_effort: Option<String>,
     image_strategy: Option<String>,
     search_provider: Option<String>,
+    scrape_provider: Option<String>,
     search_api_key: Option<String>,
     search_base_url: Option<String>,
     image_sources: Option<String>,
@@ -49,6 +56,7 @@ impl GroundingSettingsPatch {
         merge!(grounding_reasoning_effort);
         merge!(image_strategy);
         merge!(search_provider);
+        merge!(scrape_provider);
         merge!(search_api_key);
         merge!(search_base_url);
         merge!(image_sources);
@@ -205,7 +213,16 @@ pub fn grounding_settings() -> Html {
                         };
                         patch.search_base_url = Some(current.search_base_url.clone());
                     }
+                    // Prefer Firecrawl for link scrape when the web provider is Firecrawl.
+                    if value == "firecrawl" && current.scrape_provider != "firecrawl" {
+                        current.scrape_provider = "firecrawl".to_string();
+                        patch.scrape_provider = Some("firecrawl".to_string());
+                    }
                     patch.search_provider = Some(value);
+                }
+                "scrape_provider" => {
+                    current.scrape_provider = value.clone();
+                    patch.scrape_provider = Some(value);
                 }
                 _ => return,
             }
@@ -483,7 +500,7 @@ pub fn grounding_settings() -> Html {
                         ]}
                     />
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                     <div>
                         <label class="block card-kicker mb-2" for="search-provider-input">{"Web Provider"}</label>
                         <ShadcnSelect
@@ -496,12 +513,35 @@ pub fn grounding_settings() -> Html {
                                 SelectOption { value: "firecrawl".into(), label: "Firecrawl".into() },
                             ]}
                         />
-                        <div class="mt-2 text-xs text-muted">{"Firecrawl searches the web and extracts linked pages, PDFs, and other supported documents as clean Markdown."}</div>
+                        <div class="mt-2 text-xs text-muted">{"Used for fact grounding and image search."}</div>
                     </div>
                     <div>
-                        <label class="block card-kicker mb-2" for="search-api-key-input">{format!("{} API Key", if settings.search_provider == "firecrawl" { "Firecrawl" } else { "Tavily" })}</label>
-                        <input id="search-api-key-input" oninput={on_input("search_api_key")} type="password" value={settings.search_api_key.clone()} class="w-full rounded-md border px-3 py-2" placeholder={if settings.search_provider == "firecrawl" { "fc-…" } else { "tvly-…" }} />
-                        <div class="mt-2 text-xs text-muted">{"Required to use the selected external provider. Without a key, fact grounding uses the LLM provider's web search and links use direct fetching."}</div>
+                        <label class="block card-kicker mb-2" for="scrape-provider-input">{"Link Scraper"}</label>
+                        <ShadcnSelect
+                            id="scrape-provider-input"
+                            name="scrape-provider-input"
+                            onchange={on_select("scrape_provider")}
+                            value={settings.scrape_provider.clone()}
+                            options={vec![
+                                SelectOption { value: "scrapling".into(), label: "Scrapling (local, main)".into() },
+                                SelectOption { value: "firecrawl".into(), label: "Firecrawl (cloud)".into() },
+                                SelectOption { value: "direct".into(), label: "Direct HTTP (legacy)".into() },
+                            ]}
+                        />
+                        <div class="mt-2 text-xs text-muted">
+                            {if settings.scrape_provider == "scrapling" {
+                                "Main option: turns linked pages into clean Markdown via the Scrapling CLI when installed (pip install \"scrapling[fetchers,shell]\")."
+                            } else if settings.scrape_provider == "firecrawl" {
+                                "Uses Firecrawl /v2/scrape (pages and supported remote files such as PDFs). Requires the API key below."
+                            } else {
+                                "Simple capped HTTP GET with HTML tags stripped. No external tools."
+                            }}
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block card-kicker mb-2" for="search-api-key-input">{format!("{} API Key", if settings.search_provider == "firecrawl" || settings.scrape_provider == "firecrawl" { "Firecrawl / Tavily" } else { "Tavily" })}</label>
+                        <input id="search-api-key-input" oninput={on_input("search_api_key")} type="password" value={settings.search_api_key.clone()} class="w-full rounded-md border px-3 py-2" placeholder={if settings.search_provider == "firecrawl" || settings.scrape_provider == "firecrawl" { "fc-… or tvly-…" } else { "tvly-…" }} />
+                        <div class="mt-2 text-xs text-muted">{"Required for the selected external web provider and for Firecrawl link scraping. Without a key, fact grounding uses the LLM provider's web search."}</div>
                     </div>
                     <div>
                         <label class="block card-kicker mb-2" for="search-base-url-input">{"Search Base URL"}</label>

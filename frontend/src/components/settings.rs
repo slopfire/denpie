@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 use web_sys::{HtmlInputElement, HtmlTextAreaElement};
 use yew::prelude::*;
 
+fn default_scrape_provider() -> String {
+    "scrapling".to_string()
+}
+
 #[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct SettingsRes {
     pub server_version: String,
@@ -37,6 +41,8 @@ pub struct SettingsRes {
     pub grounding_strategy: String,
     pub image_strategy: String,
     pub search_provider: String,
+    #[serde(default = "default_scrape_provider")]
+    pub scrape_provider: String,
     pub search_api_key: String,
     pub search_base_url: String,
     pub image_sources: String,
@@ -79,6 +85,7 @@ impl SettingsRes {
         changed!(patch, grounding_strategy);
         changed!(patch, image_strategy);
         changed!(patch, search_provider);
+        changed!(patch, scrape_provider);
         changed!(patch, search_api_key);
         changed!(patch, search_base_url);
         changed!(patch, image_sources);
@@ -100,6 +107,7 @@ impl SettingsRes {
         apply!(grounding_strategy);
         apply!(image_strategy);
         apply!(search_provider);
+        apply!(scrape_provider);
         apply!(search_api_key);
         apply!(search_base_url);
         apply!(image_sources);
@@ -139,6 +147,7 @@ struct UpdateSettingsPatch {
     image_strategy: Option<String>,
     search_api_key: Option<String>,
     search_provider: Option<String>,
+    scrape_provider: Option<String>,
     search_base_url: Option<String>,
     image_sources: Option<String>,
     autoupdate_check_interval_secs: Option<u64>,
@@ -179,6 +188,7 @@ impl UpdateSettingsPatch {
             && self.grounding_strategy.is_none()
             && self.image_strategy.is_none()
             && self.search_provider.is_none()
+            && self.scrape_provider.is_none()
             && self.search_api_key.is_none()
             && self.search_base_url.is_none()
             && self.image_sources.is_none()
@@ -214,6 +224,7 @@ impl UpdateSettingsPatch {
         merge!(grounding_strategy);
         merge!(image_strategy);
         merge!(search_provider);
+        merge!(scrape_provider);
         merge!(search_api_key);
         merge!(search_base_url);
         merge!(image_sources);

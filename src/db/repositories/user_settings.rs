@@ -22,6 +22,7 @@ struct SettingsRow {
     grounding_strategy: String,
     image_strategy: String,
     search_provider: String,
+    scrape_provider: String,
     search_api_key: String,
     search_base_url: String,
     image_sources: String,
@@ -33,7 +34,8 @@ pub async fn get(pool: &SqlitePool, user_id: &str, defaults: Settings) -> AppRes
                 llm_api_key, llm_base_url, llm_compress_base_url, llm_reasoning_effort,
                 llm_grounding_reasoning_effort, llm_compress_reasoning_effort,
                 llm_compression_level, daily_time_zone, daily_update_time, max_active_cards,
-                grounding_strategy, image_strategy, search_provider, search_api_key, search_base_url, image_sources
+                grounding_strategy, image_strategy, search_provider, scrape_provider,
+                search_api_key, search_base_url, image_sources
          FROM user_settings
          WHERE user_id = ?",
     )
@@ -61,6 +63,7 @@ pub async fn get(pool: &SqlitePool, user_id: &str, defaults: Settings) -> AppRes
             grounding_strategy: row.grounding_strategy,
             image_strategy: row.image_strategy,
             search_provider: row.search_provider,
+            scrape_provider: row.scrape_provider,
             search_api_key: row.search_api_key,
             search_base_url: row.search_base_url,
             image_sources: row.image_sources,
@@ -78,8 +81,8 @@ pub async fn upsert(pool: &SqlitePool, user_id: &str, settings: &Settings) -> Ap
             llm_reasoning_effort, llm_grounding_reasoning_effort,
             llm_compress_reasoning_effort, llm_compression_level, daily_time_zone,
             daily_update_time, max_active_cards, grounding_strategy, image_strategy,
-            search_provider, search_api_key, search_base_url, image_sources
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            search_provider, scrape_provider, search_api_key, search_base_url, image_sources
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
             llm_model = excluded.llm_model,
             llm_grounding_model = excluded.llm_grounding_model,
@@ -99,6 +102,7 @@ pub async fn upsert(pool: &SqlitePool, user_id: &str, settings: &Settings) -> Ap
             grounding_strategy = excluded.grounding_strategy,
             image_strategy = excluded.image_strategy,
             search_provider = excluded.search_provider,
+            scrape_provider = excluded.scrape_provider,
             search_api_key = excluded.search_api_key,
             search_base_url = excluded.search_base_url,
             image_sources = excluded.image_sources",
@@ -122,6 +126,7 @@ pub async fn upsert(pool: &SqlitePool, user_id: &str, settings: &Settings) -> Ap
     .bind(&settings.grounding_strategy)
     .bind(&settings.image_strategy)
     .bind(&settings.search_provider)
+    .bind(&settings.scrape_provider)
     .bind(&settings.search_api_key)
     .bind(&settings.search_base_url)
     .bind(&settings.image_sources)

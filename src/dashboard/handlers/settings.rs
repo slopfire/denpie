@@ -79,6 +79,7 @@ pub async fn update_settings(
         grounding_strategy: req.grounding_strategy,
         image_strategy: req.image_strategy,
         search_provider: req.search_provider,
+        scrape_provider: req.scrape_provider,
         search_api_key: req.search_api_key,
         search_base_url: req.search_base_url,
         image_sources: req.image_sources,

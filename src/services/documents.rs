@@ -1,4 +1,4 @@
-use crate::domain::grounding::SearchProvider;
+use crate::domain::grounding::ScrapeProvider;
 use crate::{
     AppState,
     db::repositories::{documents, image_pool, topics},
@@ -638,17 +638,64 @@ fn extract_pdf_text(data: &[u8]) -> AppResult<String> {
         .map_err(|e| AppError::Validation(format!("Failed to extract PDF text: {e}")))
 }
 
-/// Fetch a link's body text. Firecrawl converts web pages and supported remote
-/// documents (including PDFs) to Markdown; Tavily/default mode keeps the local,
-/// capped HTML fetch used by existing installations.
+/// Fetch a link's body text according to `scrape_provider`.
+///
+/// - **scrapling** (default / main): local Scrapling CLI → AI-targeted Markdown;
+///   falls back to direct HTTP when Scrapling is not installed.
+/// - **firecrawl**: cloud scrape via the configured search API key/base URL.
+/// - **direct**: capped HTTP GET + HTML strip (legacy).
 async fn fetch_link_body(url: &str, settings: &crate::config::Settings) -> AppResult<String> {
-    if SearchProvider::from_setting(&settings.search_provider) == SearchProvider::Firecrawl
-        && !settings.search_api_key.trim().is_empty()
-    {
-        return scrape_with_firecrawl(url, &settings.search_base_url, &settings.search_api_key)
-            .await;
+    match ScrapeProvider::from_setting(&settings.scrape_provider) {
+        ScrapeProvider::Firecrawl => {
+            if settings.search_api_key.trim().is_empty() {
+                return Err(AppError::Validation(
+                    "Firecrawl link scraping requires a search API key".to_string(),
+                ));
+            }
+            let base = firecrawl_scrape_base_url(&settings.search_base_url);
+            scrape_with_firecrawl(url, &base, &settings.search_api_key).await
+        }
+        ScrapeProvider::Direct => fetch_link_body_direct(url).await,
+        ScrapeProvider::Scrapling => scrape_with_scrapling_or_direct(url).await,
     }
+}
 
+/// Prefer Scrapling; degrade to direct fetch when the CLI is missing.
+async fn scrape_with_scrapling_or_direct(url: &str) -> AppResult<String> {
+    match crate::scrapling::scrape_url(url).await {
+        Ok(Some(markdown)) => Ok(markdown),
+        Ok(None) => {
+            tracing::debug!("Scrapling unavailable; falling back to direct HTTP for link document");
+            fetch_link_body_direct(url).await
+        }
+        Err(err) => {
+            // Private/invalid URLs must not fall back to the looser direct path.
+            if err.message().contains("private network")
+                || err.message().contains("credential-free")
+                || err.message().contains("Invalid document URL")
+            {
+                return Err(err);
+            }
+            tracing::warn!(
+                error = %err.message(),
+                "Scrapling scrape failed; falling back to direct HTTP"
+            );
+            fetch_link_body_direct(url).await
+        }
+    }
+}
+
+fn firecrawl_scrape_base_url(search_base_url: &str) -> String {
+    let trimmed = search_base_url.trim();
+    if trimmed.is_empty() || trimmed.trim_end_matches('/') == "https://api.tavily.com" {
+        "https://api.firecrawl.dev".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Capped direct GET + naive HTML strip (legacy fallback).
+async fn fetch_link_body_direct(url: &str) -> AppResult<String> {
     let http = http_client::shared();
     let response = match http.get(url).send().await {
         Ok(res) if res.status().is_success() => res,
@@ -1014,7 +1061,7 @@ fn normalize_whitespace(s: &str) -> String {
 mod tests {
     use super::{
         clean_generated_title, extract_navigation_links, fallback_document_title,
-        firecrawl_scrape_body, preferred_vision_model, strip_html,
+        firecrawl_scrape_base_url, firecrawl_scrape_body, preferred_vision_model, strip_html,
     };
     use url::Url;
 
@@ -1047,6 +1094,18 @@ mod tests {
         assert_eq!(body["formats"], serde_json::json!(["markdown"]));
         assert_eq!(body["onlyMainContent"], true);
         assert_eq!(body["parsers"], serde_json::json!(["pdf"]));
+    }
+
+    #[test]
+    fn firecrawl_scrape_base_url_defaults_away_from_tavily() {
+        assert_eq!(
+            firecrawl_scrape_base_url("https://api.tavily.com"),
+            "https://api.firecrawl.dev"
+        );
+        assert_eq!(
+            firecrawl_scrape_base_url("https://firecrawl.example/v1"),
+            "https://firecrawl.example/v1"
+        );
     }
 
     #[test]
