@@ -438,33 +438,9 @@ pub fn unified_flow() -> Html {
                         Ok(res) if res.ok() => {
                             if let Some(mut placeholder) = reviewed_card {
                                 if placeholder.tipcard_type == "repeatable_tip" {
-                                    placeholder.status = "reviewed".to_string();
-                                    placeholder.review_message = Some(review_placeholder_message(
-                                        &action_name,
-                                        &placeholder.next_review_at,
-                                    ));
-                                    let mut placeholders = (*reviewed_placeholders).clone();
-                                    placeholders.retain(|_, card| {
-                                        card.topic_name != placeholder.topic_name
-                                    });
-                                    placeholders.insert(id, placeholder.clone());
-                                    reviewed_placeholders.set(placeholders);
-
-                                    let mut next = (*cards).clone();
-                                    next.retain(|card| {
-                                        !(card.status == "reviewed"
-                                            && card.topic_name == placeholder.topic_name)
-                                    });
-                                    if let Some(card) = next.iter_mut().find(|card| card.id == id) {
-                                        *card = placeholder.clone();
-                                    } else {
-                                        next.push(placeholder.clone());
-                                    }
-                                    cards.set(next);
-
                                     let next_req = CreateTipReq {
                                         count: Some(1),
-                                        topics: placeholder.topic_name,
+                                        topics: placeholder.topic_name.clone(),
                                         tipcard_type: Some("repeatable_tip".to_string()),
                                         manual_content: None,
                                         manual_image_data: None,
@@ -483,6 +459,32 @@ pub fn unified_flow() -> Html {
                                         _ => false,
                                     };
                                     if !next_ready {
+                                        placeholder.status = "reviewed".to_string();
+                                        placeholder.review_message =
+                                            Some(review_placeholder_message(
+                                                &action_name,
+                                                &placeholder.next_review_at,
+                                            ));
+                                        let mut placeholders = (*reviewed_placeholders).clone();
+                                        placeholders.retain(|_, card| {
+                                            card.topic_name != placeholder.topic_name
+                                        });
+                                        placeholders.insert(id, placeholder.clone());
+                                        reviewed_placeholders.set(placeholders);
+
+                                        let mut next = (*cards).clone();
+                                        next.retain(|card| {
+                                            !(card.status == "reviewed"
+                                                && card.topic_name == placeholder.topic_name)
+                                        });
+                                        if let Some(card) =
+                                            next.iter_mut().find(|card| card.id == id)
+                                        {
+                                            *card = placeholder.clone();
+                                        } else {
+                                            next.push(placeholder.clone());
+                                        }
+                                        cards.set(next);
                                         toast(
                                             &app_state,
                                             "Review saved, but the next card is unavailable",

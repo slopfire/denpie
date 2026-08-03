@@ -25,7 +25,7 @@ pub use models::{
 #[allow(unused_imports)]
 pub use pending::{
     count_pending, park_unseen_active_topic_cards, promote_pending_for_empty_topics,
-    stack_due_repeatable_cards, take_pending_card,
+    replace_unseen_with_pending_card, stack_due_repeatable_cards, take_pending_card,
 };
 pub use queue::{
     active_card_count, find_daily_topic_cards, find_due_topic_cards, has_active_topic_card,

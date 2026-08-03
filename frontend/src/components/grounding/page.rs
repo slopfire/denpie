@@ -287,7 +287,7 @@ pub fn grounding() -> Html {
                                 nav.push(&View::Flow);
                             }
                         }
-                        Ok(_) => toast(&app_state, "No card loaded: max active cards reached"),
+                        Ok(_) => toast(&app_state, "No new card available"),
                         Err(_) => toast(&app_state, "Failed to read refresh response"),
                     },
                     Ok(res) => toast(

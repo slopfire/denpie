@@ -845,6 +845,47 @@ async fn test_max_active_cards_blocks_new_manual_card_but_keeps_due_cards_availa
     crate::api::apply_review(&state, TEST_USER_ID, card_id, 1, "again")
         .await
         .unwrap();
+    let filler_topic_id = sqlx::query(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', 'capacity filler', 'manual_tip')",
+    )
+    .execute(&state.db)
+    .await
+    .unwrap()
+    .last_insert_rowid();
+    crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        filler_topic_id,
+        "manual_tip",
+        "Capacity filler",
+        "Capacity filler full",
+        "Capacity filler compact",
+        false,
+        "",
+        "active",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        crate::db::repositories::tipcards::active_card_count(&state.db, TEST_USER_ID)
+            .await
+            .unwrap(),
+        1,
+        "another due card should fill the active-card limit"
+    );
+    let expected_pending_id: i64 = sqlx::query_scalar(
+        "SELECT r.card_id
+         FROM review_states r
+         JOIN tipcards t ON t.id = r.card_id
+         WHERE t.user_id = ? AND t.topic_id = ? AND r.status = 'pending'
+         ORDER BY t.created_at ASC, t.id ASC
+         LIMIT 1",
+    )
+    .bind(TEST_USER_ID)
+    .bind(topic_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
     let promoted = crate::api::build_tips(
         &state,
         TEST_USER_ID,
@@ -862,6 +903,7 @@ async fn test_max_active_cards_blocks_new_manual_card_but_keeps_due_cards_availa
     .unwrap();
     assert_eq!(promoted.len(), 1);
     assert_ne!(promoted[0].id, card_id);
+    assert_eq!(promoted[0].id, expected_pending_id);
     assert_ne!(promoted[0].id, pending_id);
 
     let err = match crate::api::build_tips(

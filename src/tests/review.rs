@@ -145,6 +145,88 @@ async fn test_force_daily_refresh_respects_pending_low_water_mark() {
 }
 
 #[tokio::test]
+async fn explicit_repeatable_load_rotates_pending_card_at_active_limit() {
+    let settings_path = unique_settings_path();
+    fs::write(
+        &settings_path,
+        "admin_token: test_admin_token_xyz\nmax_active_cards: 1\n",
+    )
+    .await
+    .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+    let topic_id = sqlx::query(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES (?, 'loaded deck', 'repeatable_tip')",
+    )
+    .bind(TEST_USER_ID)
+    .execute(&state.db)
+    .await
+    .unwrap()
+    .last_insert_rowid();
+    let current_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "Current",
+        "Current full",
+        "Current compact",
+        false,
+        "",
+        "active",
+    )
+    .await
+    .unwrap();
+    let pending_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "Pending replacement",
+        "Pending replacement full",
+        "Pending replacement compact",
+        false,
+        "",
+        "pending",
+    )
+    .await
+    .unwrap();
+
+    let result = crate::api::tips::force_daily_refresh(
+        &state,
+        TEST_USER_ID,
+        crate::api::ForceDailyRefreshRequest {
+            topics: "loaded deck".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.refreshed_cards, 1);
+
+    let current_status: String =
+        sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = ?")
+            .bind(current_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    let pending_status: String =
+        sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = ?")
+            .bind(pending_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(current_status, "pending");
+    assert_eq!(pending_status, "active");
+    assert_eq!(
+        crate::db::repositories::tipcards::active_card_count(&state.db, TEST_USER_ID)
+            .await
+            .unwrap(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn test_daily_refresh_keeps_current_card_and_exclude_promotes_pending_card() {
     let settings_path = unique_settings_path();
     fs::write(&settings_path, "{}").await.unwrap();

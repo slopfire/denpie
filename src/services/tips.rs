@@ -188,7 +188,9 @@ impl TipService {
                     .await?;
                 }
                 continue;
-            } else if !is_queue_tipcard(&topic.tipcard_type) {
+            }
+
+            if !is_queue_tipcard(&topic.tipcard_type) {
                 let daily_window_start = domain::scheduling::topic_daily_window_start(
                     &topic,
                     &settings.daily_time_zone,
@@ -216,6 +218,59 @@ impl TipService {
                         topic.tipcard_type.clone(),
                         card.pinned,
                     ));
+                }
+                if topic.tipcard_type == "repeatable_tip" && daily_count == 0 {
+                    // An excluded card can still be due when callers are merely
+                    // paginating. Only promote its replacement after review has
+                    // actually moved it off the due queue.
+                    let excluded_card_is_still_due = !exclude_card_ids.is_empty()
+                        && !tipcards::find_due_topic_cards(
+                            &state.db,
+                            user_id,
+                            topic.id,
+                            &topic.tipcard_type,
+                            &[],
+                            1,
+                        )
+                        .await
+                        .map_err(|err| err.into_status_body())?
+                        .is_empty();
+                    if !excluded_card_is_still_due {
+                        let image_strategy = domain::grounding::ImageStrategy::from_setting(
+                            topic
+                                .image_strategy
+                                .as_deref()
+                                .unwrap_or(&settings.image_strategy),
+                        );
+                        if Self::serve_pending_card(
+                            &GenerationContext {
+                                state,
+                                user_id,
+                                topic_name,
+                                topic: &topic,
+                                settings: &settings,
+                            },
+                            &GenerationLlmConfig {
+                                model: &settings.llm_model,
+                                grounding_model: settings.grounding_model(),
+                                api_key: &settings.llm_api_key,
+                                base_url: &settings.llm_base_url,
+                                reasoning: &llm_reasoning,
+                                grounding_reasoning: &grounding_reasoning,
+                                compression_level: llm_compression_level,
+                            },
+                            image_strategy,
+                            false,
+                            &mut responses,
+                        )
+                        .await?
+                        {
+                            // Queue delivery replaces the reviewed card. It must
+                            // not be blocked by the generation-only capacity gate.
+                            decrement_room(&mut active_room);
+                            continue;
+                        }
+                    }
                 }
                 let remaining_daily_cards = daily_card_count.saturating_sub(daily_count);
                 let cards_to_generate = active_room.map_or(remaining_daily_cards, |room| {
@@ -345,8 +400,11 @@ impl TipService {
         user_id: &str,
         req: ForceDailyRefreshRequest,
     ) -> ApiResult<ForceDailyRefreshResponse> {
+        let rotate_repeatable =
+            !req.topics.trim().is_empty() && req.tipcard_type.as_deref() == Some("repeatable_tip");
         let targets = Self::force_refresh_targets(state, user_id, req).await?;
-        let refreshed_cards = Self::generate_fresh_daily_cards(state, user_id, &targets).await?;
+        let refreshed_cards =
+            Self::generate_fresh_daily_cards(state, user_id, &targets, rotate_repeatable).await?;
         if refreshed_cards > 0 {
             Self::mark_targets_current_window(
                 state,
@@ -407,6 +465,7 @@ impl TipService {
                     state,
                     &user_id,
                     &[(topic.clone(), topic.name.clone())],
+                    false,
                 )
                 .await
                 {
@@ -505,6 +564,7 @@ impl TipService {
         state: &AppState,
         user_id: &str,
         targets: &[(topics::TopicRecord, String)],
+        rotate_repeatable: bool,
     ) -> ApiResult<u64> {
         if targets.is_empty() {
             return Ok(0);
@@ -529,6 +589,40 @@ impl TipService {
         let mut created_total = 0_u64;
 
         for (topic, topic_name) in targets {
+            if rotate_repeatable && topic.tipcard_type == "repeatable_tip" {
+                let image_strategy = domain::grounding::ImageStrategy::from_setting(
+                    topic
+                        .image_strategy
+                        .as_deref()
+                        .unwrap_or(&settings.image_strategy),
+                );
+                if Self::serve_pending_card(
+                    &GenerationContext {
+                        state,
+                        user_id,
+                        topic_name,
+                        topic,
+                        settings: &settings,
+                    },
+                    &GenerationLlmConfig {
+                        model: &settings.llm_model,
+                        grounding_model: settings.grounding_model(),
+                        api_key: &settings.llm_api_key,
+                        base_url: &settings.llm_base_url,
+                        reasoning: &llm_reasoning,
+                        grounding_reasoning: &grounding_reasoning,
+                        compression_level: llm_compression_level,
+                    },
+                    image_strategy,
+                    true,
+                    &mut responses,
+                )
+                .await?
+                {
+                    created_total += 1;
+                    continue;
+                }
+            }
             if topic.tipcard_type == "repeatable_tip" {
                 tipcards::park_unseen_active_topic_cards(&state.db, user_id, topic.id)
                     .await
@@ -744,9 +838,10 @@ impl TipService {
         .await
         .map_err(|err| err.into_status_body())?;
 
-        // Above the low-water mark, delivery is a DB-only queue promotion.
-        if should_promote && !pending_needs_generation(pending_count) {
-            if Self::serve_pending_card(&ctx, &llm, image_strategy, responses).await? {
+        // Delivery must never wait for an LLM refill when the next queued card is
+        // already available. Refill on a later empty-queue request instead.
+        if should_promote && pending_count > 0 {
+            if Self::serve_pending_card(&ctx, &llm, image_strategy, false, responses).await? {
                 return Ok(batch_size.max(1));
             }
         }
@@ -845,7 +940,7 @@ impl TipService {
         .map_err(|err| err.into_status_body())?;
         if !pending_needs_generation(current_pending) {
             if should_promote {
-                Self::serve_pending_card(&ctx, &llm, image_strategy, responses).await?;
+                Self::serve_pending_card(&ctx, &llm, image_strategy, false, responses).await?;
             }
             return Ok(0);
         }
@@ -877,7 +972,7 @@ impl TipService {
             return Ok(created_count);
         }
 
-        Self::serve_pending_card(&ctx, &llm, image_strategy, responses).await?;
+        Self::serve_pending_card(&ctx, &llm, image_strategy, false, responses).await?;
         Ok(created_count)
     }
 
@@ -885,17 +980,28 @@ impl TipService {
         ctx: &GenerationContext<'_>,
         llm: &GenerationLlmConfig<'_>,
         image_strategy: domain::grounding::ImageStrategy,
+        replace_unseen: bool,
         responses: &mut Vec<TipCardJson>,
     ) -> ApiResult<bool> {
-        let Some(card) = tipcards::take_pending_card(
-            &ctx.state.db,
-            ctx.user_id,
-            ctx.topic.id,
-            &ctx.topic.tipcard_type,
-        )
-        .await
-        .map_err(|err| err.into_status_body())?
-        else {
+        let card = if replace_unseen {
+            tipcards::replace_unseen_with_pending_card(
+                &ctx.state.db,
+                ctx.user_id,
+                ctx.topic.id,
+                &ctx.topic.tipcard_type,
+            )
+            .await
+        } else {
+            tipcards::take_pending_card(
+                &ctx.state.db,
+                ctx.user_id,
+                ctx.topic.id,
+                &ctx.topic.tipcard_type,
+            )
+            .await
+        }
+        .map_err(|err| err.into_status_body())?;
+        let Some(card) = card else {
             return Ok(false);
         };
 

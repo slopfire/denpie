@@ -165,6 +165,82 @@ pub async fn take_pending_card(
     }))
 }
 
+/// Replace an unseen active repeatable card with the oldest card that was
+/// already pending. The candidate is selected before the active card is parked,
+/// so a forced topic load cannot immediately select the same card again.
+pub async fn replace_unseen_with_pending_card(
+    pool: &SqlitePool,
+    user_id: &str,
+    topic_id: i64,
+    tipcard_type: &str,
+) -> AppResult<Option<ScheduledCardRecord>> {
+    let mut tx = pool.begin().await?;
+    let row =
+        sqlx::query_as::<_, (i64, String, String, String, i64, String, i64, String)>(&format!(
+            "{select} JOIN review_states r ON t.id = r.card_id
+         WHERE t.user_id = ? AND t.topic_id = ? AND t.tipcard_type = ? AND r.status = 'pending'
+           AND (? != 'repeatable_tip' OR t.created_at >= COALESCE((
+               SELECT MAX(r2.reviewed_at)
+               FROM review_states r2
+               JOIN tipcards t2 ON t2.id = r2.card_id
+               WHERE t2.user_id = ? AND t2.topic_id = ? AND t2.tipcard_type = ?
+                 AND r2.feedback IN ('known', 'not_interested', 'too_difficult')
+           ), '0000-01-01 00:00:00'))
+         ORDER BY t.created_at ASC, t.id ASC
+         LIMIT 1",
+            select = queries::SCHEDULED_SELECT
+        ))
+        .bind(user_id)
+        .bind(topic_id)
+        .bind(tipcard_type)
+        .bind(tipcard_type)
+        .bind(user_id)
+        .bind(topic_id)
+        .bind(tipcard_type)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+    let Some(row) = row else {
+        tx.commit().await?;
+        return Ok(None);
+    };
+
+    if tipcard_type == "repeatable_tip" {
+        sqlx::query(
+            "UPDATE review_states
+             SET status = 'pending'
+             WHERE status = 'active' AND repeats = 0 AND card_id != ?
+               AND card_id IN (
+                   SELECT id FROM tipcards
+                   WHERE user_id = ? AND topic_id = ? AND tipcard_type = 'repeatable_tip'
+               )",
+        )
+        .bind(row.0)
+        .bind(user_id)
+        .bind(topic_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    sqlx::query("UPDATE review_states SET status = 'active', next_review_at = ? WHERE card_id = ?")
+        .bind(Utc::now())
+        .bind(row.0)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    Ok(Some(ScheduledCardRecord {
+        id: row.0,
+        full_content: row.1,
+        compressed_content: row.2,
+        title: row.3,
+        use_image: row.4 != 0,
+        image_query: row.5,
+        pinned: row.6 != 0,
+        image_data: row.7,
+    }))
+}
+
 /// Count pending cards for a topic.
 #[allow(dead_code)]
 pub async fn count_pending(
