@@ -18,6 +18,7 @@ const TRANSMISSION_MAX_PICKS: usize = 9;
 const TRANSMISSION_MAX_PICKS_PER_TOPIC: usize = 3;
 const REVIEWED_PLACEHOLDERS_KEY: &str = "denpie-reviewed-placeholders";
 const FLOW_GRID_COLUMNS_KEY: &str = "denpie-flow-grid-columns";
+const PINNED_CARD_ORDER_KEY: &str = "denpie-pinned-card-order";
 
 #[derive(Deserialize, Serialize, Clone, PartialEq)]
 pub struct TipcardInfo {
@@ -176,6 +177,8 @@ pub fn unified_flow() -> Html {
     let has_more = use_state(|| true);
     let loading = use_state(|| false);
     let pending_count = use_state(|| 0usize);
+    let pinned_card_order =
+        use_state(|| LocalStorage::get::<Vec<i64>>(PINNED_CARD_ORDER_KEY).unwrap_or_default());
     let topics_input =
         use_state(|| LocalStorage::get::<String>("denpie_prefill_topic").unwrap_or_default());
     let tip_type = use_state(|| {
@@ -538,8 +541,10 @@ pub fn unified_flow() -> Html {
 
     let on_toggle_pin_cb = {
         let cards = cards.clone();
+        let pinned_card_order = pinned_card_order.clone();
         Callback::from(move |(id, pinned): (i64, bool)| {
             let cards = cards.clone();
+            let pinned_card_order = pinned_card_order.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let req = PinReq {
                     id,
@@ -557,6 +562,14 @@ pub fn unified_flow() -> Html {
                         if let Some(card) = next.iter_mut().find(|card| card.id == id) {
                             card.pinned = pinned;
                         }
+                        let pinned_ids = next
+                            .iter()
+                            .filter(|card| card.pinned)
+                            .map(|card| card.id)
+                            .collect::<Vec<_>>();
+                        let order = normalize_card_order((*pinned_card_order).clone(), &pinned_ids);
+                        let _ = LocalStorage::set(PINNED_CARD_ORDER_KEY, &order);
+                        pinned_card_order.set(order);
                         cards.set(next);
                     }
                 }
@@ -656,6 +669,32 @@ pub fn unified_flow() -> Html {
         })
     };
 
+    let on_reorder_pinned = {
+        let cards = cards.clone();
+        let pinned_card_order = pinned_card_order.clone();
+        Callback::from(move |(source_id, target_id): (i64, i64)| {
+            let pinned_ids = cards
+                .iter()
+                .filter(|card| card.pinned)
+                .map(|card| card.id)
+                .collect::<Vec<_>>();
+            if !pinned_ids.contains(&source_id) || !pinned_ids.contains(&target_id) {
+                return;
+            }
+            let mut order = normalize_card_order((*pinned_card_order).clone(), &pinned_ids);
+            let (Some(source_index), Some(target_index)) = (
+                order.iter().position(|&id| id == source_id),
+                order.iter().position(|&id| id == target_id),
+            ) else {
+                return;
+            };
+            let card_id = order.remove(source_index);
+            order.insert(target_index, card_id);
+            let _ = LocalStorage::set(PINNED_CARD_ORDER_KEY, &order);
+            pinned_card_order.set(order);
+        })
+    };
+
     let on_measure = {
         let card_heights = card_heights.clone();
         Callback::from(move |(id, height): (i64, f64)| {
@@ -675,7 +714,14 @@ pub fn unified_flow() -> Html {
         cards.iter().filter(|card| card.pinned).cloned().collect();
     let mut unpinned_cards: Vec<TipcardInfo> =
         cards.iter().filter(|card| !card.pinned).cloned().collect();
-    sort_flow_cards(&mut pinned_cards, sort_by.as_str());
+    let pinned_ids = pinned_cards.iter().map(|card| card.id).collect::<Vec<_>>();
+    let normalized_pinned_order = normalize_card_order((*pinned_card_order).clone(), &pinned_ids);
+    pinned_cards.sort_by_key(|card| {
+        normalized_pinned_order
+            .iter()
+            .position(|&id| id == card.id)
+            .unwrap_or(usize::MAX)
+    });
     sort_flow_cards(&mut unpinned_cards, sort_by.as_str());
 
     let (transmission_picks, remaining_cards) = split_topic_picks(&unpinned_cards);
@@ -787,7 +833,7 @@ pub fn unified_flow() -> Html {
         let app_state = app_state.clone();
         Callback::from(move |message: String| toast(&app_state, message))
     };
-    let render_flow_card = |card: &TipcardInfo| {
+    let render_flow_card = |card: &TipcardInfo, enable_drag: bool| {
         let card = card.clone();
         let id = card.id;
         let card_key = flow_card_key(&card);
@@ -799,6 +845,7 @@ pub fn unified_flow() -> Html {
                 on_learn_more={on_learn_more_cb.clone()}
                 on_toggle_pin={on_toggle_pin_cb.clone()}
                 on_delete={on_delete_cb.clone()}
+                on_reorder={on_reorder_pinned.clone()}
                 on_update_images={on_update_images_cb.clone()}
                 on_upload_error={on_upload_error.clone()}
                 on_toggle_fullscreen={on_toggle_fullscreen.clone()}
@@ -807,6 +854,7 @@ pub fn unified_flow() -> Html {
                 list_mode={list_mode}
                 fullscreen={*fullscreen_card_key == Some(card_key.clone())}
                 detail_loaded={detail_loaded.get(&id).copied().unwrap_or(false)}
+                enable_drag={enable_drag}
             />
         }
     };
@@ -921,7 +969,7 @@ pub fn unified_flow() -> Html {
                         id="flow-pinned-grid"
                         class={grid_classes}
                     >
-                        {for pinned_cards.iter().map(&render_flow_card)}
+                        {for pinned_cards.iter().map(|card| render_flow_card(card, true))}
                     </div>
                 </section>
             }
@@ -1044,7 +1092,7 @@ pub fn unified_flow() -> Html {
                     })
                 }
                 {
-                    for transmission_picks.iter().map(render_flow_card)
+                    for transmission_picks.iter().map(|card| render_flow_card(card, false))
                 }
             </div>
 
@@ -1062,7 +1110,7 @@ pub fn unified_flow() -> Html {
                         id="flow-other-grid"
                         class={grid_classes}
                     >
-                        {for remaining_cards.iter().map(render_flow_card)}
+                        {for remaining_cards.iter().map(|card| render_flow_card(card, false))}
                     </div>
                 </section>
             }
@@ -1082,7 +1130,7 @@ pub fn unified_flow() -> Html {
             }
 
             if let Some(card) = fullscreen_orphan.as_ref() {
-                { render_flow_card(card) }
+                { render_flow_card(card, false) }
             }
         </section>
     }
@@ -1292,6 +1340,16 @@ fn review_placeholder_message(action: &str, _previous_review_at: &str) -> String
     }
 }
 
+fn normalize_card_order(mut order: Vec<i64>, current_ids: &[i64]) -> Vec<i64> {
+    order.retain(|id| current_ids.contains(id));
+    for id in current_ids {
+        if !order.contains(id) {
+            order.push(*id);
+        }
+    }
+    order
+}
+
 fn set_fullscreen_body_class(fullscreen: bool) {
     let Some(body) = web_sys::window()
         .and_then(|window| window.document())
@@ -1401,6 +1459,14 @@ mod tests {
     fn legacy_drag_sort_preference_falls_back_to_topic() {
         assert_eq!(normalize_flow_sort("drag"), "topic");
         assert_eq!(normalize_flow_sort("manual"), "topic");
+    }
+
+    #[test]
+    fn pinned_order_keeps_saved_positions_and_appends_new_cards() {
+        assert_eq!(
+            normalize_card_order(vec![3, 1, 9], &[1, 2, 3]),
+            vec![3, 1, 2]
+        );
     }
 
     #[test]

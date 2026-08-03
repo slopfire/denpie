@@ -42,6 +42,8 @@ pub struct FlowCardProps {
     pub on_learn_more: Callback<(String, String)>,
     pub on_toggle_pin: Callback<(i64, bool)>,
     pub on_delete: Callback<i64>,
+    #[prop_or_default]
+    pub on_reorder: Callback<(i64, i64)>,
     pub on_update_images: Callback<(i64, Vec<String>)>,
     #[prop_or_default]
     pub on_upload_error: Callback<String>,
@@ -56,6 +58,8 @@ pub struct FlowCardProps {
     pub fullscreen: bool,
     #[prop_or(true)]
     pub detail_loaded: bool,
+    #[prop_or_default]
+    pub enable_drag: bool,
     #[prop_or(true)]
     pub enable_measure: bool,
 }
@@ -138,6 +142,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let metadata_open = use_state(|| false);
     let leaving = use_state(|| None::<ReviewSway>);
     let grid_min_height = use_state(|| None::<f64>);
+    let dragging = use_state(|| false);
     let card = &props.card;
     let id = card.id;
     let pinned = card.pinned;
@@ -172,6 +177,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let on_learn_more = props.on_learn_more.clone();
     let on_toggle_pin = props.on_toggle_pin.clone();
     let on_delete = props.on_delete.clone();
+    let on_reorder = props.on_reorder.clone();
     let on_toggle_fullscreen = props.on_toggle_fullscreen.clone();
     let fullscreen = props.fullscreen;
     let lock_grid_height = card.tipcard_type == "repeatable_tip" && !fullscreen;
@@ -195,10 +201,10 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
             leaving.set(Some(sway));
             let on_review = on_review.clone();
             let leaving = leaving.clone();
-            gloo_timers::callback::Timeout::new(200, move || {
+            gloo_timers::callback::Timeout::new(110, move || {
                 on_review.emit((id, grade, action));
-                // Keep the reviewed card out of view while the request is in flight. A
-                // status/id change clears this sooner; this is only the failure fallback.
+                // Prevent duplicate reviews while the request is in flight. A status/id
+                // change clears this sooner; this is only the failure fallback.
                 gloo_timers::callback::Timeout::new(1_500, move || leaving.set(None)).forget();
             })
             .forget();
@@ -281,6 +287,51 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
         });
     }
 
+    let drag_enabled = props.enable_drag && pinned && !fullscreen;
+    let ondragstart = {
+        let root_ref = root_ref.clone();
+        let dragging = dragging.clone();
+        Callback::from(move |event: DragEvent| {
+            dragging.set(true);
+            if let Some(data_transfer) = event.data_transfer() {
+                let _ = data_transfer.set_data("text/plain", &id.to_string());
+                data_transfer.set_drop_effect("move");
+                if let Some(element) = root_ref.cast::<web_sys::Element>() {
+                    let rect = element.get_bounding_client_rect();
+                    let offset_x = ((event.client_x() as f64) - rect.left()) as i32;
+                    let offset_y = ((event.client_y() as f64) - rect.top()) as i32;
+                    data_transfer.set_drag_image(&element, offset_x, offset_y);
+                }
+            }
+        })
+    };
+    let ondragend = {
+        let dragging = dragging.clone();
+        Callback::from(move |_| dragging.set(false))
+    };
+    let ondragover = Callback::from(|event: DragEvent| {
+        event.prevent_default();
+        if let Some(data_transfer) = event.data_transfer() {
+            data_transfer.set_drop_effect("move");
+        }
+    });
+    let ondrop = Callback::from(move |event: DragEvent| {
+        event.prevent_default();
+        let Some(data_transfer) = event.data_transfer() else {
+            return;
+        };
+        let Some(source_id) = data_transfer
+            .get_data("text/plain")
+            .ok()
+            .and_then(|id| id.parse::<i64>().ok())
+        else {
+            return;
+        };
+        if source_id != id {
+            on_reorder.emit((source_id, id));
+        }
+    });
+
     let on_copy = {
         let text = card.full_content.clone();
         let copied = copied.clone();
@@ -359,9 +410,12 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                 (leaving.is_some() && fullscreen).then_some("is-reviewing-fullscreen"),
                 (fullscreen && card.tipcard_type == "repeatable_tip").then_some("repeatable-fullscreen"),
                 (*leaving).map(ReviewSway::class_name),
+                (*dragging).then_some("is-dragging"),
             )}
             data-card-id={id.to_string()}
             style={card_style}
+            ondragover={drag_enabled.then_some(ondragover)}
+            ondrop={drag_enabled.then_some(ondrop)}
         >
             {
                 for (1..=stack_layers).map(|layer| html! {
@@ -374,8 +428,22 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
             }
             <div class="flow-card-front p-4 flex flex-col flex-1">
                 <div class="card-title-bar border-b border-token pb-3 mb-4">
-                    <div class="card-title-leading flex items-center justify-self-start">
-                        <span class="border border-token p-1 inline-flex">
+                    <div class="card-title-leading flex items-center gap-2 justify-self-start">
+                        if drag_enabled {
+                            <ShadcnTooltip content="Drag pinned card to reorder" class="card-drag-tooltip">
+                                <button
+                                    type="button"
+                                    class="card-drag-handle"
+                                    aria-label="Drag pinned card to reorder"
+                                    draggable="true"
+                                    ondragstart={ondragstart}
+                                    ondragend={ondragend}
+                                >
+                                    <iconify-icon icon="radix-icons:drag-handle-dots-2" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                </button>
+                            </ShadcnTooltip>
+                        }
+                        <span class="inline-flex">
                             <iconify-icon icon={topic_icon} class="topic-icon radix-icon shrink-0" style={topic_color_style}></iconify-icon>
                         </span>
                     </div>

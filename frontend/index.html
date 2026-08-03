@@ -742,19 +742,15 @@
                 }
             }
             @keyframes card-leave-stack {
-                0% {
+                0%,
+                100% {
                     opacity: 1;
                     transform: translate3d(0, 0, 0) rotate(0);
                 }
-                38% {
-                    opacity: 1;
-                    transform: translate3d(var(--card-lean-x), -0.08rem, 0)
-                        rotate(var(--card-lean-rotate));
-                }
-                100% {
-                    opacity: 0;
-                    transform: translate3d(var(--card-exit-x), -0.65rem, 0)
-                        rotate(var(--card-exit-rotate));
+                52% {
+                    opacity: 0.9;
+                    transform: translate3d(var(--card-sway-x), -0.22rem, 0)
+                        rotate(var(--card-sway-rotate));
                 }
             }
             @keyframes fullscreen-review-content {
@@ -1369,28 +1365,22 @@
                 border: 1px solid hsl(var(--border-hsl));
                 border-radius: inherit;
                 box-shadow: var(--shadow);
-                animation: card-leave-stack 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
+                animation: card-leave-stack 220ms cubic-bezier(0.2, 0, 0, 1);
                 will-change: transform, opacity;
             }
             .flow-card.leaves-left {
-                --card-exit-x: -2rem;
-                --card-exit-rotate: -2.4deg;
-                --card-lean-x: 0.12rem;
-                --card-lean-rotate: 0.7deg;
+                --card-sway-x: -0.85rem;
+                --card-sway-rotate: -1.4deg;
                 --fullscreen-review-x: -0.55rem;
             }
             .flow-card.leaves-center {
-                --card-exit-x: 0rem;
-                --card-exit-rotate: 0deg;
-                --card-lean-x: 0rem;
-                --card-lean-rotate: 0deg;
+                --card-sway-x: 0rem;
+                --card-sway-rotate: 0deg;
                 --fullscreen-review-x: 0rem;
             }
             .flow-card.leaves-right {
-                --card-exit-x: 2rem;
-                --card-exit-rotate: 2.4deg;
-                --card-lean-x: -0.12rem;
-                --card-lean-rotate: -0.7deg;
+                --card-sway-x: 0.85rem;
+                --card-sway-rotate: 1.4deg;
                 --fullscreen-review-x: 0.55rem;
             }
             .flow-card.leaves-left > .flow-card-front {
@@ -1476,6 +1466,35 @@
             .flow-card-enter {
                 animation: card-enter 130ms cubic-bezier(0.2, 0, 0, 1);
                 will-change: transform, opacity;
+            }
+            .card-drag-handle {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 1.75rem;
+                height: 1.75rem;
+                color: hsl(var(--muted-foreground));
+                opacity: 0.58;
+                cursor: grab;
+                touch-action: none;
+            }
+            .card-drag-tooltip {
+                display: inline-flex;
+            }
+            .card-drag-handle:active {
+                cursor: grabbing;
+            }
+            .card-drag-handle:hover,
+            .card-drag-handle:focus-visible {
+                color: hsl(var(--foreground));
+                opacity: 1;
+                outline: none;
+            }
+            .flow-card.is-dragging {
+                opacity: 0.58;
+                transform: scale(0.985);
+                box-shadow: 0 18px 38px hsl(var(--foreground) / 0.2);
+                transition: opacity 120ms ease, transform 120ms ease, box-shadow 120ms ease;
             }
             .card-title-bar {
                 display: grid;
@@ -1582,7 +1601,7 @@
                 width: 100%;
             }
             .flow-card.is-fullscreen .card-text {
-                font-weight: 300;
+                font-weight: 400;
             }
             .flow-card.is-fullscreen .card-text strong {
                 font-weight: 600;
