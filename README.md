@@ -52,7 +52,7 @@ Backend-only hacking: `DENPIE_SKIP_FRONTEND_BUILD=1`.
 | :---: | :---: | :---: |
 | ![Grounding](docs/assets/grounding.png) | ![Transmission](docs/assets/unified-flow.png) | ![Fullscreen Card](docs/assets/fullscreen-card.png) |
 
-Transmission keeps pinned cards in a separate top section. Beneath it, topic picks show up to three cards per topic and nine cards total, reducing the per-topic allowance evenly when the total would exceed nine. All remaining due cards continue in an "Other cards" section below the picks.
+Transmission keeps pinned cards in a separate top section. Beneath it, topic picks show up to three cards per topic and nine cards total, reducing the per-topic allowance evenly when the total would exceed nine. All remaining due cards continue in an "Other cards" section below the picks. The grid switch opens a quick column picker; the saved maximum remains constrained by the current page width.
 
 ## Dev commands
 

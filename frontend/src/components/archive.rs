@@ -149,7 +149,6 @@ pub fn archive() -> Html {
     let disable_glass = visible.len() > ARCHIVE_GLASS_THRESHOLD;
 
     let on_review = Callback::from(|_: (i64, Option<u8>, Option<String>)| {});
-    let on_reorder = Callback::from(|_: (i64, i64)| {});
     let on_toggle_fullscreen = {
         let fullscreen_card_id = fullscreen_card_id.clone();
         Callback::from(move |id: i64| {
@@ -430,7 +429,6 @@ pub fn archive() -> Html {
                                     on_review={on_review.clone()}
                                     on_toggle_pin={on_toggle_pin.clone()}
                                     on_delete={on_delete.clone()}
-                                    on_reorder={on_reorder.clone()}
                                     on_update_images={on_update_images.clone()}
                                     on_images_attached={Callback::from({
                                         let refresh_cards = refresh_cards.clone();
@@ -443,7 +441,6 @@ pub fn archive() -> Html {
                                     on_toggle_fullscreen={on_toggle_fullscreen.clone()}
                                     list_mode={false}
                                     fullscreen={*fullscreen_card_id == Some(card.id)}
-                                    enable_drag={false}
                                     enable_measure={false}
                                 />
                             })

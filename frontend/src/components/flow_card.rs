@@ -17,6 +17,23 @@ fn repeatable_stack_layers(tipcard_type: &str, pending_count: u32, fullscreen: b
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum ReviewSway {
+    Left,
+    Center,
+    Right,
+}
+
+impl ReviewSway {
+    fn class_name(self) -> &'static str {
+        match self {
+            Self::Left => "leaves-left",
+            Self::Center => "leaves-center",
+            Self::Right => "leaves-right",
+        }
+    }
+}
+
 #[derive(Properties, PartialEq)]
 pub struct FlowCardProps {
     pub card: TipcardInfo,
@@ -25,7 +42,6 @@ pub struct FlowCardProps {
     pub on_learn_more: Callback<(String, String)>,
     pub on_toggle_pin: Callback<(i64, bool)>,
     pub on_delete: Callback<i64>,
-    pub on_reorder: Callback<(i64, i64)>,
     pub on_update_images: Callback<(i64, Vec<String>)>,
     #[prop_or_default]
     pub on_upload_error: Callback<String>,
@@ -40,8 +56,6 @@ pub struct FlowCardProps {
     pub fullscreen: bool,
     #[prop_or(true)]
     pub detail_loaded: bool,
-    #[prop_or(true)]
-    pub enable_drag: bool,
     #[prop_or(true)]
     pub enable_measure: bool,
 }
@@ -122,7 +136,8 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let skip_open = use_state(|| false);
     let more_open = use_state(|| false);
     let metadata_open = use_state(|| false);
-    let leaving = use_state(|| false);
+    let leaving = use_state(|| None::<ReviewSway>);
+    let grid_min_height = use_state(|| None::<f64>);
     let card = &props.card;
     let id = card.id;
     let pinned = card.pinned;
@@ -157,26 +172,45 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let on_learn_more = props.on_learn_more.clone();
     let on_toggle_pin = props.on_toggle_pin.clone();
     let on_delete = props.on_delete.clone();
-    let on_reorder = props.on_reorder.clone();
     let on_toggle_fullscreen = props.on_toggle_fullscreen.clone();
     let fullscreen = props.fullscreen;
-    let review_with_animation: Callback<(Option<u8>, Option<String>)> = {
+    let lock_grid_height = card.tipcard_type == "repeatable_tip" && !fullscreen;
+    let review_with_animation: Callback<(Option<u8>, Option<String>, ReviewSway)> = {
         let on_review = on_review.clone();
         let leaving = leaving.clone();
-        Callback::from(move |(grade, action)| {
-            if *leaving {
+        let root_ref = root_ref.clone();
+        let grid_min_height = grid_min_height.clone();
+        Callback::from(move |(grade, action, sway)| {
+            if leaving.is_some() {
                 return;
             }
-            leaving.set(true);
+            if lock_grid_height {
+                if let Some(element) = root_ref.cast::<web_sys::Element>() {
+                    let height = element.get_bounding_client_rect().height();
+                    if height.is_finite() && height > 0.0 {
+                        grid_min_height.set(Some(height));
+                    }
+                }
+            }
+            leaving.set(Some(sway));
             let on_review = on_review.clone();
             let leaving = leaving.clone();
-            gloo_timers::callback::Timeout::new(180, move || {
+            gloo_timers::callback::Timeout::new(200, move || {
                 on_review.emit((id, grade, action));
-                gloo_timers::callback::Timeout::new(180, move || leaving.set(false)).forget();
+                // Keep the reviewed card out of view while the request is in flight. A
+                // status/id change clears this sooner; this is only the failure fallback.
+                gloo_timers::callback::Timeout::new(1_500, move || leaving.set(None)).forget();
             })
             .forget();
         })
     };
+    {
+        let leaving = leaving.clone();
+        use_effect_with((id, card.status.clone()), move |_| {
+            leaving.set(None);
+            || ()
+        });
+    }
     {
         let root_ref = root_ref.clone();
         let highlight_key = (id, props.fullscreen, *expanded, html_content.clone());
@@ -247,59 +281,6 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
         });
     }
 
-    let ondragstart = {
-        let root_ref = root_ref.clone();
-        Callback::from(move |e: DragEvent| {
-            if fullscreen {
-                e.prevent_default();
-                return;
-            }
-            if let Some(dt) = e.data_transfer() {
-                let _ = dt.set_data(
-                    "text/plain",
-                    &format!("{}|{}", id, if pinned { 1 } else { 0 }),
-                );
-                dt.set_drop_effect("move");
-                if let Some(element) = root_ref.cast::<web_sys::Element>() {
-                    let rect = element.get_bounding_client_rect();
-                    let offset_x =
-                        ((e.client_x() as f64) - rect.left()).clamp(0.0, rect.width()) as i32;
-                    let offset_y =
-                        ((e.client_y() as f64) - rect.top()).clamp(0.0, rect.height()) as i32;
-                    dt.set_drag_image(&element, offset_x, offset_y);
-                }
-            }
-        })
-    };
-
-    let ondragover = Callback::from(|e: DragEvent| {
-        e.prevent_default();
-        if let Some(dt) = e.data_transfer() {
-            dt.set_drop_effect("move");
-        }
-    });
-
-    let ondrop = {
-        Callback::from(move |e: DragEvent| {
-            e.prevent_default();
-            if let Some(dt) = e.data_transfer() {
-                if let Ok(payload) = dt.get_data("text/plain") {
-                    let Some((source_id_str, source_pinned_str)) = payload.split_once('|') else {
-                        return;
-                    };
-                    let Ok(source_id) = source_id_str.parse::<i64>() else {
-                        return;
-                    };
-                    let source_pinned = source_pinned_str == "1";
-                    if source_pinned != pinned || source_id == id {
-                        return;
-                    }
-                    on_reorder.emit((source_id, id));
-                }
-            }
-        })
-    };
-
     let on_copy = {
         let text = card.full_content.clone();
         let copied = copied.clone();
@@ -361,10 +342,12 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let topic_icon = display_icon(&card.topic_icon).to_string();
     let topic_color_style = format!("color: {}", card.topic_color);
 
-    let drag_handlers = props
-        .enable_drag
-        .then(|| (ondragover.clone(), ondrop.clone()));
     let stack_layers = repeatable_stack_layers(&card.tipcard_type, card.pending_count, fullscreen);
+    let card_style = if card.tipcard_type == "repeatable_tip" && !fullscreen {
+        (*grid_min_height).map(|height| format!("min-height: {height:.1}px;"))
+    } else {
+        None
+    };
 
     html! {
         <article
@@ -372,11 +355,13 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
             class={classes!(
                 article_classes,
                 (stack_layers > 0).then_some("repeatable-card-stack"),
-                (*leaving).then_some("is-leaving"),
+                (leaving.is_some() && !fullscreen).then_some("is-leaving"),
+                (leaving.is_some() && fullscreen).then_some("is-reviewing-fullscreen"),
+                (fullscreen && card.tipcard_type == "repeatable_tip").then_some("repeatable-fullscreen"),
+                (*leaving).map(ReviewSway::class_name),
             )}
             data-card-id={id.to_string()}
-            ondragover={drag_handlers.as_ref().map(|(over, _)| over.clone())}
-            ondrop={drag_handlers.as_ref().map(|(_, drop)| drop.clone())}
+            style={card_style}
         >
             {
                 for (1..=stack_layers).map(|layer| html! {
@@ -390,17 +375,9 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
             <div class="flow-card-front p-4 flex flex-col flex-1">
                 <div class="card-title-bar border-b border-token pb-3 mb-4">
                     <div class="card-title-leading flex items-center justify-self-start">
-                        if props.enable_drag {
-                            <ShadcnTooltip content="Drag to reorder">
-                                <button type="button" class="card-drag-handle border border-token p-1" draggable={if fullscreen { "false" } else { "true" }} ondragstart={ondragstart.clone()}>
-                                    <iconify-icon icon={topic_icon.clone()} class="topic-icon radix-icon shrink-0" style={topic_color_style.clone()}></iconify-icon>
-                                </button>
-                            </ShadcnTooltip>
-                        } else {
-                            <span class="border border-token p-1 inline-flex">
-                                <iconify-icon icon={topic_icon} class="topic-icon radix-icon shrink-0" style={topic_color_style}></iconify-icon>
-                            </span>
-                        }
+                        <span class="border border-token p-1 inline-flex">
+                            <iconify-icon icon={topic_icon} class="topic-icon radix-icon shrink-0" style={topic_color_style}></iconify-icon>
+                        </span>
                     </div>
                     <div class="card-title-center flex items-center justify-center gap-1.5 min-w-0 px-1">
                         if pinned {
@@ -506,7 +483,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                     </div>
                 </div>
 
-                <div class="mt-5 pt-4 border-t border-token flex items-center gap-2">
+                <div class="card-actions mt-5 pt-4 border-t border-token flex items-center gap-2">
                     if card.status != "active" {
                         <div class="muted-surface border border-token p-2 flex-1 text-center text-sm font-medium text-muted">{"Review saved"}</div>
                         if card.tipcard_type == "repeatable_tip" && card.review_message.is_some() {
@@ -524,7 +501,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                             <ShadcnButton
                                 variant={ButtonVariant::Outline}
                                 class={classes!("w-full")}
-                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(3), Some("dismiss".to_string()))))}
+                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(3), Some("dismiss".to_string()), ReviewSway::Left)))}
                             >
                                 <iconify-icon icon="radix-icons:cross-2" class="radix-icon" aria-hidden="true"></iconify-icon>
                             </ShadcnButton>
@@ -533,7 +510,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                             <ShadcnButton
                                 variant={ButtonVariant::Default}
                                 class={classes!("w-full")}
-                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(3), Some("acknowledge".to_string()))))}
+                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(3), Some("acknowledge".to_string()), ReviewSway::Right)))}
                             >
                                 <iconify-icon icon="radix-icons:check" class="radix-icon" aria-hidden="true"></iconify-icon>
                             </ShadcnButton>
@@ -543,14 +520,14 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                             <ShadcnButton
                                 variant={ButtonVariant::Outline}
                                 class={classes!("w-full")}
-                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(1), Some("again".to_string()))))}
+                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(1), Some("again".to_string()), ReviewSway::Left)))}
                             >{"Again"}</ShadcnButton>
                         </ShadcnTooltip>
                         <ShadcnTooltip content="I learned this" class={classes!("flex-1")}>
                             <ShadcnButton
                                 variant={ButtonVariant::Default}
                                 class={classes!("w-full")}
-                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(5), Some("learned".to_string()))))}
+                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(5), Some("learned".to_string()), ReviewSway::Right)))}
                             >{"Learned"}</ShadcnButton>
                         </ShadcnTooltip>
                         <div
@@ -623,7 +600,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                                             let skip_open = skip_open.clone();
                                             move |_| {
                                                 skip_open.set(false);
-                                                review.emit((Some(5), Some("skip_known".to_string())));
+                                                review.emit((Some(5), Some("skip_known".to_string()), ReviewSway::Right));
                                             }
                                         })}
                                     >
@@ -642,7 +619,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                                             let skip_open = skip_open.clone();
                                             move |_| {
                                                 skip_open.set(false);
-                                                review.emit((Some(3), Some("skip_not_interested".to_string())));
+                                                review.emit((Some(3), Some("skip_not_interested".to_string()), ReviewSway::Right));
                                             }
                                         })}
                                     >
@@ -661,7 +638,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                                             let skip_open = skip_open.clone();
                                             move |_| {
                                                 skip_open.set(false);
-                                                review.emit((Some(1), Some("skip_too_difficult".to_string())));
+                                                review.emit((Some(1), Some("skip_too_difficult".to_string()), ReviewSway::Right));
                                             }
                                         })}
                                     >
@@ -679,21 +656,21 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                             <ShadcnButton
                                 variant={ButtonVariant::Outline}
                                 class={classes!("w-full")}
-                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(1), Some(String::new()))))}
+                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(1), Some(String::new()), ReviewSway::Left)))}
                             >{"Again"}</ShadcnButton>
                         </ShadcnTooltip>
                         <ShadcnTooltip content="Good" class={classes!("flex-1")}>
                             <ShadcnButton
                                 variant={ButtonVariant::Outline}
                                 class={classes!("w-full")}
-                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(3), Some(String::new()))))}
+                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(3), Some(String::new()), ReviewSway::Center)))}
                             >{"Good"}</ShadcnButton>
                         </ShadcnTooltip>
                         <ShadcnTooltip content="Easy" class={classes!("flex-1")}>
                             <ShadcnButton
                                 variant={ButtonVariant::Default}
                                 class={classes!("w-full")}
-                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(5), Some(String::new()))))}
+                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(5), Some(String::new()), ReviewSway::Right)))}
                             >{"Easy"}</ShadcnButton>
                         </ShadcnTooltip>
                     }

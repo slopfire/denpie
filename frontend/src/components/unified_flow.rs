@@ -9,7 +9,7 @@ use gloo_storage::{LocalStorage, Storage};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use wasm_bindgen::JsCast;
-use web_sys::{DragEvent, HtmlInputElement, HtmlTextAreaElement, KeyboardEvent};
+use web_sys::{HtmlInputElement, HtmlTextAreaElement, KeyboardEvent};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -17,8 +17,7 @@ const PAGE_LIMIT: i64 = 48;
 const TRANSMISSION_MAX_PICKS: usize = 9;
 const TRANSMISSION_MAX_PICKS_PER_TOPIC: usize = 3;
 const REVIEWED_PLACEHOLDERS_KEY: &str = "denpie-reviewed-placeholders";
-const DRAG_SCROLL_EDGE_PX: f64 = 96.0;
-const DRAG_SCROLL_MAX_STEP_PX: f64 = 32.0;
+const FLOW_GRID_COLUMNS_KEY: &str = "denpie-flow-grid-columns";
 
 #[derive(Deserialize, Serialize, Clone, PartialEq)]
 pub struct TipcardInfo {
@@ -177,10 +176,6 @@ pub fn unified_flow() -> Html {
     let has_more = use_state(|| true);
     let loading = use_state(|| false);
     let pending_count = use_state(|| 0usize);
-    let card_order =
-        use_state(|| LocalStorage::get::<Vec<i64>>("denpie-card-order").unwrap_or_default());
-    let pinned_card_order =
-        use_state(|| LocalStorage::get::<Vec<i64>>("denpie-pinned-card-order").unwrap_or_default());
     let topics_input =
         use_state(|| LocalStorage::get::<String>("denpie_prefill_topic").unwrap_or_default());
     let tip_type = use_state(|| {
@@ -192,6 +187,12 @@ pub fn unified_flow() -> Html {
     let layout = use_state(|| {
         LocalStorage::get::<String>("denpie-flow-layout").unwrap_or_else(|_| "grid".to_string())
     });
+    let grid_columns = use_state(|| {
+        LocalStorage::get::<usize>(FLOW_GRID_COLUMNS_KEY)
+            .map(normalize_grid_columns)
+            .unwrap_or(4)
+    });
+    let grid_columns_open = use_state(|| false);
     let sort_by = use_state(|| {
         LocalStorage::get::<String>("denpie-flow-sort")
             .map(|value| normalize_flow_sort(&value))
@@ -537,12 +538,8 @@ pub fn unified_flow() -> Html {
 
     let on_toggle_pin_cb = {
         let cards = cards.clone();
-        let card_order = card_order.clone();
-        let pinned_card_order = pinned_card_order.clone();
         Callback::from(move |(id, pinned): (i64, bool)| {
             let cards = cards.clone();
-            let card_order = card_order.clone();
-            let pinned_card_order = pinned_card_order.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 let req = PinReq {
                     id,
@@ -560,28 +557,7 @@ pub fn unified_flow() -> Html {
                         if let Some(card) = next.iter_mut().find(|card| card.id == id) {
                             card.pinned = pinned;
                         }
-                        let unpinned_ids: Vec<i64> = next
-                            .iter()
-                            .filter(|card| !card.pinned)
-                            .map(|card| card.id)
-                            .collect();
-                        let pinned_ids: Vec<i64> = next
-                            .iter()
-                            .filter(|card| card.pinned)
-                            .map(|card| card.id)
-                            .collect();
                         cards.set(next);
-
-                        if pinned {
-                            let order = normalize_card_order((*card_order).clone(), &unpinned_ids);
-                            let _ = LocalStorage::set("denpie-card-order", &order);
-                            card_order.set(order);
-                        } else {
-                            let order =
-                                normalize_card_order((*pinned_card_order).clone(), &pinned_ids);
-                            let _ = LocalStorage::set("denpie-pinned-card-order", &order);
-                            pinned_card_order.set(order);
-                        }
                     }
                 }
             });
@@ -661,67 +637,6 @@ pub fn unified_flow() -> Html {
         })
     };
 
-    let on_reorder_cb = {
-        let card_order = card_order.clone();
-        let pinned_card_order = pinned_card_order.clone();
-        let cards = cards.clone();
-        let sort_by = sort_by.clone();
-        Callback::from(move |(source_id, target_id): (i64, i64)| {
-            let source_pinned = cards
-                .iter()
-                .find(|card| card.id == source_id)
-                .map(|card| card.pinned);
-            let target_pinned = cards
-                .iter()
-                .find(|card| card.id == target_id)
-                .map(|card| card.pinned);
-            let (Some(source_pinned), Some(target_pinned)) = (source_pinned, target_pinned) else {
-                return;
-            };
-            if source_pinned != target_pinned {
-                return;
-            }
-
-            if source_pinned {
-                let pinned_ids: Vec<i64> = cards
-                    .iter()
-                    .filter(|card| card.pinned)
-                    .map(|card| card.id)
-                    .collect();
-                let mut order = normalize_card_order((*pinned_card_order).clone(), &pinned_ids);
-                if let (Some(from_idx), Some(to_idx)) = (
-                    order.iter().position(|&id| id == source_id),
-                    order.iter().position(|&id| id == target_id),
-                ) {
-                    let item = order.remove(from_idx);
-                    order.insert(to_idx, item);
-                    let _ = LocalStorage::set("denpie-pinned-card-order", &order);
-                    pinned_card_order.set(order);
-                }
-                return;
-            }
-
-            let unpinned_ids: Vec<i64> = cards
-                .iter()
-                .filter(|card| !card.pinned)
-                .map(|card| card.id)
-                .collect();
-            let mut order = normalize_card_order((*card_order).clone(), &unpinned_ids);
-
-            if let (Some(from_idx), Some(to_idx)) = (
-                order.iter().position(|&id| id == source_id),
-                order.iter().position(|&id| id == target_id),
-            ) {
-                let item = order.remove(from_idx);
-                order.insert(to_idx, item);
-                let _ = LocalStorage::set("denpie-card-order", &order);
-                card_order.set(order);
-                let _ = LocalStorage::set("denpie-flow-sort", "drag");
-                sort_by.set("drag".to_string());
-            }
-        })
-    };
-
     let on_toggle_fullscreen = {
         let fullscreen_card_key = fullscreen_card_key.clone();
         let request_detail = request_detail.clone();
@@ -760,27 +675,8 @@ pub fn unified_flow() -> Html {
         cards.iter().filter(|card| card.pinned).cloned().collect();
     let mut unpinned_cards: Vec<TipcardInfo> =
         cards.iter().filter(|card| !card.pinned).cloned().collect();
-    let pinned_ids: Vec<i64> = pinned_cards.iter().map(|card| card.id).collect();
-    let unpinned_ids: Vec<i64> = unpinned_cards.iter().map(|card| card.id).collect();
-
-    if !(*pinned_card_order).is_empty() {
-        let normalized_pinned_order =
-            normalize_card_order((*pinned_card_order).clone(), &pinned_ids);
-        pinned_cards.sort_by_key(|card| {
-            normalized_pinned_order
-                .iter()
-                .position(|&id| id == card.id)
-                .unwrap_or(usize::MAX)
-        });
-    } else {
-        sort_flow_cards(&mut pinned_cards, sort_by.as_str(), &[]);
-    }
-
-    sort_flow_cards(
-        &mut unpinned_cards,
-        sort_by.as_str(),
-        &normalize_card_order((*card_order).clone(), &unpinned_ids),
-    );
+    sort_flow_cards(&mut pinned_cards, sort_by.as_str());
+    sort_flow_cards(&mut unpinned_cards, sort_by.as_str());
 
     let (transmission_picks, remaining_cards) = split_topic_picks(&unpinned_cards);
     let mut current_ids: Vec<i64> = pinned_cards
@@ -891,10 +787,6 @@ pub fn unified_flow() -> Html {
         let app_state = app_state.clone();
         Callback::from(move |message: String| toast(&app_state, message))
     };
-    let on_flow_dragover = Callback::from(|e: DragEvent| {
-        e.prevent_default();
-        auto_scroll_for_drag(&e);
-    });
     let render_flow_card = |card: &TipcardInfo| {
         let card = card.clone();
         let id = card.id;
@@ -907,7 +799,6 @@ pub fn unified_flow() -> Html {
                 on_learn_more={on_learn_more_cb.clone()}
                 on_toggle_pin={on_toggle_pin_cb.clone()}
                 on_delete={on_delete_cb.clone()}
-                on_reorder={on_reorder_cb.clone()}
                 on_update_images={on_update_images_cb.clone()}
                 on_upload_error={on_upload_error.clone()}
                 on_toggle_fullscreen={on_toggle_fullscreen.clone()}
@@ -922,7 +813,7 @@ pub fn unified_flow() -> Html {
     let grid_classes = if list_mode {
         "grid grid-cols-1 gap-3 items-start w-full max-w-4xl mx-auto"
     } else {
-        "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start"
+        grid_classes_for_columns(*grid_columns)
     };
 
     html! {
@@ -1029,7 +920,6 @@ pub fn unified_flow() -> Html {
                     <div
                         id="flow-pinned-grid"
                         class={grid_classes}
-                        ondragover={on_flow_dragover.clone()}
                     >
                         {for pinned_cards.iter().map(&render_flow_card)}
                     </div>
@@ -1076,26 +966,67 @@ pub fn unified_flow() -> Html {
                         >
                             {"Date"}
                         </button>
-                        <button
-                            type="button"
-                            class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "drag").then_some("bg-primary-soft text-primary"))}
-                            aria-pressed={(*sort_by == "drag").to_string()}
-                            onclick={Callback::from({
-                                let sort_by = sort_by.clone();
-                                move |_| {
-                                    let _ = LocalStorage::set("denpie-flow-sort", "drag");
-                                    sort_by.set("drag".to_string());
-                                }
-                            })}
-                        >
-                            {"Drag"}
-                        </button>
                     </div>
-                    <div class="flex muted-surface rounded-md p-1 border border-token">
-                        <button id="flow-grid-btn" type="button" class={classes!("rounded", "px-2", "py-1", (!list_mode).then_some("bg-primary-soft text-primary"))} onclick={Callback::from({ let layout = layout.clone(); move |_| { let _ = LocalStorage::set("denpie-flow-layout", "grid"); layout.set("grid".to_string()); } })}>
-                            <iconify-icon icon="radix-icons:grid" class="radix-icon"></iconify-icon>
-                        </button>
-                        <button id="flow-list-btn" type="button" class={classes!("rounded", "px-2", "py-1", list_mode.then_some("bg-primary-soft text-primary"))} onclick={Callback::from({ let layout = layout.clone(); move |_| { let _ = LocalStorage::set("denpie-flow-layout", "list"); layout.set("list".to_string()); } })}>
+                    <div class="relative z-40 flex muted-surface rounded-md p-1 border border-token">
+                        <div class="relative flex">
+                            <button
+                                id="flow-grid-btn"
+                                type="button"
+                                class={classes!("rounded", "px-2", "py-1", (!list_mode).then_some("bg-primary-soft text-primary"))}
+                                aria-label={i18n.t("flow.grid_layout")}
+                                aria-haspopup="menu"
+                                aria-expanded={grid_columns_open.to_string()}
+                                onclick={Callback::from({
+                                    let layout = layout.clone();
+                                    let grid_columns_open = grid_columns_open.clone();
+                                    move |_| {
+                                        let _ = LocalStorage::set("denpie-flow-layout", "grid");
+                                        layout.set("grid".to_string());
+                                        grid_columns_open.set(!*grid_columns_open);
+                                    }
+                                })}
+                            >
+                                <iconify-icon icon="radix-icons:grid" class="radix-icon"></iconify-icon>
+                            </button>
+                            if *grid_columns_open {
+                                <div
+                                    role="menu"
+                                    aria-label={i18n.t("flow.grid_columns")}
+                                    class="shadcn-dropdown-menu opens-down grid grid-cols-4 gap-1"
+                                    style="width: auto; min-width: max-content; padding: 0.375rem; right: 0; left: auto;"
+                                >
+                                    {
+                                        for (1..=4).map(|columns| {
+                                            let grid_columns = grid_columns.clone();
+                                            let grid_columns_open = grid_columns_open.clone();
+                                            html! {
+                                                <button
+                                                    type="button"
+                                                    role="menuitemradio"
+                                                    aria-checked={(*grid_columns == columns).to_string()}
+                                                    aria-label={i18n.tf("flow.column_count", &[("count", columns.to_string())])}
+                                                    class={classes!(
+                                                        "size-8",
+                                                        "rounded",
+                                                        "text-sm",
+                                                        "font-medium",
+                                                        (*grid_columns == columns).then_some("bg-primary-soft text-primary"),
+                                                    )}
+                                                    onclick={Callback::from(move |_| {
+                                                        let _ = LocalStorage::set(FLOW_GRID_COLUMNS_KEY, columns);
+                                                        grid_columns.set(columns);
+                                                        grid_columns_open.set(false);
+                                                    })}
+                                                >
+                                                    {columns}
+                                                </button>
+                                            }
+                                        })
+                                    }
+                                </div>
+                            }
+                        </div>
+                        <button id="flow-list-btn" type="button" class={classes!("rounded", "px-2", "py-1", list_mode.then_some("bg-primary-soft text-primary"))} onclick={Callback::from({ let layout = layout.clone(); let grid_columns_open = grid_columns_open.clone(); move |_| { let _ = LocalStorage::set("denpie-flow-layout", "list"); layout.set("list".to_string()); grid_columns_open.set(false); } })}>
                             <iconify-icon icon="radix-icons:list-bullet" class="radix-icon"></iconify-icon>
                         </button>
                     </div>
@@ -1106,7 +1037,6 @@ pub fn unified_flow() -> Html {
                 id="flow-grid"
                 class={grid_classes}
                 aria-labelledby="flow-picks-heading"
-                ondragover={on_flow_dragover.clone()}
             >
                 {
                     for (0..*pending_count).map(|i| html! {
@@ -1131,7 +1061,6 @@ pub fn unified_flow() -> Html {
                     <div
                         id="flow-other-grid"
                         class={grid_classes}
-                        ondragover={on_flow_dragover.clone()}
                     >
                         {for remaining_cards.iter().map(render_flow_card)}
                     </div>
@@ -1161,6 +1090,19 @@ pub fn unified_flow() -> Html {
 
 const FLOW_GLASS_GRID_THRESHOLD: usize = 8;
 const FLOW_GLASS_LIST_VIEWPORT_MULTIPLIER: usize = 3;
+
+fn normalize_grid_columns(columns: usize) -> usize {
+    columns.clamp(1, 4)
+}
+
+fn grid_classes_for_columns(columns: usize) -> &'static str {
+    match normalize_grid_columns(columns) {
+        1 => "grid grid-cols-1 gap-3 items-start",
+        2 => "grid grid-cols-1 md:grid-cols-2 gap-3 items-start",
+        3 => "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start",
+        _ => "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start",
+    }
+}
 
 fn flow_grid_columns(viewport_width: f64) -> usize {
     if viewport_width >= 1536.0 {
@@ -1232,24 +1174,17 @@ fn should_disable_flow_glass(
 
 fn normalize_flow_sort(value: &str) -> String {
     match value {
-        "manual" | "drag" => "drag".to_string(),
         "date" | "topic" => value.to_string(),
         _ => "topic".to_string(),
     }
 }
 
-fn sort_flow_cards(cards: &mut [TipcardInfo], sort_by: &str, drag_order: &[i64]) {
+fn sort_flow_cards(cards: &mut [TipcardInfo], sort_by: &str) {
     match sort_by {
         "date" => cards.sort_by(|a, b| {
             b.created_at
                 .cmp(&a.created_at)
                 .then_with(|| b.id.cmp(&a.id))
-        }),
-        "drag" if !drag_order.is_empty() => cards.sort_by_key(|card| {
-            drag_order
-                .iter()
-                .position(|&id| id == card.id)
-                .unwrap_or(usize::MAX)
         }),
         _ => cards.sort_by(|a, b| {
             a.topic_name
@@ -1357,39 +1292,6 @@ fn review_placeholder_message(action: &str, _previous_review_at: &str) -> String
     }
 }
 
-fn normalize_card_order(mut order: Vec<i64>, current_ids: &[i64]) -> Vec<i64> {
-    order.retain(|id| current_ids.contains(id));
-    for id in current_ids {
-        if !order.contains(id) {
-            order.push(*id);
-        }
-    }
-    order
-}
-
-fn auto_scroll_for_drag(event: &DragEvent) {
-    let Some(window) = web_sys::window() else {
-        return;
-    };
-    let Ok(inner_height) = window.inner_height() else {
-        return;
-    };
-    let Some(viewport_height) = inner_height.as_f64() else {
-        return;
-    };
-
-    let pointer_y = event.client_y() as f64;
-    let delta = if pointer_y < DRAG_SCROLL_EDGE_PX {
-        -scroll_step(DRAG_SCROLL_EDGE_PX - pointer_y)
-    } else if viewport_height - pointer_y < DRAG_SCROLL_EDGE_PX {
-        scroll_step(DRAG_SCROLL_EDGE_PX - (viewport_height - pointer_y))
-    } else {
-        return;
-    };
-
-    window.scroll_by_with_x_and_y(0.0, delta);
-}
-
 fn set_fullscreen_body_class(fullscreen: bool) {
     let Some(body) = web_sys::window()
         .and_then(|window| window.document())
@@ -1400,11 +1302,6 @@ fn set_fullscreen_body_class(fullscreen: bool) {
     let _ = body
         .class_list()
         .toggle_with_force("has-fullscreen-card", fullscreen);
-}
-
-fn scroll_step(edge_overlap: f64) -> f64 {
-    let intensity = (edge_overlap / DRAG_SCROLL_EDGE_PX).clamp(0.0, 1.0);
-    (intensity * DRAG_SCROLL_MAX_STEP_PX).max(4.0)
 }
 
 #[cfg(test)]
@@ -1498,6 +1395,30 @@ mod tests {
         );
         assert!(remaining.is_empty());
         assert_eq!(flow_card_key(&reviewed), flow_card_key(&picks[0]));
+    }
+
+    #[test]
+    fn legacy_drag_sort_preference_falls_back_to_topic() {
+        assert_eq!(normalize_flow_sort("drag"), "topic");
+        assert_eq!(normalize_flow_sort("manual"), "topic");
+    }
+
+    #[test]
+    fn grid_column_preference_stays_within_supported_range() {
+        assert_eq!(normalize_grid_columns(0), 1);
+        assert_eq!(normalize_grid_columns(3), 3);
+        assert_eq!(normalize_grid_columns(12), 4);
+    }
+
+    #[test]
+    fn grid_column_preference_keeps_responsive_page_constraints() {
+        assert_eq!(
+            grid_classes_for_columns(1),
+            "grid grid-cols-1 gap-3 items-start"
+        );
+        assert!(grid_classes_for_columns(2).contains("md:grid-cols-2"));
+        assert!(!grid_classes_for_columns(2).contains("xl:grid-cols-3"));
+        assert!(grid_classes_for_columns(4).contains("2xl:grid-cols-4"));
     }
 
     #[test]
