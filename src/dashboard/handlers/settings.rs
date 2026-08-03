@@ -78,6 +78,7 @@ pub async fn update_settings(
         max_active_cards: req.max_active_cards,
         grounding_strategy: req.grounding_strategy,
         image_strategy: req.image_strategy,
+        search_provider: req.search_provider,
         search_api_key: req.search_api_key,
         search_base_url: req.search_base_url,
         image_sources: req.image_sources,

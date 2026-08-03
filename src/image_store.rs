@@ -156,7 +156,7 @@ const MAX_REMOTE_JSON_BYTES: usize = 2 * 1024 * 1024;
 /// This is used for user-configurable search and image API endpoints, where a
 /// normal client would permit SSRF through private DNS answers or redirects.
 pub async fn get_public_json(value: &str) -> StatusResult<serde_json::Value> {
-    request_public_json(value, None).await
+    request_public_json(value, None, None).await
 }
 
 /// POST JSON to a public HTTP(S) endpoint with the same SSRF protections as
@@ -166,21 +166,35 @@ pub async fn post_public_json(
     value: &str,
     body: &serde_json::Value,
 ) -> StatusResult<serde_json::Value> {
-    request_public_json(value, Some(body)).await
+    request_public_json(value, Some(body), None).await
+}
+
+/// POST JSON with a bearer token while retaining the public-target checks and
+/// redirect rejection used for other user-configurable endpoints.
+pub async fn post_public_json_bearer(
+    value: &str,
+    body: &serde_json::Value,
+    token: &str,
+) -> StatusResult<serde_json::Value> {
+    request_public_json(value, Some(body), Some(token)).await
 }
 
 async fn request_public_json(
     value: &str,
     body: Option<&serde_json::Value>,
+    bearer_token: Option<&str>,
 ) -> StatusResult<serde_json::Value> {
     let url = checked_remote_url(value)?;
     validate_url_shape(&url)?;
     let addresses = resolve_public_target(&url).await?;
     let client = client_pinned_to_target(&url, &addresses)?;
-    let request = match body {
+    let mut request = match body {
         Some(body) => client.post(url).json(body),
         None => client.get(url),
     };
+    if let Some(token) = bearer_token {
+        request = request.bearer_auth(token);
+    }
     let mut response = request.send().await.map_err(|_| {
         (
             StatusCode::BAD_REQUEST,

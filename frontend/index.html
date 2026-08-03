@@ -708,21 +708,6 @@
                     color 0.12s ease,
                     opacity 0.12s ease;
             }
-            .card-line-repeatable {
-                background: var(--secondary);
-            }
-            .card-line-casual {
-                background: var(--tertiary);
-            }
-            .card-line-manual {
-                background: var(--ok);
-            }
-            .card-line-custom {
-                background: var(--muted);
-            }
-            .card-line-denpie {
-                background: var(--primary);
-            }
             .tip-type-switch button {
                 color: var(--muted);
             }
@@ -754,6 +739,17 @@
                 to {
                     opacity: 1;
                     transform: translateY(0) scale(1);
+                }
+            }
+            @keyframes card-leave-stack {
+                from {
+                    opacity: 1;
+                    transform: translate(0, 0) rotate(0) scale(1);
+                }
+                to {
+                    opacity: 0;
+                    transform: translate(-1.25rem, -0.75rem) rotate(-1.25deg)
+                        scale(1.015);
                 }
             }
             @keyframes card-text-snap {
@@ -1326,6 +1322,54 @@
                 content-visibility: auto;
                 contain-intrinsic-size: 1px 300px;
                 contain: layout style paint;
+            }
+            .flow-card.repeatable-card-stack {
+                contain: layout style;
+                isolation: isolate;
+                margin-right: 0.75rem;
+                margin-bottom: 0.75rem;
+                overflow: visible !important;
+                z-index: 0;
+            }
+            .flow-card.is-leaving {
+                background: transparent !important;
+                border-color: transparent !important;
+                box-shadow: none !important;
+            }
+            .flow-card.is-leaving > .flow-card-front {
+                pointer-events: none;
+                background: hsl(var(--card) / var(--glass-card-alpha));
+                border: 1px solid hsl(var(--border-hsl));
+                border-radius: inherit;
+                box-shadow: var(--shadow);
+                animation: card-leave-stack 180ms
+                    cubic-bezier(0.32, 0, 0.67, 0) forwards;
+            }
+            .repeatable-card-stack-back {
+                position: absolute;
+                inset: 0;
+                pointer-events: none;
+                border: 1px solid hsl(var(--border-hsl));
+                border-radius: inherit;
+                box-shadow: 0 3px 10px hsl(var(--foreground) / 0.04);
+            }
+            .repeatable-card-stack-back-1 {
+                background: color-mix(in srgb, hsl(var(--card)) 90%, black);
+                transform: translate(0.25rem, 0.25rem);
+                z-index: -1;
+                opacity: 0.86;
+            }
+            .repeatable-card-stack-back-2 {
+                background: color-mix(in srgb, hsl(var(--card)) 82%, black);
+                transform: translate(0.5rem, 0.5rem);
+                z-index: -2;
+                opacity: 0.72;
+            }
+            .repeatable-card-stack-back-3 {
+                background: color-mix(in srgb, hsl(var(--card)) 74%, black);
+                transform: translate(0.75rem, 0.75rem);
+                z-index: -3;
+                opacity: 0.58;
             }
             #view-archive > .archive-toolbar {
                 position: relative;
@@ -2051,21 +2095,6 @@
             }
             html .update-popup {
                 -webkit-backdrop-filter: blur(var(--glass-blur));
-            }
-            .card-line-repeatable {
-                background: hsl(var(--chart-4));
-            }
-            .card-line-casual {
-                background: hsl(var(--chart-3));
-            }
-            .card-line-manual {
-                background: hsl(var(--chart-2));
-            }
-            .card-line-custom {
-                background: hsl(var(--muted-foreground));
-            }
-            .card-line-denpie {
-                background: hsl(var(--chart-1));
             }
             .badge {
                 display: inline-flex;

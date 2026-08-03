@@ -400,10 +400,21 @@ pub fn archive() -> Html {
                 </div>
             </div>
             if !topic_filter.is_empty() {
-                <div class="mb-4 inline-flex items-center gap-2 rounded-md border border-token bg-primary-soft px-3 py-2 text-sm text-primary">
-                    <iconify-icon icon="radix-icons:layers" class="radix-icon" aria-hidden="true"></iconify-icon>
+                <button
+                    type="button"
+                    class="muted-surface mb-4 inline-flex items-center gap-2 rounded-md border border-token px-3 py-2 text-sm text-muted"
+                    onclick={Callback::from({
+                        let navigator = navigator.clone();
+                        move |_| {
+                            if let Some(navigator) = navigator.as_ref() {
+                                navigator.push(&crate::app::View::Grounding);
+                            }
+                        }
+                    })}
+                >
+                    <iconify-icon icon="radix-icons:arrow-left" class="radix-icon" aria-hidden="true"></iconify-icon>
                     {format!("Pending cards for {}", *topic_filter)}
-                </div>
+                </button>
             }
 
             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">

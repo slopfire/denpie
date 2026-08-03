@@ -36,6 +36,7 @@ pub struct SettingsRes {
     pub max_active_cards: u64,
     pub grounding_strategy: String,
     pub image_strategy: String,
+    pub search_provider: String,
     pub search_api_key: String,
     pub search_base_url: String,
     pub image_sources: String,
@@ -77,6 +78,7 @@ impl SettingsRes {
         changed!(patch, max_active_cards, copy);
         changed!(patch, grounding_strategy);
         changed!(patch, image_strategy);
+        changed!(patch, search_provider);
         changed!(patch, search_api_key);
         changed!(patch, search_base_url);
         changed!(patch, image_sources);
@@ -97,6 +99,7 @@ impl SettingsRes {
         apply!(compression_level);
         apply!(grounding_strategy);
         apply!(image_strategy);
+        apply!(search_provider);
         apply!(search_api_key);
         apply!(search_base_url);
         apply!(image_sources);
@@ -135,6 +138,7 @@ struct UpdateSettingsPatch {
     grounding_strategy: Option<String>,
     image_strategy: Option<String>,
     search_api_key: Option<String>,
+    search_provider: Option<String>,
     search_base_url: Option<String>,
     image_sources: Option<String>,
     autoupdate_check_interval_secs: Option<u64>,
@@ -174,6 +178,7 @@ impl UpdateSettingsPatch {
             && self.max_active_cards.is_none()
             && self.grounding_strategy.is_none()
             && self.image_strategy.is_none()
+            && self.search_provider.is_none()
             && self.search_api_key.is_none()
             && self.search_base_url.is_none()
             && self.image_sources.is_none()
@@ -208,6 +213,7 @@ impl UpdateSettingsPatch {
         merge!(max_active_cards);
         merge!(grounding_strategy);
         merge!(image_strategy);
+        merge!(search_provider);
         merge!(search_api_key);
         merge!(search_base_url);
         merge!(image_sources);

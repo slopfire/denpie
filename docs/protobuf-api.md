@@ -55,6 +55,10 @@ ApiRequest {
 | `attach_document_topic` / `detach_document_topic` | `ok` | Add/remove one topic assignment without deleting the source |
 | `add_pool_image` / `list_pool_images` / `delete_pool_image` | ok / `pool_images` / `ok` | Local image pool |
 
+`get_settings` / `update_settings` expose `search_provider` (`tavily` or `firecrawl`) alongside
+`search_api_key` and `search_base_url`. When Firecrawl is selected, URL documents are converted to
+Markdown with its v2 scrape endpoint, including supported remote files such as PDFs.
+
 ## Daily retrieval (`tips`)
 
 ### Repeatable learning

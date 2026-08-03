@@ -36,6 +36,8 @@ pub struct TipcardInfo {
     pub next_review_at: String,
     pub repeat_count: u32,
     pub pinned: bool,
+    #[serde(default)]
+    pub pending_count: u32,
     /// Client-only placeholder text after a review action; API responses omit this.
     #[serde(default)]
     pub review_message: Option<String>,
@@ -57,6 +59,8 @@ struct FlowCardSummary {
     repeat_count: u32,
     pinned: bool,
     image_count: i64,
+    #[serde(default)]
+    pending_count: u32,
     thumbnail_urls: Vec<String>,
 }
 
@@ -102,6 +106,7 @@ impl From<FlowCardSummary> for TipcardInfo {
             next_review_at: card.next_review_at,
             repeat_count: card.repeat_count,
             pinned: card.pinned,
+            pending_count: card.pending_count,
             review_message: None,
         }
     }
@@ -124,6 +129,7 @@ impl From<FlowCardDetail> for TipcardInfo {
             next_review_at: card.next_review_at,
             repeat_count: card.repeat_count,
             pinned: card.pinned,
+            pending_count: 0,
             review_message: None,
         }
     }
@@ -319,9 +325,10 @@ pub fn unified_flow() -> Html {
                 if let Ok(res) = Request::get(&format!("/app/flow-cards/{id}")).send().await {
                     if res.ok() {
                         if let Ok(detail) = res.json::<FlowCardDetail>().await {
-                            let updated_card: TipcardInfo = detail.into();
+                            let mut updated_card: TipcardInfo = detail.into();
                             let mut next = (*cards).clone();
                             if let Some(card) = next.iter_mut().find(|card| card.id == id) {
+                                updated_card.pending_count = card.pending_count;
                                 *card = updated_card;
                             }
                             let mut loaded = (*detail_loaded).clone();
@@ -1420,6 +1427,7 @@ mod tests {
             next_review_at: String::new(),
             repeat_count: 0,
             pinned: false,
+            pending_count: 0,
             review_message: None,
         }
     }

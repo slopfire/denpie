@@ -174,6 +174,7 @@ pub async fn flow_cards(
             repeat_count: row.repeats,
             pinned: row.pinned,
             image_count: row.image_count,
+            pending_count: row.pending_count,
             thumbnail_urls: images_map
                 .get(&row.id)
                 .map(|imgs| {

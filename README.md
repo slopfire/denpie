@@ -98,11 +98,16 @@ Grounding/image strategies log stage progress at `info`. LLM transport detail is
 | Page | Owns |
 |---|---|
 | **Settings** | Default LLM, endpoints, credentials, prompt, reasoning/compression, appearance, schedule, `max_active_cards` |
-| **Grounding** | Grounding-agent model/reasoning, fact grounding, Tavily, image sources |
+| **Grounding** | Grounding-agent model/reasoning, fact grounding, Tavily or Firecrawl, image sources |
 
 Empty grounding-agent fields inherit default LLM settings.
 
-**Image modes:** No Images · Local Image Pool · Tag-based Image APIs · Isolated Image Search · Tavily-compatible Web Image Search.
+**Image modes:** No Images · Local Image Pool · Tag-based Image APIs · Isolated Image Search · Web Image Search.
+
+The web provider can be Tavily (the default) or Firecrawl. Firecrawl powers factual web search,
+image search, and link ingestion; linked web pages and supported remote documents such as PDFs are
+scraped to clean Markdown through `/v2/scrape`. The base URL can target Firecrawl's hosted API or
+a compatible self-hosted deployment.
 
 Local Image Pool uploads accept PNG, JPEG, WebP, and GIF images up to 10 MB decoded. Denpie
 recompresses larger uploads before sending them to the configured vision model for automatic
@@ -113,9 +118,9 @@ Generated cards request an image only when the model marks a visual as materiall
 example a diagram, physical identification, UI screenshot, or comparison). The decision and
 specific query are stored with the card, including pending agentic-backlog cards; manual and
 custom cards do not trigger automatic retrieval. `web_search` posts the query to the configured
-Tavily-shaped search endpoint and safely validates each returned image URL before storing it.
-Isolated Image Search uses the same endpoint with `include_domains` set from each enabled
-source's allowed image domains, then enforces that allowlist again before downloading a result.
+provider and safely validates each returned image URL before storing it.
+Isolated Image Search passes each enabled source's allowed image domains using the selected
+provider's domain filter, then enforces that allowlist again before downloading a result.
 
 ### Card image append endpoint
 

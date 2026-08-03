@@ -34,6 +34,29 @@ impl GroundingStrategy {
     }
 }
 
+/// External service used for web search and remote document extraction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchProvider {
+    Tavily,
+    Firecrawl,
+}
+
+impl SearchProvider {
+    pub fn from_setting(value: &str) -> Self {
+        match value.trim() {
+            "firecrawl" => Self::Firecrawl,
+            _ => Self::Tavily,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Tavily => "tavily",
+            Self::Firecrawl => "firecrawl",
+        }
+    }
+}
+
 /// How a card gets illustrated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageStrategy {
@@ -45,7 +68,7 @@ pub enum ImageStrategy {
     Programmatic,
     /// Search the web for a directly hot-linkable image.
     Agentic,
-    /// Search a Tavily-compatible endpoint for image results.
+    /// Search the configured external web provider for image results.
     WebSearch,
 }
 

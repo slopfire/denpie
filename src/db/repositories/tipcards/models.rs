@@ -74,6 +74,7 @@ pub struct FlowCardRecord {
     pub pinned: bool,
     pub repeats: u32,
     pub image_count: i64,
+    pub pending_count: i64,
 }
 
 #[derive(Clone, Debug, Default)]

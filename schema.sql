@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
     max_active_cards INTEGER NOT NULL DEFAULT 0,
     grounding_strategy TEXT NOT NULL DEFAULT 'factual',
     image_strategy TEXT NOT NULL DEFAULT 'none',
+    search_provider TEXT NOT NULL DEFAULT 'tavily',
     search_api_key TEXT NOT NULL DEFAULT '',
     search_base_url TEXT NOT NULL DEFAULT 'https://api.tavily.com',
     image_sources TEXT NOT NULL DEFAULT '[]',

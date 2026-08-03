@@ -1,9 +1,11 @@
+use crate::domain::grounding::SearchProvider;
 use crate::{
     AppState,
     db::repositories::{documents, image_pool, topics},
     error::{AppError, AppResult},
     http_client,
     image_compress::prepare_image_bytes,
+    image_store,
     llm::{ReasoningConfig, annotate_image, remove_tag_json, tags_to_json},
     services::settings::SettingsService,
 };
@@ -111,7 +113,8 @@ impl DocumentService {
         if source_type == "link" {
             if let Some(link) = url.map(str::trim).filter(|value| !value.is_empty()) {
                 if content.trim().is_empty() {
-                    content = fetch_link_body(link).await;
+                    let settings = SettingsService::user_settings_get(state, user_id).await?;
+                    content = fetch_link_body(link, &settings).await?;
                 }
             } else if content.trim().is_empty() {
                 return Err(AppError::Validation(
@@ -635,23 +638,64 @@ fn extract_pdf_text(data: &[u8]) -> AppResult<String> {
         .map_err(|e| AppError::Validation(format!("Failed to extract PDF text: {e}")))
 }
 
-/// Fetch a link's body text, capped to `LINK_FETCH_BYTE_CAP`. Falls back to an
-/// empty string on any error so the document is still recorded (with empty
-/// content, which the caller validates against).
-async fn fetch_link_body(url: &str) -> String {
+/// Fetch a link's body text. Firecrawl converts web pages and supported remote
+/// documents (including PDFs) to Markdown; Tavily/default mode keeps the local,
+/// capped HTML fetch used by existing installations.
+async fn fetch_link_body(url: &str, settings: &crate::config::Settings) -> AppResult<String> {
+    if SearchProvider::from_setting(&settings.search_provider) == SearchProvider::Firecrawl
+        && !settings.search_api_key.trim().is_empty()
+    {
+        return scrape_with_firecrawl(url, &settings.search_base_url, &settings.search_api_key)
+            .await;
+    }
+
     let http = http_client::shared();
     let response = match http.get(url).send().await {
         Ok(res) if res.status().is_success() => res,
-        _ => return String::new(),
+        _ => return Ok(String::new()),
     };
     // Bound the download: read at most the cap in bytes.
     let bytes = match response.bytes().await {
         Ok(bytes) if bytes.len() <= LINK_FETCH_BYTE_CAP => bytes,
         Ok(bytes) => bytes.slice(..LINK_FETCH_BYTE_CAP),
-        Err(_) => return String::new(),
+        Err(_) => return Ok(String::new()),
     };
     let text = String::from_utf8_lossy(&bytes).to_string();
-    strip_html(&text)
+    Ok(strip_html(&text))
+}
+
+async fn scrape_with_firecrawl(url: &str, base_url: &str, api_key: &str) -> AppResult<String> {
+    let endpoint = format!("{}/v2/scrape", base_url.trim_end_matches('/'));
+    let body = firecrawl_scrape_body(url);
+    let value = image_store::post_public_json_bearer(&endpoint, &body, api_key)
+        .await
+        .map_err(|(_, message)| {
+            AppError::Validation(format!(
+                "Firecrawl could not scrape this document: {message}"
+            ))
+        })?;
+    let markdown = value
+        .get("data")
+        .and_then(|data| data.get("markdown"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if markdown.is_empty() {
+        return Err(AppError::Validation(
+            "Firecrawl returned no document content".to_string(),
+        ));
+    }
+    Ok(markdown)
+}
+
+fn firecrawl_scrape_body(url: &str) -> serde_json::Value {
+    serde_json::json!({
+        "url": url,
+        "formats": ["markdown"],
+        "onlyMainContent": true,
+        "parsers": ["pdf"]
+    })
 }
 
 async fn fetch_link_html(url: &str) -> AppResult<String> {
@@ -970,7 +1014,7 @@ fn normalize_whitespace(s: &str) -> String {
 mod tests {
     use super::{
         clean_generated_title, extract_navigation_links, fallback_document_title,
-        preferred_vision_model, strip_html,
+        firecrawl_scrape_body, preferred_vision_model, strip_html,
     };
     use url::Url;
 
@@ -994,6 +1038,15 @@ mod tests {
             links[1].url,
             "https://docs.helix-editor.com/guides/adding_languages.html"
         );
+    }
+
+    #[test]
+    fn firecrawl_scrape_requests_markdown_and_pdf_parsing() {
+        let body = firecrawl_scrape_body("https://example.com/guide.pdf");
+        assert_eq!(body["url"], "https://example.com/guide.pdf");
+        assert_eq!(body["formats"], serde_json::json!(["markdown"]));
+        assert_eq!(body["onlyMainContent"], true);
+        assert_eq!(body["parsers"], serde_json::json!(["pdf"]));
     }
 
     #[test]

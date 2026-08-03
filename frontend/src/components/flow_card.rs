@@ -9,6 +9,14 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{HtmlElement, ResizeObserver, ResizeObserverEntry};
 use yew::prelude::*;
 
+fn repeatable_stack_layers(tipcard_type: &str, pending_count: u32, fullscreen: bool) -> usize {
+    if tipcard_type == "repeatable_tip" && !fullscreen {
+        pending_count.min(3) as usize
+    } else {
+        0
+    }
+}
+
 #[derive(Properties, PartialEq)]
 pub struct FlowCardProps {
     pub card: TipcardInfo,
@@ -61,6 +69,50 @@ fn highlight_card_code_blocks(root: &web_sys::Element) {
     let _ = highlight_card.call1(&JsValue::NULL, root.as_ref());
 }
 
+fn human_datetime(value: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        return String::new();
+    }
+
+    let normalized = if value.len() == 19 && value.as_bytes().get(10) == Some(&b' ') {
+        format!("{}T{}Z", &value[..10], &value[11..])
+    } else {
+        value.to_string()
+    };
+    let date = js_sys::Date::new(&JsValue::from_str(&normalized));
+    if date.get_time().is_nan() {
+        return value.to_string();
+    }
+
+    let delta_seconds = ((date.get_time() - js_sys::Date::now()) / 1_000.0).round() as i64;
+    let absolute_seconds = delta_seconds.unsigned_abs();
+    let (amount, unit) = if absolute_seconds < 60 {
+        return "just now".to_string();
+    } else if absolute_seconds < 3_600 {
+        ((absolute_seconds / 60).max(1), "minute")
+    } else if absolute_seconds < 86_400 {
+        ((absolute_seconds / 3_600).max(1), "hour")
+    } else if absolute_seconds < 604_800 {
+        ((absolute_seconds / 86_400).max(1), "day")
+    } else {
+        return date
+            .to_locale_date_string("en-US", &JsValue::UNDEFINED)
+            .as_string()
+            .unwrap_or_else(|| value.to_string());
+    };
+    let unit = if amount == 1 {
+        unit.to_string()
+    } else {
+        format!("{unit}s")
+    };
+    if delta_seconds < 0 {
+        format!("{amount} {unit} ago")
+    } else {
+        format!("in {amount} {unit}")
+    }
+}
+
 #[function_component(FlowCard)]
 pub fn flow_card(props: &FlowCardProps) -> Html {
     let expanded = use_state(|| false);
@@ -69,6 +121,8 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let image_picker_open = use_state(|| false);
     let skip_open = use_state(|| false);
     let more_open = use_state(|| false);
+    let metadata_open = use_state(|| false);
+    let leaving = use_state(|| false);
     let card = &props.card;
     let id = card.id;
     let pinned = card.pinned;
@@ -106,6 +160,23 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let on_reorder = props.on_reorder.clone();
     let on_toggle_fullscreen = props.on_toggle_fullscreen.clone();
     let fullscreen = props.fullscreen;
+    let review_with_animation: Callback<(Option<u8>, Option<String>)> = {
+        let on_review = on_review.clone();
+        let leaving = leaving.clone();
+        Callback::from(move |(grade, action)| {
+            if *leaving {
+                return;
+            }
+            leaving.set(true);
+            let on_review = on_review.clone();
+            let leaving = leaving.clone();
+            gloo_timers::callback::Timeout::new(180, move || {
+                on_review.emit((id, grade, action));
+                gloo_timers::callback::Timeout::new(180, move || leaving.set(false)).forget();
+            })
+            .forget();
+        })
+    };
     {
         let root_ref = root_ref.clone();
         let highlight_key = (id, props.fullscreen, *expanded, html_content.clone());
@@ -243,27 +314,35 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
         })
     };
 
-    let line_class = match card.tipcard_type.as_str() {
-        "casual_tip" => "card-line-casual",
-        "manual_tip" => "card-line-manual",
-        "custom_tip" => "card-line-custom",
-        _ => "card-line-repeatable",
-    };
-    let badge_label = if card.tipcard_type == "repeatable_tip" {
-        if card.repeat_count > 0 {
-            "Known Repeatable".to_string()
-        } else {
-            "New Repeatable".to_string()
+    let is_known = card.repeat_count > 0 || card.status != "active";
+    let badge_label = match card.tipcard_type.as_str() {
+        "casual_tip" | "repeatable_tip" => {
+            if is_known {
+                "Known"
+            } else {
+                "New"
+            }
         }
-    } else if card.tipcard_type == "manual_tip" {
-        "Manual".to_string()
-    } else if card.tipcard_type == "custom_tip" {
-        "Custom".to_string()
-    } else if card.tipcard_type == "casual_tip" {
-        "Casual".to_string()
-    } else {
-        "Repeatable".to_string()
+        "manual_tip" => "Manual",
+        "custom_tip" => "Custom",
+        _ => {
+            if is_known {
+                "Known"
+            } else {
+                "New"
+            }
+        }
     };
+    let type_label = match card.tipcard_type.as_str() {
+        "casual_tip" => "Casual",
+        "repeatable_tip" => "Repeatable",
+        "manual_tip" => "Manual",
+        "custom_tip" => "Custom",
+        _ => "Card",
+    };
+    let metadata_id = format!("card-metadata-{id}");
+    let created_label = human_datetime(&card.created_at);
+    let next_review_label = human_datetime(&card.next_review_at);
 
     let article_classes = if fullscreen {
         "flow-card is-fullscreen fullscreen-card-enter surface border fixed top-0 right-0 bottom-0 z-[70] overflow-hidden flex flex-col"
@@ -285,17 +364,30 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let drag_handlers = props
         .enable_drag
         .then(|| (ondragover.clone(), ondrop.clone()));
+    let stack_layers = repeatable_stack_layers(&card.tipcard_type, card.pending_count, fullscreen);
 
     html! {
         <article
             ref={root_ref}
-            class={classes!(article_classes, (!fullscreen && card.tipcard_type == "repeatable_tip" && card.status == "active").then_some("!overflow-visible"))}
+            class={classes!(
+                article_classes,
+                (stack_layers > 0).then_some("repeatable-card-stack"),
+                (*leaving).then_some("is-leaving"),
+            )}
             data-card-id={id.to_string()}
             ondragover={drag_handlers.as_ref().map(|(over, _)| over.clone())}
             ondrop={drag_handlers.as_ref().map(|(_, drop)| drop.clone())}
         >
-            <div class={classes!("absolute", "top-0", "left-0", "w-1", "h-full", line_class)}></div>
-            <div class="p-4 flex flex-col flex-1">
+            {
+                for (1..=stack_layers).map(|layer| html! {
+                    <div
+                        class={classes!("repeatable-card-stack-back", format!("repeatable-card-stack-back-{layer}"))}
+                        data-stack-layer={layer.to_string()}
+                        aria-hidden="true"
+                    ></div>
+                })
+            }
+            <div class="flow-card-front p-4 flex flex-col flex-1">
                 <div class="card-title-bar border-b border-token pb-3 mb-4">
                     <div class="card-title-leading flex items-center justify-self-start">
                         if props.enable_drag {
@@ -321,7 +413,44 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                         <span class="card-topic-title truncate text-center">{&card.topic_name}</span>
                     </div>
                     <div class="card-title-controls flex items-center gap-2 justify-self-end shrink-0">
-                        <span class="badge">{badge_label}</span>
+                        <div class="relative">
+                            <button
+                                type="button"
+                                class="badge h-5 cursor-pointer px-2 py-0 text-xs leading-none transition-colors hover:bg-secondary hover:text-secondary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                aria-expanded={metadata_open.to_string()}
+                                aria-controls={metadata_id.clone()}
+                                title="Show card information"
+                                onclick={Callback::from({
+                                    let metadata_open = metadata_open.clone();
+                                    move |_| metadata_open.set(!*metadata_open)
+                                })}
+                            >
+                                {badge_label}
+                            </button>
+                            if *metadata_open {
+                                <dl
+                                    id={metadata_id.clone()}
+                                    aria-label="Card information"
+                                    class="shadcn-dropdown-menu opens-down grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs"
+                                    style="width: 15rem; min-width: 15rem; padding: 0.625rem;"
+                                >
+                                    <dt class="text-muted">{"Type"}</dt>
+                                    <dd class="font-medium text-right">{type_label}</dd>
+                                    <dt class="text-muted">{"Created"}</dt>
+                                    <dd class="font-medium text-right break-words">
+                                        {if created_label.is_empty() { "Unknown" } else { created_label.as_str() }}
+                                    </dd>
+                                    <dt class="text-muted">{"Scheduled repeat"}</dt>
+                                    <dd class="font-medium text-right break-words">
+                                        {if next_review_label.is_empty() { "Not scheduled" } else { next_review_label.as_str() }}
+                                    </dd>
+                                    <dt class="text-muted">{"Reviews"}</dt>
+                                    <dd class="font-medium text-right">{card.repeat_count}</dd>
+                                    <dt class="text-muted">{"State"}</dt>
+                                    <dd class="font-medium text-right">{if is_known { "Known" } else { "New" }}</dd>
+                                </dl>
+                            }
+                        </div>
                         <ShadcnTooltip content={if fullscreen { "Exit fullscreen" } else { "Fullscreen" }}>
                             <button type="button" onclick={Callback::from(move |_| on_toggle_fullscreen.emit(id))} class="border border-token p-2">
                                 <iconify-icon icon={if fullscreen { "radix-icons:exit-full-screen" } else { "radix-icons:enter-full-screen" }} class="radix-icon"></iconify-icon>
@@ -395,7 +524,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                             <ShadcnButton
                                 variant={ButtonVariant::Outline}
                                 class={classes!("w-full")}
-                                onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("dismiss".to_string()))))}
+                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(3), Some("dismiss".to_string()))))}
                             >
                                 <iconify-icon icon="radix-icons:cross-2" class="radix-icon" aria-hidden="true"></iconify-icon>
                             </ShadcnButton>
@@ -404,7 +533,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                             <ShadcnButton
                                 variant={ButtonVariant::Default}
                                 class={classes!("w-full")}
-                                onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some("acknowledge".to_string()))))}
+                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(3), Some("acknowledge".to_string()))))}
                             >
                                 <iconify-icon icon="radix-icons:check" class="radix-icon" aria-hidden="true"></iconify-icon>
                             </ShadcnButton>
@@ -414,14 +543,14 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                             <ShadcnButton
                                 variant={ButtonVariant::Outline}
                                 class={classes!("w-full")}
-                                onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(1), Some("again".to_string()))))}
+                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(1), Some("again".to_string()))))}
                             >{"Again"}</ShadcnButton>
                         </ShadcnTooltip>
                         <ShadcnTooltip content="I learned this" class={classes!("flex-1")}>
                             <ShadcnButton
                                 variant={ButtonVariant::Default}
                                 class={classes!("w-full")}
-                                onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(5), Some("learned".to_string()))))}
+                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(5), Some("learned".to_string()))))}
                             >{"Learned"}</ShadcnButton>
                         </ShadcnTooltip>
                         <div
@@ -490,11 +619,11 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                                         role="menuitem"
                                         class="shadcn-dropdown-item"
                                         onclick={Callback::from({
-                                            let on_review = on_review.clone();
+                                            let review = review_with_animation.clone();
                                             let skip_open = skip_open.clone();
                                             move |_| {
                                                 skip_open.set(false);
-                                                on_review.emit((id, Some(5), Some("skip_known".to_string())));
+                                                review.emit((Some(5), Some("skip_known".to_string())));
                                             }
                                         })}
                                     >
@@ -509,11 +638,11 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                                         role="menuitem"
                                         class="shadcn-dropdown-item"
                                         onclick={Callback::from({
-                                            let on_review = on_review.clone();
+                                            let review = review_with_animation.clone();
                                             let skip_open = skip_open.clone();
                                             move |_| {
                                                 skip_open.set(false);
-                                                on_review.emit((id, Some(3), Some("skip_not_interested".to_string())));
+                                                review.emit((Some(3), Some("skip_not_interested".to_string())));
                                             }
                                         })}
                                     >
@@ -528,11 +657,11 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                                         role="menuitem"
                                         class="shadcn-dropdown-item"
                                         onclick={Callback::from({
-                                            let on_review = on_review.clone();
+                                            let review = review_with_animation.clone();
                                             let skip_open = skip_open.clone();
                                             move |_| {
                                                 skip_open.set(false);
-                                                on_review.emit((id, Some(1), Some("skip_too_difficult".to_string())));
+                                                review.emit((Some(1), Some("skip_too_difficult".to_string())));
                                             }
                                         })}
                                     >
@@ -550,21 +679,21 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                             <ShadcnButton
                                 variant={ButtonVariant::Outline}
                                 class={classes!("w-full")}
-                                onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(1), Some(String::new()))))}
+                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(1), Some(String::new()))))}
                             >{"Again"}</ShadcnButton>
                         </ShadcnTooltip>
                         <ShadcnTooltip content="Good" class={classes!("flex-1")}>
                             <ShadcnButton
                                 variant={ButtonVariant::Outline}
                                 class={classes!("w-full")}
-                                onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(3), Some(String::new()))))}
+                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(3), Some(String::new()))))}
                             >{"Good"}</ShadcnButton>
                         </ShadcnTooltip>
                         <ShadcnTooltip content="Easy" class={classes!("flex-1")}>
                             <ShadcnButton
                                 variant={ButtonVariant::Default}
                                 class={classes!("w-full")}
-                                onclick={let on_review = on_review.clone(); Callback::from(move |_| on_review.emit((id, Some(5), Some(String::new()))))}
+                                onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(5), Some(String::new()))))}
                             >{"Easy"}</ShadcnButton>
                         </ShadcnTooltip>
                     }
@@ -757,7 +886,6 @@ pub fn flow_card_skeleton(props: &FlowCardSkeletonProps) -> Html {
 
     html! {
         <article class={article_classes} aria-busy="true" aria-label="Generating card">
-            <div class="absolute top-0 left-0 w-1 h-full" style="background: var(--surface-muted)"></div>
             <div class="p-4 flex flex-col flex-1">
                 <div class="flex justify-between items-start gap-3 border-b border-token pb-3 mb-4">
                     <div class="flex items-center gap-2 min-w-0 flex-1">
@@ -782,5 +910,24 @@ pub fn flow_card_skeleton(props: &FlowCardSkeletonProps) -> Html {
                 </div>
             </div>
         </article>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::repeatable_stack_layers;
+
+    #[test]
+    fn repeatable_stack_matches_pending_card_count() {
+        assert_eq!(repeatable_stack_layers("repeatable_tip", 0, false), 0);
+        assert_eq!(repeatable_stack_layers("repeatable_tip", 1, false), 1);
+        assert_eq!(repeatable_stack_layers("repeatable_tip", 2, false), 2);
+        assert_eq!(repeatable_stack_layers("repeatable_tip", 8, false), 3);
+    }
+
+    #[test]
+    fn repeatable_stack_is_hidden_for_fullscreen_and_other_types() {
+        assert_eq!(repeatable_stack_layers("repeatable_tip", 3, true), 0);
+        assert_eq!(repeatable_stack_layers("casual_tip", 3, false), 0);
     }
 }

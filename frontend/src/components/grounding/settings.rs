@@ -16,6 +16,7 @@ struct GroundingSettingsRes {
     grounding_model: String,
     grounding_reasoning_effort: String,
     image_strategy: String,
+    search_provider: String,
     search_api_key: String,
     search_base_url: String,
     image_sources: String,
@@ -27,6 +28,7 @@ struct GroundingSettingsPatch {
     grounding_model: Option<String>,
     grounding_reasoning_effort: Option<String>,
     image_strategy: Option<String>,
+    search_provider: Option<String>,
     search_api_key: Option<String>,
     search_base_url: Option<String>,
     image_sources: Option<String>,
@@ -46,6 +48,7 @@ impl GroundingSettingsPatch {
         merge!(grounding_model);
         merge!(grounding_reasoning_effort);
         merge!(image_strategy);
+        merge!(search_provider);
         merge!(search_api_key);
         merge!(search_base_url);
         merge!(image_sources);
@@ -186,6 +189,23 @@ pub fn grounding_settings() -> Html {
                 "image_strategy" => {
                     current.image_strategy = value.clone();
                     patch.image_strategy = Some(value);
+                }
+                "search_provider" => {
+                    current.search_provider = value.clone();
+                    let known_default = current.search_base_url.trim().is_empty()
+                        || matches!(
+                            current.search_base_url.trim_end_matches('/'),
+                            "https://api.tavily.com" | "https://api.firecrawl.dev"
+                        );
+                    if known_default {
+                        current.search_base_url = if value == "firecrawl" {
+                            "https://api.firecrawl.dev".to_string()
+                        } else {
+                            "https://api.tavily.com".to_string()
+                        };
+                        patch.search_base_url = Some(current.search_base_url.clone());
+                    }
+                    patch.search_provider = Some(value);
                 }
                 _ => return,
             }
@@ -463,11 +483,25 @@ pub fn grounding_settings() -> Html {
                         ]}
                     />
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div>
-                        <label class="block card-kicker mb-2" for="search-api-key-input">{"Search API Key (Tavily)"}</label>
-                        <input id="search-api-key-input" oninput={on_input("search_api_key")} type="password" value={settings.search_api_key.clone()} class="w-full rounded-md border px-3 py-2" placeholder="tvly-…" />
-                        <div class="mt-2 text-xs text-muted">{"Optional. Used for external fact grounding, Web Image Search, and Isolated Image Search."}</div>
+                        <label class="block card-kicker mb-2" for="search-provider-input">{"Web Provider"}</label>
+                        <ShadcnSelect
+                            id="search-provider-input"
+                            name="search-provider-input"
+                            onchange={on_select("search_provider")}
+                            value={settings.search_provider.clone()}
+                            options={vec![
+                                SelectOption { value: "tavily".into(), label: "Tavily".into() },
+                                SelectOption { value: "firecrawl".into(), label: "Firecrawl".into() },
+                            ]}
+                        />
+                        <div class="mt-2 text-xs text-muted">{"Firecrawl searches the web and extracts linked pages, PDFs, and other supported documents as clean Markdown."}</div>
+                    </div>
+                    <div>
+                        <label class="block card-kicker mb-2" for="search-api-key-input">{format!("{} API Key", if settings.search_provider == "firecrawl" { "Firecrawl" } else { "Tavily" })}</label>
+                        <input id="search-api-key-input" oninput={on_input("search_api_key")} type="password" value={settings.search_api_key.clone()} class="w-full rounded-md border px-3 py-2" placeholder={if settings.search_provider == "firecrawl" { "fc-…" } else { "tvly-…" }} />
+                        <div class="mt-2 text-xs text-muted">{"Required to use the selected external provider. Without a key, fact grounding uses the LLM provider's web search and links use direct fetching."}</div>
                     </div>
                     <div>
                         <label class="block card-kicker mb-2" for="search-base-url-input">{"Search Base URL"}</label>
@@ -488,7 +522,7 @@ pub fn grounding_settings() -> Html {
                             ("none", "No Images", "Generate cards without illustrations."),
                             ("pool", "Local Image Pool", "Choose from images uploaded to this account."),
                             ("programmatic", "Tag-based Image APIs", "The model writes search tags. Denpie tries each enabled API below and uses the first image returned."),
-                            ("web_search", "Web Image Search", "Uses the configured Tavily-compatible search API and the card's generated image query."),
+                            ("web_search", "Web Image Search", "Uses the configured web provider and the card's generated image query."),
                             ("agentic", "Isolated Image Search", "Uses the configured web search API to find images only inside the allowed domains below. Denpie validates and downloads the first usable result."),
                         ]
                         .into_iter()

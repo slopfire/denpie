@@ -809,6 +809,7 @@ impl TipService {
                 documents: &documents,
                 daily_card_count: batch_size.clamp(5, 10) as i64,
                 search: llm::SearchConfig {
+                    provider: &ctx.settings.search_provider,
                     external_key: &ctx.settings.search_api_key,
                     base_url: &ctx.settings.search_base_url,
                 },
@@ -985,6 +986,7 @@ impl TipService {
                 sources: &image_sources,
                 search_api_key: &ctx.settings.search_api_key,
                 search_base_url: &ctx.settings.search_base_url,
+                search_provider: &ctx.settings.search_provider,
             },
         )
         .await;

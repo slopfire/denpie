@@ -147,6 +147,7 @@ message Settings {
     string image_sources = 24;
     string grounding_model = 25;
     string grounding_reasoning_effort = 26;
+    string search_provider = 27;
 }
 
 message UpdateSettingsRequest {
@@ -175,6 +176,7 @@ message UpdateSettingsRequest {
     optional string image_sources = 23;
     optional string grounding_model = 24;
     optional string grounding_reasoning_effort = 25;
+    optional string search_provider = 26;
 }
 
 message ApiKeyInfo {

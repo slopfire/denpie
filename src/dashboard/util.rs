@@ -81,6 +81,7 @@ pub fn settings_response(settings: config::Settings, show_autoupdate: bool) -> S
         max_active_cards: settings.max_active_cards,
         grounding_strategy: settings.grounding_strategy,
         image_strategy: settings.image_strategy,
+        search_provider: settings.search_provider,
         search_api_key: settings.search_api_key,
         search_base_url: settings.search_base_url,
         image_sources: settings.image_sources,

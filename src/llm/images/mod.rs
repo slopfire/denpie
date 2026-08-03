@@ -37,6 +37,7 @@ pub struct ImageInput<'a> {
     pub sources: &'a [ImageSource],
     pub search_api_key: &'a str,
     pub search_base_url: &'a str,
+    pub search_provider: &'a str,
 }
 
 /// A retrieved image, ready for `image_store::replace_card_images`.

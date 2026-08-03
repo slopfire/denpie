@@ -38,6 +38,7 @@ pub struct Settings {
     pub max_active_cards: u64,
     pub grounding_strategy: String,
     pub image_strategy: String,
+    pub search_provider: String,
     pub search_api_key: String,
     pub search_base_url: String,
     pub image_sources: String,
@@ -71,6 +72,7 @@ pub struct SettingsPatch {
     pub max_active_cards: Option<u64>,
     pub grounding_strategy: Option<String>,
     pub image_strategy: Option<String>,
+    pub search_provider: Option<String>,
     pub search_api_key: Option<String>,
     pub search_base_url: Option<String>,
     pub image_sources: Option<String>,
@@ -181,6 +183,15 @@ impl SettingsStore {
                         .to_string()
                 }),
             );
+            put_string(
+                map,
+                "search_provider",
+                patch.search_provider.map(|value| {
+                    crate::domain::grounding::SearchProvider::from_setting(&value)
+                        .as_str()
+                        .to_string()
+                }),
+            );
             put_string(map, "search_api_key", patch.search_api_key);
             put_string(map, "search_base_url", patch.search_base_url);
             put_string(map, "image_sources", patch.image_sources);
@@ -284,6 +295,13 @@ impl Settings {
             ))
             .as_str()
             .to_string(),
+            search_provider: crate::domain::grounding::SearchProvider::from_setting(&string(
+                settings,
+                "search_provider",
+                "tavily",
+            ))
+            .as_str()
+            .to_string(),
             search_api_key: string(settings, "search_api_key", ""),
             search_base_url: string(settings, "search_base_url", "https://api.tavily.com"),
             image_sources: string(
@@ -358,6 +376,11 @@ impl Settings {
         }
         if let Some(value) = patch.image_strategy {
             self.image_strategy = crate::domain::grounding::ImageStrategy::from_setting(&value)
+                .as_str()
+                .to_string();
+        }
+        if let Some(value) = patch.search_provider {
+            self.search_provider = crate::domain::grounding::SearchProvider::from_setting(&value)
                 .as_str()
                 .to_string();
         }
@@ -448,6 +471,8 @@ mod tests {
         assert_eq!(settings.daily_time_zone, "UTC");
         assert_eq!(settings.daily_update_time, "03:00");
         assert_eq!(settings.max_active_cards, 0);
+        assert_eq!(settings.search_provider, "tavily");
+        assert_eq!(settings.search_base_url, "https://api.tavily.com");
         assert_eq!(
             settings.image_sources,
             crate::domain::grounding::DEFAULT_IMAGE_SOURCES_SETTING

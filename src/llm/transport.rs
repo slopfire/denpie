@@ -282,7 +282,7 @@ fn map_response(
         .next()
         .and_then(|choice| choice.message.content)
         .or(raw_content)
-        .unwrap_or_default();
+        .unwrap_or_else(|| "Failed parsing text".to_string());
 
     let usage = response
         .usage

@@ -205,6 +205,13 @@ pub async fn apply_schema_migrations(pool: &SqlitePool) -> Result<(), sqlx::Erro
     ensure_column(
         pool,
         "user_settings",
+        "search_provider",
+        "TEXT NOT NULL DEFAULT 'tavily'",
+    )
+    .await?;
+    ensure_column(
+        pool,
+        "user_settings",
         "search_api_key",
         "TEXT NOT NULL DEFAULT ''",
     )
@@ -708,6 +715,7 @@ async fn drop_appearance_columns_from_user_settings(pool: &SqlitePool) -> Result
             max_active_cards INTEGER NOT NULL DEFAULT 0,
             grounding_strategy TEXT NOT NULL DEFAULT 'factual',
             image_strategy TEXT NOT NULL DEFAULT 'none',
+            search_provider TEXT NOT NULL DEFAULT 'tavily',
             search_api_key TEXT NOT NULL DEFAULT '',
             search_base_url TEXT NOT NULL DEFAULT 'https://api.tavily.com',
             image_sources TEXT NOT NULL DEFAULT '[]',
@@ -723,7 +731,7 @@ async fn drop_appearance_columns_from_user_settings(pool: &SqlitePool) -> Result
             llm_reasoning_effort, llm_grounding_reasoning_effort,
             llm_compress_reasoning_effort, llm_compression_level, daily_time_zone,
             daily_update_time, max_active_cards, grounding_strategy, image_strategy,
-            search_api_key, search_base_url, image_sources
+            search_provider, search_api_key, search_base_url, image_sources
         )
         SELECT
             user_id, llm_model, COALESCE(llm_grounding_model, ''),
@@ -732,6 +740,7 @@ async fn drop_appearance_columns_from_user_settings(pool: &SqlitePool) -> Result
             COALESCE(llm_grounding_reasoning_effort, ''), llm_compress_reasoning_effort,
             llm_compression_level, daily_time_zone, daily_update_time, max_active_cards,
             COALESCE(grounding_strategy, 'factual'), COALESCE(image_strategy, 'none'),
+            COALESCE(search_provider, 'tavily'),
             COALESCE(search_api_key, ''), COALESCE(search_base_url, 'https://api.tavily.com'),
             COALESCE(image_sources, '[]')
         FROM user_settings",

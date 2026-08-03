@@ -30,6 +30,7 @@ pub struct SettingsRes {
     pub max_active_cards: u64,
     pub grounding_strategy: String,
     pub image_strategy: String,
+    pub search_provider: String,
     pub search_api_key: String,
     pub search_base_url: String,
     pub image_sources: String,
@@ -67,6 +68,7 @@ pub struct UpdateSettingsReq {
     pub max_active_cards: Option<u64>,
     pub grounding_strategy: Option<String>,
     pub image_strategy: Option<String>,
+    pub search_provider: Option<String>,
     pub search_api_key: Option<String>,
     pub search_base_url: Option<String>,
     pub image_sources: Option<String>,
@@ -223,6 +225,7 @@ pub struct FlowCardInfo {
     pub repeat_count: u32,
     pub pinned: bool,
     pub image_count: i64,
+    pub pending_count: i64,
     pub thumbnail_urls: Vec<String>,
 }
 

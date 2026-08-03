@@ -15,7 +15,18 @@ pub async fn list_flow_cards(
     let now = Utc::now();
 
     let base = format!(
-        "{},\n       COUNT(img.id) AS image_count\n{} WHERE t.user_id = ",
+        "{},
+       COUNT(img.id) AS image_count,
+       (
+           SELECT COUNT(*)
+           FROM review_states pending_review
+           JOIN tipcards pending_card ON pending_card.id = pending_review.card_id
+           WHERE pending_card.user_id = t.user_id
+             AND pending_card.topic_id = t.topic_id
+             AND pending_card.tipcard_type = 'repeatable_tip'
+             AND pending_review.status = 'pending'
+       ) AS pending_count
+{} WHERE t.user_id = ",
         queries::BASE_CARD_SELECT,
         queries::FLOW_FROM_JOINS
     );
@@ -87,6 +98,7 @@ pub async fn list_flow_cards(
             i64,
             i64,
             i64,
+            i64,
         )>()
         .fetch_all(pool)
         .await?;
@@ -109,6 +121,7 @@ pub async fn list_flow_cards(
             pinned: row.13 != 0,
             repeats: row.12 as u32,
             image_count: row.14,
+            pending_count: row.15,
         })
         .collect())
 }
