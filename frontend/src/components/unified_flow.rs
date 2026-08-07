@@ -871,12 +871,12 @@ pub fn unified_flow() -> Html {
             id="view-flow"
             class={classes!(disable_flow_glass.then_some("flow-many-cards"))}
         >
-            <div class="flex flex-col xl:flex-row xl:items-end justify-between gap-3 mb-4">
-                <div>
-                    <h1 class="text-xl font-semibold tracking-tight">{"Transmission"}</h1>
-                    <p class="text-muted mt-2">{"All cards in one review surface."}</p>
-                </div>
-                <form id="tips-form" onsubmit={on_submit} class="surface border rounded-md p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 w-full xl:w-auto">
+            <div class="mb-4">
+                <h1 class="text-xl font-semibold tracking-tight">{"Transmission"}</h1>
+                <p class="text-muted mt-2">{"All cards in one review surface."}</p>
+            </div>
+            <div class="flow-toolbar mb-4 flex flex-col items-end gap-3">
+                <form id="tips-form" onsubmit={on_submit} class="surface border rounded-md p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 w-full sm:w-auto sm:max-w-fit">
                     <input
                         id="tips-topics"
                         class="rounded-md border px-3 py-2 xl:col-span-2"
@@ -955,37 +955,6 @@ pub fn unified_flow() -> Html {
                         </div>
                     }
                 </form>
-            </div>
-
-            if !pinned_cards.is_empty() {
-                <section id="flow-pins" class="mb-8" aria-labelledby="flow-pins-heading">
-                    <div class="flex items-center justify-between gap-3 mb-4">
-                        <h2 id="flow-pins-heading" class="text-lg font-semibold tracking-tight">
-                            {i18n.t("flow.pins")}
-                        </h2>
-                        <span id="flow-pinned-count" class="text-sm text-muted">
-                            {pinned_cards.len()}
-                        </span>
-                    </div>
-                    <div
-                        id="flow-pinned-grid"
-                        class={grid_classes}
-                    >
-                        {for pinned_cards.iter().map(|card| render_flow_card(card, true))}
-                    </div>
-                </section>
-            }
-
-            <div class="flex justify-between items-center gap-3 mb-4">
-                <div>
-                    <h2 id="flow-picks-heading" class="text-lg font-semibold tracking-tight">
-                        {i18n.t("flow.picks")}
-                    </h2>
-                    <div class="text-sm text-muted mt-1">
-                        <span id="flow-count">{transmission_picks.len()}</span>
-                        {format!("/{TRANSMISSION_MAX_PICKS} {}", i18n.t("flow.picks_count_suffix"))}
-                    </div>
-                </div>
                 <div class="flex flex-wrap items-center justify-end gap-2">
                     <div class="flex muted-surface rounded-md p-1 border border-token" role="group" aria-label="Sort cards">
                         <button
@@ -1080,6 +1049,35 @@ pub fn unified_flow() -> Html {
                             <iconify-icon icon="radix-icons:list-bullet" class="radix-icon"></iconify-icon>
                         </button>
                     </div>
+                </div>
+            </div>
+
+            if !pinned_cards.is_empty() {
+                <section id="flow-pins" class="mb-8" aria-labelledby="flow-pins-heading">
+                    <div class="flex items-baseline gap-2 mb-4">
+                        <h2 id="flow-pins-heading" class="text-lg font-semibold tracking-tight">
+                            {i18n.t("flow.pins")}
+                        </h2>
+                        <span id="flow-pinned-count" class="text-sm text-muted">
+                            {pinned_cards.len()}
+                        </span>
+                    </div>
+                    <div
+                        id="flow-pinned-grid"
+                        class={grid_classes}
+                    >
+                        {for pinned_cards.iter().map(|card| render_flow_card(card, true))}
+                    </div>
+                </section>
+            }
+
+            <div class="mb-4">
+                <h2 id="flow-picks-heading" class="text-lg font-semibold tracking-tight">
+                    {i18n.t("flow.picks")}
+                </h2>
+                <div class="text-sm text-muted mt-1">
+                    <span id="flow-count">{transmission_picks.len()}</span>
+                    {format!("/{TRANSMISSION_MAX_PICKS} {}", i18n.t("flow.picks_count_suffix"))}
                 </div>
             </div>
 

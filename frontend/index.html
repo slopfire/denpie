@@ -1428,6 +1428,18 @@
                 position: relative;
                 z-index: 30;
             }
+            #view-flow > .flow-toolbar {
+                position: relative;
+                z-index: 30;
+            }
+            /* Sticky card creation + sort/grid on desktop only (title scrolls away). */
+            @media (min-width: 1024px) {
+                #view-flow > .flow-toolbar {
+                    position: sticky;
+                    top: 0.75rem;
+                    z-index: 30;
+                }
+            }
             #view-flow.flow-many-cards .flow-card.surface,
             #view-archive.flow-many-cards .flow-card.surface {
                 background: hsl(var(--card));
