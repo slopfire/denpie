@@ -2,15 +2,13 @@ use super::support::{
     TEST_USER_ID, bootstrap_api_key, make_state, post_api, setup_db, spawn_test_server,
     unique_settings_path,
 };
-use crate::apply_schema_migrations;
 use prost::Message;
-use sqlx::sqlite::SqlitePoolOptions;
 use tokio::fs;
 
 #[tokio::test]
 async fn test_topic_names_can_repeat_across_users() {
     let db = setup_db().await;
-    sqlx::query("INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)")
+    sqlx::query("INSERT INTO users (id, username, password_hash, role) VALUES ($1, $2, $3, $4)")
         .bind("usr_other")
         .bind("other")
         .bind("")
@@ -43,47 +41,6 @@ async fn test_topic_names_can_repeat_across_users() {
         .await
         .unwrap();
     assert_eq!(count, 2);
-}
-
-#[tokio::test]
-async fn test_legacy_global_topic_unique_index_is_removed() {
-    let db = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    sqlx::query(
-        "CREATE TABLE topics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                tipcard_type TEXT NOT NULL DEFAULT 'repeatable_tip'
-            )",
-    )
-    .execute(&db)
-    .await
-    .unwrap();
-    sqlx::query("CREATE TABLE tipcards (id INTEGER PRIMARY KEY AUTOINCREMENT, topic_id INTEGER NOT NULL, full_content TEXT NOT NULL, compressed_content TEXT NOT NULL)")
-            .execute(&db)
-            .await
-            .unwrap();
-    sqlx::query("CREATE TABLE review_states (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id INTEGER NOT NULL UNIQUE, algorithm_used TEXT NOT NULL, state_data TEXT NOT NULL, next_review_at DATETIME NOT NULL)")
-            .execute(&db)
-            .await
-            .unwrap();
-    sqlx::query("CREATE TABLE api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, key_hash TEXT NOT NULL UNIQUE, client_name TEXT NOT NULL)")
-            .execute(&db)
-            .await
-            .unwrap();
-    apply_schema_migrations(&db).await.unwrap();
-    sqlx::query("INSERT INTO users (id, username, password_hash, role) VALUES ('u1', 'u1', '', 'admin'), ('u2', 'u2', '', 'user')")
-            .execute(&db)
-            .await
-            .unwrap();
-    crate::db::repositories::topics::get_or_create_topic(&db, "u1", "rust", "repeatable_tip", None)
-        .await
-        .unwrap();
-    crate::db::repositories::topics::get_or_create_topic(&db, "u2", "rust", "repeatable_tip", None)
-        .await
-        .unwrap();
 }
 
 #[tokio::test]
@@ -388,7 +345,7 @@ async fn test_manual_tipcards_store_and_update_images() {
     assert_eq!(tips.len(), 1);
     assert_eq!(tips[0].image_data, vec![image.clone()]);
 
-    let stored: String = sqlx::query_scalar("SELECT image_data FROM tipcards WHERE id = ?")
+    let stored: String = sqlx::query_scalar("SELECT image_data FROM tipcards WHERE id = $1")
         .bind(tips[0].id)
         .fetch_one(&state.db)
         .await
@@ -399,7 +356,7 @@ async fn test_manual_tipcards_store_and_update_images() {
             .is_empty()
     );
     let stored_image: (String, i64) =
-        sqlx::query_as("SELECT mime_type, byte_size FROM tipcard_images WHERE card_id = ?")
+        sqlx::query_as("SELECT mime_type, byte_size FROM tipcard_images WHERE card_id = $1")
             .bind(tips[0].id)
             .fetch_one(&state.db)
             .await
@@ -411,7 +368,7 @@ async fn test_manual_tipcards_store_and_update_images() {
     crate::api::set_tipcard_images(&state, TEST_USER_ID, tips[0].id, vec![replacement.clone()])
         .await
         .unwrap();
-    let updated: String = sqlx::query_scalar("SELECT image_data FROM tipcards WHERE id = ?")
+    let updated: String = sqlx::query_scalar("SELECT image_data FROM tipcards WHERE id = $1")
         .bind(tips[0].id)
         .fetch_one(&state.db)
         .await
@@ -422,7 +379,7 @@ async fn test_manual_tipcards_store_and_update_images() {
             .is_empty()
     );
     let updated_image: (String, i64) =
-        sqlx::query_as("SELECT mime_type, byte_size FROM tipcard_images WHERE card_id = ?")
+        sqlx::query_as("SELECT mime_type, byte_size FROM tipcard_images WHERE card_id = $1")
             .bind(tips[0].id)
             .fetch_one(&state.db)
             .await
@@ -477,17 +434,19 @@ async fn test_concurrent_image_appends_respect_cap_positions_and_cleanup() {
         .unwrap();
     let db = setup_db().await;
     let state = std::sync::Arc::new(make_state(db, settings_path));
-    let topic_id = sqlx::query("INSERT INTO topics (user_id, name, tipcard_type) VALUES (?, ?, ?)")
-        .bind(TEST_USER_ID)
-        .bind("images")
-        .bind("manual_tip")
-        .execute(&state.db)
-        .await
-        .unwrap()
-        .last_insert_rowid();
-    let card_id = sqlx::query(
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .bind("images")
+    .bind("manual_tip")
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    let card_id = sqlx::query_scalar::<_, i64>(
         "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content)
-         VALUES (?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id",
     )
     .bind(TEST_USER_ID)
     .bind(topic_id)
@@ -495,18 +454,17 @@ async fn test_concurrent_image_appends_respect_cap_positions_and_cleanup() {
     .bind("Image cap")
     .bind("Image cap")
     .bind("Image cap")
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
+    .unwrap();
     for position in 0..3 {
         sqlx::query(
             "INSERT INTO tipcard_images (user_id, card_id, position, storage_path, mime_type, byte_size)
-             VALUES (?, ?, ?, ?, ?, ?)",
+             VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(TEST_USER_ID)
         .bind(card_id)
-        .bind(position)
+        .bind(i64::from(position))
         .bind(format!("existing-{position}.png"))
         .bind("image/png")
         .bind(1_i64)
@@ -576,7 +534,7 @@ async fn test_image_append_rejects_foreign_card_and_pool_image_before_writing() 
     let db = setup_db().await;
     let state = make_state(db, settings_path);
     let other_user = "usr_other_images";
-    sqlx::query("INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)")
+    sqlx::query("INSERT INTO users (id, username, password_hash, role) VALUES ($1, $2, $3, $4)")
         .bind(other_user)
         .bind("other-images")
         .bind("")
@@ -585,18 +543,19 @@ async fn test_image_append_rejects_foreign_card_and_pool_image_before_writing() 
         .await
         .unwrap();
 
-    let foreign_topic =
-        sqlx::query("INSERT INTO topics (user_id, name, tipcard_type) VALUES (?, ?, ?)")
-            .bind(other_user)
-            .bind("foreign")
-            .bind("manual_tip")
-            .execute(&state.db)
-            .await
-            .unwrap()
-            .last_insert_rowid();
-    let foreign_card = sqlx::query(
+    let foreign_topic = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(other_user)
+    .bind("foreign")
+    .bind("manual_tip")
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    let foreign_card = sqlx::query_scalar::<_, i64>(
         "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content)
-         VALUES (?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id",
     )
     .bind(other_user)
     .bind(foreign_topic)
@@ -604,10 +563,9 @@ async fn test_image_append_rejects_foreign_card_and_pool_image_before_writing() 
     .bind("Foreign")
     .bind("Foreign")
     .bind("Foreign")
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
+    .unwrap();
     let foreign_card_result = crate::services::tipcards::TipcardService::append_images(
         &state,
         TEST_USER_ID,
@@ -622,18 +580,19 @@ async fn test_image_append_rejects_foreign_card_and_pool_image_before_writing() 
         axum::http::StatusCode::NOT_FOUND
     );
 
-    let own_topic =
-        sqlx::query("INSERT INTO topics (user_id, name, tipcard_type) VALUES (?, ?, ?)")
-            .bind(TEST_USER_ID)
-            .bind("own")
-            .bind("manual_tip")
-            .execute(&state.db)
-            .await
-            .unwrap()
-            .last_insert_rowid();
-    let own_card = sqlx::query(
+    let own_topic = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .bind("own")
+    .bind("manual_tip")
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    let own_card = sqlx::query_scalar::<_, i64>(
         "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content)
-         VALUES (?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id",
     )
     .bind(TEST_USER_ID)
     .bind(own_topic)
@@ -641,10 +600,9 @@ async fn test_image_append_rejects_foreign_card_and_pool_image_before_writing() 
     .bind("Own")
     .bind("Own")
     .bind("Own")
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
+    .unwrap();
     let foreign_pool_image = crate::db::repositories::image_pool::insert_pool_image(
         &state.db,
         other_user,
@@ -685,29 +643,27 @@ async fn test_pinned_tipcard_is_returned_before_schedule() {
     let db = setup_db().await;
     let state = make_state(db, settings_path);
 
-    let topic_id = sqlx::query(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', ?, ?)",
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', $1, $2) RETURNING id",
     )
     .bind("spanish")
     .bind("repeatable_tip")
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
-    let card_id = sqlx::query(
-        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', ?, ?, ?, ?, ?)",
+    .unwrap();
+    let card_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', $1, $2, $3, $4, $5) RETURNING id",
     )
     .bind(topic_id)
     .bind("repeatable_tip")
     .bind("Pinned")
     .bind("Pinned full")
     .bind("Pinned compact")
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
+    .unwrap();
     sqlx::query(
-        "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, ?, ?, 'active', ?)",
+        "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES ($1, $2, $3, 'active', $4)",
     )
     .bind(card_id)
     .bind("repeatable")
@@ -754,29 +710,27 @@ async fn test_max_active_cards_blocks_new_manual_card_but_keeps_due_cards_availa
     let db = setup_db().await;
     let state = make_state(db, settings_path);
 
-    let topic_id = sqlx::query(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', ?, ?)",
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', $1, $2) RETURNING id",
     )
     .bind("spanish")
     .bind("repeatable_tip")
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
-    let card_id = sqlx::query(
-        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', ?, ?, ?, ?, ?)",
+    .unwrap();
+    let card_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', $1, $2, $3, $4, $5) RETURNING id",
     )
     .bind(topic_id)
     .bind("repeatable_tip")
     .bind("Due")
     .bind("Due full")
     .bind("Due compact")
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
+    .unwrap();
     sqlx::query(
-        "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, ?, ?, 'active', ?)",
+        "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES ($1, $2, $3, 'active', $4)",
     )
     .bind(card_id)
     .bind("repeatable")
@@ -835,7 +789,7 @@ async fn test_max_active_cards_blocks_new_manual_card_but_keeps_due_cards_availa
     .unwrap();
     assert!(blocked_promotion.is_empty());
     let pending_status: String =
-        sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = ?")
+        sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = $1")
             .bind(pending_id)
             .fetch_one(&state.db)
             .await
@@ -845,13 +799,12 @@ async fn test_max_active_cards_blocks_new_manual_card_but_keeps_due_cards_availa
     crate::api::apply_review(&state, TEST_USER_ID, card_id, 1, "again")
         .await
         .unwrap();
-    let filler_topic_id = sqlx::query(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', 'capacity filler', 'manual_tip')",
+    let filler_topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', 'capacity filler', 'manual_tip') RETURNING id",
     )
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
+    .unwrap();
     crate::db::repositories::tipcards::create_generated_with_status(
         &state.db,
         TEST_USER_ID,
@@ -877,7 +830,7 @@ async fn test_max_active_cards_blocks_new_manual_card_but_keeps_due_cards_availa
         "SELECT r.card_id
          FROM review_states r
          JOIN tipcards t ON t.id = r.card_id
-         WHERE t.user_id = ? AND t.topic_id = ? AND r.status = 'pending'
+         WHERE t.user_id = $1 AND t.topic_id = $2 AND r.status = 'pending'
          ORDER BY t.created_at ASC, t.id ASC
          LIMIT 1",
     )
@@ -937,32 +890,30 @@ async fn test_app_tip_replacement_excludes_visible_cards() {
     let db = setup_db().await;
     let state = make_state(db, settings_path);
 
-    let topic_id = sqlx::query(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', ?, ?)",
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', $1, $2) RETURNING id",
     )
     .bind("spanish")
     .bind("repeatable_tip")
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
+    .unwrap();
 
     let mut visible_ids = Vec::new();
     for label in ["one", "two"] {
-        let card_id = sqlx::query(
-            "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', ?, ?, ?, ?, ?)",
+        let card_id = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', $1, $2, $3, $4, $5) RETURNING id",
         )
         .bind(topic_id)
         .bind("repeatable_tip")
         .bind(label)
         .bind(format!("Full {label}"))
         .bind(format!("Compressed {label}"))
-        .execute(&state.db)
+        .fetch_one(&state.db)
         .await
-        .unwrap()
-        .last_insert_rowid();
+        .unwrap();
         sqlx::query(
-            "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, ?, ?, 'active', ?)",
+            "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES ($1, $2, $3, 'active', $4)",
         )
         .bind(card_id)
         .bind("repeatable")

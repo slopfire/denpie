@@ -8,7 +8,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete, get, patch, post},
 };
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use std::{path::PathBuf, sync::Arc};
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::compression::CompressionLayer;
@@ -20,7 +20,7 @@ use webauthn_rs::Webauthn;
 use crate::{api, auth, dashboard, services};
 
 pub struct AppState {
-    pub db: SqlitePool,
+    pub db: PgPool,
     pub image_dir: PathBuf,
     pub settings_path: PathBuf,
     pub frontend_dist: PathBuf,

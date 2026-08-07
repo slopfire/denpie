@@ -440,15 +440,11 @@ impl TipService {
                     &settings.daily_time_zone,
                     &settings.daily_update_time,
                 );
-                let window_start_key = window_start
-                    .naive_utc()
-                    .format("%Y-%m-%d %H:%M:%S")
-                    .to_string();
                 let last_window =
                     daily_refresh::last_window_start(&state.db, &user_id, topic.id, &tipcard_type)
                         .await
                         .map_err(|err| err.into_status_body())?;
-                if last_window.as_deref() == Some(window_start_key.as_str()) {
+                if last_window == Some(window_start) {
                     continue;
                 }
 

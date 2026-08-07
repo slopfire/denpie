@@ -132,7 +132,12 @@ else
     fi
 
     echo "starting denpie on ${AGENT_BIND} with data dir ${AGENT_DATA}"
+    if [ -z "${DATABASE_URL:-}" ]; then
+      echo "DATABASE_URL is not set; start local PostgreSQL with: just db-up" >&2
+      exit 1
+    fi
     DENPIE_BIND_ADDR="$AGENT_BIND" \
+      DENPIE_DB_SCHEMA=denpie_agent \
       DENPIE_RP_ORIGIN="$AGENT_ORIGIN" \
       DENPIE_RP_ID=localhost \
       DENPIE_DATA_DIR="$AGENT_DATA" \

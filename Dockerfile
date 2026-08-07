@@ -13,6 +13,7 @@ RUN rustup target add wasm32-unknown-unknown \
        | tar xz -C /usr/local/cargo/bin
 
 COPY Cargo.toml build.rs schema.sql ./
+COPY migrations ./migrations
 COPY proto ./proto
 COPY src ./src
 COPY config ./config
@@ -38,13 +39,11 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY --from=builder /app/denpie-binary /usr/local/bin/denpie
-COPY schema.sql /app/schema.sql
 COPY --from=builder /app/frontend/dist /app/frontend/dist
 COPY static /app/static
 
 ENV DENPIE_BIND_ADDR=127.0.0.1:3017 \
     DENPIE_DATA_DIR=/var/lib/denpie \
-    DENPIE_SCHEMA_PATH=/app/schema.sql \
     DENPIE_FRONTEND_DIST=/app/frontend/dist \
     DENPIE_STATIC_DIR=/app/static
 

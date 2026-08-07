@@ -1,4 +1,4 @@
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::{
     auth::AuthUser,
@@ -8,11 +8,11 @@ use crate::{
 
 #[derive(Clone)]
 pub struct ApiKeyService {
-    pool: SqlitePool,
+    pool: PgPool,
 }
 
 impl ApiKeyService {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 

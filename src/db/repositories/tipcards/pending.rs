@@ -1,12 +1,12 @@
 use chrono::Utc;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::AppResult;
 
 use super::{models::ScheduledCardRecord, queries};
 
 /// Keep one due repeatable card active per topic and move the rest behind it.
-pub async fn stack_due_repeatable_cards(pool: &SqlitePool, user_id: &str) -> AppResult<()> {
+pub async fn stack_due_repeatable_cards(pool: &PgPool, user_id: &str) -> AppResult<()> {
     sqlx::query(
         "WITH ranked AS (
             SELECT r.card_id, COALESCE(r.repeats, 0) AS repeats,
@@ -18,10 +18,10 @@ pub async fn stack_due_repeatable_cards(pool: &SqlitePool, user_id: &str) -> App
                    ) AS position
             FROM review_states r
             JOIN tipcards t ON t.id = r.card_id
-            WHERE t.user_id = ?
+            WHERE t.user_id = $1
               AND t.tipcard_type = 'repeatable_tip'
               AND r.status = 'active'
-              AND r.next_review_at <= ?
+              AND r.next_review_at <= $2
         )
         UPDATE review_states
         SET status = 'pending'
@@ -37,7 +37,7 @@ pub async fn stack_due_repeatable_cards(pool: &SqlitePool, user_id: &str) -> App
 }
 
 pub async fn park_unseen_active_topic_cards(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_id: i64,
 ) -> AppResult<()> {
@@ -47,7 +47,7 @@ pub async fn park_unseen_active_topic_cards(
          WHERE status = 'active' AND repeats = 0
            AND card_id IN (
                SELECT id FROM tipcards
-               WHERE user_id = ? AND topic_id = ? AND tipcard_type = 'repeatable_tip'
+               WHERE user_id = $1 AND topic_id = $2 AND tipcard_type = 'repeatable_tip'
            )",
     )
     .bind(user_id)
@@ -57,7 +57,7 @@ pub async fn park_unseen_active_topic_cards(
     Ok(())
 }
 
-pub async fn promote_pending_for_empty_topics(pool: &SqlitePool, user_id: &str) -> AppResult<()> {
+pub async fn promote_pending_for_empty_topics(pool: &PgPool, user_id: &str) -> AppResult<()> {
     let now = Utc::now();
     sqlx::query(
         "WITH candidates AS (
@@ -68,7 +68,7 @@ pub async fn promote_pending_for_empty_topics(pool: &SqlitePool, user_id: &str) 
                    ) AS position
             FROM review_states r
             JOIN tipcards t ON t.id = r.card_id
-            WHERE t.user_id = ?
+            WHERE t.user_id = $1
               AND t.tipcard_type = 'repeatable_tip'
               AND r.status = 'pending'
               AND t.created_at >= COALESCE((
@@ -78,7 +78,7 @@ pub async fn promote_pending_for_empty_topics(pool: &SqlitePool, user_id: &str) 
                   WHERE t3.user_id = t.user_id
                     AND t3.topic_id = t.topic_id
                     AND r3.feedback IN ('known', 'not_interested', 'too_difficult')
-              ), '0000-01-01 00:00:00')
+              ), TIMESTAMPTZ '-infinity')
               AND NOT EXISTS (
                   SELECT 1
                   FROM review_states r2
@@ -86,11 +86,11 @@ pub async fn promote_pending_for_empty_topics(pool: &SqlitePool, user_id: &str) 
                   WHERE t2.user_id = t.user_id
                     AND t2.topic_id = t.topic_id
                     AND r2.status = 'active'
-                    AND (r2.next_review_at <= ? OR t2.pinned = 1)
+                    AND (r2.next_review_at <= $2 OR t2.pinned = 1)
               )
         )
         UPDATE review_states
-        SET status = 'active', next_review_at = ?
+        SET status = 'active', next_review_at = $3
         WHERE card_id IN (
             SELECT card_id FROM candidates WHERE position = 1
         )",
@@ -108,7 +108,7 @@ pub async fn promote_pending_for_empty_topics(pool: &SqlitePool, user_id: &str) 
 /// exists. The select + update run in one transaction so concurrent callers do
 /// not promote the same card twice.
 pub async fn take_pending_card(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_id: i64,
     tipcard_type: &str,
@@ -118,16 +118,17 @@ pub async fn take_pending_card(
     let row =
         sqlx::query_as::<_, (i64, String, String, String, i64, String, i64, String)>(&format!(
             "{select} JOIN review_states r ON t.id = r.card_id
-         WHERE t.user_id = ? AND t.topic_id = ? AND t.tipcard_type = ? AND r.status = 'pending'
-           AND (? != 'repeatable_tip' OR t.created_at >= COALESCE((
+         WHERE t.user_id = $1 AND t.topic_id = $2 AND t.tipcard_type = $3 AND r.status = 'pending'
+           AND ($4 != 'repeatable_tip' OR t.created_at >= COALESCE((
                SELECT MAX(r2.reviewed_at)
                FROM review_states r2
                JOIN tipcards t2 ON t2.id = r2.card_id
-               WHERE t2.user_id = ? AND t2.topic_id = ? AND t2.tipcard_type = ?
+               WHERE t2.user_id = $5 AND t2.topic_id = $6 AND t2.tipcard_type = $7
                  AND r2.feedback IN ('known', 'not_interested', 'too_difficult')
-           ), '0000-01-01 00:00:00'))
+           ), TIMESTAMPTZ '-infinity'))
          ORDER BY t.created_at ASC, t.id ASC
-         LIMIT 1",
+         LIMIT 1
+         FOR UPDATE OF r SKIP LOCKED",
             select = queries::SCHEDULED_SELECT
         ))
         .bind(user_id)
@@ -145,11 +146,13 @@ pub async fn take_pending_card(
         return Ok(None);
     };
 
-    sqlx::query("UPDATE review_states SET status = 'active', next_review_at = ? WHERE card_id = ?")
-        .bind(Utc::now())
-        .bind(row.0)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE review_states SET status = 'active', next_review_at = $1 WHERE card_id = $2",
+    )
+    .bind(Utc::now())
+    .bind(row.0)
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 
@@ -169,7 +172,7 @@ pub async fn take_pending_card(
 /// already pending. The candidate is selected before the active card is parked,
 /// so a forced topic load cannot immediately select the same card again.
 pub async fn replace_unseen_with_pending_card(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_id: i64,
     tipcard_type: &str,
@@ -178,16 +181,17 @@ pub async fn replace_unseen_with_pending_card(
     let row =
         sqlx::query_as::<_, (i64, String, String, String, i64, String, i64, String)>(&format!(
             "{select} JOIN review_states r ON t.id = r.card_id
-         WHERE t.user_id = ? AND t.topic_id = ? AND t.tipcard_type = ? AND r.status = 'pending'
-           AND (? != 'repeatable_tip' OR t.created_at >= COALESCE((
+         WHERE t.user_id = $1 AND t.topic_id = $2 AND t.tipcard_type = $3 AND r.status = 'pending'
+           AND ($4 != 'repeatable_tip' OR t.created_at >= COALESCE((
                SELECT MAX(r2.reviewed_at)
                FROM review_states r2
                JOIN tipcards t2 ON t2.id = r2.card_id
-               WHERE t2.user_id = ? AND t2.topic_id = ? AND t2.tipcard_type = ?
+               WHERE t2.user_id = $5 AND t2.topic_id = $6 AND t2.tipcard_type = $7
                  AND r2.feedback IN ('known', 'not_interested', 'too_difficult')
-           ), '0000-01-01 00:00:00'))
+           ), TIMESTAMPTZ '-infinity'))
          ORDER BY t.created_at ASC, t.id ASC
-         LIMIT 1",
+         LIMIT 1
+         FOR UPDATE OF r SKIP LOCKED",
             select = queries::SCHEDULED_SELECT
         ))
         .bind(user_id)
@@ -209,10 +213,10 @@ pub async fn replace_unseen_with_pending_card(
         sqlx::query(
             "UPDATE review_states
              SET status = 'pending'
-             WHERE status = 'active' AND repeats = 0 AND card_id != ?
+             WHERE status = 'active' AND repeats = 0 AND card_id != $1
                AND card_id IN (
                    SELECT id FROM tipcards
-                   WHERE user_id = ? AND topic_id = ? AND tipcard_type = 'repeatable_tip'
+                   WHERE user_id = $2 AND topic_id = $3 AND tipcard_type = 'repeatable_tip'
                )",
         )
         .bind(row.0)
@@ -222,11 +226,13 @@ pub async fn replace_unseen_with_pending_card(
         .await?;
     }
 
-    sqlx::query("UPDATE review_states SET status = 'active', next_review_at = ? WHERE card_id = ?")
-        .bind(Utc::now())
-        .bind(row.0)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE review_states SET status = 'active', next_review_at = $1 WHERE card_id = $2",
+    )
+    .bind(Utc::now())
+    .bind(row.0)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     Ok(Some(ScheduledCardRecord {
@@ -244,7 +250,7 @@ pub async fn replace_unseen_with_pending_card(
 /// Count pending cards for a topic.
 #[allow(dead_code)]
 pub async fn count_pending(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_id: i64,
     tipcard_type: &str,
@@ -253,7 +259,7 @@ pub async fn count_pending(
         "SELECT COUNT(*)
          FROM review_states r
          JOIN tipcards t ON t.id = r.card_id
-         WHERE t.user_id = ? AND t.topic_id = ? AND t.tipcard_type = ? AND r.status = 'pending'",
+         WHERE t.user_id = $1 AND t.topic_id = $2 AND t.tipcard_type = $3 AND r.status = 'pending'",
     )
     .bind(user_id)
     .bind(topic_id)

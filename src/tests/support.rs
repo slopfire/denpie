@@ -1,33 +1,62 @@
 use crate::{AppState, apply_schema_migrations, build_app};
 use prost::Message;
-use sqlx::SqlitePool;
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::{
     path::PathBuf,
     sync::{Arc, OnceLock},
 };
 use tokio::fs;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
+use tracing_subscriber::EnvFilter;
 
 pub const TEST_USER_ID: &str = "usr_test_admin";
 static TEST_FRONTEND_DIST: OnceLock<PathBuf> = OnceLock::new();
 
-pub async fn setup_db() -> SqlitePool {
-    let pool = SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
+pub async fn setup_db() -> PgPool {
+    let database_url = std::env::var("DENPIE_TEST_DATABASE_URL")
+        .ok()
+        .or_else(|| {
+            std::env::var("DATABASE_URL")
+                .ok()
+                .filter(|url| url.starts_with("postgres://") || url.starts_with("postgresql://"))
+        })
+        .unwrap_or_else(|| "postgres://denpie:denpie@127.0.0.1:5432/denpie".to_string());
+    let schema = format!(
+        "denpie_test_{}_{}",
+        std::process::id(),
+        rand::random::<u64>()
+    );
+
+    let admin_pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&database_url)
+        .await
+        .unwrap_or_else(|error| {
+            panic!("failed to connect to PostgreSQL test database; run `just db-up`: {error}")
+        });
+    sqlx::query(&format!("CREATE SCHEMA {schema}"))
+        .execute(&admin_pool)
         .await
         .unwrap();
-    let schema = tokio::fs::read_to_string("schema.sql")
+    admin_pool.close().await;
+
+    let connect_schema = schema.clone();
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .after_connect(move |connection, _| {
+            let statement = format!("SET search_path TO {connect_schema}, public");
+            Box::pin(async move {
+                sqlx::query(&statement).execute(connection).await?;
+                Ok(())
+            })
+        })
+        .connect(&database_url)
         .await
-        .unwrap_or_default();
-    for query in schema.split(';') {
-        if !query.trim().is_empty() {
-            sqlx::query(query).execute(&pool).await.unwrap();
-        }
-    }
+        .unwrap();
     apply_schema_migrations(&pool).await.unwrap();
     sqlx::query(
-        "INSERT OR IGNORE INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)",
+        "INSERT INTO users (id, username, password_hash, role) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (id) DO NOTHING",
     )
     .bind(TEST_USER_ID)
     .bind("admin")
@@ -42,6 +71,12 @@ pub async fn setup_db() -> SqlitePool {
 /// Write isolated test settings and spin up a real server on an ephemeral port.
 /// Returns (base_url, reqwest::Client with cookie jar).
 pub async fn spawn_test_server() -> (String, reqwest::Client) {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("denpie=error")),
+        )
+        .with_test_writer()
+        .try_init();
     let test_token = "test_admin_token_xyz";
     let settings_path = unique_settings_path();
     let mut map = serde_yaml::Mapping::new();
@@ -134,7 +169,7 @@ pub fn unique_settings_path() -> PathBuf {
     std::env::temp_dir().join(format!("denpie-test-settings-{suffix}.yaml"))
 }
 
-pub fn make_state(db: SqlitePool, settings_path: PathBuf) -> AppState {
+pub fn make_state(db: PgPool, settings_path: PathBuf) -> AppState {
     let settings_store = crate::config::SettingsStore::new(settings_path.clone());
     let image_dir = settings_path.with_extension("images");
     let rp_id = "localhost";

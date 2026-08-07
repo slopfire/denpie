@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::AppResult;
 
@@ -18,7 +18,7 @@ pub struct ImagePoolRecord {
 }
 #[allow(clippy::too_many_arguments)]
 pub async fn insert_pool_image(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     storage_path: &str,
     mime_type: &str,
@@ -27,9 +27,10 @@ pub async fn insert_pool_image(
     description: Option<&str>,
     tags: &str,
 ) -> AppResult<i64> {
-    Ok(sqlx::query(
+    Ok(sqlx::query_scalar::<_, i64>(
         "INSERT INTO image_pool (user_id, storage_path, mime_type, byte_size, name, description, tags)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id",
     )
     .bind(user_id)
     .bind(storage_path)
@@ -38,12 +39,11 @@ pub async fn insert_pool_image(
     .bind(name)
     .bind(description)
     .bind(tags)
-    .execute(pool)
-    .await?
-    .last_insert_rowid())
+    .fetch_one(pool)
+    .await?)
 }
 
-pub async fn list_pool_images(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<ImagePoolRecord>> {
+pub async fn list_pool_images(pool: &PgPool, user_id: &str) -> AppResult<Vec<ImagePoolRecord>> {
     let rows = sqlx::query_as::<
         _,
         (
@@ -60,7 +60,7 @@ pub async fn list_pool_images(pool: &SqlitePool, user_id: &str) -> AppResult<Vec
     >(
         "SELECT id, user_id, storage_path, mime_type, byte_size, name, description, tags, created_at
          FROM image_pool
-         WHERE user_id = ?
+         WHERE user_id = $1
          ORDER BY name ASC, id ASC",
     )
     .bind(user_id)
@@ -84,7 +84,7 @@ pub async fn list_pool_images(pool: &SqlitePool, user_id: &str) -> AppResult<Vec
 }
 
 pub async fn find_pool_image(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     id: i64,
 ) -> AppResult<Option<ImagePoolRecord>> {
@@ -104,7 +104,7 @@ pub async fn find_pool_image(
     >(
         "SELECT id, user_id, storage_path, mime_type, byte_size, name, description, tags, created_at
          FROM image_pool
-         WHERE id = ? AND user_id = ?",
+         WHERE id = $1 AND user_id = $2",
     )
     .bind(id)
     .bind(user_id)
@@ -124,8 +124,8 @@ pub async fn find_pool_image(
     }))
 }
 
-pub async fn delete_pool_image(pool: &SqlitePool, user_id: &str, id: i64) -> AppResult<()> {
-    sqlx::query("DELETE FROM image_pool WHERE id = ? AND user_id = ?")
+pub async fn delete_pool_image(pool: &PgPool, user_id: &str, id: i64) -> AppResult<()> {
+    sqlx::query("DELETE FROM image_pool WHERE id = $1 AND user_id = $2")
         .bind(id)
         .bind(user_id)
         .execute(pool)
@@ -135,7 +135,7 @@ pub async fn delete_pool_image(pool: &SqlitePool, user_id: &str, id: i64) -> App
 
 /// Update the name, description, and tags of a pool image.
 pub async fn update_pool_image_meta(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     id: i64,
     name: &str,
@@ -143,7 +143,7 @@ pub async fn update_pool_image_meta(
     tags: &str,
 ) -> AppResult<()> {
     sqlx::query(
-        "UPDATE image_pool SET name = ?, description = ?, tags = ? WHERE id = ? AND user_id = ?",
+        "UPDATE image_pool SET name = $1, description = $2, tags = $3 WHERE id = $4 AND user_id = $5",
     )
     .bind(name)
     .bind(description)
@@ -159,12 +159,12 @@ pub async fn update_pool_image_meta(
 /// current JSON array string; the caller passes the result of
 /// `remove_tag_json` so this function just persists it.
 pub async fn set_pool_image_tags(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     id: i64,
     tags: &str,
 ) -> AppResult<()> {
-    sqlx::query("UPDATE image_pool SET tags = ? WHERE id = ? AND user_id = ?")
+    sqlx::query("UPDATE image_pool SET tags = $1 WHERE id = $2 AND user_id = $3")
         .bind(tags)
         .bind(id)
         .bind(user_id)

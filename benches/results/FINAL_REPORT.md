@@ -111,7 +111,7 @@ Created a continuous benchmark harness and performed 2 rounds of optimization on
 1. **Parallelize LLM calls in `build_tips`** — Use `tokio::join!` for independent LLM calls (gen/compress/title)
 2. **Add index on `review_states.next_review_at`** — The due-card queries do range scans without an index
 3. **Batch `refresh_due_daily_topics`** — Currently iterates all users; should be sharded or batched
-4. **Add connection pooling tuning** — SQLite pool is capped at 5; benchmark with higher concurrency shows contention
+4. **Retune the connection pool** — PostgreSQL now uses a 10-connection application pool; rerun this historical benchmark before changing it
 5. **Profile with `tokio-console` or `tracing`** — For deeper async latency analysis
 6. **Build in release mode** — Current benchmarks use debug builds; release mode would show 2-5× better absolute numbers
 

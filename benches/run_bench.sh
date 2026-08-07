@@ -10,21 +10,23 @@ RESULTS_DIR="$PROJECT_DIR/benches/results"
 ADMIN_TOKEN="bench_admin_token_abc"
 PASSWORD="test_password_123"
 COOKIE_JAR="$BENCH_DIR/cookies.txt"
+DATABASE_URL="${DATABASE_URL:-postgres://denpie:denpie@127.0.0.1:5432/denpie}"
+BENCH_SCHEMA="denpie_bench"
 
 mkdir -p "$RESULTS_DIR"
 
 cleanup() {
     echo ""
     echo "=== cleanup ==="
-    kill "$SERVER_PID" 2>/dev/null || true
-    wait "$SERVER_PID" 2>/dev/null || true
+    kill "${SERVER_PID:-}" 2>/dev/null || true
+    wait "${SERVER_PID:-}" 2>/dev/null || true
+    psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+        -c "DROP SCHEMA IF EXISTS $BENCH_SCHEMA CASCADE" >/dev/null 2>&1 || true
     rm -rf "$BENCH_DIR"
 }
 trap cleanup EXIT
 
 echo "=== setting up temp bench env ==="
-cp "$PROJECT_DIR/schema.sql" "$BENCH_DIR/"
-
 cat > "$BENCH_DIR/settings.yaml" << EOF
 admin_token: "$ADMIN_TOKEN"
 autoupdate_enabled: false
@@ -34,13 +36,16 @@ export DENPIE_DATA_DIR="$BENCH_DIR"
 export DENPIE_BIND_ADDR="127.0.0.1:$BENCH_PORT"
 export DENPIE_SKIP_FRONTEND_BUILD=1
 export DENPIE_FRONTEND_DIST="$PROJECT_DIR/frontend/dist"
-export DENPIE_SCHEMA_PATH="$BENCH_DIR/schema.sql"
 export DENPIE_STATIC_DIR="$PROJECT_DIR/static"
+export DATABASE_URL
+export DENPIE_DB_SCHEMA="$BENCH_SCHEMA"
 export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-1.95.0}"
 
 mkdir -p "$PROJECT_DIR/static"
 
 echo "=== starting server ==="
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+    -c "DROP SCHEMA IF EXISTS $BENCH_SCHEMA CASCADE"
 cargo run &
 SERVER_PID=$!
 
@@ -65,7 +70,8 @@ SETUP_CODE=$(echo "$SETUP_RESP" | tail -1)
 echo "auth/setup: HTTP $SETUP_CODE"
 
 echo "=== seeding benchmark data ==="
-sqlite3 "$BENCH_DIR/denpie.db" << 'SQLSEED'
+PGOPTIONS="-c search_path=$BENCH_SCHEMA,public" \
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 << 'SQLSEED'
 -- Insert 10 topics for bench_admin
 INSERT INTO topics (user_id, name, tipcard_type, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level, icon_id, color_hue)
 SELECT id, 'rust', 'repeatable_tip', 'Teach Rust', 3, 'UTC', '03:00', 'strong', 'code', 210 FROM users WHERE username = 'bench_admin';
@@ -100,9 +106,9 @@ SELECT
     'Compressed: ' || t.id || '-' || n.num,
     '[]',
     CASE WHEN n.num = 1 THEN 1 ELSE 0 END,
-    datetime('now', '-' || (t.id * 5 + n.num) || ' minutes')
+    CURRENT_TIMESTAMP - ((t.id * 5 + n.num) * INTERVAL '1 minute')
 FROM topic_ids t
-CROSS JOIN (SELECT 1 AS num UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5) n;
+CROSS JOIN generate_series(1, 5) AS n(num);
 
 -- Insert review states for all tipcards
 INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at)
@@ -111,7 +117,7 @@ SELECT
     'sm2',
     '{"repeats": ' || (t.id % 10) || ', "easiness": 2.5, "interval": ' || (t.id % 30) || '}',
     CASE WHEN t.id % 7 = 0 THEN 'acknowledged' WHEN t.id % 5 = 0 THEN 'dismissed' ELSE 'active' END,
-    datetime('now', '+' || (t.id % 30) || ' days')
+    CURRENT_TIMESTAMP + ((t.id % 30) * INTERVAL '1 day')
 FROM tipcards t
 WHERE t.user_id = (SELECT id FROM users WHERE username = 'bench_admin');
 
@@ -138,12 +144,11 @@ SELECT
 FROM tipcards t
 WHERE t.user_id = (SELECT id FROM users WHERE username = 'bench_admin');
 
--- Ensure user_settings exists
-INSERT OR IGNORE INTO user_settings (user_id) SELECT id FROM users WHERE username = 'bench_admin';
 SQLSEED
 
 echo "Seed data stats:"
-sqlite3 "$BENCH_DIR/denpie.db" "SELECT COUNT(*) as topics FROM topics; SELECT COUNT(*) as tipcards FROM tipcards; SELECT COUNT(*) as review_states FROM review_states; SELECT COUNT(*) as images FROM tipcard_images;"
+PGOPTIONS="-c search_path=$BENCH_SCHEMA,public" \
+psql "$DATABASE_URL" -At -c "SELECT 'topics=' || COUNT(*) FROM topics; SELECT 'tipcards=' || COUNT(*) FROM tipcards; SELECT 'review_states=' || COUNT(*) FROM review_states; SELECT 'images=' || COUNT(*) FROM tipcard_images;"
 
 echo "=== logging in (saving cookies) ==="
 LOGIN_RESP=$(curl -s -c "$COOKIE_JAR" -w "\n%{http_code}" \

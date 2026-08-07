@@ -9,7 +9,7 @@ use axum::http::StatusCode;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rand::{Rng, distributions::Alphanumeric};
 use reqwest::{Client, redirect::Policy};
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use tokio::fs;
 use url::Url;
 
@@ -23,7 +23,7 @@ pub enum IncomingImage {
 }
 
 pub async fn replace_card_images(
-    pool: &SqlitePool,
+    pool: &PgPool,
     image_dir: &Path,
     user_id: &str,
     card_id: i64,
@@ -246,7 +246,7 @@ async fn request_public_json(
 }
 
 pub async fn append_card_images(
-    pool: &SqlitePool,
+    pool: &PgPool,
     image_dir: &Path,
     user_id: &str,
     card_id: i64,
@@ -486,7 +486,7 @@ fn extension_for_mime(mime_type: &str) -> Option<&'static str> {
     }
 }
 
-pub async fn migrate_legacy_images(pool: &SqlitePool, image_dir: &Path) -> StatusResult<()> {
+pub async fn migrate_legacy_images(pool: &PgPool, image_dir: &Path) -> StatusResult<()> {
     fs::create_dir_all(image_dir)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;

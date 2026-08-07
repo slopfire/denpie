@@ -1,11 +1,11 @@
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::AppResult;
 
 use super::models::CardContextTitleRecord;
 
 pub async fn list_context_titles(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_id: i64,
     tipcard_type: &str,
@@ -18,10 +18,10 @@ pub async fn list_context_titles(
                 COALESCE(NULLIF(r.feedback, ''), CASE WHEN r.status = 'dismissed' THEN 'not_interested' ELSE '' END) AS feedback
          FROM tipcards t
          LEFT JOIN review_states r ON r.card_id = t.id
-         WHERE t.user_id = ? AND t.topic_id = ? AND t.tipcard_type = ?
+         WHERE t.user_id = $1 AND t.topic_id = $2 AND t.tipcard_type = $3
            AND COALESCE(r.feedback, '') != 'superseded'
          ORDER BY t.created_at DESC, t.id DESC
-         LIMIT ?",
+         LIMIT $4",
     )
     .bind(user_id)
     .bind(topic_id)

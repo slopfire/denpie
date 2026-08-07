@@ -8,6 +8,17 @@ shell:
 setup:
   sh scripts/bootstrap-dev.sh
 
+db-up:
+  docker compose -f compose.dev.yaml up -d --wait postgres
+
+db-down:
+  docker compose -f compose.dev.yaml down
+
+# Explicitly destructive: removes the local PostgreSQL volume.
+db-reset:
+  docker compose -f compose.dev.yaml down --volumes
+  docker compose -f compose.dev.yaml up -d --wait postgres
+
 backend:
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo run
 

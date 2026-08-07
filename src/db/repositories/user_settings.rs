@@ -1,4 +1,4 @@
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::{config::Settings, error::AppResult};
 
@@ -28,7 +28,7 @@ struct SettingsRow {
     image_sources: String,
 }
 
-pub async fn get(pool: &SqlitePool, user_id: &str, defaults: Settings) -> AppResult<Settings> {
+pub async fn get(pool: &PgPool, user_id: &str, defaults: Settings) -> AppResult<Settings> {
     let row = sqlx::query_as::<_, SettingsRow>(
         "SELECT llm_model, llm_grounding_model, llm_vision_model, llm_compress_model, prompt_template,
                 llm_api_key, llm_base_url, llm_compress_base_url, llm_reasoning_effort,
@@ -37,7 +37,7 @@ pub async fn get(pool: &SqlitePool, user_id: &str, defaults: Settings) -> AppRes
                 grounding_strategy, image_strategy, search_provider, scrape_provider,
                 search_api_key, search_base_url, image_sources
          FROM user_settings
-         WHERE user_id = ?",
+         WHERE user_id = $1",
     )
     .bind(user_id)
     .fetch_optional(pool)
@@ -73,7 +73,7 @@ pub async fn get(pool: &SqlitePool, user_id: &str, defaults: Settings) -> AppRes
     })
 }
 
-pub async fn upsert(pool: &SqlitePool, user_id: &str, settings: &Settings) -> AppResult<()> {
+pub async fn upsert(pool: &PgPool, user_id: &str, settings: &Settings) -> AppResult<()> {
     sqlx::query(
         "INSERT INTO user_settings (
             user_id, llm_model, llm_grounding_model, llm_vision_model, llm_compress_model,
@@ -82,7 +82,7 @@ pub async fn upsert(pool: &SqlitePool, user_id: &str, settings: &Settings) -> Ap
             llm_compress_reasoning_effort, llm_compression_level, daily_time_zone,
             daily_update_time, max_active_cards, grounding_strategy, image_strategy,
             search_provider, scrape_provider, search_api_key, search_base_url, image_sources
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
         ON CONFLICT(user_id) DO UPDATE SET
             llm_model = excluded.llm_model,
             llm_grounding_model = excluded.llm_grounding_model,

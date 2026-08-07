@@ -1,12 +1,12 @@
 use chrono::Utc;
-use sqlx::{QueryBuilder, Sqlite, SqlitePool};
+use sqlx::{PgPool, Postgres, QueryBuilder};
 
 use crate::error::AppResult;
 
 use super::{models::FlowCardRecord, queries, topic_color_from_row};
 
 pub async fn list_flow_cards(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     cursor: Option<(i64, String, i64)>,
     limit: i64,
@@ -16,7 +16,11 @@ pub async fn list_flow_cards(
 
     let base = format!(
         "{},
-       COUNT(img.id) AS image_count,
+       (
+           SELECT COUNT(*)
+           FROM tipcard_images card_image
+           WHERE card_image.card_id = t.id AND card_image.user_id = t.user_id
+       ) AS image_count,
        (
            SELECT COUNT(*)
            FROM review_states pending_review
@@ -30,7 +34,7 @@ pub async fn list_flow_cards(
         queries::BASE_CARD_SELECT,
         queries::FLOW_FROM_JOINS
     );
-    let mut builder = QueryBuilder::<Sqlite>::new(&base);
+    let mut builder = QueryBuilder::<Postgres>::new(&base);
 
     builder.push_bind(user_id);
     builder.push(
@@ -75,8 +79,7 @@ pub async fn list_flow_cards(
     }
 
     builder.push(
-        " GROUP BY t.id
-          ORDER BY pinned DESC, t.created_at DESC, t.id DESC
+        " ORDER BY pinned DESC, t.created_at DESC, t.id DESC
           LIMIT ",
     );
     builder.push_bind(limit);

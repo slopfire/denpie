@@ -22,7 +22,7 @@ Full detail: `docs/feature-integration.md`. Use CodeGraph first if the area is u
 | Browser/dashboard | `src/dashboard/` | Thin handlers; call services |
 | Auth transport | `src/auth.rs` | Keep thin |
 | Shared shapes | `src/types.rs` | Request/response types |
-| New DB shape | `schema.sql` + `src/db/migrations.rs` | Test fresh DB and old DB |
+| New DB shape | `schema.sql` + `migrations/` | Test fresh DB and the PostgreSQL upgrade path |
 
 ### Also know these homes
 
@@ -73,9 +73,9 @@ Frontend is **Yew/WASM** + Tailwind v4, **shadcn token-port** (not React, no sha
 ### New database field
 
 1. `schema.sql` (fresh installs)
-2. Compatibility migration in `src/db/migrations.rs`
+2. Forward-only PostgreSQL migration in `migrations/`
 3. Repository row structs + bound SQL
-4. Tests for fresh and old DB shapes
+4. Tests for the fresh schema and upgrade path
 
 ### New scheduled job
 

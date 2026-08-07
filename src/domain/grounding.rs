@@ -9,7 +9,7 @@ pub enum GroundingStrategy {
     CreateAndGround,
     /// Research a topic and generate many cards; keep a hidden pending backlog.
     Agentic,
-    /// Retrieve from user-provided documents (FTS5 keyword retrieval).
+    /// Retrieve from user-provided documents (PostgreSQL full-text retrieval).
     Rag,
 }
 

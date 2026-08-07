@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use sqlx::{Row, SqlitePool};
+use sqlx::{PgPool, Row};
 
 use crate::{
     domain::{tipcard, topic_visual},
@@ -95,8 +95,8 @@ fn map_topic_row(row: TopicRow) -> TopicRecord {
 
 const TOPIC_SELECT: &str = "SELECT id, name, tipcard_type, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level, icon_id, color_hue, grounding_strategy, image_strategy";
 
-pub async fn list_admin(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<TopicRecord>> {
-    let query = format!("{TOPIC_SELECT} FROM topics WHERE user_id = ? ORDER BY name ASC");
+pub async fn list_admin(pool: &PgPool, user_id: &str) -> AppResult<Vec<TopicRecord>> {
+    let query = format!("{TOPIC_SELECT} FROM topics WHERE user_id = $1 ORDER BY name ASC");
     let rows = sqlx::query_as::<_, TopicRow>(&query)
         .bind(user_id)
         .fetch_all(pool)
@@ -105,9 +105,9 @@ pub async fn list_admin(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<Topic
     Ok(rows.into_iter().map(map_topic_row).collect())
 }
 
-pub async fn list_names(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<String>> {
+pub async fn list_names(pool: &PgPool, user_id: &str) -> AppResult<Vec<String>> {
     Ok(sqlx::query_scalar::<_, String>(
-        "SELECT name FROM topics WHERE user_id = ? ORDER BY name ASC",
+        "SELECT name FROM topics WHERE user_id = $1 ORDER BY name ASC",
     )
     .bind(user_id)
     .fetch_all(pool)
@@ -115,11 +115,11 @@ pub async fn list_names(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<Strin
 }
 
 pub async fn list_generated_targets(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
 ) -> AppResult<Vec<(TopicRecord, String)>> {
     let query = format!(
-        "{TOPIC_SELECT} FROM topics WHERE user_id = ? AND tipcard_type NOT IN ('manual_tip', 'custom_tip')"
+        "{TOPIC_SELECT} FROM topics WHERE user_id = $1 AND tipcard_type NOT IN ('manual_tip', 'custom_tip')"
     );
     let rows = sqlx::query_as::<_, TopicRow>(&query)
         .bind(user_id)
@@ -135,12 +135,8 @@ pub async fn list_generated_targets(
         .collect())
 }
 
-pub async fn find_by_id(
-    pool: &SqlitePool,
-    user_id: &str,
-    id: i64,
-) -> AppResult<Option<TopicRecord>> {
-    let query = format!("{TOPIC_SELECT} FROM topics WHERE user_id = ? AND id = ?");
+pub async fn find_by_id(pool: &PgPool, user_id: &str, id: i64) -> AppResult<Option<TopicRecord>> {
+    let query = format!("{TOPIC_SELECT} FROM topics WHERE user_id = $1 AND id = $2");
     let row = sqlx::query_as::<_, TopicRow>(&query)
         .bind(user_id)
         .bind(id)
@@ -151,11 +147,11 @@ pub async fn find_by_id(
 }
 
 pub async fn find_by_name(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_name: &str,
 ) -> AppResult<Option<TopicRecord>> {
-    let query = format!("{TOPIC_SELECT} FROM topics WHERE user_id = ? AND name = ?");
+    let query = format!("{TOPIC_SELECT} FROM topics WHERE user_id = $1 AND name = $2");
     let row = sqlx::query_as::<_, TopicRow>(&query)
         .bind(user_id)
         .bind(topic_name)
@@ -166,7 +162,7 @@ pub async fn find_by_name(
 }
 
 pub async fn get_or_create_topic(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_name: &str,
     requested_type: &str,
@@ -184,19 +180,22 @@ pub async fn get_or_create_topic(
         .unwrap_or_else(|| topic_visual::DEFAULT_TOPIC_ICON.to_string());
     let color_hue = topic_visual::color_hue_from_name(topic_name);
 
-    match sqlx::query(
-        "INSERT INTO topics (user_id, name, tipcard_type, icon_id, color_hue) VALUES (?, ?, ?, ?, ?)",
+    match sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type, icon_id, color_hue)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (user_id, name) DO NOTHING
+         RETURNING id",
     )
     .bind(user_id)
     .bind(topic_name)
     .bind(&tipcard_type)
     .bind(&icon_id)
     .bind(color_hue)
-    .execute(pool)
+    .fetch_optional(pool)
     .await
     {
-        Ok(result) => Ok(TopicRecord {
-            id: result.last_insert_rowid(),
+        Ok(Some(id)) => Ok(TopicRecord {
+            id,
             name: topic_name.to_string(),
             tipcard_type,
             prompt_template: None,
@@ -209,27 +208,29 @@ pub async fn get_or_create_topic(
             grounding_strategy: None,
             image_strategy: None,
         }),
-        Err(insert_error) => find_by_name(pool, user_id, topic_name)
+        Ok(None) => find_by_name(pool, user_id, topic_name)
             .await?
-            .ok_or_else(|| AppError::Db(insert_error)),
+            .ok_or_else(|| AppError::NotFound("Topic disappeared during creation".to_string())),
+        Err(insert_error) => Err(AppError::Db(insert_error)),
     }
 }
 
 pub async fn set_topic_visual(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_id: i64,
     icon_id: &str,
     color_hue: i32,
 ) -> AppResult<()> {
-    let result =
-        sqlx::query("UPDATE topics SET icon_id = ?, color_hue = ? WHERE id = ? AND user_id = ?")
-            .bind(icon_id)
-            .bind(color_hue)
-            .bind(topic_id)
-            .bind(user_id)
-            .execute(pool)
-            .await?;
+    let result = sqlx::query(
+        "UPDATE topics SET icon_id = $1, color_hue = $2 WHERE id = $3 AND user_id = $4",
+    )
+    .bind(icon_id)
+    .bind(color_hue)
+    .bind(topic_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Topic not found".to_string()));
     }
@@ -237,12 +238,12 @@ pub async fn set_topic_visual(
 }
 
 pub async fn set_icon_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_id: i64,
     icon_id: &str,
 ) -> AppResult<()> {
-    let result = sqlx::query("UPDATE topics SET icon_id = ? WHERE id = ? AND user_id = ?")
+    let result = sqlx::query("UPDATE topics SET icon_id = $1 WHERE id = $2 AND user_id = $3")
         .bind(icon_id)
         .bind(topic_id)
         .bind(user_id)
@@ -254,12 +255,12 @@ pub async fn set_icon_id(
     Ok(())
 }
 
-pub async fn delete_cascade(pool: &SqlitePool, user_id: &str, id: i64) -> AppResult<()> {
+pub async fn delete_cascade(pool: &PgPool, user_id: &str, id: i64) -> AppResult<()> {
     let mut tx = pool.begin().await?;
 
     sqlx::query(
         "DELETE FROM review_states
-         WHERE card_id IN (SELECT id FROM tipcards WHERE topic_id = ? AND user_id = ?)",
+         WHERE card_id IN (SELECT id FROM tipcards WHERE topic_id = $1 AND user_id = $2)",
     )
     .bind(id)
     .bind(user_id)
@@ -268,8 +269,8 @@ pub async fn delete_cascade(pool: &SqlitePool, user_id: &str, id: i64) -> AppRes
 
     sqlx::query(
         "DELETE FROM tipcard_images
-         WHERE user_id = ?
-           AND card_id IN (SELECT id FROM tipcards WHERE topic_id = ? AND user_id = ?)",
+         WHERE user_id = $1
+           AND card_id IN (SELECT id FROM tipcards WHERE topic_id = $2 AND user_id = $3)",
     )
     .bind(user_id)
     .bind(id)
@@ -277,19 +278,19 @@ pub async fn delete_cascade(pool: &SqlitePool, user_id: &str, id: i64) -> AppRes
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query("DELETE FROM tipcards WHERE topic_id = ? AND user_id = ?")
+    sqlx::query("DELETE FROM tipcards WHERE topic_id = $1 AND user_id = $2")
         .bind(id)
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
 
-    sqlx::query("DELETE FROM daily_refresh_runs WHERE topic_id = ? AND user_id = ?")
+    sqlx::query("DELETE FROM daily_refresh_runs WHERE topic_id = $1 AND user_id = $2")
         .bind(id)
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
 
-    let result = sqlx::query("DELETE FROM topics WHERE id = ? AND user_id = ?")
+    let result = sqlx::query("DELETE FROM topics WHERE id = $1 AND user_id = $2")
         .bind(id)
         .bind(user_id)
         .execute(&mut *tx)
@@ -303,11 +304,7 @@ pub async fn delete_cascade(pool: &SqlitePool, user_id: &str, id: i64) -> AppRes
     Ok(())
 }
 
-pub async fn get_settings(
-    pool: &SqlitePool,
-    user_id: &str,
-    id: i64,
-) -> AppResult<TopicSettingsRecord> {
+pub async fn get_settings(pool: &PgPool, user_id: &str, id: i64) -> AppResult<TopicSettingsRecord> {
     let row = sqlx::query_as::<
         _,
         (
@@ -322,7 +319,7 @@ pub async fn get_settings(
     >(
         "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level, grounding_strategy, image_strategy
          FROM topics
-         WHERE id = ? AND user_id = ?",
+         WHERE id = $1 AND user_id = $2",
     )
     .bind(id)
     .bind(user_id)
@@ -342,15 +339,15 @@ pub async fn get_settings(
 }
 
 pub async fn update_settings(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     id: i64,
     settings: TopicSettingsRecord,
 ) -> AppResult<()> {
     sqlx::query(
         "UPDATE topics
-         SET prompt_template = ?, daily_card_count = ?, daily_time_zone = ?, daily_update_time = ?, compression_level = ?, grounding_strategy = ?, image_strategy = ?
-         WHERE id = ? AND user_id = ?",
+         SET prompt_template = $1, daily_card_count = $2, daily_time_zone = $3, daily_update_time = $4, compression_level = $5, grounding_strategy = $6, image_strategy = $7
+         WHERE id = $8 AND user_id = $9",
     )
     .bind(settings.prompt_template)
     .bind(settings.daily_card_count)
@@ -368,16 +365,16 @@ pub async fn update_settings(
 }
 
 pub async fn app_summary(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     now: DateTime<Utc>,
 ) -> AppResult<AppSummaryRecord> {
     let row = sqlx::query_as::<_, (i64, i64, i64, i64)>(
         "SELECT 
-            (SELECT COUNT(*) FROM topics WHERE user_id = ?) as topics,
-            (SELECT COUNT(*) FROM tipcards WHERE user_id = ?) as total_cards,
-            (SELECT COUNT(*) FROM review_states r JOIN tipcards t ON t.id = r.card_id WHERE t.user_id = ? AND r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1)) as due_cards,
-            (SELECT COUNT(*) FROM review_states r JOIN tipcards t ON t.id = r.card_id WHERE t.user_id = ? AND r.status = 'active') as active_cards",
+            (SELECT COUNT(*) FROM topics WHERE user_id = $1) as topics,
+            (SELECT COUNT(*) FROM tipcards WHERE user_id = $2) as total_cards,
+            (SELECT COUNT(*) FROM review_states r JOIN tipcards t ON t.id = r.card_id WHERE t.user_id = $3 AND r.status = 'active' AND (r.next_review_at <= $4 OR t.pinned = 1)) as due_cards,
+            (SELECT COUNT(*) FROM review_states r JOIN tipcards t ON t.id = r.card_id WHERE t.user_id = $5 AND r.status = 'active') as active_cards",
     )
     .bind(user_id)
     .bind(user_id)
@@ -396,7 +393,7 @@ pub async fn app_summary(
 }
 
 pub async fn list_app_topics(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     now: DateTime<Utc>,
 ) -> AppResult<Vec<AppTopicRecord>> {
@@ -414,13 +411,13 @@ pub async fn list_app_topics(
                 top.grounding_strategy,
                 top.image_strategy,
                 COUNT(t.id) AS total_cards,
-                SUM(CASE WHEN r.status = 'active' AND (r.next_review_at <= ? OR t.pinned = 1) THEN 1 ELSE 0 END) AS due_cards,
+                SUM(CASE WHEN r.status = 'active' AND (r.next_review_at <= $1 OR t.pinned = 1) THEN 1 ELSE 0 END) AS due_cards,
                 SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) AS pending_cards,
                 SUM(CASE WHEN r.status != 'active' THEN 1 ELSE 0 END) AS completed_cards
          FROM topics top
          LEFT JOIN tipcards t ON t.topic_id = top.id
          LEFT JOIN review_states r ON r.card_id = t.id
-         WHERE top.user_id = ?
+         WHERE top.user_id = $2
          GROUP BY top.id, top.name, top.tipcard_type, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level, top.icon_id, top.color_hue, top.grounding_strategy, top.image_strategy
          ORDER BY due_cards DESC, top.name ASC",
     )

@@ -19,8 +19,7 @@ LEFT JOIN review_states r ON r.card_id = t.id";
 
 pub(crate) const FLOW_FROM_JOINS: &str = "FROM tipcards t
 JOIN topics top ON t.topic_id = top.id
-LEFT JOIN review_states r ON r.card_id = t.id
-LEFT JOIN tipcard_images img ON img.card_id = t.id AND img.user_id = t.user_id";
+LEFT JOIN review_states r ON r.card_id = t.id";
 
 pub(crate) const IMAGE_SELECT: &str =
     "SELECT id, position, storage_path, mime_type, byte_size FROM tipcard_images";

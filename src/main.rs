@@ -1,6 +1,6 @@
 #![allow(clippy::collapsible_if)]
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::fs;
 use tower_sessions::{Expiry, SessionManagerLayer};
-use tower_sessions_sqlx_store::SqliteStore;
+use tower_sessions_sqlx_store::PostgresStore;
 use tracing_subscriber::EnvFilter;
 
 mod api;
@@ -61,28 +61,43 @@ async fn main() {
     let settings_service = services::settings::SettingsService::new(settings_store);
 
     // Setup DB
-    let db_path = data_dir.join("denpie.db");
-    let db_options = SqliteConnectOptions::new()
-        .filename(&db_path)
-        .create_if_missing(true)
-        // Immediate image-write transactions serialize concurrent append/replace
-        // operations instead of failing immediately with SQLITE_BUSY.
-        .busy_timeout(Duration::from_secs(10));
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect_with(db_options)
+    let database_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set to a PostgreSQL connection URL");
+    let database_schema = std::env::var("DENPIE_DB_SCHEMA").unwrap_or_else(|_| "public".into());
+    assert!(
+        is_valid_database_schema(&database_schema),
+        "DENPIE_DB_SCHEMA must contain only ASCII letters, digits, and underscores"
+    );
+    if database_schema != "public" {
+        let bootstrap_pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .expect("Failed to connect to PostgreSQL for schema creation");
+        sqlx::query(&format!(
+            "CREATE SCHEMA IF NOT EXISTS \"{database_schema}\""
+        ))
+        .execute(&bootstrap_pool)
         .await
-        .expect("Failed to create pool");
+        .expect("Failed to create PostgreSQL schema");
+        bootstrap_pool.close().await;
+    }
+    let connect_schema = database_schema.clone();
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .acquire_timeout(Duration::from_secs(10))
+        .after_connect(move |connection, _| {
+            let statement = format!("SET search_path TO \"{connect_schema}\", public");
+            Box::pin(async move {
+                sqlx::query(&statement).execute(connection).await?;
+                Ok(())
+            })
+        })
+        .connect(&database_url)
+        .await
+        .expect("Failed to connect to PostgreSQL");
 
-    // Init schema
-    let schema_path = std::env::var_os("DENPIE_SCHEMA_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("schema.sql"));
-    tracing::info!(path = %schema_path.display(), "applying schema");
-    db::migrations::apply_schema_file(&pool, &schema_path)
-        .await
-        .expect("Failed to apply schema.sql");
-    tracing::info!("applying compatibility migrations");
+    tracing::info!(schema = %database_schema, "applying PostgreSQL migrations");
     db::migrations::apply_schema_migrations(&pool)
         .await
         .expect("Failed to apply schema migrations");
@@ -100,7 +115,7 @@ async fn main() {
         .expect("Failed to migrate legacy tipcard images");
     tracing::info!(path = %image_dir.display(), "image store ready");
 
-    let session_store = SqliteStore::new(pool.clone());
+    let session_store = PostgresStore::new(pool.clone());
     session_store
         .migrate()
         .await
@@ -147,6 +162,13 @@ async fn main() {
     )
     .await
     .unwrap();
+}
+
+fn is_valid_database_schema(schema: &str) -> bool {
+    !schema.is_empty()
+        && schema
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 fn init_tracing() {

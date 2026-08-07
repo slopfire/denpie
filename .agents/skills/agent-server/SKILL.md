@@ -29,7 +29,7 @@ just ui-check                # trunk release build + oneshot agent-server
 The recipe:
 
 1. Uses **only** `127.0.0.1:3027` / `http://localhost:3027`
-2. Creates isolated data under `.agent-data/` (settings, DB, images)
+2. Creates isolated data under `.agent-data/` and uses the `denpie_agent` PostgreSQL schema
 3. Reuses a listener already on :3027 (never kills a pre-existing process)
 4. Bootstraps test login when needed
 5. Smoke-checks `GET /`, `GET /auth/me`, `GET /app/summary`
@@ -41,6 +41,8 @@ Manual equivalent (only if you cannot use the recipe):
 DENPIE_BIND_ADDR=127.0.0.1:3027 \
 DENPIE_RP_ORIGIN=http://localhost:3027 \
 DENPIE_DATA_DIR=.agent-data \
+DATABASE_URL=postgres://denpie:denpie@127.0.0.1:5432/denpie \
+DENPIE_DB_SCHEMA=denpie_agent \
 DENPIE_SKIP_FRONTEND_BUILD=1 \
 cargo run
 ```
@@ -66,4 +68,4 @@ cargo run
 
 ## Startup shape
 
-DB: `schema.sql`, then compatibility migrations in `src/db/migrations.rs`.
+DB: PostgreSQL through `DATABASE_URL`; embedded migrations from `migrations/` run in the isolated `denpie_agent` schema.

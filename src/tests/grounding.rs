@@ -1,258 +1,64 @@
 use crate::db::repositories::{documents, tipcards, topics};
 use crate::tests::support::setup_db;
-use sqlx::Row;
 
-/// An old-shape database (pre-grounding columns/tables) still migrates cleanly:
-/// the new columns land and the FTS5 `document_chunks` table becomes usable.
+/// Fresh PostgreSQL migrations create the grounding columns and GIN-backed search table.
 #[tokio::test]
-async fn migration_adds_grounding_schema_to_old_db() {
-    // Build an old-shape DB: schema.sql already includes the new columns (fresh
-    // install path), so simulate an *old* DB by creating the legacy tables only
-    // and then running migrations against them.
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .connect("sqlite::memory:")
+async fn migrations_create_postgres_grounding_schema() {
+    let pool = setup_db().await;
+
+    for (table, column) in [
+        ("topics", "grounding_strategy"),
+        ("topics", "image_strategy"),
+        ("tipcards", "use_image"),
+        ("tipcards", "image_query"),
+        ("review_states", "feedback"),
+        ("review_states", "reviewed_at"),
+        ("user_settings", "grounding_strategy"),
+        ("user_settings", "llm_grounding_model"),
+        ("user_settings", "llm_grounding_reasoning_effort"),
+        ("user_settings", "image_sources"),
+    ] {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM information_schema.columns
+             WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2",
+        )
+        .bind(table)
+        .bind(column)
+        .fetch_one(&pool)
         .await
         .unwrap();
+        assert_eq!(count, 1, "missing {table}.{column}");
+    }
 
-    // Legacy topics (no grounding_strategy/image_strategy) and user_settings
-    // (no new columns). Migrations must add them idempotently.
-    sqlx::query(
-        "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT, role TEXT NOT NULL DEFAULT 'user', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "CREATE TABLE topics (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            tipcard_type TEXT NOT NULL DEFAULT 'repeatable_tip',
-            prompt_template TEXT,
-            daily_card_count INTEGER,
-            daily_time_zone TEXT,
-            daily_update_time TEXT,
-            compression_level TEXT,
-            icon_id TEXT,
-            color_hue INTEGER,
-            UNIQUE(user_id, name)
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "CREATE TABLE tipcards (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT,
-            topic_id INTEGER NOT NULL,
-            tipcard_type TEXT NOT NULL DEFAULT 'repeatable_tip',
-            title TEXT,
-            full_content TEXT NOT NULL,
-            compressed_content TEXT NOT NULL,
-            image_data TEXT NOT NULL DEFAULT '[]',
-            pinned INTEGER NOT NULL DEFAULT 0,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "CREATE TABLE review_states (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            card_id INTEGER NOT NULL UNIQUE,
-            algorithm_used TEXT NOT NULL,
-            state_data TEXT NOT NULL,
-            repeats INTEGER NOT NULL DEFAULT 0,
-            status TEXT NOT NULL DEFAULT 'active',
-            daily_refreshed_at DATETIME,
-            next_review_at DATETIME NOT NULL
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "CREATE TABLE user_settings (
-            user_id TEXT PRIMARY KEY,
-            llm_model TEXT NOT NULL,
-            llm_compress_model TEXT NOT NULL,
-            prompt_template TEXT NOT NULL,
-            llm_api_key TEXT NOT NULL,
-            llm_base_url TEXT NOT NULL,
-            llm_compress_base_url TEXT NOT NULL,
-            llm_reasoning_effort TEXT NOT NULL,
-            llm_compress_reasoning_effort TEXT NOT NULL,
-            llm_compression_level TEXT NOT NULL,
-            color_scheme TEXT NOT NULL,
-            transparency TEXT NOT NULL,
-            blur_intensity TEXT NOT NULL,
-            daily_time_zone TEXT NOT NULL,
-            daily_update_time TEXT NOT NULL,
-            max_active_cards INTEGER NOT NULL DEFAULT 0
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "CREATE TABLE api_keys (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            key_hash TEXT NOT NULL UNIQUE,
-            client_name TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "CREATE TABLE llm_token_usage (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT,
-            model TEXT NOT NULL,
-            purpose TEXT NOT NULL,
-            prompt_tokens INTEGER NOT NULL DEFAULT 0,
-            completion_tokens INTEGER NOT NULL DEFAULT 0,
-            total_tokens INTEGER NOT NULL DEFAULT 0,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "CREATE TABLE daily_refresh_runs (
-            user_id TEXT NOT NULL,
-            topic_id INTEGER NOT NULL,
-            tipcard_type TEXT NOT NULL,
-            window_start DATETIME NOT NULL,
-            refreshed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY(user_id, topic_id, tipcard_type)
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "CREATE TABLE tipcard_images (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            card_id INTEGER NOT NULL,
-            position INTEGER NOT NULL,
-            storage_path TEXT NOT NULL,
-            mime_type TEXT NOT NULL,
-            byte_size INTEGER NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query("INSERT INTO users (id, username, role) VALUES ('legacy_user', 'legacy', 'user')")
-        .execute(&pool)
-        .await
-        .unwrap();
-    let legacy_topic_id: i64 = sqlx::query_scalar(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('legacy_user', 'legacy topic', 'repeatable_tip') RETURNING id",
+    let index_definition: String = sqlx::query_scalar(
+        "SELECT indexdef FROM pg_indexes
+         WHERE schemaname = current_schema() AND indexname = 'idx_document_chunks_fts'",
     )
     .fetch_one(&pool)
     .await
     .unwrap();
-    sqlx::query(
-        "CREATE TABLE user_documents (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            topic_id INTEGER,
-            source_type TEXT NOT NULL,
-            title TEXT NOT NULL,
-            url TEXT,
-            content TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )",
+    assert!(index_definition.contains("USING gin"));
+    assert!(index_definition.contains("to_tsvector"));
+
+    let topic_id: i64 = sqlx::query_scalar(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ('usr_test_admin', 'migration defaults', 'repeatable_tip')
+         RETURNING id",
     )
-    .execute(&pool)
+    .fetch_one(&pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO user_documents (user_id, topic_id, source_type, title, content)
-         VALUES ('legacy_user', ?, 'document', 'assigned', 'assigned content'),
-                ('legacy_user', NULL, 'document', 'unassigned', 'unassigned content')",
-    )
-    .bind(legacy_topic_id)
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    crate::apply_schema_migrations(&pool).await.unwrap();
-
-    // New columns exist on topics.
-    let has_col = |table: &str, col: &str| {
-        let pool = pool.clone();
-        let table = table.to_string();
-        let col = col.to_string();
-        async move {
-            let row = sqlx::query("SELECT COUNT(*) AS c FROM pragma_table_info(?) WHERE name = ?")
-                .bind(table)
-                .bind(col)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-            row.get::<i64, _>("c") == 1
-        }
-    };
-    assert!(has_col("topics", "grounding_strategy").await);
-    assert!(has_col("topics", "image_strategy").await);
-    assert!(has_col("tipcards", "use_image").await);
-    assert!(has_col("tipcards", "image_query").await);
-    assert!(has_col("review_states", "feedback").await);
-    assert!(has_col("review_states", "reviewed_at").await);
-    assert!(has_col("user_settings", "grounding_strategy").await);
-    assert!(has_col("user_settings", "llm_grounding_model").await);
-    assert!(has_col("user_settings", "llm_grounding_reasoning_effort").await);
-    assert!(has_col("user_settings", "image_sources").await);
     let image_defaults: (i64, String) = sqlx::query_as(
         "INSERT INTO tipcards (user_id, topic_id, full_content, compressed_content)
-         VALUES ('legacy_user', ?, 'legacy card', 'legacy card')
+         VALUES ('usr_test_admin', $1, 'card', 'card')
          RETURNING use_image, image_query",
     )
-    .bind(legacy_topic_id)
+    .bind(topic_id)
     .fetch_one(&pool)
     .await
     .unwrap();
     assert_eq!(image_defaults, (0, String::new()));
-    let assignments: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'document_topics'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(assignments, 1);
-    let backfilled: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM document_topics WHERE topic_id = ?")
-            .bind(legacy_topic_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(backfilled, 1, "legacy topic assignment is backfilled");
-    assert!(!has_col("user_documents", "topic_id").await);
-    let unassigned: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM document_topics WHERE document_id = (SELECT id FROM user_documents WHERE title = 'unassigned')",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(unassigned, 0, "legacy NULL assignment remains unassigned");
-
-    // FTS5 virtual table is queryable (this is the FTS5 availability check).
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM document_chunks")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(count, 0);
 }
 
 /// RAG retrieval is isolated to explicit topic assignments and supports reuse.
@@ -260,14 +66,17 @@ async fn migration_adds_grounding_schema_to_old_db() {
 async fn rag_retrieval_returns_matching_chunk() {
     let pool = setup_db().await;
     let user = "rag_user";
-    sqlx::query("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, 'rag', 'user')")
-        .bind(user)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (id, username, role) VALUES ($1, 'rag', 'user')
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
     // A topic owned by this user.
     let topic_id: i64 = sqlx::query_scalar(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES (?, 'borrow', 'repeatable_tip') RETURNING id",
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ($1, 'borrow', 'repeatable_tip') RETURNING id",
     )
     .bind(user)
     .fetch_one(&pool)
@@ -287,7 +96,7 @@ async fn rag_retrieval_returns_matching_chunk() {
     .unwrap();
 
     let other_topic_id: i64 = sqlx::query_scalar(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES (?, 'other', 'repeatable_tip') RETURNING id",
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ($1, 'other', 'repeatable_tip') RETURNING id",
     )
     .bind(user)
     .fetch_one(&pool)
@@ -376,13 +185,16 @@ async fn rag_retrieval_returns_matching_chunk() {
 async fn pending_backlog_promotes_oldest_first() {
     let pool = setup_db().await;
     let user = "pending_user";
-    sqlx::query("INSERT OR IGNORE INTO users (id, username, role) VALUES (?, 'pending', 'user')")
-        .bind(user)
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (id, username, role) VALUES ($1, 'pending', 'user')
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
     let topic_id: i64 = sqlx::query_scalar(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES (?, 'agg', 'repeatable_tip') RETURNING id",
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ($1, 'agg', 'repeatable_tip') RETURNING id",
     )
     .bind(user)
     .fetch_one(&pool)
@@ -404,8 +216,7 @@ async fn pending_backlog_promotes_oldest_first() {
     )
     .await
     .unwrap();
-    // SQLite CURRENT_TIMESTAMP has 1s resolution; nudge ordering via a backdated
-    // created_at on the second card so the first is provably older.
+    // Backdate the second card so the first is provably older.
     let second = tipcards::create_generated_with_status(
         &pool,
         user,
@@ -420,12 +231,12 @@ async fn pending_backlog_promotes_oldest_first() {
     )
     .await
     .unwrap();
-    sqlx::query("UPDATE tipcards SET created_at = '2000-01-01 00:00:00' WHERE id = ?")
+    sqlx::query("UPDATE tipcards SET created_at = '2000-01-01 00:00:00' WHERE id = $1")
         .bind(first)
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("UPDATE tipcards SET created_at = '2001-01-01 00:00:00' WHERE id = ?")
+    sqlx::query("UPDATE tipcards SET created_at = '2001-01-01 00:00:00' WHERE id = $1")
         .bind(second)
         .execute(&pool)
         .await
@@ -460,7 +271,7 @@ async fn pending_backlog_promotes_oldest_first() {
     assert!(card_b.image_query.is_empty());
 
     // Both are now active; no more pending cards.
-    let status: String = sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = ?")
+    let status: String = sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = $1")
         .bind(first)
         .fetch_one(&pool)
         .await
@@ -490,14 +301,15 @@ async fn pending_only_topic_promotes_one_card_for_page_load() {
     let pool = setup_db().await;
     let user = "reload_pending_user";
     sqlx::query(
-        "INSERT OR IGNORE INTO users (id, username, role) VALUES (?, 'reload-pending', 'user')",
+        "INSERT INTO users (id, username, role) VALUES ($1, 'reload-pending', 'user')
+         ON CONFLICT (id) DO NOTHING",
     )
     .bind(user)
     .execute(&pool)
     .await
     .unwrap();
     let topic_id: i64 = sqlx::query_scalar(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES (?, 'reload deck', 'repeatable_tip') RETURNING id",
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ($1, 'reload deck', 'repeatable_tip') RETURNING id",
     )
     .bind(user)
     .fetch_one(&pool)
@@ -530,7 +342,7 @@ async fn pending_only_topic_promotes_one_card_for_page_load() {
             SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END)
          FROM review_states r
          JOIN tipcards t ON t.id = r.card_id
-         WHERE t.user_id = ?",
+         WHERE t.user_id = $1",
     )
     .bind(user)
     .fetch_one(&pool)

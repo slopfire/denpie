@@ -7,10 +7,11 @@ Daily tip cards with SM-2 review. Rust/Axum backend. Any OpenAI-compatible LLM.
 ```bash
 just shell       # or nix-shell  (~30s first time)
 just setup       # verify toolchain
+just db-up       # start local PostgreSQL
 just dev         # backend + frontend watchers
 ```
 
-No Nix? Need Rust 1.95.0, `wasm32-unknown-unknown`, Trunk, `protoc`, SQLite. Pin is in `rust-toolchain.toml`.
+No Nix? Need Rust 1.95.0, `wasm32-unknown-unknown`, Trunk, `protoc`, and Docker Compose (or PostgreSQL 19 beta 2 + `psql`). Pin is in `rust-toolchain.toml`.
 
 ### First boot (~2 min)
 
@@ -18,7 +19,7 @@ No Nix? Need Rust 1.95.0, `wasm32-unknown-unknown`, Trunk, `protoc`, SQLite. Pin
 cargo run
 ```
 
-Creates `denpie.db`, applies schema, builds frontend if needed, prints a one-time `admin_token`.
+Set `DATABASE_URL` first (the checked-in `.env.example` matches `just db-up`). Denpie applies embedded SQLx migrations, builds the frontend if needed, and prints a one-time `admin_token`.
 
 1. Open `http://127.0.0.1:3017/`
 2. Create the first admin user with the printed token
@@ -93,7 +94,7 @@ Grounding/image strategies log stage progress at `info`. LLM transport detail is
 | `autoupdate_command` | empty | Non-systemd update command |
 | `autoupdate_last_seen_sha` | empty | Last seen remote SHA |
 
-### Per-user (SQLite)
+### Per-user (PostgreSQL)
 
 | Page | Owns |
 |---|---|
@@ -151,13 +152,14 @@ Topic cards with an agentic backlog link to pending cards in the Archive.
 
 | Variable | Default |
 |---|---|
+| `DATABASE_URL` | required |
+| `DENPIE_DB_SCHEMA` | `public` |
 | `DENPIE_BIND_ADDR` | `127.0.0.1:3017` |
 | `DENPIE_RP_ORIGIN` | `http://localhost:3017` |
 | `DENPIE_RP_ID` | from `DENPIE_RP_ORIGIN` |
 | `DENPIE_RP_EXTRA_ORIGINS` | none |
 | `DENPIE_PROD` | off (on for `https`) |
 | `DENPIE_DATA_DIR` | current directory |
-| `DENPIE_SCHEMA_PATH` | `./schema.sql` |
 | `DENPIE_FRONTEND_DIST` | `./frontend/dist` |
 | `DENPIE_STATIC_DIR` | `./static` |
 | `DENPIE_IMAGE_DIR` | `$DENPIE_DATA_DIR/tipcard-images` |
@@ -167,10 +169,10 @@ Topic cards with an agentic backlog link to pending cards in the Archive.
 ### systemd (~1 min)
 
 ```bash
-./install.sh
+DATABASE_URL='postgres://denpie:secret@db.example.com/denpie' ./install.sh
 ```
 
-Installs binary, schema, frontend, static assets; creates `denpie` user; enables `denpie-autoupdate.timer`; restarts.
+On first install, `DATABASE_URL` is required and is stored root-only in `/etc/default/denpie`. The installer deploys the binary/frontend/static assets, creates the `denpie` user, enables `denpie-autoupdate.timer`, and restarts.
 
 ```bash
 BIND_ADDR=127.0.0.1:3010 RP_ID=example.com RP_ORIGIN=https://example.com ./install.sh
@@ -187,6 +189,7 @@ sudo journalctl -u denpie -n 100 --no-pager
 ```bash
 docker build -t denpie .
 docker run -d --name denpie --network host \
+  -e DATABASE_URL=postgres://denpie:secret@127.0.0.1:5432/denpie \
   -e DENPIE_RP_ORIGIN=https://denpie.example.com \
   -e DENPIE_RP_ID=denpie.example.com \
   -v denpie-data:/var/lib/denpie \
@@ -195,6 +198,18 @@ docker run -d --name denpie --network host \
 
 - Host ownership: `DENPIE_UID` / `DENPIE_GID`
 - Reverse proxy: `DENPIE_BIND_ADDR=0.0.0.0:3017`
+
+### Existing SQLite data
+
+Keep the old file as a backup, start an empty PostgreSQL database, then run the one-shot importer:
+
+```bash
+cp denpie.db denpie.db.backup
+just db-up
+scripts/migrate-sqlite-to-postgres.py --sqlite denpie.db
+```
+
+The importer opens SQLite read-only, refuses a non-empty PostgreSQL target, preserves IDs, repairs historical orphan owners/topics with labeled placeholders, resets PostgreSQL sequences, and verifies every table count before committing. Use `--database-url` and `--schema` for a non-default target.
 
 ### DockerHub CI
 
@@ -213,7 +228,8 @@ src/
   dashboard/    # browser handlers
   llm/ scheduling/ autoupdate/ config/ tests/
 proto/denpie.proto
-schema.sql
+migrations/    # embedded SQLx PostgreSQL migrations
+schema.sql     # canonical fresh PostgreSQL schema
 frontend/       # Yew + Tailwind
 settings.yaml   # local only — do not commit
 ```
@@ -241,7 +257,7 @@ settings.yaml   # local only — do not commit
 just test
 ```
 
-Integration tests use real servers on ephemeral ports and isolated temp settings. `just ci` also runs fmt, clippy, and a release frontend build.
+Integration tests use real servers on ephemeral ports, isolated PostgreSQL schemas, and isolated temp settings. Start the local database with `just db-up`; `just ci` also runs fmt, clippy, and a release frontend build.
 
 ## Stack
 
@@ -249,7 +265,7 @@ Integration tests use real servers on ephemeral ports and isolated temp settings
 |---|---|
 | Language | Rust 2024 |
 | Web | Axum |
-| DB | SQLite + SQLx |
+| DB | PostgreSQL + SQLx |
 | Runtime | Tokio |
 | LLM | `async-openai` + shared `reqwest` |
 | Wire format | Protobuf (`prost`) |

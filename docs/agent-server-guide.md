@@ -3,6 +3,7 @@
 ## Local agent runtime
 
 ```bash
+just db-up                    # PostgreSQL prerequisite
 just agent-server            # isolated data, bind :3027 only, test login, smoke
 just agent-server --oneshot  # start → smoke → stop
 just ui-check                # frontend release build + oneshot smoke

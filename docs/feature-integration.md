@@ -62,10 +62,10 @@ Color not covered by `primary` / `secondary` / `muted` / `accent` / `destructive
 
 ## New database field
 
-1. Update `schema.sql` (fresh installs)
-2. Compatibility migration in `src/db/migrations.rs`
+1. Update `schema.sql` (canonical fresh schema)
+2. Add a forward-only PostgreSQL migration in `migrations/`
 3. Update repository row structs + bound SQL
-4. Cover both fresh and old DB shapes in tests
+4. Cover the fresh schema and the upgrade path in PostgreSQL tests
 
 ## New scheduled job
 

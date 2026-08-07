@@ -16,8 +16,11 @@ pkgs.mkShell {
     # Local task runner.
     just
 
-    # SQLite CLI used by bootstrap checks.
-    sqlite
+    # PostgreSQL client used for database diagnostics and data migration.
+    postgresql
+
+    # Local PostgreSQL container workflow (`just db-up`).
+    docker-compose
 
     # C/C++ build tooling for native dependencies (libcaesium -> mozjpeg-sys, libwebp-sys, etc.).
     gcc

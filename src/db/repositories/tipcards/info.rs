@@ -1,4 +1,4 @@
-use sqlx::{QueryBuilder, Sqlite, SqlitePool};
+use sqlx::{PgPool, Postgres, QueryBuilder};
 
 use crate::error::{AppError, AppResult};
 
@@ -7,9 +7,9 @@ use super::{
     queries, topic_color_from_row,
 };
 
-pub async fn list_admin(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<TipcardInfoRecord>> {
+pub async fn list_admin(pool: &PgPool, user_id: &str) -> AppResult<Vec<TipcardInfoRecord>> {
     let sql = format!(
-        "{}\n{} WHERE t.user_id = ? ORDER BY pinned DESC, t.created_at DESC",
+        "{}\n{} WHERE t.user_id = $1 ORDER BY pinned DESC, t.created_at DESC",
         queries::BASE_CARD_SELECT,
         queries::CARD_FROM_JOINS
     );
@@ -22,7 +22,7 @@ pub async fn list_admin(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<Tipca
 }
 
 pub async fn list_filtered(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     filter: TipcardFilter,
 ) -> AppResult<Vec<TipcardInfoRecord>> {
@@ -31,7 +31,7 @@ pub async fn list_filtered(
         queries::BASE_CARD_SELECT,
         queries::CARD_FROM_JOINS
     );
-    let mut builder = QueryBuilder::<Sqlite>::new(&base);
+    let mut builder = QueryBuilder::<Postgres>::new(&base);
 
     let mut has_where = false;
     push_where(&mut builder, &mut has_where);
@@ -95,12 +95,12 @@ pub async fn list_filtered(
 }
 
 pub async fn get_tipcard_info(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     id: i64,
 ) -> AppResult<TipcardInfoRecord> {
     let sql = format!(
-        "{}\n{} WHERE t.user_id = ? AND t.id = ?",
+        "{}\n{} WHERE t.user_id = $1 AND t.id = $2",
         queries::BASE_CARD_SELECT,
         queries::CARD_FROM_JOINS
     );
@@ -140,7 +140,7 @@ fn escape_like(value: &str) -> String {
         .replace('_', "\\_")
 }
 
-fn push_where(builder: &mut QueryBuilder<Sqlite>, has_where: &mut bool) {
+fn push_where(builder: &mut QueryBuilder<Postgres>, has_where: &mut bool) {
     if *has_where {
         builder.push(" AND ");
     } else {

@@ -1,6 +1,6 @@
 use rand::Rng;
 use sha2::{Digest, Sha256};
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
 
@@ -26,7 +26,7 @@ pub fn hash_api_key(api_key: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-pub async fn verify(pool: &SqlitePool, api_key: &str) -> AppResult<VerifiedApiKey> {
+pub async fn verify(pool: &PgPool, api_key: &str) -> AppResult<VerifiedApiKey> {
     if api_key.trim().is_empty() {
         return Err(AppError::Auth("Missing API key".to_string()));
     }
@@ -35,7 +35,7 @@ pub async fn verify(pool: &SqlitePool, api_key: &str) -> AppResult<VerifiedApiKe
         "SELECT k.user_id, u.username, u.role, k.client_name
          FROM api_keys k
          JOIN users u ON u.id = k.user_id
-         WHERE k.key_hash = ?",
+         WHERE k.key_hash = $1",
     )
     .bind(hash_api_key(api_key))
     .fetch_optional(pool)
@@ -51,7 +51,7 @@ pub async fn verify(pool: &SqlitePool, api_key: &str) -> AppResult<VerifiedApiKe
 }
 
 pub async fn create(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     client_name: Option<String>,
 ) -> AppResult<String> {
@@ -66,7 +66,7 @@ pub async fn create(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "default_client".to_string());
 
-    sqlx::query("INSERT INTO api_keys (user_id, key_hash, client_name) VALUES (?, ?, ?)")
+    sqlx::query("INSERT INTO api_keys (user_id, key_hash, client_name) VALUES ($1, $2, $3)")
         .bind(user_id)
         .bind(hash_api_key(&api_key))
         .bind(client_name)
@@ -76,11 +76,11 @@ pub async fn create(
     Ok(api_key)
 }
 
-pub async fn list(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<ApiKeyInfo>> {
+pub async fn list(pool: &PgPool, user_id: &str) -> AppResult<Vec<ApiKeyInfo>> {
     let rows = sqlx::query_as::<_, (i64, String, String, String)>(
         "SELECT id, user_id, client_name, COALESCE(CAST(created_at AS TEXT), '')
          FROM api_keys
-         WHERE user_id = ?
+         WHERE user_id = $1
          ORDER BY created_at DESC",
     )
     .bind(user_id)
@@ -98,8 +98,8 @@ pub async fn list(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<ApiKeyInfo>
         .collect())
 }
 
-pub async fn delete(pool: &SqlitePool, user_id: &str, id: i64) -> AppResult<()> {
-    sqlx::query("DELETE FROM api_keys WHERE user_id = ? AND id = ?")
+pub async fn delete(pool: &PgPool, user_id: &str, id: i64) -> AppResult<()> {
+    sqlx::query("DELETE FROM api_keys WHERE user_id = $1 AND id = $2")
         .bind(user_id)
         .bind(id)
         .execute(pool)

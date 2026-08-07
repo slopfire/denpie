@@ -67,7 +67,7 @@ Skip full frontend rebuild for routine agent loops unless the change is frontend
 
 ## Stack reminder
 
-- Rust 2024, Axum, SQLite/SQLx, Tokio
+- Rust 2024, Axum, PostgreSQL/SQLx, Tokio
 - LLM via OpenAI-compatible endpoints
 - Transport: protobuf `POST /api`
 - Frontend: Yew/WASM + Tailwind

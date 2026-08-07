@@ -28,6 +28,7 @@ Invariants below stay here. Do not duplicate long procedures in this file.
 
 ```bash
 just shell          # pinned toolchain
+just db-up          # local PostgreSQL
 just quick          # fmt check + compile (default while editing)
 just test-one <f>   # targeted tests
 just verify         # one full gate at end of a task
@@ -40,7 +41,7 @@ Detail: `dev-loop` skill. Feature paths: `docs/feature-integration.md`. API for 
 
 ## Stack
 
-- Rust 2024, Axum, SQLite via SQLx, Tokio
+- Rust 2024, Axum, PostgreSQL via SQLx, Tokio
 - LLM: `async-openai` against OpenAI-compatible endpoints
 - Transport: protobuf (`prost`), `POST /api`
 - Frontend: Yew/WebAssembly + Tailwind

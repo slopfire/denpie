@@ -17,6 +17,7 @@ POLKIT_DIR="${POLKIT_DIR:-/etc/polkit-1/rules.d}"
 NETWORK_TIMEOUT_SECS="${NETWORK_TIMEOUT_SECS:-120}"
 BUILD_TIMEOUT_SECS="${BUILD_TIMEOUT_SECS:-1800}"
 INSTALL_TIMEOUT_SECS="${INSTALL_TIMEOUT_SECS:-300}"
+DATABASE_URL="${DATABASE_URL:-}"
 
 usage() {
     cat <<EOF
@@ -31,6 +32,7 @@ Environment overrides:
   DATA_DIR        runtime data directory (default: /var/lib/denpie)
   LIBEXEC_DIR     helper script directory (default: /usr/local/libexec)
   SERVICE_USER    system user name (default: denpie)
+  DATABASE_URL    PostgreSQL URL written to /etc/default/denpie on first install
   NETWORK_TIMEOUT_SECS autoupdater network step timeout (default: 120)
   BUILD_TIMEOUT_SECS   autoupdater build step timeout (default: 1800)
   INSTALL_TIMEOUT_SECS autoupdater install step timeout (default: 300)
@@ -140,13 +142,30 @@ write_service() {
         -e "s|^Environment=DENPIE_RP_ID=.*|Environment=DENPIE_RP_ID=$RP_ID|" \
         -e "s|^Environment=DENPIE_RP_ORIGIN=.*|Environment=DENPIE_RP_ORIGIN=$RP_ORIGIN|" \
         -e "s|^Environment=DENPIE_DATA_DIR=.*|Environment=DENPIE_DATA_DIR=$DATA_DIR|" \
-        -e "s|^Environment=DENPIE_SCHEMA_PATH=.*|Environment=DENPIE_SCHEMA_PATH=$SHARE_DIR/schema.sql|" \
+        -e "s|^EnvironmentFile=.*|EnvironmentFile=-$DEFAULTS_DIR/$APP_NAME|" \
         -e "s|^Environment=DENPIE_FRONTEND_DIST=.*|Environment=DENPIE_FRONTEND_DIST=$SHARE_DIR/frontend/dist|" \
         -e "s|^Environment=DENPIE_STATIC_DIR=.*|Environment=DENPIE_STATIC_DIR=$SHARE_DIR/static|" \
         -e "s|^ExecStart=.*|ExecStart=$BIN_DIR/$APP_NAME|" \
         -e "s|^ReadWritePaths=.*|ReadWritePaths=$DATA_DIR|" \
         deploy/denpie.service > "$tmp_file"
     run_as_root install -m 0644 "$tmp_file" "$SYSTEMD_DIR/$APP_NAME.service"
+    rm -f "$tmp_file"
+}
+
+write_runtime_defaults() {
+    runtime_defaults="$DEFAULTS_DIR/$APP_NAME"
+    if [ -z "$DATABASE_URL" ]; then
+        if [ -f "$runtime_defaults" ]; then
+            return
+        fi
+        echo "DATABASE_URL is required for the first PostgreSQL-backed install" >&2
+        exit 1
+    fi
+
+    run_as_root install -d -m 0755 "$DEFAULTS_DIR"
+    tmp_file="$(mktemp)"
+    printf 'DATABASE_URL=%s\n' "$DATABASE_URL" > "$tmp_file"
+    run_as_root install -m 0600 "$tmp_file" "$runtime_defaults"
     rm -f "$tmp_file"
 }
 
@@ -214,6 +233,10 @@ EOF
 
 install_app() {
     require_sudo_access
+    if [ -z "$DATABASE_URL" ] && [ ! -f "$DEFAULTS_DIR/$APP_NAME" ]; then
+        echo "DATABASE_URL is required for the first PostgreSQL-backed install" >&2
+        exit 1
+    fi
     build_release
     verify_release_artifacts
     ensure_user
@@ -221,7 +244,6 @@ install_app() {
     run_as_root install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/frontend" "$SHARE_DIR/static"
     repair_data_permissions
     run_as_root install -m 0755 "target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
-    run_as_root install -m 0644 schema.sql "$SHARE_DIR/schema.sql"
     run_as_root rm -rf "$SHARE_DIR/frontend/dist"
     run_as_root install -d -m 0755 "$SHARE_DIR/frontend/dist"
     run_as_root cp -R frontend/dist/. "$SHARE_DIR/frontend/dist/"
@@ -231,6 +253,7 @@ install_app() {
     run_as_root cp -R static/. "$SHARE_DIR/static/"
     run_as_root chmod -R a+rX "$SHARE_DIR/static"
     write_service
+    write_runtime_defaults
     write_autoupdate_units
 
     run_as_root systemctl daemon-reload

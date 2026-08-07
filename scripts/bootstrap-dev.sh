@@ -15,7 +15,7 @@ printf 'Checking Denpie development prerequisites...\n'
 need_cmd cargo
 need_cmd rustup
 need_cmd protoc
-need_cmd sqlite3
+need_cmd docker
 
 if ! command -v trunk >/dev/null 2>&1; then
   printf 'missing: trunk (install with: cargo install trunk --locked)\n' >&2
@@ -50,7 +50,7 @@ Install the required tools, then rerun this script.
 Typical setup:
   rustup target add wasm32-unknown-unknown
   cargo install trunk --locked
-  sudo pacman -S protobuf sqlite just
+  sudo pacman -S protobuf docker docker-compose just
 EOF
   exit 1
 fi

@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:19beta2-alpine
+    environment:
+      POSTGRES_DB: denpie
+      POSTGRES_USER: denpie
+      POSTGRES_PASSWORD: denpie
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U denpie -d denpie"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - denpie-postgres-19:/var/lib/postgresql
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://denpie:denpie@postgres:5432/denpie
+      DENPIE_BIND_ADDR: 0.0.0.0:3017
+    ports:
+      - "127.0.0.1:3017:3017"
+    volumes:
+      - denpie-data:/var/lib/denpie
+
+volumes:
+  denpie-postgres-19:
+  denpie-data:

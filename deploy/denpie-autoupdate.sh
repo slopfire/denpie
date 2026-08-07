@@ -230,10 +230,9 @@ sync_source_repo
     run_step compiling "Building server release binary" "$BUILD_TIMEOUT_SECS" cargo build --release --package "$APP_NAME"
 )
 
-run_step installing "Installing binary, schema, frontend, and static assets" "$INSTALL_TIMEOUT_SECS" sh -c "
+run_step installing "Installing binary, frontend, and static assets" "$INSTALL_TIMEOUT_SECS" sh -c "
     install -d -m 0755 "$BIN_DIR" "$SHARE_DIR" "$SHARE_DIR/frontend" "$SHARE_DIR/static"
     install -m 0755 "$SOURCE_DIR/target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
-    install -m 0644 "$SOURCE_DIR/schema.sql" "$SHARE_DIR/schema.sql"
     rm -rf "$SHARE_DIR/frontend/dist"
     install -d -m 0755 "$SHARE_DIR/frontend/dist"
     cp -R "$SOURCE_DIR/frontend/dist/." "$SHARE_DIR/frontend/dist/"

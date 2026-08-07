@@ -1,5 +1,5 @@
 use chrono::Utc;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::{
     domain::review::RepeatableState,
@@ -8,25 +8,25 @@ use crate::{
 
 use super::models::CreateManualParams;
 
-pub async fn delete_with_review(pool: &SqlitePool, user_id: &str, id: i64) -> AppResult<()> {
+pub async fn delete_with_review(pool: &PgPool, user_id: &str, id: i64) -> AppResult<()> {
     let mut tx = pool.begin().await?;
 
     sqlx::query(
         "DELETE FROM review_states
-         WHERE card_id IN (SELECT id FROM tipcards WHERE id = ? AND user_id = ?)",
+         WHERE card_id IN (SELECT id FROM tipcards WHERE id = $1 AND user_id = $2)",
     )
     .bind(id)
     .bind(user_id)
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query("DELETE FROM tipcard_images WHERE card_id = ? AND user_id = ?")
+    sqlx::query("DELETE FROM tipcard_images WHERE card_id = $1 AND user_id = $2")
         .bind(id)
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
 
-    let result = sqlx::query("DELETE FROM tipcards WHERE id = ? AND user_id = ?")
+    let result = sqlx::query("DELETE FROM tipcards WHERE id = $1 AND user_id = $2")
         .bind(id)
         .bind(user_id)
         .execute(&mut *tx)
@@ -40,8 +40,8 @@ pub async fn delete_with_review(pool: &SqlitePool, user_id: &str, id: i64) -> Ap
     Ok(())
 }
 
-pub async fn set_pinned(pool: &SqlitePool, user_id: &str, id: i64, pinned: bool) -> AppResult<()> {
-    let result = sqlx::query("UPDATE tipcards SET pinned = ? WHERE id = ? AND user_id = ?")
+pub async fn set_pinned(pool: &PgPool, user_id: &str, id: i64, pinned: bool) -> AppResult<()> {
+    let result = sqlx::query("UPDATE tipcards SET pinned = $1 WHERE id = $2 AND user_id = $3")
         .bind(if pinned { 1 } else { 0 })
         .bind(id)
         .bind(user_id)
@@ -58,7 +58,7 @@ pub async fn set_pinned(pool: &SqlitePool, user_id: &str, id: i64, pinned: bool)
 /// promoted to `"active"` at serve time.
 #[allow(clippy::too_many_arguments)]
 pub async fn create_generated_with_status(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_id: i64,
     tipcard_type: &str,
@@ -69,8 +69,10 @@ pub async fn create_generated_with_status(
     image_query: &str,
     status: &str,
 ) -> AppResult<i64> {
-    let card_id = sqlx::query(
-        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content, use_image, image_query) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    let card_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content, use_image, image_query)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id",
     )
     .bind(user_id)
     .bind(topic_id)
@@ -80,9 +82,8 @@ pub async fn create_generated_with_status(
     .bind(compressed_content)
     .bind(if use_image { 1 } else { 0 })
     .bind(image_query)
-    .execute(pool)
-    .await?
-    .last_insert_rowid();
+    .fetch_one(pool)
+    .await?;
 
     let state = RepeatableState::default();
     let next_review_at = if status == "pending" {
@@ -103,9 +104,11 @@ pub async fn create_generated_with_status(
     Ok(card_id)
 }
 
-pub async fn create_manual(pool: &SqlitePool, params: CreateManualParams<'_>) -> AppResult<i64> {
-    let card_id = sqlx::query(
-        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content, image_data) VALUES (?, ?, ?, ?, ?, ?, ?)",
+pub async fn create_manual(pool: &PgPool, params: CreateManualParams<'_>) -> AppResult<i64> {
+    let card_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content, image_data)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id",
     )
     .bind(params.user_id)
     .bind(params.topic_id)
@@ -114,9 +117,8 @@ pub async fn create_manual(pool: &SqlitePool, params: CreateManualParams<'_>) ->
     .bind(params.full_content)
     .bind(params.compressed_content)
     .bind(params.image_data_json)
-    .execute(pool)
-    .await?
-    .last_insert_rowid();
+    .fetch_one(pool)
+    .await?;
 
     let state = RepeatableState::default();
     create_review_state(
@@ -133,28 +135,29 @@ pub async fn create_manual(pool: &SqlitePool, params: CreateManualParams<'_>) ->
 }
 
 pub async fn create_custom(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_id: i64,
     title: &str,
     full_content: &str,
     compressed_content: &str,
 ) -> AppResult<i64> {
-    Ok(sqlx::query(
-        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES (?, ?, 'custom_tip', ?, ?, ?)",
+    Ok(sqlx::query_scalar::<_, i64>(
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content)
+         VALUES ($1, $2, 'custom_tip', $3, $4, $5)
+         RETURNING id",
     )
     .bind(user_id)
     .bind(topic_id)
     .bind(title)
     .bind(full_content)
     .bind(compressed_content)
-    .execute(pool)
-    .await?
-    .last_insert_rowid())
+    .fetch_one(pool)
+    .await?)
 }
 
 async fn create_review_state(
-    pool: &SqlitePool,
+    pool: &PgPool,
     card_id: i64,
     algorithm_used: &str,
     state_data: String,
@@ -163,12 +166,12 @@ async fn create_review_state(
     next_review_at: chrono::DateTime<chrono::Utc>,
 ) -> AppResult<()> {
     sqlx::query(
-        "INSERT INTO review_states (card_id, algorithm_used, state_data, repeats, status, next_review_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO review_states (card_id, algorithm_used, state_data, repeats, status, next_review_at) VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(card_id)
     .bind(algorithm_used)
     .bind(state_data)
-    .bind(repeats)
+    .bind(i64::from(repeats))
     .bind(status)
     .bind(next_review_at)
     .execute(pool)

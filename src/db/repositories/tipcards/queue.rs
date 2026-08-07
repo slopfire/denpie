@@ -1,12 +1,12 @@
 use chrono::{DateTime, Utc};
-use sqlx::{QueryBuilder, Sqlite, SqlitePool};
+use sqlx::{PgPool, Postgres, QueryBuilder};
 
 use crate::error::AppResult;
 
 use super::{models::ScheduledCardRecord, queries};
 
 pub async fn find_daily_topic_cards(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_id: i64,
     tipcard_type: &str,
@@ -18,7 +18,7 @@ pub async fn find_daily_topic_cards(
         "{} JOIN review_states r ON t.id = r.card_id\n          WHERE t.user_id = ",
         queries::SCHEDULED_SELECT
     );
-    let mut daily_query = QueryBuilder::<Sqlite>::new(&base);
+    let mut daily_query = QueryBuilder::<Postgres>::new(&base);
     daily_query.push_bind(user_id);
     daily_query.push(" AND t.topic_id = ");
     daily_query.push_bind(topic_id);
@@ -30,12 +30,7 @@ pub async fn find_daily_topic_cards(
     }
     push_personalized_freshness(&mut daily_query, user_id, topic_id, tipcard_type);
     daily_query.push(" AND (r.daily_refreshed_at IS NULL OR r.daily_refreshed_at < ");
-    daily_query.push_bind(
-        daily_window_start
-            .naive_utc()
-            .format("%Y-%m-%d %H:%M:%S")
-            .to_string(),
-    );
+    daily_query.push_bind(daily_window_start);
     daily_query.push(")");
     push_exclusions(&mut daily_query, exclude_card_ids);
     daily_query.push(" ORDER BY t.pinned DESC, t.created_at ASC LIMIT ");
@@ -45,7 +40,7 @@ pub async fn find_daily_topic_cards(
 }
 
 pub async fn find_due_topic_cards(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_id: i64,
     tipcard_type: &str,
@@ -57,7 +52,7 @@ pub async fn find_due_topic_cards(
         "{} JOIN review_states r ON t.id = r.card_id\n          WHERE t.user_id = ",
         queries::SCHEDULED_SELECT
     );
-    let mut due_query = QueryBuilder::<Sqlite>::new(&base);
+    let mut due_query = QueryBuilder::<Postgres>::new(&base);
     due_query.push_bind(user_id);
     due_query.push(" AND t.topic_id = ");
     due_query.push_bind(topic_id);
@@ -86,13 +81,13 @@ pub async fn find_due_topic_cards(
     card_rows(pool, due_query).await
 }
 
-pub async fn active_card_count(pool: &SqlitePool, user_id: &str) -> AppResult<i64> {
+pub async fn active_card_count(pool: &PgPool, user_id: &str) -> AppResult<i64> {
     Ok(sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*)
          FROM review_states r
          JOIN tipcards t ON t.id = r.card_id
-         WHERE t.user_id = ? AND r.status = 'active'
-           AND (t.tipcard_type != 'repeatable_tip' OR r.next_review_at <= ?)",
+         WHERE t.user_id = $1 AND r.status = 'active'
+           AND (t.tipcard_type != 'repeatable_tip' OR r.next_review_at <= $2)",
     )
     .bind(user_id)
     .bind(Utc::now())
@@ -100,27 +95,22 @@ pub async fn active_card_count(pool: &SqlitePool, user_id: &str) -> AppResult<i6
     .await?)
 }
 
-pub async fn has_active_topic_card(
-    pool: &SqlitePool,
-    user_id: &str,
-    topic_id: i64,
-) -> AppResult<bool> {
-    Ok(sqlx::query_scalar::<_, i64>(
+pub async fn has_active_topic_card(pool: &PgPool, user_id: &str, topic_id: i64) -> AppResult<bool> {
+    Ok(sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(
             SELECT 1 FROM review_states r
             JOIN tipcards t ON t.id = r.card_id
-            WHERE t.user_id = ? AND t.topic_id = ? AND r.status = 'active'
+            WHERE t.user_id = $1 AND t.topic_id = $2 AND r.status = 'active'
         )",
     )
     .bind(user_id)
     .bind(topic_id)
     .fetch_one(pool)
-    .await?
-        != 0)
+    .await?)
 }
 
 fn push_exclusions<'args>(
-    builder: &mut QueryBuilder<'args, Sqlite>,
+    builder: &mut QueryBuilder<'args, Postgres>,
     exclude_card_ids: &'args [i64],
 ) {
     if !exclude_card_ids.is_empty() {
@@ -134,7 +124,7 @@ fn push_exclusions<'args>(
 }
 
 fn push_personalized_freshness<'args>(
-    builder: &mut QueryBuilder<'args, Sqlite>,
+    builder: &mut QueryBuilder<'args, Postgres>,
     user_id: &'args str,
     topic_id: i64,
     tipcard_type: &'args str,
@@ -156,13 +146,13 @@ fn push_personalized_freshness<'args>(
     builder.push_bind(tipcard_type);
     builder.push(
         " AND r2.feedback IN ('known', 'not_interested', 'too_difficult')),
-          '0000-01-01 00:00:00'))",
+          TIMESTAMPTZ '-infinity'))",
     );
 }
 
 async fn card_rows(
-    pool: &SqlitePool,
-    mut query: QueryBuilder<'_, Sqlite>,
+    pool: &PgPool,
+    mut query: QueryBuilder<'_, Postgres>,
 ) -> AppResult<Vec<ScheduledCardRecord>> {
     let rows = query
         .build_query_as::<(i64, String, String, String, i64, String, i64, String)>()

@@ -1,10 +1,10 @@
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use webauthn_rs::prelude::*;
 
 use crate::error::AppResult;
 
-pub async fn list(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<Passkey>> {
-    let rows = sqlx::query_as::<_, (String,)>("SELECT passkey FROM passkeys WHERE user_id = ?")
+pub async fn list(pool: &PgPool, user_id: &str) -> AppResult<Vec<Passkey>> {
+    let rows = sqlx::query_as::<_, (String,)>("SELECT passkey FROM passkeys WHERE user_id = $1")
         .bind(user_id)
         .fetch_all(pool)
         .await?;
@@ -17,11 +17,11 @@ pub async fn list(pool: &SqlitePool, user_id: &str) -> AppResult<Vec<Passkey>> {
     Ok(passkeys)
 }
 
-pub async fn save(pool: &SqlitePool, user_id: &str, passkey: &Passkey) -> AppResult<()> {
+pub async fn save(pool: &PgPool, user_id: &str, passkey: &Passkey) -> AppResult<()> {
     let passkey_json = serde_json::to_string(passkey)?;
     let passkey_id = passkey.cred_id().to_vec();
 
-    sqlx::query("INSERT INTO passkeys (passkey_id, user_id, passkey) VALUES (?, ?, ?)")
+    sqlx::query("INSERT INTO passkeys (passkey_id, user_id, passkey) VALUES ($1, $2, $3)")
         .bind(passkey_id)
         .bind(user_id)
         .bind(passkey_json)
@@ -31,8 +31,8 @@ pub async fn save(pool: &SqlitePool, user_id: &str, passkey: &Passkey) -> AppRes
     Ok(())
 }
 
-pub async fn delete(pool: &SqlitePool, user_id: &str, passkey_id: &[u8]) -> AppResult<()> {
-    sqlx::query("DELETE FROM passkeys WHERE user_id = ? AND passkey_id = ?")
+pub async fn delete(pool: &PgPool, user_id: &str, passkey_id: &[u8]) -> AppResult<()> {
+    sqlx::query("DELETE FROM passkeys WHERE user_id = $1 AND passkey_id = $2")
         .bind(user_id)
         .bind(passkey_id)
         .execute(pool)
@@ -41,12 +41,9 @@ pub async fn delete(pool: &SqlitePool, user_id: &str, passkey_id: &[u8]) -> AppR
     Ok(())
 }
 
-pub async fn find_by_id(
-    pool: &SqlitePool,
-    passkey_id: &[u8],
-) -> AppResult<Option<(String, Passkey)>> {
+pub async fn find_by_id(pool: &PgPool, passkey_id: &[u8]) -> AppResult<Option<(String, Passkey)>> {
     let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT user_id, passkey FROM passkeys WHERE passkey_id = ?",
+        "SELECT user_id, passkey FROM passkeys WHERE passkey_id = $1",
     )
     .bind(passkey_id)
     .fetch_optional(pool)

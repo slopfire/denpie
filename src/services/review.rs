@@ -1,15 +1,15 @@
 use chrono::{Duration, Utc};
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 
 use crate::{db::repositories::reviews, domain, error::AppResult, scheduling::SchedulingState};
 
 #[derive(Clone)]
 pub struct ReviewService {
-    pool: SqlitePool,
+    pool: PgPool,
 }
 
 impl ReviewService {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 

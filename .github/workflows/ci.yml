@@ -19,6 +19,22 @@ env:
 jobs:
   rust:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:19beta2-alpine
+        env:
+          POSTGRES_DB: denpie
+          POSTGRES_USER: denpie
+          POSTGRES_PASSWORD: denpie
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U denpie -d denpie"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://denpie:denpie@127.0.0.1:5432/denpie
     steps:
       - uses: actions/checkout@v4
 
@@ -34,7 +50,7 @@ jobs:
           cache-all-crates: true
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler sqlite3
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler postgresql-client
 
       - name: Check formatting
         run: cargo fmt --all --check

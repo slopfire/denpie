@@ -1,9 +1,9 @@
 use chrono::{DateTime, Utc};
-use sqlx::{Row, SqlitePool};
+use sqlx::{PgPool, Row};
 
 use crate::error::AppResult;
 
-/// Maximum characters per FTS5 chunk. Paragraph-aware splitting hard-caps here.
+/// Maximum characters per full-text-search chunk. Paragraph-aware splitting hard-caps here.
 const MAX_CHUNK_CHARS: usize = 1000;
 
 #[derive(Clone, Debug)]
@@ -19,10 +19,10 @@ pub struct DocumentRecord {
     pub created_at: DateTime<Utc>,
 }
 
-/// Insert a reusable document and its FTS5 chunks, then attach it to the
+/// Insert a reusable document and its searchable chunks, then attach it to the
 /// explicitly supplied topics.
 pub async fn insert_document(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_ids: &[i64],
     source_type: &str,
@@ -32,21 +32,21 @@ pub async fn insert_document(
 ) -> AppResult<i64> {
     let mut tx = pool.begin().await?;
 
-    let document_id = sqlx::query(
+    let document_id = sqlx::query_scalar::<_, i64>(
         "INSERT INTO user_documents (user_id, source_type, title, url, content)
-         VALUES (?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id",
     )
     .bind(user_id)
     .bind(source_type)
     .bind(title)
     .bind(url)
     .bind(content)
-    .execute(&mut *tx)
-    .await?
-    .last_insert_rowid();
+    .fetch_one(&mut *tx)
+    .await?;
 
     for topic_id in topic_ids {
-        sqlx::query("INSERT INTO document_topics (document_id, topic_id) VALUES (?, ?)")
+        sqlx::query("INSERT INTO document_topics (document_id, topic_id) VALUES ($1, $2)")
             .bind(document_id)
             .bind(topic_id)
             .execute(&mut *tx)
@@ -56,7 +56,7 @@ pub async fn insert_document(
     for chunk in chunk_text(content) {
         sqlx::query(
             "INSERT INTO document_chunks (document_id, user_id, chunk)
-             VALUES (?, ?, ?)",
+             VALUES ($1, $2, $3)",
         )
         .bind(document_id)
         .bind(user_id)
@@ -70,7 +70,7 @@ pub async fn insert_document(
 }
 
 pub async fn list_documents(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_id: Option<i64>,
 ) -> AppResult<Vec<DocumentRecord>> {
@@ -78,9 +78,9 @@ pub async fn list_documents(
         sqlx::query(
             "SELECT id, user_id, source_type, title, url, content, created_at
              FROM user_documents
-             WHERE user_id = ? AND EXISTS (
+             WHERE user_id = $1 AND EXISTS (
                  SELECT 1 FROM document_topics
-                 WHERE document_id = user_documents.id AND topic_id = ?
+                 WHERE document_id = user_documents.id AND topic_id = $2
              )
              ORDER BY created_at DESC, id DESC",
         )
@@ -92,7 +92,7 @@ pub async fn list_documents(
         sqlx::query(
             "SELECT id, user_id, source_type, title, url, content, created_at
              FROM user_documents
-             WHERE user_id = ?
+             WHERE user_id = $1
              ORDER BY created_at DESC, id DESC",
         )
         .bind(user_id)
@@ -106,8 +106,8 @@ pub async fn list_documents(
         let topic_ids = sqlx::query_scalar::<_, i64>(
             "SELECT assignments.topic_id
              FROM document_topics assignments
-             JOIN topics top ON top.id = assignments.topic_id AND top.user_id = ?
-             WHERE assignments.document_id = ?
+             JOIN topics top ON top.id = assignments.topic_id AND top.user_id = $1
+             WHERE assignments.document_id = $2
              ORDER BY assignments.topic_id",
         )
         .bind(user_id)
@@ -129,14 +129,14 @@ pub async fn list_documents(
 }
 
 pub async fn get_document_by_id(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     id: i64,
 ) -> AppResult<Option<DocumentRecord>> {
     let row = sqlx::query(
         "SELECT id, user_id, source_type, title, url, content, created_at
          FROM user_documents
-         WHERE id = ? AND user_id = ?",
+         WHERE id = $1 AND user_id = $2",
     )
     .bind(id)
     .bind(user_id)
@@ -149,8 +149,8 @@ pub async fn get_document_by_id(
     let topic_ids = sqlx::query_scalar::<_, i64>(
         "SELECT assignments.topic_id
          FROM document_topics assignments
-         JOIN topics top ON top.id = assignments.topic_id AND top.user_id = ?
-         WHERE assignments.document_id = ?
+         JOIN topics top ON top.id = assignments.topic_id AND top.user_id = $1
+         WHERE assignments.document_id = $2
          ORDER BY assignments.topic_id",
     )
     .bind(user_id)
@@ -169,12 +169,12 @@ pub async fn get_document_by_id(
     }))
 }
 
-pub async fn delete_document(pool: &SqlitePool, user_id: &str, id: i64) -> AppResult<()> {
+pub async fn delete_document(pool: &PgPool, user_id: &str, id: i64) -> AppResult<()> {
     let mut tx = pool.begin().await?;
     sqlx::query(
         "DELETE FROM document_topics
-         WHERE document_id = ? AND EXISTS (
-             SELECT 1 FROM user_documents WHERE id = ? AND user_id = ?
+         WHERE document_id = $1 AND EXISTS (
+             SELECT 1 FROM user_documents WHERE id = $2 AND user_id = $3
          )",
     )
     .bind(id)
@@ -182,12 +182,12 @@ pub async fn delete_document(pool: &SqlitePool, user_id: &str, id: i64) -> AppRe
     .bind(user_id)
     .execute(&mut *tx)
     .await?;
-    sqlx::query("DELETE FROM document_chunks WHERE document_id = ? AND user_id = ?")
+    sqlx::query("DELETE FROM document_chunks WHERE document_id = $1 AND user_id = $2")
         .bind(id)
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
-    sqlx::query("DELETE FROM user_documents WHERE id = ? AND user_id = ?")
+    sqlx::query("DELETE FROM user_documents WHERE id = $1 AND user_id = $2")
         .bind(id)
         .bind(user_id)
         .execute(&mut *tx)
@@ -197,28 +197,31 @@ pub async fn delete_document(pool: &SqlitePool, user_id: &str, id: i64) -> AppRe
 }
 
 pub async fn attach_document_topic(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     document_id: i64,
     topic_id: i64,
 ) -> AppResult<()> {
     ensure_document_and_topic_owned(pool, user_id, document_id, topic_id).await?;
-    sqlx::query("INSERT OR IGNORE INTO document_topics (document_id, topic_id) VALUES (?, ?)")
-        .bind(document_id)
-        .bind(topic_id)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO document_topics (document_id, topic_id) VALUES ($1, $2)
+         ON CONFLICT (document_id, topic_id) DO NOTHING",
+    )
+    .bind(document_id)
+    .bind(topic_id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
 pub async fn detach_document_topic(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     document_id: i64,
     topic_id: i64,
 ) -> AppResult<()> {
     ensure_document_and_topic_owned(pool, user_id, document_id, topic_id).await?;
-    sqlx::query("DELETE FROM document_topics WHERE document_id = ? AND topic_id = ?")
+    sqlx::query("DELETE FROM document_topics WHERE document_id = $1 AND topic_id = $2")
         .bind(document_id)
         .bind(topic_id)
         .execute(pool)
@@ -227,7 +230,7 @@ pub async fn detach_document_topic(
 }
 
 async fn ensure_document_and_topic_owned(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     document_id: i64,
     topic_id: i64,
@@ -236,7 +239,7 @@ async fn ensure_document_and_topic_owned(
         "SELECT COUNT(*)
          FROM user_documents docs
          JOIN topics top ON top.user_id = docs.user_id
-         WHERE docs.id = ? AND docs.user_id = ? AND top.id = ? AND top.user_id = ?",
+         WHERE docs.id = $1 AND docs.user_id = $2 AND top.id = $3 AND top.user_id = $4",
     )
     .bind(document_id)
     .bind(user_id)
@@ -252,10 +255,10 @@ async fn ensure_document_and_topic_owned(
     Ok(())
 }
 
-/// Retrieve up to `limit` matching chunks via FTS5 BM25 ranking from sources
+/// Retrieve up to `limit` matching chunks via PostgreSQL full-text ranking from sources
 /// explicitly assigned to `topic_id`.
 pub async fn retrieve_chunks(
-    pool: &SqlitePool,
+    pool: &PgPool,
     user_id: &str,
     topic_id: i64,
     query: &str,
@@ -271,14 +274,18 @@ pub async fn retrieve_chunks(
          FROM document_chunks chunks
          JOIN document_topics assignments
            ON assignments.document_id = chunks.document_id
-          AND assignments.topic_id = ?
+          AND assignments.topic_id = $1
          JOIN topics assigned_topics
-           ON assigned_topics.id = assignments.topic_id AND assigned_topics.user_id = ?
+           ON assigned_topics.id = assignments.topic_id AND assigned_topics.user_id = $2
          JOIN user_documents docs
-           ON docs.id = chunks.document_id AND docs.user_id = ?
-         WHERE chunks.user_id = ? AND document_chunks MATCH ?
-         ORDER BY rank
-         LIMIT ?",
+           ON docs.id = chunks.document_id AND docs.user_id = $3
+         WHERE chunks.user_id = $4
+           AND to_tsvector('simple', chunks.chunk) @@ websearch_to_tsquery('simple', $5)
+         ORDER BY ts_rank_cd(
+             to_tsvector('simple', chunks.chunk),
+             websearch_to_tsquery('simple', $5)
+         ) DESC
+         LIMIT $6",
     )
     .bind(topic_id)
     .bind(user_id)
@@ -322,8 +329,8 @@ fn chunk_text(content: &str) -> Vec<String> {
     chunks
 }
 
-/// Sanitize a free-text query for FTS5: lowercase, keep alphanumerics, drop FTS5
-/// operators, OR-join the remaining terms. Empty when no usable terms remain.
+/// Sanitize a free-text query for `websearch_to_tsquery`: lowercase, keep
+/// alphanumerics, and OR-join the remaining terms. Empty when no usable terms remain.
 fn sanitize_fts_query(query: &str) -> String {
     let terms: Vec<String> = query
         .to_lowercase()

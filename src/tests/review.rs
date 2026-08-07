@@ -155,14 +155,13 @@ async fn explicit_repeatable_load_rotates_pending_card_at_active_limit() {
     .unwrap();
     let db = setup_db().await;
     let state = make_state(db, settings_path);
-    let topic_id = sqlx::query(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES (?, 'loaded deck', 'repeatable_tip')",
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ($1, 'loaded deck', 'repeatable_tip') RETURNING id",
     )
     .bind(TEST_USER_ID)
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
+    .unwrap();
     let current_id = crate::db::repositories::tipcards::create_generated_with_status(
         &state.db,
         TEST_USER_ID,
@@ -205,13 +204,13 @@ async fn explicit_repeatable_load_rotates_pending_card_at_active_limit() {
     assert_eq!(result.refreshed_cards, 1);
 
     let current_status: String =
-        sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = ?")
+        sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = $1")
             .bind(current_id)
             .fetch_one(&state.db)
             .await
             .unwrap();
     let pending_status: String =
-        sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = ?")
+        sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = $1")
             .bind(pending_id)
             .fetch_one(&state.db)
             .await
@@ -249,13 +248,13 @@ async fn test_daily_refresh_keeps_current_card_and_exclude_promotes_pending_card
     assert_eq!(first.len(), 1);
     let first_id = first[0].id;
 
-    sqlx::query("UPDATE tipcards SET created_at = '2000-01-01 00:00:00' WHERE id = ?")
+    sqlx::query("UPDATE tipcards SET created_at = '2000-01-01 00:00:00' WHERE id = $1")
         .bind(first_id)
         .execute(&state.db)
         .await
         .unwrap();
     sqlx::query(
-        "UPDATE review_states SET next_review_at = '2999-01-01 00:00:00' WHERE card_id = ?",
+        "UPDATE review_states SET next_review_at = '2999-01-01 00:00:00' WHERE card_id = $1",
     )
     .bind(first_id)
     .execute(&state.db)
@@ -356,29 +355,27 @@ async fn test_repeatable_review_uses_srs_schedule() {
     let db = setup_db().await;
     let state = make_state(db, settings_path);
 
-    let topic_id = sqlx::query(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', ?, ?)",
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', $1, $2) RETURNING id",
     )
     .bind("spanish")
     .bind("repeatable_tip")
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
-    let card_id = sqlx::query(
-        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', ?, ?, ?, ?, ?)",
+    .unwrap();
+    let card_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', $1, $2, $3, $4, $5) RETURNING id",
     )
     .bind(topic_id)
     .bind("repeatable_tip")
     .bind("known")
     .bind("Full known")
     .bind("Compressed known")
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
+    .unwrap();
     sqlx::query(
-        "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, ?, ?, 'active', ?)",
+        "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES ($1, $2, $3, 'active', $4)",
     )
     .bind(card_id)
     .bind("sm2")
@@ -418,7 +415,7 @@ async fn test_repeatable_review_uses_srs_schedule() {
             chrono::DateTime<chrono::Utc>,
         ),
     >(
-            "SELECT status, state_data, feedback, reviewed_at, next_review_at FROM review_states WHERE card_id = ?",
+            "SELECT status, state_data, feedback, reviewed_at, next_review_at FROM review_states WHERE card_id = $1",
         )
         .bind(card_id)
         .fetch_one(&state.db)
@@ -433,7 +430,7 @@ async fn test_repeatable_review_uses_srs_schedule() {
     assert!(reviewed_at.is_some());
     assert!(next_review_at > before);
     let stacked_status: String =
-        sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = ?")
+        sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = $1")
             .bind(stacked_pending_id)
             .fetch_one(&state.db)
             .await
@@ -490,7 +487,7 @@ async fn test_repeatable_review_uses_srs_schedule() {
         .await
         .unwrap();
     let (status, feedback) = sqlx::query_as::<_, (String, String)>(
-        "SELECT status, feedback FROM review_states WHERE card_id = ?",
+        "SELECT status, feedback FROM review_states WHERE card_id = $1",
     )
     .bind(card_id)
     .fetch_one(&state.db)
@@ -499,7 +496,7 @@ async fn test_repeatable_review_uses_srs_schedule() {
     assert_eq!(status, "dismissed");
     assert_eq!(feedback, "too_difficult");
     let (status, feedback) = sqlx::query_as::<_, (String, String)>(
-        "SELECT status, feedback FROM review_states WHERE card_id = ?",
+        "SELECT status, feedback FROM review_states WHERE card_id = $1",
     )
     .bind(stale_pending_id)
     .fetch_one(&state.db)
@@ -508,7 +505,7 @@ async fn test_repeatable_review_uses_srs_schedule() {
     assert_eq!(status, "dismissed");
     assert_eq!(feedback, "superseded");
     let (status, feedback) = sqlx::query_as::<_, (String, String)>(
-        "SELECT status, feedback FROM review_states WHERE card_id = ?",
+        "SELECT status, feedback FROM review_states WHERE card_id = $1",
     )
     .bind(stale_active_id)
     .fetch_one(&state.db)
@@ -584,29 +581,27 @@ async fn test_casual_acknowledge_uses_srs_schedule() {
     let db = setup_db().await;
     let state = make_state(db, settings_path);
 
-    let topic_id = sqlx::query(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', ?, ?)",
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', $1, $2) RETURNING id",
     )
     .bind("rust")
     .bind("casual_tip")
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
-    let card_id = sqlx::query(
-        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', ?, ?, ?, ?, ?)",
+    .unwrap();
+    let card_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', $1, $2, $3, $4, $5) RETURNING id",
     )
     .bind(topic_id)
     .bind("casual_tip")
     .bind("known")
     .bind("Full known")
     .bind("Compressed known")
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
+    .unwrap();
     sqlx::query(
-        "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES (?, ?, ?, 'active', ?)",
+        "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at) VALUES ($1, $2, $3, 'active', $4)",
     )
     .bind(card_id)
     .bind("sm2")
@@ -623,7 +618,7 @@ async fn test_casual_acknowledge_uses_srs_schedule() {
 
     let (status, state_data, next_review_at) =
         sqlx::query_as::<_, (String, String, chrono::DateTime<chrono::Utc>)>(
-            "SELECT status, state_data, next_review_at FROM review_states WHERE card_id = ?",
+            "SELECT status, state_data, next_review_at FROM review_states WHERE card_id = $1",
         )
         .bind(card_id)
         .fetch_one(&state.db)
@@ -645,15 +640,14 @@ async fn test_repeatable_due_selection_prefers_known_cards() {
     let db = setup_db().await;
     let state = make_state(db, settings_path);
 
-    let topic_id = sqlx::query(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', ?, ?)",
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', $1, $2) RETURNING id",
     )
     .bind("spanish")
     .bind("repeatable_tip")
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await
-    .unwrap()
-    .last_insert_rowid();
+    .unwrap();
 
     let now = chrono::Utc::now();
     let mut card_ids = Vec::new();
@@ -664,20 +658,19 @@ async fn test_repeatable_due_selection_prefers_known_cards() {
         ("new three", 0_u32, now - chrono::Duration::minutes(15)),
         ("new four", 0_u32, now - chrono::Duration::minutes(10)),
     ] {
-        let card_id = sqlx::query(
-            "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', ?, ?, ?, ?, ?)",
+        let card_id = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content) VALUES ('usr_test_admin', $1, $2, $3, $4, $5) RETURNING id",
         )
         .bind(topic_id)
         .bind("repeatable_tip")
         .bind(label)
         .bind(format!("Full {label}"))
         .bind(format!("Compressed {label}"))
-        .execute(&state.db)
+        .fetch_one(&state.db)
         .await
-        .unwrap()
-        .last_insert_rowid();
+        .unwrap();
         sqlx::query(
-            "INSERT INTO review_states (card_id, algorithm_used, state_data, repeats, status, next_review_at) VALUES (?, ?, ?, ?, 'active', ?)",
+            "INSERT INTO review_states (card_id, algorithm_used, state_data, repeats, status, next_review_at) VALUES ($1, $2, $3, $4, 'active', $5)",
         )
         .bind(card_id)
         .bind("repeatable")
@@ -799,7 +792,7 @@ async fn test_repeatable_load_creates_one_active_card_and_pending_deck() {
             SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END)
          FROM review_states r
          JOIN tipcards t ON t.id = r.card_id
-         WHERE t.user_id = ? AND t.tipcard_type = 'repeatable_tip'",
+         WHERE t.user_id = $1 AND t.tipcard_type = 'repeatable_tip'",
     )
     .bind(TEST_USER_ID)
     .fetch_one(&state.db)

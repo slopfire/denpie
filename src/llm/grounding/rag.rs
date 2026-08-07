@@ -1,5 +1,5 @@
 //! RAG grounding: generate a card using ONLY user-provided document chunks that
-//! the service pre-retrieved (FTS5 keyword retrieval).
+//! the service pre-retrieved (PostgreSQL full-text retrieval).
 
 use crate::llm::cards::ARRAY_FORMAT_INSTRUCTIONS;
 use crate::llm::transport::create_chat_completion;
