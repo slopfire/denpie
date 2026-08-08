@@ -66,6 +66,15 @@ ui-check:
   cd frontend && env -u NO_COLOR trunk build --release
   sh scripts/agent-server.sh --oneshot --keep-data
 
+# Browser UI verification through the isolated :3027 agent server.
+playwright:
+  bun run test:ui
+
+# Install the repo-local Playwright runner and its Chromium binary.
+playwright-install:
+  bun install
+  PLAYWRIGHT_BROWSERS_PATH=0 bunx playwright install chromium
+
 # Full gate including release frontend build (CI-shaped).
 ci:
   cargo fmt --all --check
@@ -84,4 +93,4 @@ bench:
   sh benches/run_bench.sh
 
 clean-dev:
-  rm -rf frontend/dist frontend/.trunk frontend/.dev-build-stamp .agent-data
+  rm -rf frontend/dist frontend/.trunk frontend/.dev-build-stamp .agent-data test-results playwright-report blob-report

@@ -21,6 +21,10 @@ tipcard-images/
 frontend/dist/
 frontend/.trunk/
 frontend/.dev-build-stamp
+node_modules/
+test-results/
+playwright-report/
+blob-report/
 benches/results/*.json
 benches/results/*.txt
 benches/results/baseline.md

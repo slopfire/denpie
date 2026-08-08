@@ -62,6 +62,8 @@ just quick            # fmt check + compile (default while editing)
 just test-one <filter>  # targeted tests
 just verify           # one full gate: fmt + clippy + tests
 just agent-server     # isolated :3027 runtime, test login, smoke
+just playwright-install # install local Playwright + Chromium (once per clone)
+just playwright       # headless Chromium UI smoke against isolated :3027
 just ui-check         # frontend release build + agent oneshot smoke
 just ci               # verify + release frontend build
 ```
