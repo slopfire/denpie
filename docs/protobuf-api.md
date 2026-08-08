@@ -53,6 +53,8 @@ ApiRequest {
 | `list_documents` | `documents` | Owned sources + `topic_ids` |
 | `delete_document` | `ok` | Remove a source |
 | `attach_document_topic` / `detach_document_topic` | `ok` | Add/remove one topic assignment without deleting the source |
+
+File uploads via `POST /app/documents/upload` are converted to Markdown with [anydoc](https://crates.io/crates/anydoc) (PDF, Word, PowerPoint, Excel, OpenDocument, RTF, EPUB, CSV). HTML is stripped to text; plain text is stored as-is. Scanned/image-only PDFs are not OCR'd.
 | `add_pool_image` / `list_pool_images` / `delete_pool_image` | ok / `pool_images` / `ok` | Local image pool |
 
 `get_settings` / `update_settings` expose `search_provider` (`tavily` or `firecrawl`) and

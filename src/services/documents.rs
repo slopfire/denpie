@@ -12,6 +12,7 @@ use crate::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rand::{Rng, distributions::Alphanumeric};
 use std::collections::HashSet;
+use std::path::Path;
 use url::Url;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -146,7 +147,7 @@ impl DocumentService {
 
     /// Add a document from an uploaded file. Detects the type from the MIME
     /// type / filename and extracts text accordingly:
-    /// - PDF: decode + `pdf_extract::extract_text_from_mem`
+    /// - Office / PDF / EPUB / CSV: [anydoc](https://crates.io/crates/anydoc) → Markdown
     /// - HTML: decode + `strip_html`
     /// - Plain text: decode as UTF-8
     pub async fn upload_document(
@@ -602,40 +603,99 @@ fn title_from_filename(filename: &str) -> String {
 }
 
 /// Extract text from uploaded file bytes based on MIME type or file extension.
+///
+/// Priority:
+/// 1. HTML → lightweight tag strip (anydoc does not cover HTML)
+/// 2. anydoc for office docs, PDF, EPUB, CSV (content signature, then extension)
+/// 3. plain text for text-like MIME / extensions when anydoc cannot convert
 fn extract_text_from_file(mime_type: &str, filename: &str, data: &[u8]) -> AppResult<String> {
     let lower_mime = mime_type.to_lowercase();
     let lower_name = filename.to_lowercase();
 
-    let is_pdf = lower_mime == "application/pdf" || lower_name.ends_with(".pdf");
     let is_html = lower_mime.contains("html")
         || lower_name.ends_with(".html")
         || lower_name.ends_with(".htm");
 
-    if is_pdf {
-        extract_pdf_text(data)
-    } else if is_html {
+    if is_html {
         let text = String::from_utf8_lossy(data).to_string();
-        Ok(strip_html(&text))
-    } else {
-        // Treat everything else as plain text.
-        Ok(String::from_utf8_lossy(data).to_string())
+        return Ok(strip_html(&text));
     }
+
+    // Content signature first (handles mislabeled files); extension fallback
+    // is required for signature-less formats such as CSV.
+    let format = anydoc::Format::from_bytes(data).or_else(|| {
+        Path::new(&lower_name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .and_then(anydoc::Format::from_extension)
+    });
+
+    if let Some(fmt) = format {
+        return extract_with_anydoc(data, Some(fmt));
+    }
+
+    if is_plain_text_like(&lower_mime, &lower_name) {
+        return Ok(String::from_utf8_lossy(data).to_string());
+    }
+
+    Err(AppError::Validation(format!(
+        "Unsupported file type for '{filename}'. Supported: PDF, Word, PowerPoint, Excel, OpenDocument, RTF, EPUB, CSV, HTML, and plain text."
+    )))
 }
 
-/// Extract text from PDF bytes using `pdf_extract`.
-fn extract_pdf_text(data: &[u8]) -> AppResult<String> {
-    pdf_extract::extract_text_from_mem(data)
-        .map(|output| {
-            // Normalize: collapse excessive blank lines but preserve structure.
-            output
-                .lines()
-                .map(|l| l.trim())
-                .collect::<Vec<_>>()
-                .join("\n")
-                .trim()
-                .to_string()
-        })
-        .map_err(|e| AppError::Validation(format!("Failed to extract PDF text: {e}")))
+/// Convert office / PDF / spreadsheet / etc. bytes to Markdown via anydoc.
+fn extract_with_anydoc(data: &[u8], format: Option<anydoc::Format>) -> AppResult<String> {
+    anydoc::to_markdown_bytes(data, format)
+        .map(|markdown| normalize_extracted_text(&markdown))
+        .map_err(map_anydoc_error)
+}
+
+fn map_anydoc_error(err: anydoc::ConvertError) -> AppError {
+    use anydoc::ConvertError;
+    let message = match &err {
+        ConvertError::Encrypted => "Document is encrypted or password-protected".to_string(),
+        ConvertError::Unsupported(what) => {
+            format!("Unsupported document format: {what}")
+        }
+        ConvertError::Malformed { .. }
+        | ConvertError::MissingPart { .. }
+        | ConvertError::ResourceLimit { .. }
+        | ConvertError::Io(_) => format!("Failed to parse document: {err}"),
+        // ConvertError is #[non_exhaustive]; keep Display mapping for future variants.
+        _ => format!("Failed to parse document: {err}"),
+    };
+    AppError::Validation(message)
+}
+
+fn normalize_extracted_text(text: &str) -> String {
+    text.lines()
+        .map(|l| l.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+fn is_plain_text_like(lower_mime: &str, lower_name: &str) -> bool {
+    lower_mime.starts_with("text/")
+        || lower_mime == "application/json"
+        || lower_mime == "application/xml"
+        || lower_mime == "application/javascript"
+        || lower_name.ends_with(".txt")
+        || lower_name.ends_with(".md")
+        || lower_name.ends_with(".markdown")
+        || lower_name.ends_with(".json")
+        || lower_name.ends_with(".xml")
+        || lower_name.ends_with(".csv")
+        || lower_name.ends_with(".log")
+        || lower_name.ends_with(".yml")
+        || lower_name.ends_with(".yaml")
+        || lower_name.ends_with(".toml")
+        || lower_name.ends_with(".rs")
+        || lower_name.ends_with(".py")
+        || lower_name.ends_with(".js")
+        || lower_name.ends_with(".ts")
+        || lower_name.ends_with(".css")
 }
 
 /// Fetch a link's body text according to `scrape_provider`.
@@ -1060,8 +1120,9 @@ fn normalize_whitespace(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        clean_generated_title, extract_navigation_links, fallback_document_title,
-        firecrawl_scrape_base_url, firecrawl_scrape_body, preferred_vision_model, strip_html,
+        clean_generated_title, extract_navigation_links, extract_text_from_file,
+        fallback_document_title, firecrawl_scrape_base_url, firecrawl_scrape_body,
+        preferred_vision_model, strip_html,
     };
     use url::Url;
 
@@ -1146,6 +1207,55 @@ mod tests {
     fn strip_html_drops_tags() {
         assert_eq!(strip_html("<p>hello <b>world</b></p>"), "hello world");
         assert_eq!(strip_html("plain text"), "plain text");
+    }
+
+    #[test]
+    fn extract_plain_text_and_html() {
+        let plain = extract_text_from_file("text/plain", "notes.txt", b"hello world").unwrap();
+        assert_eq!(plain, "hello world");
+
+        let html = extract_text_from_file(
+            "text/html",
+            "page.html",
+            b"<html><body><p>Hello <b>world</b></p></body></html>",
+        )
+        .unwrap();
+        assert!(html.contains("Hello world"), "got: {html}");
+    }
+
+    #[test]
+    fn extract_csv_via_anydoc() {
+        let csv = b"name,age\nAda,36\nGrace,42\n";
+        let markdown =
+            extract_text_from_file("text/csv", "people.csv", csv).expect("csv should convert");
+        assert!(
+            markdown.contains("Ada") && markdown.contains("Grace"),
+            "got: {markdown}"
+        );
+    }
+
+    #[test]
+    fn extract_rtf_via_anydoc() {
+        // Minimal valid RTF with plain text content.
+        let rtf = br"{\rtf1\ansi Hello from RTF}";
+        let markdown =
+            extract_text_from_file("application/rtf", "note.rtf", rtf).expect("rtf should convert");
+        assert!(markdown.to_lowercase().contains("hello"), "got: {markdown}");
+    }
+
+    #[test]
+    fn extract_rejects_unknown_binary() {
+        let err = extract_text_from_file(
+            "application/octet-stream",
+            "blob.bin",
+            &[0x00, 0x01, 0x02, 0xFF],
+        )
+        .unwrap_err();
+        let msg = err.message();
+        assert!(
+            msg.contains("Unsupported") || msg.contains("unsupported"),
+            "got: {msg}"
+        );
     }
 
     #[test]

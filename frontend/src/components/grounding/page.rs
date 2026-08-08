@@ -1200,12 +1200,12 @@ pub fn grounding() -> Html {
                         <div class="border-t border-token pt-4 space-y-3">
                             <div>
                                 <label class="text-sm font-medium">{"Upload File"}</label>
-                                <p class="text-xs text-muted">{"PDF, HTML, or text files. Text is extracted server-side and indexed for retrieval."}</p>
+                                <p class="text-xs text-muted">{"PDF, Word, PowerPoint, Excel, OpenDocument, RTF, EPUB, CSV, HTML, or text. Converted to Markdown server-side for retrieval."}</p>
                             </div>
                             <div class="flex items-center gap-3">
                                 <input
                                     type="file"
-                                    accept=".pdf,.html,.htm,.txt,text/plain,text/html,application/pdf"
+                                    accept=".pdf,.doc,.docx,.docm,.ppt,.pptx,.pptm,.pps,.ppsx,.xls,.xlsx,.xlsm,.xlsb,.odt,.ods,.odp,.rtf,.epub,.csv,.html,.htm,.txt,.md,text/plain,text/html,text/csv,text/markdown,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/rtf,application/epub+zip"
                                     class="hidden"
                                     ref={doc_file_input_ref}
                                     onchange={on_doc_file_selected}

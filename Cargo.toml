@@ -35,7 +35,7 @@ uuid = { version = "1.10", features = ["v5", "serde"] }
 tower_governor = { version = "0.4.2", features = ["axum"] }
 libcaesium = "0.20.3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
-pdf-extract = "0.10"
+anydoc = "0.1"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
