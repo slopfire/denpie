@@ -871,12 +871,109 @@ pub fn unified_flow() -> Html {
             id="view-flow"
             class={classes!(disable_flow_glass.then_some("flow-many-cards"))}
         >
-            <div class="mb-4">
-                <h1 class="text-xl font-semibold tracking-tight">{"Transmission"}</h1>
-                <p class="text-muted mt-2">{"All cards in one review surface."}</p>
-            </div>
-            <div class="flow-toolbar mb-4 flex flex-col items-end gap-3">
-                <form id="tips-form" onsubmit={on_submit} class="surface border rounded-md p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 w-full sm:w-auto sm:max-w-fit">
+            <div class="flow-toolbar mb-4 flex flex-col gap-3">
+                <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+                    <div class="min-w-0">
+                        <h1 class="text-xl font-semibold tracking-tight">{"Transmission"}</h1>
+                        <p class="text-muted mt-2">{"All cards in one review surface."}</p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 shrink-0">
+                        <div class="flex muted-surface rounded-md p-1 border border-token" role="group" aria-label="Sort cards">
+                            <button
+                                type="button"
+                                class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "topic").then_some("bg-primary-soft text-primary"))}
+                                aria-pressed={(*sort_by == "topic").to_string()}
+                                onclick={Callback::from({
+                                    let sort_by = sort_by.clone();
+                                    move |_| {
+                                        let _ = LocalStorage::set("denpie-flow-sort", "topic");
+                                        sort_by.set("topic".to_string());
+                                    }
+                                })}
+                            >
+                                {"Topic"}
+                            </button>
+                            <button
+                                type="button"
+                                class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "date").then_some("bg-primary-soft text-primary"))}
+                                aria-pressed={(*sort_by == "date").to_string()}
+                                onclick={Callback::from({
+                                    let sort_by = sort_by.clone();
+                                    move |_| {
+                                        let _ = LocalStorage::set("denpie-flow-sort", "date");
+                                        sort_by.set("date".to_string());
+                                    }
+                                })}
+                            >
+                                {"Date"}
+                            </button>
+                        </div>
+                        <div class="relative z-40 flex muted-surface rounded-md p-1 border border-token">
+                            <div class="relative flex">
+                                <button
+                                    id="flow-grid-btn"
+                                    type="button"
+                                    class={classes!("rounded", "px-2", "py-1", (!list_mode).then_some("bg-primary-soft text-primary"))}
+                                    aria-label={i18n.t("flow.grid_layout")}
+                                    aria-haspopup="menu"
+                                    aria-expanded={grid_columns_open.to_string()}
+                                    onclick={Callback::from({
+                                        let layout = layout.clone();
+                                        let grid_columns_open = grid_columns_open.clone();
+                                        move |_| {
+                                            let _ = LocalStorage::set("denpie-flow-layout", "grid");
+                                            layout.set("grid".to_string());
+                                            grid_columns_open.set(!*grid_columns_open);
+                                        }
+                                    })}
+                                >
+                                    <iconify-icon icon="radix-icons:grid" class="radix-icon"></iconify-icon>
+                                </button>
+                                if *grid_columns_open {
+                                    <div
+                                        role="menu"
+                                        aria-label={i18n.t("flow.grid_columns")}
+                                        class="shadcn-dropdown-menu opens-down grid grid-cols-4 gap-1"
+                                        style="width: auto; min-width: max-content; padding: 0.375rem; right: 0; left: auto;"
+                                    >
+                                        {
+                                            for (1..=4).map(|columns| {
+                                                let grid_columns = grid_columns.clone();
+                                                let grid_columns_open = grid_columns_open.clone();
+                                                html! {
+                                                    <button
+                                                        type="button"
+                                                        role="menuitemradio"
+                                                        aria-checked={(*grid_columns == columns).to_string()}
+                                                        aria-label={i18n.tf("flow.column_count", &[("count", columns.to_string())])}
+                                                        class={classes!(
+                                                            "size-8",
+                                                            "rounded",
+                                                            "text-sm",
+                                                            "font-medium",
+                                                            (*grid_columns == columns).then_some("bg-primary-soft text-primary"),
+                                                        )}
+                                                        onclick={Callback::from(move |_| {
+                                                            let _ = LocalStorage::set(FLOW_GRID_COLUMNS_KEY, columns);
+                                                            grid_columns.set(columns);
+                                                            grid_columns_open.set(false);
+                                                        })}
+                                                    >
+                                                        {columns}
+                                                    </button>
+                                                }
+                                            })
+                                        }
+                                    </div>
+                                }
+                            </div>
+                            <button id="flow-list-btn" type="button" class={classes!("rounded", "px-2", "py-1", list_mode.then_some("bg-primary-soft text-primary"))} onclick={Callback::from({ let layout = layout.clone(); let grid_columns_open = grid_columns_open.clone(); move |_| { let _ = LocalStorage::set("denpie-flow-layout", "list"); layout.set("list".to_string()); grid_columns_open.set(false); } })}>
+                                <iconify-icon icon="radix-icons:list-bullet" class="radix-icon"></iconify-icon>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <form id="tips-form" onsubmit={on_submit} class="surface border rounded-md p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 w-full">
                     <input
                         id="tips-topics"
                         class="rounded-md border px-3 py-2 xl:col-span-2"
@@ -955,101 +1052,6 @@ pub fn unified_flow() -> Html {
                         </div>
                     }
                 </form>
-                <div class="flex flex-wrap items-center justify-end gap-2">
-                    <div class="flex muted-surface rounded-md p-1 border border-token" role="group" aria-label="Sort cards">
-                        <button
-                            type="button"
-                            class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "topic").then_some("bg-primary-soft text-primary"))}
-                            aria-pressed={(*sort_by == "topic").to_string()}
-                            onclick={Callback::from({
-                                let sort_by = sort_by.clone();
-                                move |_| {
-                                    let _ = LocalStorage::set("denpie-flow-sort", "topic");
-                                    sort_by.set("topic".to_string());
-                                }
-                            })}
-                        >
-                            {"Topic"}
-                        </button>
-                        <button
-                            type="button"
-                            class={classes!("rounded", "px-2", "py-1", "text-sm", "font-medium", (*sort_by == "date").then_some("bg-primary-soft text-primary"))}
-                            aria-pressed={(*sort_by == "date").to_string()}
-                            onclick={Callback::from({
-                                let sort_by = sort_by.clone();
-                                move |_| {
-                                    let _ = LocalStorage::set("denpie-flow-sort", "date");
-                                    sort_by.set("date".to_string());
-                                }
-                            })}
-                        >
-                            {"Date"}
-                        </button>
-                    </div>
-                    <div class="relative z-40 flex muted-surface rounded-md p-1 border border-token">
-                        <div class="relative flex">
-                            <button
-                                id="flow-grid-btn"
-                                type="button"
-                                class={classes!("rounded", "px-2", "py-1", (!list_mode).then_some("bg-primary-soft text-primary"))}
-                                aria-label={i18n.t("flow.grid_layout")}
-                                aria-haspopup="menu"
-                                aria-expanded={grid_columns_open.to_string()}
-                                onclick={Callback::from({
-                                    let layout = layout.clone();
-                                    let grid_columns_open = grid_columns_open.clone();
-                                    move |_| {
-                                        let _ = LocalStorage::set("denpie-flow-layout", "grid");
-                                        layout.set("grid".to_string());
-                                        grid_columns_open.set(!*grid_columns_open);
-                                    }
-                                })}
-                            >
-                                <iconify-icon icon="radix-icons:grid" class="radix-icon"></iconify-icon>
-                            </button>
-                            if *grid_columns_open {
-                                <div
-                                    role="menu"
-                                    aria-label={i18n.t("flow.grid_columns")}
-                                    class="shadcn-dropdown-menu opens-down grid grid-cols-4 gap-1"
-                                    style="width: auto; min-width: max-content; padding: 0.375rem; right: 0; left: auto;"
-                                >
-                                    {
-                                        for (1..=4).map(|columns| {
-                                            let grid_columns = grid_columns.clone();
-                                            let grid_columns_open = grid_columns_open.clone();
-                                            html! {
-                                                <button
-                                                    type="button"
-                                                    role="menuitemradio"
-                                                    aria-checked={(*grid_columns == columns).to_string()}
-                                                    aria-label={i18n.tf("flow.column_count", &[("count", columns.to_string())])}
-                                                    class={classes!(
-                                                        "size-8",
-                                                        "rounded",
-                                                        "text-sm",
-                                                        "font-medium",
-                                                        (*grid_columns == columns).then_some("bg-primary-soft text-primary"),
-                                                    )}
-                                                    onclick={Callback::from(move |_| {
-                                                        let _ = LocalStorage::set(FLOW_GRID_COLUMNS_KEY, columns);
-                                                        grid_columns.set(columns);
-                                                        grid_columns_open.set(false);
-                                                    })}
-                                                >
-                                                    {columns}
-                                                </button>
-                                            }
-                                        })
-                                    }
-                                </div>
-                            }
-                        </div>
-                        <button id="flow-list-btn" type="button" class={classes!("rounded", "px-2", "py-1", list_mode.then_some("bg-primary-soft text-primary"))} onclick={Callback::from({ let layout = layout.clone(); let grid_columns_open = grid_columns_open.clone(); move |_| { let _ = LocalStorage::set("denpie-flow-layout", "list"); layout.set("list".to_string()); grid_columns_open.set(false); } })}>
-                            <iconify-icon icon="radix-icons:list-bullet" class="radix-icon"></iconify-icon>
-                        </button>
-                    </div>
-                </div>
             </div>
 
             if !pinned_cards.is_empty() {

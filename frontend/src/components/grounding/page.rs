@@ -1074,7 +1074,9 @@ pub fn grounding() -> Html {
                     <p class="text-sm text-muted">{"Documents and images used for grounding and card illustration."}</p>
                 </div>
 
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                <GroundingSettings />
+
+                <div class="space-y-6">
                     <div class="hidden" aria-hidden="true">
                         <div>
                             <h3 class="text-lg font-semibold flex items-center gap-2">
@@ -1474,8 +1476,6 @@ pub fn grounding() -> Html {
                     </div>
                 </div>
             </div>
-
-            <GroundingSettings />
 
             { if *pool_expanded {
                 html! {

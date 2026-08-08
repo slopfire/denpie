@@ -1017,7 +1017,7 @@ pub fn settings() -> Html {
                 </div>
                 <div>
                     <label class="block card-kicker mb-2">{"Prompt Template"}</label>
-                    <textarea id="template-input" oninput={on_textarea("template")} value={s.template.clone()} class="w-full rounded-md border px-3 py-2 h-20 resize-y"></textarea>
+                    <textarea id="template-input" oninput={on_textarea("template")} value={s.template.clone()} class="w-full rounded-md border px-3 py-3 min-h-72 resize-y font-mono text-sm leading-relaxed" rows={12}></textarea>
                 </div>
                 <div>
                     <label class="block card-kicker mb-2">{"LLM API Key"}</label>

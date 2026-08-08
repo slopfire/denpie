@@ -453,13 +453,13 @@
                 --tertiary: hsl(var(--chart-3));
                 --danger: hsl(var(--destructive-hsl));
                 --ok: hsl(var(--chart-2));
-                --glass-blur: 10px;
-                --glass-card-alpha: 0.58;
-                --glass-muted-alpha: 0.5;
-                --glass-strong-alpha: 0.56;
-                --glass-control-alpha: 0.72;
+                --glass-blur: 12px;
+                --glass-card-alpha: 0.82;
+                --glass-muted-alpha: 0.78;
+                --glass-strong-alpha: 0.8;
+                --glass-control-alpha: 0.9;
                 --glass-primary-alpha: 1;
-                --glass-popover-alpha: 0.62;
+                --glass-popover-alpha: 0.88;
                 --glass-panel-radius: 1rem;
                 --glass-control-radius: 0.8rem;
             }
@@ -470,7 +470,7 @@
                 --glass-blur: 4px;
             }
             [data-theme][data-blur-intensity="medium"] {
-                --glass-blur: 10px;
+                --glass-blur: 12px;
             }
             [data-theme][data-blur-intensity="full"] {
                 --glass-blur: 18px;
@@ -484,28 +484,28 @@
                 --glass-popover-alpha: 0.94;
             }
             [data-theme][data-transparency="low"] {
-                --glass-card-alpha: 0.72;
-                --glass-muted-alpha: 1;
-                --glass-strong-alpha: 1;
-                --glass-control-alpha: 1;
+                --glass-card-alpha: 0.88;
+                --glass-muted-alpha: 0.92;
+                --glass-strong-alpha: 0.92;
+                --glass-control-alpha: 0.96;
                 --glass-primary-alpha: 1;
-                --glass-popover-alpha: 0.82;
+                --glass-popover-alpha: 0.9;
             }
             [data-theme][data-transparency="medium"] {
-                --glass-card-alpha: 0.58;
-                --glass-muted-alpha: 0.5;
-                --glass-strong-alpha: 0.56;
-                --glass-control-alpha: 0.72;
+                --glass-card-alpha: 0.82;
+                --glass-muted-alpha: 0.78;
+                --glass-strong-alpha: 0.8;
+                --glass-control-alpha: 0.9;
                 --glass-primary-alpha: 1;
-                --glass-popover-alpha: 0.62;
+                --glass-popover-alpha: 0.88;
             }
             [data-theme][data-transparency="full"] {
-                --glass-card-alpha: 0.62;
-                --glass-muted-alpha: 0.54;
-                --glass-strong-alpha: 0.58;
-                --glass-control-alpha: 0.46;
-                --glass-primary-alpha: 0.86;
-                --glass-popover-alpha: 0.68;
+                --glass-card-alpha: 0.72;
+                --glass-muted-alpha: 0.68;
+                --glass-strong-alpha: 0.7;
+                --glass-control-alpha: 0.78;
+                --glass-primary-alpha: 0.92;
+                --glass-popover-alpha: 0.8;
             }
             * {
                 box-sizing: border-box;
@@ -577,16 +577,26 @@
                     linear-gradient(
                         90deg,
                         hsl(var(--background)) 0%,
-                        hsl(var(--background) / 0.95) 43%,
-                        hsl(var(--background) / 0.72) 67%,
-                        hsl(var(--background) / 0.4) 100%
+                        hsl(var(--background) / 0.98) 38%,
+                        hsl(var(--background) / 0.92) 58%,
+                        hsl(var(--background) / 0.84) 78%,
+                        hsl(var(--background) / 0.72) 100%
+                    ),
+                    linear-gradient(
+                        180deg,
+                        hsl(var(--background) / 0.55) 0%,
+                        hsl(var(--background) / 0.2) 28%,
+                        hsl(var(--background) / 0.15) 70%,
+                        hsl(var(--background) / 0.45) 100%
                     ),
                     url("/static/assets/app-background.webp");
                 background-repeat: no-repeat;
                 background-position:
                     center,
+                    center,
                     right center;
                 background-size:
+                    cover,
                     cover,
                     auto 100vh;
                 background-attachment: fixed;
@@ -2069,6 +2079,9 @@
             }
             textarea {
                 min-height: 5rem;
+            }
+            #template-input {
+                min-height: 18rem;
             }
             input:focus,
             textarea:focus,

@@ -333,12 +333,12 @@ pub fn archive() -> Html {
 
     html! {
         <section id="view-archive" class={classes!(disable_glass.then_some("flow-many-cards"))}>
-            <div class="archive-toolbar flex flex-col lg:flex-row lg:items-end justify-between gap-3 mb-4">
+            <div class="archive-toolbar flex flex-col gap-3 mb-4">
                 <div>
                     <h1 class="text-xl font-semibold tracking-tight">{i18n.t("archive.title")}</h1>
                     <p class="text-muted mt-2">{i18n.tf("format.archive_card_count", &[("shown", filtered.len().to_string()), ("total", cards.len().to_string())])}</p>
                 </div>
-                <div class="surface border rounded-md p-3 flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+                <div class="surface border rounded-md p-3 flex flex-col sm:flex-row gap-2 w-full">
                     <input value={(*search_input).clone()} oninput={on_search_input} class="rounded-md border px-3 py-2 flex-1 min-w-0" placeholder={i18n.t("archive.find_card")} />
                     <div class="flex flex-wrap sm:flex-nowrap items-center gap-2">
                         <ShadcnSelect

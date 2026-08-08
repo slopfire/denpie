@@ -407,8 +407,11 @@ pub fn grounding_settings() -> Html {
 
     let Some(settings) = (*settings).clone() else {
         return html! {
-            <div class="surface border rounded-md p-4 mb-4">
-                <h2 class="text-lg font-semibold">{"Grounding Settings"}</h2>
+            <div class="surface border rounded-md p-4">
+                <h2 class="text-lg font-semibold flex items-center gap-2">
+                    <iconify-icon icon="radix-icons:mixer-horizontal" class="radix-icon text-primary" aria-hidden="true"></iconify-icon>
+                    {"Grounding Settings"}
+                </h2>
                 <div class="mt-2 text-sm text-muted">
                     {if save_status.is_empty() { "Loading settings..." } else { save_status.as_str() }}
                 </div>
@@ -438,10 +441,13 @@ pub fn grounding_settings() -> Html {
     };
 
     html! {
-        <div id="grounding-settings" class="surface border rounded-md p-4 mb-4 flex flex-col gap-5">
+        <div id="grounding-settings" class="surface border rounded-md p-4 flex flex-col gap-5">
             <div class="flex items-start justify-between gap-3">
                 <div>
-                    <h2 class="text-lg font-semibold">{"Grounding Settings"}</h2>
+                    <h2 class="text-lg font-semibold flex items-center gap-2">
+                        <iconify-icon icon="radix-icons:mixer-horizontal" class="radix-icon text-primary" aria-hidden="true"></iconify-icon>
+                        {"Grounding Settings"}
+                    </h2>
                     <p class="text-sm text-muted">{"Defaults for sourcing facts and illustrating generated cards."}</p>
                 </div>
                 if !save_status.is_empty() {
