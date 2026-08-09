@@ -20,6 +20,7 @@ fn main() -> Result<()> {
         ".denpie.ApiResponse",
         "#[allow(clippy::large_enum_variant)]",
     );
+    config.boxed(".denpie.ApiV1Response.outcome.success");
     config.compile_protos(&["proto/denpie.proto"], &["proto/"])?;
     Ok(())
 }

@@ -232,3 +232,38 @@ pub async fn post_api(
         .await
         .unwrap()
 }
+
+pub async fn post_api_v1(
+    url: &str,
+    client: &reqwest::Client,
+    api_key: Option<&str>,
+    request_id: &str,
+    call: crate::api::pb::ApiRequest,
+) -> reqwest::Response {
+    post_api_v1_with_idempotency(url, client, api_key, request_id, request_id, call).await
+}
+
+pub async fn post_api_v1_with_idempotency(
+    url: &str,
+    client: &reqwest::Client,
+    api_key: Option<&str>,
+    request_id: &str,
+    idempotency_key: &str,
+    call: crate::api::pb::ApiRequest,
+) -> reqwest::Response {
+    let mut request = client
+        .post(format!("{url}/api/v1"))
+        .header("Content-Type", "application/x-protobuf")
+        .body(
+            crate::api::pb::ApiV1Request {
+                request_id: request_id.to_string(),
+                call: Some(call),
+                idempotency_key: idempotency_key.to_string(),
+            }
+            .encode_to_vec(),
+        );
+    if let Some(api_key) = api_key {
+        request = request.bearer_auth(api_key);
+    }
+    request.send().await.unwrap()
+}

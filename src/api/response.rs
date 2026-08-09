@@ -1,5 +1,5 @@
 use axum::{
-    http::header,
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
 use prost::Message;
@@ -7,9 +7,15 @@ use prost::Message;
 use super::{pb, types::TipCardJson};
 
 pub(crate) fn protobuf_response<T: Message>(msg: &T) -> Response {
+    protobuf_response_with_status(StatusCode::OK, msg)
+}
+
+pub(crate) fn protobuf_response_with_status<T: Message>(status: StatusCode, msg: &T) -> Response {
     let mut buf = bytes::BytesMut::with_capacity(msg.encoded_len());
-    msg.encode(&mut buf).unwrap();
+    msg.encode(&mut buf)
+        .expect("encoding into a growable buffer cannot fail");
     (
+        status,
         [(header::CONTENT_TYPE, "application/x-protobuf")],
         buf.freeze(),
     )

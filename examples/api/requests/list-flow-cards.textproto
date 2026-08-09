@@ -1,0 +1,6 @@
+request_id: "curl-list-flow-cards"
+call {
+  list_flow_cards {
+    page_size: 12
+  }
+}

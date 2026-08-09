@@ -1,0 +1,20 @@
+{
+  "name": "denpie-api-v1-example",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit && tsx denpie-client.ts --self-test",
+    "info": "tsx denpie-client.ts info",
+    "cards": "tsx denpie-client.ts cards",
+    "create-document": "tsx denpie-client.ts create-document"
+  },
+  "dependencies": {
+    "protobufjs": "8.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "tsx": "4.23.11",
+    "typescript": "7.0.2"
+  }
+}

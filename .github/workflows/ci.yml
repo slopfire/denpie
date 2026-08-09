@@ -92,12 +92,50 @@ jobs:
           path: frontend/dist/
           retention-days: 1
 
+  api-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: api-docs
+          cache-all-crates: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: examples/api/typescript/package-lock.json
+
+      - name: Install protobuf tooling
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler python3-protobuf
+
+      - name: Install TypeScript example dependencies
+        run: npm --prefix examples/api/typescript ci --ignore-scripts
+
+      - name: Check API documentation and examples
+        run: sh scripts/check-api-docs.sh
+
+      - name: Package API v1 schema
+        run: sh scripts/package-api-schema.sh
+
+      - name: Upload API v1 schema
+        uses: actions/upload-artifact@v4
+        with:
+          name: denpie-api-v1-schema
+          path: target/api-schema/v1/
+
   # Skip entirely when Docker Hub credentials are unavailable — no build or push
   # without an ability to publish. PR validation of the image is also skipped in
   # that case to avoid burning CI minutes on a non-actionable artifact.
   docker:
     runs-on: ubuntu-latest
-    needs: [rust, frontend]
+    needs: [rust, frontend, api-docs]
     if: >-
       github.event_name == 'push'
       && secrets.DOCKERHUB_USERNAME != ''

@@ -52,6 +52,13 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
             .finish()
             .unwrap(),
     );
+    let api_governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(10)
+            .burst_size(50)
+            .finish()
+            .unwrap(),
+    );
 
     // Keep the protected routes the same
     let protected_routes = Router::new()
@@ -184,16 +191,35 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
             config: governor_conf.clone(),
         });
 
+    let versioned_api_routes = Router::new()
+        .route(
+            "/api/v1",
+            post(api::api_v1).layer(DefaultBodyLimit::max(
+                crate::domain::tipcard::MAX_IMAGE_REQUEST_BYTES,
+            )),
+        )
+        .route("/api/v1/tipcard-images/:id", get(api::api_tipcard_image))
+        .route("/api/v1/pool-images/:id", get(api::api_pool_image))
+        .layer(GovernorLayer {
+            config: api_governor_conf,
+        });
+
     let frontend_serve = ServeDir::new(frontend_dist.clone()).fallback(
         tower_http::services::ServeFile::new(frontend_dist.join("index.html")),
     );
     Router::new()
         .merge(protected_routes)
         .merge(admin_routes)
+        .merge(versioned_api_routes)
         .nest("/auth", auth_routes)
         .nest_service("/static", ServeDir::new(static_dir))
         .route("/service-worker.js", get(service_worker))
-        .route("/api", post(api::unified_api))
+        .route(
+            "/api",
+            post(api::unified_api).layer(DefaultBodyLimit::max(
+                crate::domain::tipcard::MAX_IMAGE_REQUEST_BYTES,
+            )),
+        )
         .route("/tips", post(not_found))
         .route("/review", post(not_found))
         .route("/topics", get(not_found))

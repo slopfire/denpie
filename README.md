@@ -61,6 +61,7 @@ Transmission keeps pinned cards in a separate top section. Beneath it, topic pic
 just quick            # fmt check + compile (default while editing)
 just test-one <filter>  # targeted tests
 just verify           # one full gate: fmt + clippy + tests
+just docs-check       # generated API reference + four executable client examples
 just agent-server     # isolated :3027 runtime, test login, smoke
 just playwright-install # install local Playwright + Chromium (once per clone)
 just playwright       # headless Chromium UI smoke against isolated :3027
@@ -78,7 +79,12 @@ Grounding/image strategies log stage progress at `info`. LLM transport detail is
 
 | Need | Open |
 |---|---|
-| `POST /api` reference | [`docs/protobuf-api.md`](docs/protobuf-api.md) |
+| Recommended API v1 | [`docs/api-v1.md`](docs/api-v1.md) |
+| Complete v1 operation table | [`docs/api-v1-reference.md`](docs/api-v1-reference.md) |
+| API examples (curl, Python, TypeScript, Rust) | [`examples/api/README.md`](examples/api/README.md) |
+| API schema bundle | [`api/schema/v1/README.md`](api/schema/v1/README.md) |
+| API compatibility and changelog | [`docs/api-compatibility.md`](docs/api-compatibility.md), [`docs/api-changelog.md`](docs/api-changelog.md) |
+| `POST /api` compatibility reference | [`docs/protobuf-api.md`](docs/protobuf-api.md) |
 | Agent ops cheat sheet | [`docs/agent-server-guide.md`](docs/agent-server-guide.md) |
 | Where new code goes | [`docs/feature-integration.md`](docs/feature-integration.md) |
 

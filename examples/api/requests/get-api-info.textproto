@@ -1,0 +1,4 @@
+request_id: "curl-get-api-info"
+call {
+  get_api_info {}
+}

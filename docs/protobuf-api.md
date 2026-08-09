@@ -7,7 +7,11 @@ Base: http://127.0.0.1:3017
 Schema: proto/denpie.proto
 ```
 
-Browser at `GET /` uses the same endpoint with a session cookie. API clients use an API key.
+The browser uses session-authenticated `/app/*` and `/admin/*` routes. API
+clients use an API key. New clients should prefer the versioned envelope in
+[`api-v1.md`](api-v1.md), including its required durable idempotency keys for
+mutations; this page documents the compatibility surface. Its lifecycle is
+defined by the [API compatibility policy](api-compatibility.md).
 
 ## Auth
 
@@ -31,7 +35,7 @@ ApiRequest {
 | `bootstrap_api_key` | `api_key_created` | First key from `admin_token` |
 | `tips` | `tips` | Due cards, current daily cards, new cards after refresh, or `manual_tip` |
 | `review` | `ok` | Grade or queue action |
-| `get_settings` / `update_settings` | `settings` / `ok` | LLM, prompt, theme, appearance, autoupdate (`update` is partial) |
+| `get_settings` / `update_settings` | `settings` / `ok` | LLM, prompt, appearance, admin-only instance/autoupdate settings (`update` is partial) |
 | `force_daily_refresh` | `force_daily_refresh` | Refill selected generated-topic queues that are empty or have 1-2 pending cards; does not reschedule current cards |
 
 ## Operations — inventory
@@ -41,7 +45,7 @@ ApiRequest {
 | `create_api_key` / `list_api_keys` / `delete_api_key` | key / list / `ok` | Full-access keys; raw key never re-returned |
 | `get_topics` / `list_app_topics` / `list_admin_topics` | topics | Names, due/completed counts, prompt overrides |
 | `list_tipcards` / `delete_tipcard` / `pin_tipcard` | cards / `ok` | Inventory, delete, pin |
-| `update_topic` / `delete_topic` | `ok` | Prompt/daily/compression/icon overrides; full topic wipe |
+| `update_topic` / `delete_topic` | `ok` | Prompt/daily/compression/grounding/image overrides; full topic wipe |
 | `get_summary` | `summary` | Card/topic counts |
 | `submit_custom_tipcard` | `tips` | External `custom_tip`, no review state |
 
@@ -158,7 +162,8 @@ ApiRequest {
 
 | Surface | Auth | Notes |
 |---|---|---|
-| `POST /api` | API key or session | Stable public surface |
+| `POST /api/v1` | Bearer API key | Recommended versioned protobuf surface |
+| `POST /api` | API key | Compatibility protobuf surface |
 | `GET /` | session | Dashboard |
 | `/auth/*`, `/admin/*`, `/app/*` | session | Dashboard internals, not the key API |
 | Legacy public routes | — | `404` |

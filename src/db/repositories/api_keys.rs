@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use rand::Rng;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -10,14 +11,20 @@ pub struct ApiKeyInfo {
     pub user_id: String,
     pub client_name: String,
     pub created_at: String,
+    pub scopes: Vec<String>,
+    pub expires_at: Option<String>,
+    pub last_used_at: Option<String>,
 }
 
 #[derive(Clone, Debug)]
 pub struct VerifiedApiKey {
+    pub id: i64,
     pub user_id: String,
     pub username: String,
     pub role: String,
     pub client_name: String,
+    pub scopes: Vec<String>,
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 pub fn hash_api_key(api_key: &str) -> String {
@@ -31,11 +38,33 @@ pub async fn verify(pool: &PgPool, api_key: &str) -> AppResult<VerifiedApiKey> {
         return Err(AppError::Auth("Missing API key".to_string()));
     }
 
-    let row = sqlx::query_as::<_, (String, String, String, String)>(
-        "SELECT k.user_id, u.username, u.role, k.client_name
-         FROM api_keys k
-         JOIN users u ON u.id = k.user_id
-         WHERE k.key_hash = $1",
+    let row = sqlx::query_as::<
+        _,
+        (
+            String,
+            i64,
+            String,
+            String,
+            String,
+            Vec<String>,
+            Option<DateTime<Utc>>,
+        ),
+    >(
+        "WITH matched AS (
+             SELECT id, user_id, client_name, scopes, expires_at
+             FROM api_keys
+             WHERE key_hash = $1
+               AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+         ), touched AS (
+             UPDATE api_keys
+             SET last_used_at = CURRENT_TIMESTAMP
+             WHERE id IN (SELECT id FROM matched)
+               AND (last_used_at IS NULL OR last_used_at < CURRENT_TIMESTAMP - INTERVAL '1 minute')
+         )
+         SELECT matched.user_id, matched.id, u.username, u.role, matched.client_name, matched.scopes,
+                matched.expires_at
+         FROM matched
+         JOIN users u ON u.id = matched.user_id",
     )
     .bind(hash_api_key(api_key))
     .fetch_optional(pool)
@@ -43,9 +72,12 @@ pub async fn verify(pool: &PgPool, api_key: &str) -> AppResult<VerifiedApiKey> {
 
     row.map(|row| VerifiedApiKey {
         user_id: row.0,
-        username: row.1,
-        role: row.2,
-        client_name: row.3,
+        id: row.1,
+        username: row.2,
+        role: row.3,
+        client_name: row.4,
+        scopes: row.5,
+        expires_at: row.6,
     })
     .ok_or_else(|| AppError::Auth("Invalid API key".to_string()))
 }
@@ -54,6 +86,16 @@ pub async fn create(
     pool: &PgPool,
     user_id: &str,
     client_name: Option<String>,
+) -> AppResult<String> {
+    create_with_policy(pool, user_id, client_name, &["*".to_string()], None).await
+}
+
+pub async fn create_with_policy(
+    pool: &PgPool,
+    user_id: &str,
+    client_name: Option<String>,
+    scopes: &[String],
+    expires_at: Option<DateTime<Utc>>,
 ) -> AppResult<String> {
     let raw_key: String = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
@@ -66,19 +108,36 @@ pub async fn create(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "default_client".to_string());
 
-    sqlx::query("INSERT INTO api_keys (user_id, key_hash, client_name) VALUES ($1, $2, $3)")
-        .bind(user_id)
-        .bind(hash_api_key(&api_key))
-        .bind(client_name)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO api_keys (user_id, key_hash, client_name, scopes, expires_at)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(user_id)
+    .bind(hash_api_key(&api_key))
+    .bind(client_name)
+    .bind(scopes)
+    .bind(expires_at)
+    .execute(pool)
+    .await?;
 
     Ok(api_key)
 }
 
 pub async fn list(pool: &PgPool, user_id: &str) -> AppResult<Vec<ApiKeyInfo>> {
-    let rows = sqlx::query_as::<_, (i64, String, String, String)>(
-        "SELECT id, user_id, client_name, COALESCE(CAST(created_at AS TEXT), '')
+    let rows = sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            String,
+            String,
+            Vec<String>,
+            Option<String>,
+            Option<String>,
+        ),
+    >(
+        "SELECT id, user_id, client_name, COALESCE(CAST(created_at AS TEXT), ''), scopes,
+                CAST(expires_at AS TEXT), CAST(last_used_at AS TEXT)
          FROM api_keys
          WHERE user_id = $1
          ORDER BY created_at DESC",
@@ -94,6 +153,9 @@ pub async fn list(pool: &PgPool, user_id: &str) -> AppResult<Vec<ApiKeyInfo>> {
             user_id: row.1,
             client_name: row.2,
             created_at: row.3,
+            scopes: row.4,
+            expires_at: row.5,
+            last_used_at: row.6,
         })
         .collect())
 }

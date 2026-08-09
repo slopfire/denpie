@@ -84,30 +84,7 @@ pub async fn update_settings(
         search_base_url: req.search_base_url,
         image_sources: req.image_sources,
     };
-    if user.role == "admin"
-        && (patch.autoupdate_enabled.is_some()
-            || patch.autoupdate_repo.is_some()
-            || patch.autoupdate_branch.is_some()
-            || patch.autoupdate_check_interval_secs.is_some()
-            || patch.autoupdate_command.is_some())
-    {
-        state
-            .settings
-            .update_settings(config::SettingsPatch {
-                autoupdate_enabled: patch.autoupdate_enabled,
-                autoupdate_repo: patch.autoupdate_repo.clone(),
-                autoupdate_branch: patch.autoupdate_branch.clone(),
-                autoupdate_check_interval_secs: patch.autoupdate_check_interval_secs,
-                autoupdate_command: patch.autoupdate_command.clone(),
-                ..Default::default()
-            })
-            .map_err(|err| err.into_status_body())?;
-    }
-    let current = SettingsService::user_settings_get(&state, &user.id)
-        .await
-        .map_err(|err| err.into_status_body())?;
-    let updated = current.apply_patch(patch);
-    SettingsService::user_settings_upsert(&state, &user.id, &updated)
+    SettingsService::update_user_settings(&state, &user.id, user.role == "admin", patch)
         .await
         .map_err(|err| err.into_status_body())?;
 

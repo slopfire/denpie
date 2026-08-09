@@ -1,0 +1,365 @@
+{
+  "api_version": "v1",
+  "operations": [
+    {
+      "operation": "bootstrap_api_key",
+      "request": "BootstrapApiKeyRequest",
+      "result": "ApiKeyCreated",
+      "auth": "admin token in request",
+      "scope": "none",
+      "kind": "one-time secret mutation",
+      "summary": "Create the first API key after the first admin user exists."
+    },
+    {
+      "operation": "tips",
+      "request": "TipsQuery",
+      "result": "TipsResponse",
+      "auth": "Bearer API key",
+      "scope": "cards:write",
+      "kind": "mutation",
+      "summary": "Legacy string-valued card retrieval and generation; prefer tips_v1."
+    },
+    {
+      "operation": "review",
+      "request": "ReviewPayload",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "reviews:write",
+      "kind": "mutation",
+      "summary": "Legacy string-valued review submission; prefer review_v1."
+    },
+    {
+      "operation": "get_topics",
+      "request": "Empty",
+      "result": "GetTopicsResponse",
+      "auth": "Bearer API key",
+      "scope": "topics:read",
+      "kind": "read",
+      "summary": "List topic names owned by the API-key user."
+    },
+    {
+      "operation": "get_settings",
+      "request": "Empty",
+      "result": "Settings",
+      "auth": "Bearer API key",
+      "scope": "settings:read",
+      "kind": "read",
+      "summary": "Read user settings; credential fields additionally require secrets:read."
+    },
+    {
+      "operation": "update_settings",
+      "request": "UpdateSettingsRequest",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "settings:write",
+      "kind": "mutation",
+      "summary": "Partially update user settings using proto3 optional fields."
+    },
+    {
+      "operation": "create_api_key",
+      "request": "CreateApiKeyRequest",
+      "result": "ApiKeyCreated",
+      "auth": "Bearer API key",
+      "scope": "keys:manage",
+      "kind": "one-time secret mutation",
+      "summary": "Create an unrestricted key; only a non-expiring full-access key may call it."
+    },
+    {
+      "operation": "list_api_keys",
+      "request": "Empty",
+      "result": "ApiKeys",
+      "auth": "Bearer API key",
+      "scope": "keys:manage",
+      "kind": "read",
+      "summary": "List key metadata without returning raw key values."
+    },
+    {
+      "operation": "delete_api_key",
+      "request": "DeleteByIdRequest",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "keys:manage",
+      "kind": "mutation",
+      "summary": "Revoke an API key owned by the current user."
+    },
+    {
+      "operation": "list_admin_topics",
+      "request": "Empty",
+      "result": "AdminTopics",
+      "auth": "Bearer API key",
+      "scope": "topics:read",
+      "kind": "read",
+      "summary": "List topic configuration for administration clients."
+    },
+    {
+      "operation": "list_tipcards",
+      "request": "Empty",
+      "result": "Tipcards",
+      "auth": "Bearer API key",
+      "scope": "cards:read",
+      "kind": "read",
+      "summary": "List the user's complete tipcard inventory."
+    },
+    {
+      "operation": "delete_tipcard",
+      "request": "DeleteByIdRequest",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "cards:write",
+      "kind": "mutation",
+      "summary": "Delete a tipcard owned by the current user."
+    },
+    {
+      "operation": "get_summary",
+      "request": "Empty",
+      "result": "AppSummary",
+      "auth": "Bearer API key",
+      "scope": "cards:read",
+      "kind": "read",
+      "summary": "Return topic and card counts for the current user."
+    },
+    {
+      "operation": "list_app_topics",
+      "request": "Empty",
+      "result": "AppTopics",
+      "auth": "Bearer API key",
+      "scope": "topics:read",
+      "kind": "read",
+      "summary": "List topics with card counts and effective configuration."
+    },
+    {
+      "operation": "update_topic",
+      "request": "UpdateTopicRequest",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "topics:write",
+      "kind": "mutation",
+      "summary": "Partially update one topic's overrides."
+    },
+    {
+      "operation": "delete_topic",
+      "request": "DeleteByIdRequest",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "topics:write",
+      "kind": "mutation",
+      "summary": "Delete a topic and its owned topic data."
+    },
+    {
+      "operation": "pin_tipcard",
+      "request": "PinTipcardRequest",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "cards:write",
+      "kind": "mutation",
+      "summary": "Set or clear a tipcard's pinned state."
+    },
+    {
+      "operation": "submit_custom_tipcard",
+      "request": "CustomTipcardRequest",
+      "result": "TipsResponse",
+      "auth": "Bearer API key",
+      "scope": "cards:write",
+      "kind": "mutation",
+      "summary": "Create an external custom card without review state."
+    },
+    {
+      "operation": "force_daily_refresh",
+      "request": "ForceDailyRefreshRequest",
+      "result": "ForceDailyRefreshResponse",
+      "auth": "Bearer API key",
+      "scope": "cards:write",
+      "kind": "mutation",
+      "summary": "Refill selected generated-topic queues at their low-water mark."
+    },
+    {
+      "operation": "add_document",
+      "request": "AddDocumentRequest",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "documents:write",
+      "kind": "mutation",
+      "summary": "Legacy document creation without returning the new ID; prefer create_document."
+    },
+    {
+      "operation": "list_documents",
+      "request": "Empty",
+      "result": "Documents",
+      "auth": "Bearer API key",
+      "scope": "documents:read",
+      "kind": "read",
+      "summary": "List grounding-source metadata."
+    },
+    {
+      "operation": "delete_document",
+      "request": "DeleteByIdRequest",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "documents:write",
+      "kind": "mutation",
+      "summary": "Delete a grounding source."
+    },
+    {
+      "operation": "add_pool_image",
+      "request": "AddPoolImageRequest",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "images:write",
+      "kind": "mutation",
+      "summary": "Legacy pool-image creation without diagnostics; prefer create_pool_image."
+    },
+    {
+      "operation": "list_pool_images",
+      "request": "Empty",
+      "result": "PoolImages",
+      "auth": "Bearer API key",
+      "scope": "images:read",
+      "kind": "read",
+      "summary": "List local image-pool metadata."
+    },
+    {
+      "operation": "delete_pool_image",
+      "request": "DeleteByIdRequest",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "images:write",
+      "kind": "mutation",
+      "summary": "Delete an image from the local pool."
+    },
+    {
+      "operation": "attach_document_topic",
+      "request": "AttachDocumentTopicRequest",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "documents:write",
+      "kind": "mutation",
+      "summary": "Assign an existing document to one topic."
+    },
+    {
+      "operation": "detach_document_topic",
+      "request": "AttachDocumentTopicRequest",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "documents:write",
+      "kind": "mutation",
+      "summary": "Remove one topic assignment from an existing document."
+    },
+    {
+      "operation": "get_api_info",
+      "request": "Empty",
+      "result": "ApiInfo",
+      "auth": "none",
+      "scope": "none",
+      "kind": "read",
+      "summary": "Discover the API, server/build versions, and capabilities."
+    },
+    {
+      "operation": "list_flow_cards",
+      "request": "ListFlowCardsRequest",
+      "result": "FlowCardPage",
+      "auth": "Bearer API key",
+      "scope": "cards:read",
+      "kind": "read",
+      "summary": "Page through dashboard-ready cards using opaque cursor tokens."
+    },
+    {
+      "operation": "get_tipcard",
+      "request": "GetByIdRequest",
+      "result": "TipcardDetail",
+      "auth": "Bearer API key",
+      "scope": "cards:read",
+      "kind": "read",
+      "summary": "Get one card with content, state, visuals, and image metadata."
+    },
+    {
+      "operation": "get_document",
+      "request": "GetByIdRequest",
+      "result": "DocumentDetail",
+      "auth": "Bearer API key",
+      "scope": "documents:read",
+      "kind": "read",
+      "summary": "Get one grounding source including its stored content."
+    },
+    {
+      "operation": "continue_daily_review",
+      "request": "ContinueDailyReviewRequest",
+      "result": "ContinueDailyReviewResponse",
+      "auth": "Bearer API key",
+      "scope": "cards:write",
+      "kind": "mutation",
+      "summary": "Start another daily review set for selected topics."
+    },
+    {
+      "operation": "explore_link",
+      "request": "ExploreLinkRequest",
+      "result": "ExploredLinks",
+      "auth": "Bearer API key",
+      "scope": "documents:write",
+      "kind": "read",
+      "summary": "Discover same-origin links without storing documents."
+    },
+    {
+      "operation": "test_vision_model",
+      "request": "Empty",
+      "result": "VisionModelTest",
+      "auth": "Bearer API key",
+      "scope": "diagnostics:run",
+      "kind": "read",
+      "summary": "Test the configured vision-model connection."
+    },
+    {
+      "operation": "create_document",
+      "request": "AddDocumentRequest",
+      "result": "DocumentDetail",
+      "auth": "Bearer API key",
+      "scope": "documents:write",
+      "kind": "mutation",
+      "summary": "Create a text or link source and return the stored document and ID."
+    },
+    {
+      "operation": "upload_document",
+      "request": "UploadDocumentRequest",
+      "result": "DocumentDetail",
+      "auth": "Bearer API key",
+      "scope": "documents:write",
+      "kind": "mutation",
+      "summary": "Upload a supported file, convert it to Markdown, and return the document."
+    },
+    {
+      "operation": "create_pool_image",
+      "request": "AddPoolImageRequest",
+      "result": "PoolImageCreated",
+      "auth": "Bearer API key",
+      "scope": "images:write",
+      "kind": "mutation",
+      "summary": "Create and annotate a pool image and return its ID and diagnostics."
+    },
+    {
+      "operation": "tips_v1",
+      "request": "TipsRequestV1",
+      "result": "TipsResponse",
+      "auth": "Bearer API key",
+      "scope": "cards:write",
+      "kind": "mutation",
+      "summary": "Retrieve or generate cards using repeated topics and typed card kinds."
+    },
+    {
+      "operation": "review_v1",
+      "request": "ReviewRequestV1",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "reviews:write",
+      "kind": "mutation",
+      "summary": "Submit a grade and typed review action for one card."
+    },
+    {
+      "operation": "create_api_key_v1",
+      "request": "CreateApiKeyV1Request",
+      "result": "ApiKeyCreated",
+      "auth": "Bearer API key",
+      "scope": "keys:manage",
+      "kind": "one-time secret mutation",
+      "summary": "Create a least-privilege scoped key with optional expiration."
+    }
+  ]
+}

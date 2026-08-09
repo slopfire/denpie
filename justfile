@@ -52,6 +52,18 @@ fmt:
 lint:
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo clippy --workspace --all-targets -- -D warnings
 
+# Regenerate the complete operation table after protobuf or policy changes.
+api-reference:
+  python3 scripts/generate-api-reference.py
+
+# Package the canonical proto, descriptor set, manifest, and checksums.
+api-schema:
+  sh scripts/package-api-schema.sh
+
+# Check generated API docs and execute offline curl/Python/TypeScript/Rust examples.
+docs-check:
+  sh scripts/check-api-docs.sh
+
 # One full local gate: fmt + clippy + tests. Prefer this once at the end of a task.
 verify:
   cargo fmt --all --check
@@ -80,6 +92,7 @@ ci:
   cargo fmt --all --check
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo clippy --workspace --all-targets -- -D warnings
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo test --workspace
+  sh scripts/check-api-docs.sh
   cd frontend && env -u NO_COLOR trunk build --release
 
 # --- agent runtime ------------------------------------------------------------

@@ -13,6 +13,7 @@ pub enum AppError {
     Json(serde_json::Error),
     Validation(String),
     Auth(String),
+    Forbidden(String),
     NotFound(String),
     Conflict(String),
     ProtobufDecode(prost::DecodeError),
@@ -23,6 +24,7 @@ impl AppError {
         match self {
             AppError::Validation(_) | AppError::ProtobufDecode(_) => StatusCode::BAD_REQUEST,
             AppError::Auth(_) => StatusCode::UNAUTHORIZED,
+            AppError::Forbidden(_) => StatusCode::FORBIDDEN,
             AppError::NotFound(_) => StatusCode::NOT_FOUND,
             AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::Db(_) | AppError::Io(_) | AppError::Yaml(_) | AppError::Json(_) => {
@@ -62,6 +64,7 @@ impl AppError {
             AppError::Json(err) => err.to_string(),
             AppError::Validation(msg)
             | AppError::Auth(msg)
+            | AppError::Forbidden(msg)
             | AppError::NotFound(msg)
             | AppError::Conflict(msg) => msg.clone(),
             AppError::ProtobufDecode(err) => err.to_string(),

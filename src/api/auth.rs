@@ -1,13 +1,81 @@
 use crate::AppState;
+use axum::http::{HeaderMap, StatusCode, header};
 
-use crate::auth::AuthUser;
+use crate::services::api_keys::ApiPrincipal;
 
 use super::{pb, types::ApiResult};
 
-pub(crate) async fn require_api_key(state: &AppState, api_key: &str) -> ApiResult<AuthUser> {
+pub(crate) fn request_api_key(
+    headers: &HeaderMap,
+    body_api_key: &str,
+) -> Result<String, (StatusCode, String)> {
+    if let Some(value) = headers.get(header::AUTHORIZATION) {
+        let value = value.to_str().map_err(|_| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Invalid Authorization header".to_string(),
+            )
+        })?;
+        let (scheme, token) = value.split_once(' ').ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Authorization must use Bearer authentication".to_string(),
+            )
+        })?;
+        if !scheme.eq_ignore_ascii_case("bearer") || token.trim().is_empty() {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "Authorization must use a non-empty Bearer token".to_string(),
+            ));
+        }
+        return Ok(token.trim().to_string());
+    }
+    Ok(body_api_key.to_string())
+}
+
+pub(crate) async fn require_api_key(state: &AppState, api_key: &str) -> ApiResult<ApiPrincipal> {
     state
         .api_keys
-        .verify(api_key)
+        .verify_principal(api_key)
+        .await
+        .map_err(|err| err.into_status_body())
+}
+
+pub(crate) async fn create_scoped_api_key(
+    state: &AppState,
+    principal: &ApiPrincipal,
+    req: pb::CreateApiKeyV1Request,
+) -> ApiResult<String> {
+    let expires_at = if req.expires_at.trim().is_empty() {
+        None
+    } else {
+        let parsed = chrono::DateTime::parse_from_rfc3339(req.expires_at.trim())
+            .map_err(|_| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "expires_at must be an RFC 3339 timestamp".to_string(),
+                )
+            })?
+            .with_timezone(&chrono::Utc);
+        if parsed <= chrono::Utc::now() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "expires_at must be in the future".to_string(),
+            ));
+        }
+        Some(parsed)
+    };
+    let scopes = principal
+        .validate_delegation(req.scopes, expires_at.as_ref())
+        .map_err(|err| err.into_status_body())?;
+    state
+        .api_keys
+        .create_scoped(
+            &principal.user.id,
+            Some(req.client_name),
+            scopes,
+            expires_at,
+        )
         .await
         .map_err(|err| err.into_status_body())
 }
@@ -38,6 +106,9 @@ pub(crate) async fn list_api_keys_pb(state: &AppState, user_id: &str) -> ApiResu
                 id: row.id,
                 client_name: row.client_name,
                 created_at: row.created_at,
+                scopes: row.scopes,
+                expires_at: row.expires_at.unwrap_or_default(),
+                last_used_at: row.last_used_at.unwrap_or_default(),
             })
             .collect(),
     })

@@ -80,6 +80,19 @@ message ApiRequest {
         DeleteByIdRequest delete_pool_image = 27;
         AttachDocumentTopicRequest attach_document_topic = 28;
         AttachDocumentTopicRequest detach_document_topic = 29;
+        Empty get_api_info = 30;
+        ListFlowCardsRequest list_flow_cards = 31;
+        GetByIdRequest get_tipcard = 32;
+        GetByIdRequest get_document = 33;
+        ContinueDailyReviewRequest continue_daily_review = 34;
+        ExploreLinkRequest explore_link = 35;
+        Empty test_vision_model = 36;
+        AddDocumentRequest create_document = 37;
+        UploadDocumentRequest upload_document = 38;
+        AddPoolImageRequest create_pool_image = 39;
+        TipsRequestV1 tips_v1 = 40;
+        ReviewRequestV1 review_v1 = 41;
+        CreateApiKeyV1Request create_api_key_v1 = 42;
     }
 }
 
@@ -98,6 +111,15 @@ message ApiResponse {
         ForceDailyRefreshResponse force_daily_refresh = 12;
         Documents documents = 13;
         PoolImages pool_images = 14;
+        ApiInfo api_info = 15;
+        FlowCardPage flow_card_page = 16;
+        TipcardDetail tipcard_detail = 17;
+        DocumentDetail document_detail = 18;
+        ContinueDailyReviewResponse continue_daily_review = 19;
+        ExploredLinks explored_links = 20;
+        VisionModelTest vision_model_test = 21;
+        DocumentDetail document_created = 22;
+        PoolImageCreated pool_image_created = 23;
     }
 }
 
@@ -149,6 +171,9 @@ message Settings {
     string grounding_reasoning_effort = 26;
     string search_provider = 27;
     string scrape_provider = 28;
+    string vision_model = 29;
+    string transparency = 30;
+    string blur_intensity = 31;
 }
 
 message UpdateSettingsRequest {
@@ -179,12 +204,18 @@ message UpdateSettingsRequest {
     optional string grounding_reasoning_effort = 25;
     optional string search_provider = 26;
     optional string scrape_provider = 27;
+    optional string vision_model = 28;
+    optional string transparency = 29;
+    optional string blur_intensity = 30;
 }
 
 message ApiKeyInfo {
     int64 id = 1;
     string client_name = 2;
     string created_at = 3;
+    repeated string scopes = 4;
+    string expires_at = 5;
+    string last_used_at = 6;
 }
 
 message ApiKeys {
@@ -325,4 +356,189 @@ message PoolImages {
 message AttachDocumentTopicRequest {
     int64 document_id = 1;
     int64 topic_id = 2;
+}
+
+// Versioned transport envelope. POST /api remains the compatibility endpoint;
+// POST /api/v1 wraps the same additive operation set with request correlation
+// and a protobuf error body on every handled failure.
+message ApiV1Request {
+    string request_id = 1;
+    ApiRequest call = 2;
+    // Required for mutating operations. The Idempotency-Key HTTP header is an
+    // equivalent transport-level alternative; if both are present they must match.
+    string idempotency_key = 3;
+}
+
+message ApiV1Response {
+    string request_id = 1;
+    oneof outcome {
+        ApiResponse success = 2;
+        ApiError error = 3;
+    }
+}
+
+enum ApiErrorCode {
+    API_ERROR_CODE_UNSPECIFIED = 0;
+    API_ERROR_CODE_INVALID_ARGUMENT = 1;
+    API_ERROR_CODE_UNAUTHENTICATED = 2;
+    API_ERROR_CODE_PERMISSION_DENIED = 3;
+    API_ERROR_CODE_NOT_FOUND = 4;
+    API_ERROR_CODE_CONFLICT = 5;
+    API_ERROR_CODE_RATE_LIMITED = 6;
+    API_ERROR_CODE_UNSUPPORTED_MEDIA_TYPE = 7;
+    API_ERROR_CODE_INTERNAL = 8;
+}
+
+message ApiError {
+    ApiErrorCode code = 1;
+    string message = 2;
+    bool retryable = 3;
+}
+
+message ApiInfo {
+    string api_version = 1;
+    string server_version = 2;
+    string build_sha = 3;
+    repeated string capabilities = 4;
+}
+
+message GetByIdRequest {
+    int64 id = 1;
+}
+
+message ListFlowCardsRequest {
+    uint32 page_size = 1; // default 48, clamped to 1..100
+    string page_token = 2;
+}
+
+message TipcardImageInfo {
+    int64 id = 1;
+    int64 position = 2;
+    string mime_type = 3;
+    int64 byte_size = 4;
+    string download_path = 5;
+}
+
+message FlowCardInfo {
+    int64 id = 1;
+    string topic_name = 2;
+    string topic_icon = 3;
+    string topic_color = 4;
+    string title = 5;
+    string full_content = 6;
+    string compressed_content = 7;
+    string created_at = 8;
+    string tipcard_type = 9;
+    string status = 10;
+    string next_review_at = 11;
+    uint32 repeat_count = 12;
+    bool pinned = 13;
+    int64 pending_count = 14;
+    repeated TipcardImageInfo images = 15;
+}
+
+message FlowCardPage {
+    repeated FlowCardInfo cards = 1;
+    string next_page_token = 2;
+    bool has_more = 3;
+}
+
+message TipcardDetail {
+    FlowCardInfo card = 1;
+}
+
+message DocumentDetail {
+    int64 id = 1;
+    repeated int64 topic_ids = 2;
+    string source_type = 3;
+    string title = 4;
+    string url = 5;
+    string content = 6;
+    string created_at = 7;
+}
+
+message ContinueDailyReviewRequest {
+    repeated string topics = 1;
+    string tipcard_type = 2;
+}
+
+message ContinueDailyReviewResponse {
+    uint64 available_cards = 1;
+}
+
+message ExploreLinkRequest {
+    string url = 1;
+}
+
+message ExploredLink {
+    string title = 1;
+    string url = 2;
+}
+
+message ExploredLinks {
+    repeated ExploredLink links = 1;
+}
+
+message VisionModelTest {
+    bool ok = 1;
+    string model = 2;
+    string message = 3;
+}
+
+enum TipcardTypeValue {
+    TIPCARD_TYPE_VALUE_UNSPECIFIED = 0;
+    TIPCARD_TYPE_VALUE_REPEATABLE = 1;
+    TIPCARD_TYPE_VALUE_CASUAL = 2;
+    TIPCARD_TYPE_VALUE_MANUAL = 3;
+    TIPCARD_TYPE_VALUE_CUSTOM = 4;
+}
+
+enum ReviewActionValue {
+    REVIEW_ACTION_VALUE_UNSPECIFIED = 0;
+    REVIEW_ACTION_VALUE_AGAIN = 1;
+    REVIEW_ACTION_VALUE_LEARNED = 2;
+    REVIEW_ACTION_VALUE_SKIP_KNOWN = 3;
+    REVIEW_ACTION_VALUE_SKIP_NOT_INTERESTED = 4;
+    REVIEW_ACTION_VALUE_SKIP_TOO_DIFFICULT = 5;
+}
+
+message UploadDocumentRequest {
+    repeated int64 topic_ids = 1;
+    string filename = 2;
+    string mime_type = 3;
+    string title = 4;
+    bytes data = 5;
+}
+
+message PoolImageCreated {
+    int64 id = 1;
+    string name = 2;
+    string description = 3;
+    repeated string tags = 4;
+    bool annotated = 5;
+    string fallback_reason = 6;
+    string model = 7;
+    string download_path = 8;
+}
+
+message TipsRequestV1 {
+    uint32 count = 1;
+    repeated string topics = 2;
+    TipcardTypeValue tipcard_type = 3;
+    repeated int64 exclude_card_ids = 4;
+    string manual_content = 5;
+    string manual_compressed_content = 6;
+    repeated string manual_image_data = 7;
+}
+
+message ReviewRequestV1 {
+    int64 card_id = 1;
+    uint32 grade = 2;
+    ReviewActionValue action = 3;
+}
+
+message CreateApiKeyV1Request {
+    string client_name = 1;
+    repeated string scopes = 2;
+    string expires_at = 3; // optional RFC 3339 timestamp
 }

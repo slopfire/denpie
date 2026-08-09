@@ -1,0 +1,9 @@
+request_id: "curl-create-document"
+idempotency_key: "docs-create-document-001"
+call {
+  create_document {
+    source_type: "document"
+    title: "API example"
+    content: "Created by the checked-in curl and protoc example."
+  }
+}

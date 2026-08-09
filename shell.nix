@@ -13,6 +13,10 @@ pkgs.mkShell {
     # Protocol Buffers compiler used by prost-build.
     protobuf
 
+    # API documentation examples and drift checks.
+    nodejs_22
+    (python3.withPackages (pythonPackages: [ pythonPackages.protobuf ]))
+
     # Local task runner.
     just
 

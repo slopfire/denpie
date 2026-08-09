@@ -98,7 +98,15 @@ async fn test_unified_protobuf_api_bootstrap_and_manage() {
             crate::api::pb::UpdateSettingsRequest {
                 model: Some("google/gemini-2.5-pro".into()),
                 grounding_model: Some("openai/gpt-5-mini".into()),
+                vision_model: Some("openai/gpt-4.1-mini".into()),
                 grounding_reasoning_effort: Some("high".into()),
+                color_scheme: Some("purple".into()),
+                transparency: Some("glass".into()),
+                blur_intensity: Some("medium".into()),
+                autoupdate_enabled: Some(true),
+                autoupdate_repo: Some("slopfire/denpie".into()),
+                autoupdate_branch: Some("master".into()),
+                autoupdate_check_interval_secs: Some(600),
                 daily_time_zone: Some("UTC+10".into()),
                 daily_update_time: Some("06:30".into()),
                 max_active_cards: Some(7),
@@ -136,7 +144,15 @@ async fn test_unified_protobuf_api_bootstrap_and_manage() {
         crate::api::pb::api_response::Result::Settings(settings) => {
             assert_eq!(settings.model, "google/gemini-2.5-pro");
             assert_eq!(settings.grounding_model, "openai/gpt-5-mini");
+            assert_eq!(settings.vision_model, "openai/gpt-4.1-mini");
             assert_eq!(settings.grounding_reasoning_effort, "high");
+            assert_eq!(settings.color_scheme, "purple");
+            assert_eq!(settings.transparency, "glass");
+            assert_eq!(settings.blur_intensity, "medium");
+            assert!(settings.autoupdate_enabled);
+            assert_eq!(settings.autoupdate_repo, "slopfire/denpie");
+            assert_eq!(settings.autoupdate_branch, "master");
+            assert_eq!(settings.autoupdate_check_interval_secs, 600);
             assert_eq!(settings.daily_time_zone, "UTC+10");
             assert_eq!(settings.daily_update_time, "06:30");
             assert_eq!(settings.max_active_cards, 7);

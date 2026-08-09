@@ -6,7 +6,7 @@ pub(crate) async fn add_document(
     state: &AppState,
     user_id: &str,
     req: pb::AddDocumentRequest,
-) -> ApiResult<()> {
+) -> ApiResult<i64> {
     let mut topic_ids = req.topic_ids;
     if let Some(topic_id) = parse_topic_id_opt(&req.topic_id_opt)? {
         topic_ids.push(topic_id);
@@ -21,8 +21,7 @@ pub(crate) async fn add_document(
         &req.content,
     )
     .await
-    .map_err(|err| err.into_status_body())?;
-    Ok(())
+    .map_err(|err| err.into_status_body())
 }
 
 pub(crate) async fn list_documents(state: &AppState, user_id: &str) -> ApiResult<pb::Documents> {
@@ -75,8 +74,7 @@ pub(crate) async fn add_pool_image(
     state: &AppState,
     user_id: &str,
     req: pb::AddPoolImageRequest,
-) -> ApiResult<()> {
-    // Protobuf surface stays ok-only; structured diagnostics are on the dashboard API.
+) -> ApiResult<crate::services::documents::PoolImageAddResult> {
     DocumentService::add_pool_image(
         state,
         user_id,
@@ -85,8 +83,7 @@ pub(crate) async fn add_pool_image(
         empty_as_none(&req.description),
     )
     .await
-    .map_err(|err| err.into_status_body())?;
-    Ok(())
+    .map_err(|err| err.into_status_body())
 }
 
 pub(crate) async fn list_pool_images(state: &AppState, user_id: &str) -> ApiResult<pb::PoolImages> {

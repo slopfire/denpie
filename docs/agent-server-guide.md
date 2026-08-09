@@ -24,8 +24,12 @@ ApiRequest / ApiResponse (protobuf)
 Schema: proto/denpie.proto
 ```
 
+For new automation use `POST /api/v1`, `ApiV1Request` / `ApiV1Response`, and
+`Authorization: Bearer ...`. See [`api-v1.md`](api-v1.md).
+
 | Surface | Auth | Notes |
 |---|---|---|
+| `POST /api/v1` | Bearer API key | Recommended; request IDs + structured errors + durable mutation idempotency |
 | `POST /api` | API key | Stable client surface |
 | `GET /` | session | Browser dashboard |
 | `/auth/*`, `/admin/*`, `/app/*` | session | Dashboard internals |
