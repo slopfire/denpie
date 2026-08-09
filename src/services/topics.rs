@@ -133,6 +133,64 @@ impl TopicService {
         })
     }
 
+    pub async fn suggest_topic_icons(
+        state: &AppState,
+        user_id: &str,
+        topic_id: i64,
+        excluded_icons: &[String],
+    ) -> AppResult<Vec<String>> {
+        let topic = topics::find_by_id(&state.db, user_id, topic_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Topic not found".to_string()))?;
+
+        let defaults = state.settings.get_settings()?;
+        let settings = user_settings::get(&state.db, user_id, defaults).await?;
+        let allowlist = topic_icons::allowlist()
+            .iter()
+            .filter(|icon| !excluded_icons.contains(icon))
+            .cloned()
+            .collect::<Vec<_>>();
+        let reasoning = llm::ReasoningConfig::new(settings.llm_reasoning_effort.clone());
+        let response = llm::suggest_topic_icons(
+            &topic.name,
+            &allowlist,
+            &settings.llm_model,
+            &settings.llm_api_key,
+            &settings.llm_base_url,
+            &reasoning,
+        )
+        .await;
+        token_usage::insert(
+            &state.db,
+            user_id,
+            &settings.llm_model,
+            "topic_icon",
+            &response.usage,
+        )
+        .await?;
+        Ok(serde_json::from_str(&response.content).unwrap_or_default())
+    }
+
+    pub async fn set_topic_icon(
+        state: &AppState,
+        user_id: &str,
+        topic_id: i64,
+        icon_id: &str,
+    ) -> AppResult<String> {
+        let icon_id = icon_id.trim();
+        if icon_id.is_empty() {
+            return Err(AppError::Validation("Icon is required".to_string()));
+        }
+        if !topic_icons::allowlist()
+            .iter()
+            .any(|candidate| candidate == icon_id)
+        {
+            return Err(AppError::Validation(format!("Unknown icon: {icon_id}")));
+        }
+        topics::set_icon_id(&state.db, user_id, topic_id, icon_id).await?;
+        Ok(icon_id.to_string())
+    }
+
     pub async fn list_admin_topics(
         state: &AppState,
         user_id: &str,

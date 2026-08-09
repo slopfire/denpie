@@ -63,6 +63,13 @@ pub fn is_queue_tipcard(value: &str) -> bool {
     TipcardType::from_setting(value).is_queue()
 }
 
+/// True when card text is a known generation failure placeholder rather than
+/// real model output. Such cards are never served and are purged from queues.
+pub fn is_failed_generation_content(content: &str) -> bool {
+    let trimmed = content.trim();
+    trimmed.is_empty() || trimmed == "Failed parsing text" || trimmed.starts_with("LLM Error:")
+}
+
 pub const MAX_CARD_IMAGES: usize = 4;
 /// Largest JSON body accepted by image endpoints. This accommodates four
 /// 10 MB decoded data URLs after base64 expansion.
@@ -117,6 +124,20 @@ pub fn validate_image_data(image_data: Vec<String>) -> AppResult<Vec<String>> {
 mod tests {
     use super::*;
     use crate::domain::image::MAX_IMAGE_BYTES;
+
+    #[test]
+    fn detects_failed_generation_content() {
+        assert!(is_failed_generation_content("Failed parsing text"));
+        assert!(is_failed_generation_content(
+            "LLM Error: HTTP 429 too many requests"
+        ));
+        assert!(is_failed_generation_content("   "));
+        assert!(is_failed_generation_content(""));
+        assert!(!is_failed_generation_content(
+            "A real tip about SM-2 scheduling"
+        ));
+        assert!(!is_failed_generation_content("LLM Error handling in Rust"));
+    }
 
     #[test]
     fn rejects_image_payload_over_ten_megabytes() {

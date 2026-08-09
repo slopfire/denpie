@@ -27,6 +27,12 @@ impl TipcardService {
         cursor: Option<(i64, String, i64)>,
         limit: i64,
     ) -> crate::error::AppResult<Vec<tipcards_repo::FlowCardRecord>> {
+        // Sweep legacy generation-failure placeholders ("Failed parsing text",
+        // "LLM Error: ...") out of queues so they can never surface in the flow.
+        let purged = tipcards_repo::delete_failed_generation_cards(&state.db, user_id).await?;
+        if purged > 0 {
+            tracing::warn!(user_id, purged, "purged failed generation cards");
+        }
         tipcards_repo::stack_due_repeatable_cards(&state.db, user_id).await?;
         Self::promote_pending_within_daily_limit(state, user_id).await?;
         tipcards_repo::list_flow_cards(&state.db, user_id, cursor, limit).await

@@ -12,7 +12,10 @@ use crate::domain::grounding::GroundingStrategy;
 use crate::llm::{
     cards::{GeneratedCard, build_card_from_parsed, parse_card_array},
     compression::CompressionLevel,
-    transport::{LlmResponse, ReasoningConfig, TokenUsage},
+    transport::{
+        LlmResponse, ReasoningConfig, TokenUsage, content_snippet, create_chat_completion,
+        create_chat_completion_grounded, create_chat_completion_json,
+    },
 };
 
 #[allow(unused_imports)]
@@ -37,7 +40,7 @@ pub struct GroundingInput<'a> {
     pub existing_titles: &'a [String],
     /// Pre-retrieved document chunks (used by rag).
     pub documents: &'a [DocChunk],
-    /// Requested batch size, clamped by every strategy to 5-10 cards.
+    /// Requested batch size, clamped by every strategy to 5-12 cards.
     pub daily_card_count: i64,
     pub search: SearchConfig<'a>,
 }
@@ -85,7 +88,96 @@ impl GroundingOutcome {
 }
 
 pub(crate) fn batch_size(input: &GroundingInput<'_>) -> usize {
-    input.daily_card_count.clamp(5, 10) as usize
+    input.daily_card_count.clamp(5, 12) as usize
+}
+
+/// How many times a batch generation retries when the model returns an error or
+/// no parseable JSON batch. Transport-level failures are already retried inside
+/// [`create_chat_completion`]; this retry covers model output quality.
+const BATCH_MAX_ATTEMPTS: usize = 2;
+
+/// Generate a card batch from the shared [`batch_prompt`], retrying once when
+/// the response is an error or contains no parseable card batch. `json_object`
+/// asks the provider for strict JSON output.
+pub(crate) async fn generate_batch_with_retry(
+    input: &GroundingInput<'_>,
+    max_tokens: u32,
+    web_search: bool,
+    json_object: bool,
+) -> Result<Vec<GeneratedCard>, String> {
+    let prompt = batch_prompt(input);
+    let mut last_error = String::new();
+    for attempt in 1..=BATCH_MAX_ATTEMPTS {
+        let started = std::time::Instant::now();
+        let response = if web_search {
+            create_chat_completion_grounded(
+                input.model,
+                &prompt,
+                input.api_key,
+                input.api_base,
+                input.reasoning,
+                Some(max_tokens),
+                true,
+                json_object,
+            )
+            .await
+        } else if json_object {
+            create_chat_completion_json(
+                input.model,
+                &prompt,
+                input.api_key,
+                input.api_base,
+                input.reasoning,
+                Some(max_tokens),
+            )
+            .await
+        } else {
+            create_chat_completion(
+                input.model,
+                &prompt,
+                input.api_key,
+                input.api_base,
+                input.reasoning,
+                Some(max_tokens),
+            )
+            .await
+        };
+        let duration_ms = started.elapsed().as_millis() as u64;
+        if response.is_error {
+            last_error = format!("LLM request failed: {}", response.content);
+            tracing::warn!(
+                topic = input.topic_name,
+                attempt,
+                duration_ms,
+                error = %last_error,
+                "grounding batch request failed"
+            );
+            if attempt < BATCH_MAX_ATTEMPTS {
+                tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                continue;
+            }
+            return Err(last_error);
+        }
+        let snippet = content_snippet(&response.content, 200);
+        let content_len = response.content.len();
+        let cards = build_batch(response, input).await;
+        if !cards.is_empty() {
+            return Ok(cards);
+        }
+        last_error = format!("model returned no parseable card JSON: {snippet}");
+        tracing::warn!(
+            topic = input.topic_name,
+            attempt,
+            duration_ms,
+            content_len,
+            error = %last_error,
+            "grounding batch response was not parseable JSON"
+        );
+        if attempt < BATCH_MAX_ATTEMPTS {
+            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        }
+    }
+    Err(last_error)
 }
 
 pub(crate) async fn build_batch(
@@ -126,10 +218,12 @@ pub(crate) fn batch_prompt(input: &GroundingInput<'_>) -> String {
 
 /// Dispatch to the configured grounding strategy. This `match` is the single
 /// extension point: a new strategy = new enum arm + new arm here + new module.
+/// Returns an error message when generation could not produce any usable card
+/// (transport failure after retries, or persistently unparseable model output).
 pub async fn ground_and_generate(
     strategy: GroundingStrategy,
     input: GroundingInput<'_>,
-) -> GroundingOutcome {
+) -> Result<GroundingOutcome, String> {
     match strategy {
         GroundingStrategy::Factual => factual::generate(input).await,
         GroundingStrategy::CreateAndGround => create_and_ground::generate(input).await,
@@ -148,8 +242,11 @@ pub(crate) fn add_usage(a: &TokenUsage, b: &TokenUsage) -> TokenUsage {
 }
 
 /// Generate a single ungrounded card from the input. Used when a richer strategy
-/// has nothing to work with (no API key, unparseable model output).
-pub(crate) async fn factual_fallback(input: &GroundingInput<'_>) -> GroundingOutcome {
+/// has nothing to work with (no API key) or as a last resort. Errors propagate
+/// when even the single-card path fails.
+pub(crate) async fn factual_fallback(
+    input: &GroundingInput<'_>,
+) -> Result<GroundingOutcome, String> {
     let card = crate::llm::cards::generate_card(
         input.rendered_prompt,
         input.compression_level,
@@ -158,8 +255,8 @@ pub(crate) async fn factual_fallback(input: &GroundingInput<'_>) -> GroundingOut
         input.api_base,
         input.reasoning,
     )
-    .await;
-    GroundingOutcome::from_cards(vec![card], Vec::new()).expect("fallback batch is non-empty")
+    .await?;
+    Ok(GroundingOutcome::from_cards(vec![card], Vec::new()).expect("fallback batch is non-empty"))
 }
 
 #[cfg(test)]

@@ -40,6 +40,44 @@ pub async fn delete_with_review(pool: &PgPool, user_id: &str, id: i64) -> AppRes
     Ok(())
 }
 
+/// Delete every generated card whose content is a known generation failure
+/// placeholder ("Failed parsing text", "LLM Error: ...", or empty). User-authored
+/// cards (manual/custom) are never touched. Returns the number of cards removed.
+pub async fn delete_failed_generation_cards(pool: &PgPool, user_id: &str) -> AppResult<i64> {
+    let mut tx = pool.begin().await?;
+
+    let target = "SELECT id FROM tipcards
+                  WHERE user_id = $1
+                    AND tipcard_type IN ('casual_tip', 'repeatable_tip')
+                    AND (TRIM(full_content) = 'Failed parsing text'
+                         OR TRIM(full_content) LIKE 'LLM Error:%'
+                         OR TRIM(compressed_content) = 'Failed parsing text'
+                         OR TRIM(compressed_content) LIKE 'LLM Error:%'
+                         OR TRIM(full_content) = '')";
+
+    sqlx::query(&format!(
+        "DELETE FROM review_states WHERE card_id IN ({target})"
+    ))
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(&format!(
+        "DELETE FROM tipcard_images WHERE user_id = $1 AND card_id IN ({target})"
+    ))
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
+
+    let result = sqlx::query(&format!("DELETE FROM tipcards WHERE id IN ({target})"))
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(result.rows_affected() as i64)
+}
+
 pub async fn set_pinned(pool: &PgPool, user_id: &str, id: i64, pinned: bool) -> AppResult<()> {
     let result = sqlx::query("UPDATE tipcards SET pinned = $1 WHERE id = $2 AND user_id = $3")
         .bind(if pinned { 1 } else { 0 })

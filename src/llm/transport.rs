@@ -21,16 +21,32 @@ pub struct LlmResponse {
     pub content: String,
     pub usage: TokenUsage,
     pub citations: Vec<String>,
+    /// True when the request failed (transport error, non-2xx status, or the
+    /// model returned no usable content). `content` then holds a diagnostic
+    /// message and must never be treated as model output.
+    pub is_error: bool,
 }
 
 impl LlmResponse {
-    fn error(message: String) -> Self {
+    pub(crate) fn error(message: String) -> Self {
         Self {
             content: message,
             usage: TokenUsage::default(),
             citations: Vec::new(),
+            is_error: true,
         }
     }
+}
+
+/// Truncate a response body for log lines without splitting multi-byte chars.
+pub(crate) fn content_snippet(content: &str, max_chars: usize) -> String {
+    let trimmed = content.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+    let mut out: String = trimmed.chars().take(max_chars).collect();
+    out.push('…');
+    out
 }
 
 #[derive(Clone, Debug)]
@@ -55,7 +71,25 @@ pub async fn create_chat_completion(
     max_tokens: Option<u32>,
 ) -> LlmResponse {
     create_chat_completion_grounded(
-        model, prompt, api_key, api_base, reasoning, max_tokens, false,
+        model, prompt, api_key, api_base, reasoning, max_tokens, false, false,
+    )
+    .await
+}
+
+/// Same as [`create_chat_completion`] but asks the provider for strict JSON
+/// output (`response_format: {"type": "json_object"}`). Only use for prompts
+/// whose entire output must be a JSON document; providers that reject the field
+/// are retried without it.
+pub async fn create_chat_completion_json(
+    model: &str,
+    prompt: &str,
+    api_key: &str,
+    api_base: &str,
+    reasoning: &ReasoningConfig,
+    max_tokens: Option<u32>,
+) -> LlmResponse {
+    create_chat_completion_grounded(
+        model, prompt, api_key, api_base, reasoning, max_tokens, false, true,
     )
     .await
 }
@@ -132,6 +166,12 @@ pub async fn create_vision_completion(
 /// server-side web grounding plugin. When `web_search` is true and the provider
 /// supports it, the response carries inline URL citations in `LlmResponse::citations`.
 /// For providers that ignore the `plugins` field the flag is harmless.
+///
+/// When `json_object` is true the request asks the provider for
+/// `response_format: {"type": "json_object"}`. Providers that reject the field
+/// get a retry without it, so the flag is safe to enable for prompts that
+/// demand raw JSON output.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_chat_completion_grounded(
     model: &str,
     prompt: &str,
@@ -140,46 +180,167 @@ pub async fn create_chat_completion_grounded(
     reasoning: &ReasoningConfig,
     max_tokens: Option<u32>,
     web_search: bool,
+    json_object: bool,
 ) -> LlmResponse {
     tracing::info!(
         model,
         prompt_len = prompt.len(),
         ?max_tokens,
         web_search,
+        json_object,
         "LLM chat completion request"
     );
+    let started = std::time::Instant::now();
     let config = OpenAIConfig::new()
         .with_api_key(api_key)
         .with_api_base(api_base);
     let client = Client::with_config(config);
     let base_url = client.config().api_base();
-
-    let body = build_chat_body(model, prompt, reasoning, max_tokens, web_search);
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-    let http = http_client::shared();
 
-    match http.post(url).bearer_auth(api_key).json(&body).send().await {
-        Ok(res) => {
-            if !res.status().is_success() {
-                let status = res.status();
-                let error_body = res.text().await.unwrap_or_default();
-                return LlmResponse::error(format!("LLM Error: HTTP {} {}", status, error_body));
-            }
-
-            match res.json::<Value>().await {
-                Ok(value) => {
-                    let citations = extract_citations(&value);
-                    let raw_content = extract_message_content(&value);
-                    match serde_json::from_value::<CreateChatCompletionResponse>(value) {
-                        Ok(response) => map_response(response, citations, raw_content),
-                        Err(e) => LlmResponse::error(format!("LLM Error: {}", e)),
+    let mut structured = json_object;
+    for attempt in 1..=MAX_LLM_ATTEMPTS {
+        let body = build_chat_body(model, prompt, reasoning, max_tokens, web_search, structured);
+        let duration_ms = started.elapsed().as_millis() as u64;
+        match send_chat_request(&url, api_key, &body).await {
+            Ok((status, value)) if status.is_success() => {
+                let citations = extract_citations(&value);
+                let raw_content = extract_message_content(&value);
+                match serde_json::from_value::<CreateChatCompletionResponse>(value) {
+                    Ok(response) => {
+                        let llm_response = map_response(response, citations, raw_content);
+                        tracing::info!(
+                            model,
+                            attempt,
+                            duration_ms,
+                            content_len = llm_response.content.len(),
+                            is_error = llm_response.is_error,
+                            "LLM chat completion response"
+                        );
+                        return llm_response;
+                    }
+                    Err(e) => {
+                        let message = format!("LLM Error: {}", e);
+                        tracing::warn!(
+                            model,
+                            attempt,
+                            duration_ms,
+                            error = %message,
+                            "LLM chat completion response failed to deserialize"
+                        );
+                        return LlmResponse::error(message);
                     }
                 }
-                Err(e) => LlmResponse::error(format!("LLM Error: {}", e)),
+            }
+            Ok((status, value)) => {
+                let status_code = status.as_u16();
+                let error_body = value
+                    .get("__error_body")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let unsupported_json_format = status_code == 400
+                    && (error_body.contains("response_format")
+                        || error_body.contains("json_object")
+                        || error_body.to_ascii_lowercase().contains("response format"));
+                if attempt < MAX_LLM_ATTEMPTS
+                    && (status_code == 429 || status_code >= 500 || unsupported_json_format)
+                {
+                    if unsupported_json_format {
+                        structured = false;
+                        tracing::warn!(
+                            model,
+                            status = status_code,
+                            duration_ms,
+                            "provider rejected response_format json_object; retrying without it"
+                        );
+                    } else {
+                        tracing::warn!(
+                            model,
+                            attempt,
+                            status = status_code,
+                            duration_ms,
+                            retry_in_ms = RETRY_BACKOFF_MS[attempt - 1],
+                            error = %content_snippet(error_body, 300),
+                            "LLM chat completion failed; retrying"
+                        );
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        RETRY_BACKOFF_MS[attempt - 1],
+                    ))
+                    .await;
+                    continue;
+                }
+                let message = format!("LLM Error: HTTP {} {}", status, error_body);
+                tracing::warn!(
+                    model,
+                    attempt,
+                    status = status_code,
+                    duration_ms,
+                    error = %content_snippet(error_body, 300),
+                    "LLM chat completion failed"
+                );
+                return LlmResponse::error(message);
+            }
+            Err(err) => {
+                let duration_ms = started.elapsed().as_millis() as u64;
+                if attempt < MAX_LLM_ATTEMPTS {
+                    tracing::warn!(
+                        model,
+                        attempt,
+                        duration_ms,
+                        retry_in_ms = RETRY_BACKOFF_MS[attempt - 1],
+                        error = %err,
+                        "LLM chat completion request failed; retrying"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        RETRY_BACKOFF_MS[attempt - 1],
+                    ))
+                    .await;
+                    continue;
+                }
+                tracing::warn!(
+                    model,
+                    attempt,
+                    duration_ms,
+                    error = %err,
+                    "LLM chat completion request failed"
+                );
+                return LlmResponse::error(err);
             }
         }
-        Err(e) => LlmResponse::error(format!("LLM Error: {}", e)),
     }
+    unreachable!("attempt loop always returns")
+}
+
+const MAX_LLM_ATTEMPTS: usize = 3;
+const RETRY_BACKOFF_MS: [u64; 2] = [1000, 2000];
+
+/// One raw chat-completion HTTP round trip. Success returns the parsed response
+/// JSON; non-2xx returns the status plus a small `__error_body` marker value;
+/// network failures return `Err`.
+async fn send_chat_request(
+    url: &str,
+    api_key: &str,
+    body: &Value,
+) -> Result<(reqwest::StatusCode, Value), String> {
+    let http = http_client::shared();
+    let response = http
+        .post(url)
+        .bearer_auth(api_key)
+        .json(body)
+        .send()
+        .await
+        .map_err(|err| format!("LLM Error: request failed: {err}"))?;
+    let status = response.status();
+    if !status.is_success() {
+        let error_body = response.text().await.unwrap_or_default();
+        return Ok((status, json!({ "__error_body": error_body })));
+    }
+    let value = response
+        .json::<Value>()
+        .await
+        .map_err(|err| format!("LLM Error: invalid response JSON: {err}"))?;
+    Ok((status, value))
 }
 
 fn build_chat_body(
@@ -188,6 +349,7 @@ fn build_chat_body(
     reasoning: &ReasoningConfig,
     max_tokens: Option<u32>,
     web_search: bool,
+    json_object: bool,
 ) -> Value {
     let effort = normalize_reasoning_effort(&reasoning.effort);
     let message = ChatCompletionRequestUserMessageArgs::default()
@@ -216,6 +378,10 @@ fn build_chat_body(
 
     if web_search {
         body["plugins"] = json!([{ "id": "web", "max_results": 5 }]);
+    }
+
+    if json_object {
+        body["response_format"] = json!({ "type": "json_object" });
     }
 
     body
@@ -276,13 +442,20 @@ fn map_response(
     citations: Vec<String>,
     raw_content: Option<String>,
 ) -> LlmResponse {
-    let content = response
+    let Some(content) = response
         .choices
         .into_iter()
         .next()
         .and_then(|choice| choice.message.content)
         .or(raw_content)
-        .unwrap_or_else(|| "Failed parsing text".to_string());
+    else {
+        tracing::warn!("LLM response carried no message content");
+        return LlmResponse::error("LLM Error: model returned empty content".to_string());
+    };
+    if content.trim().is_empty() {
+        tracing::warn!("LLM response content was empty");
+        return LlmResponse::error("LLM Error: model returned empty content".to_string());
+    }
 
     let usage = response
         .usage
@@ -297,6 +470,7 @@ fn map_response(
         content,
         usage,
         citations,
+        is_error: false,
     }
 }
 
@@ -334,6 +508,7 @@ mod tests {
             &ReasoningConfig::new("xhigh"),
             None,
             false,
+            false,
         );
 
         assert_eq!(body["model"], "google/gemini-2.5-pro");
@@ -352,6 +527,7 @@ mod tests {
             &ReasoningConfig::new("none"),
             None,
             false,
+            false,
         );
 
         assert_eq!(body["reasoning"]["effort"], "none");
@@ -366,9 +542,94 @@ mod tests {
             &ReasoningConfig::new("none"),
             Some(1024),
             false,
+            false,
         );
 
         assert_eq!(body["max_tokens"], 1024);
+    }
+
+    #[test]
+    fn build_chat_body_adds_json_object_response_format_when_requested() {
+        let body = build_chat_body(
+            "minimax/minimax-m3",
+            "output json",
+            &ReasoningConfig::new("none"),
+            None,
+            false,
+            true,
+        );
+
+        assert_eq!(body["response_format"]["type"], "json_object");
+        let plain = build_chat_body(
+            "minimax/minimax-m3",
+            "output json",
+            &ReasoningConfig::new("none"),
+            None,
+            false,
+            false,
+        );
+        assert!(plain.get("response_format").is_none());
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn map_response_flags_missing_content_as_error() {
+        let response = async_openai::types::chat::CreateChatCompletionResponse {
+            id: "test-id".to_string(),
+            choices: vec![async_openai::types::chat::ChatChoice {
+                index: 0,
+                message: async_openai::types::chat::ChatCompletionResponseMessage {
+                    content: None,
+                    refusal: None,
+                    tool_calls: None,
+                    annotations: None,
+                    role: async_openai::types::chat::Role::Assistant,
+                    function_call: None,
+                    audio: None,
+                },
+                finish_reason: None,
+                logprobs: None,
+            }],
+            created: 0,
+            model: "minimax/minimax-m3".to_string(),
+            system_fingerprint: None,
+            object: "chat.completion".to_string(),
+            usage: None,
+            service_tier: None,
+        };
+        let result = map_response(response, Vec::new(), None);
+        assert!(result.is_error);
+        assert!(!result.content.contains("Failed parsing text"));
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn map_response_flags_whitespace_content_as_error() {
+        let response = async_openai::types::chat::CreateChatCompletionResponse {
+            id: "test-id".to_string(),
+            choices: vec![async_openai::types::chat::ChatChoice {
+                index: 0,
+                message: async_openai::types::chat::ChatCompletionResponseMessage {
+                    content: Some("   \n  ".to_string()),
+                    refusal: None,
+                    tool_calls: None,
+                    annotations: None,
+                    role: async_openai::types::chat::Role::Assistant,
+                    function_call: None,
+                    audio: None,
+                },
+                finish_reason: None,
+                logprobs: None,
+            }],
+            created: 0,
+            model: "minimax/minimax-m3".to_string(),
+            system_fingerprint: None,
+            object: "chat.completion".to_string(),
+            usage: None,
+            service_tier: None,
+        };
+        let result = map_response(response, Vec::new(), None);
+        assert!(result.is_error);
     }
 
     #[test]
@@ -441,7 +702,8 @@ mod tests {
 
         let result = map_response(response, Vec::new(), None);
 
-        assert_eq!(result.content, "Failed parsing text");
+        assert!(result.is_error);
+        assert_eq!(result.content, "LLM Error: model returned empty content");
         assert_eq!(result.usage.prompt_tokens, 0);
         assert_eq!(result.usage.completion_tokens, 0);
         assert_eq!(result.usage.total_tokens, 0);

@@ -33,7 +33,10 @@ pub fn grounding() -> Html {
     let search = use_state(String::new);
     let editing = use_state(|| None::<AppTopicInfo>);
     let confirm_delete = use_state(|| None::<AppTopicInfo>);
-    let regenerating_icon = use_state(|| None::<i64>);
+    let icon_picker = use_state(|| None::<AppTopicInfo>);
+    let icon_suggestions = use_state(Vec::<String>::new);
+    let icon_suggesting = use_state(|| false);
+    let icon_picking = use_state(|| false);
     let loading_topic = use_state(|| None::<i64>);
     let dialog_ref = use_node_ref();
 
@@ -199,45 +202,119 @@ pub fn grounding() -> Html {
         })
     };
 
-    let on_regenerate_icon = {
+    let on_suggest_icons = {
         let app_state = app_state.clone();
-        let topics = topics.clone();
-        let regenerating_icon = regenerating_icon.clone();
-        Callback::from(move |topic_id: i64| {
-            if regenerating_icon.is_some() {
+        let icon_suggestions = icon_suggestions.clone();
+        let icon_suggesting = icon_suggesting.clone();
+        Callback::from(move |(topic_id, excluded_icons): (i64, Vec<String>)| {
+            if *icon_suggesting {
                 return;
             }
-            regenerating_icon.set(Some(topic_id));
+            icon_suggesting.set(true);
+            let app_state = app_state.clone();
+            let icon_suggestions = icon_suggestions.clone();
+            let icon_suggesting = icon_suggesting.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let req = SuggestTopicIconsReq {
+                    id: topic_id,
+                    excluded_icons,
+                };
+                let result = Request::post("/app/topics/suggest-icons")
+                    .json(&req)
+                    .unwrap()
+                    .send()
+                    .await;
+                match result {
+                    Ok(res) if res.ok() => match res.json::<SuggestTopicIconsRes>().await {
+                        Ok(data) => icon_suggestions.set(data.icons),
+                        Err(_) => toast(&app_state, "Failed to read icon suggestions"),
+                    },
+                    Ok(res) => toast(
+                        &app_state,
+                        res.text()
+                            .await
+                            .unwrap_or_else(|_| "Failed to suggest icons".to_string()),
+                    ),
+                    Err(err) => toast(&app_state, err.to_string()),
+                }
+                icon_suggesting.set(false);
+            });
+        })
+    };
+
+    let on_open_icon_picker = {
+        let icon_picker = icon_picker.clone();
+        let icon_suggestions = icon_suggestions.clone();
+        let on_suggest_icons = on_suggest_icons.clone();
+        Callback::from(move |topic: AppTopicInfo| {
+            icon_picker.set(Some(topic.clone()));
+            icon_suggestions.set(Vec::new());
+            on_suggest_icons.emit((topic.id, Vec::new()));
+        })
+    };
+
+    let on_close_icon_picker = {
+        let icon_picker = icon_picker.clone();
+        Callback::from(move |_: MouseEvent| icon_picker.set(None))
+    };
+
+    let on_reroll_icons = {
+        let icon_picker = icon_picker.clone();
+        let icon_suggestions = icon_suggestions.clone();
+        let on_suggest_icons = on_suggest_icons.clone();
+        Callback::from(move |_: MouseEvent| {
+            if let Some(topic_id) = (*icon_picker).as_ref().map(|topic| topic.id) {
+                let excluded_icons = (*icon_suggestions).clone();
+                icon_suggestions.set(Vec::new());
+                on_suggest_icons.emit((topic_id, excluded_icons));
+            }
+        })
+    };
+
+    let on_pick_icon = {
+        let app_state = app_state.clone();
+        let topics = topics.clone();
+        let icon_picker = icon_picker.clone();
+        let icon_picking = icon_picking.clone();
+        Callback::from(move |icon_id: String| {
+            let Some(topic) = (*icon_picker).clone() else {
+                return;
+            };
+            icon_picking.set(true);
             let app_state = app_state.clone();
             let topics = topics.clone();
-            let regenerating_icon = regenerating_icon.clone();
+            let icon_picker = icon_picker.clone();
+            let icon_picking = icon_picking.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let req = RegenerateTopicIconReq { id: topic_id };
-                let result = Request::post("/app/topics/regenerate-icon")
+                let req = SetTopicIconReq {
+                    id: topic.id,
+                    icon_id: icon_id.clone(),
+                };
+                let result = Request::post("/app/topics/set-icon")
                     .json(&req)
                     .unwrap()
                     .send()
                     .await;
                 match result {
                     Ok(res) if res.ok() => {
-                        if let Ok(data) = res.json::<RegenerateTopicIconRes>().await {
+                        if let Ok(data) = res.json::<SetTopicIconRes>().await {
                             topics.set(
                                 topics
                                     .iter()
-                                    .map(|topic| {
-                                        if topic.id == topic_id {
+                                    .map(|t| {
+                                        if t.id == topic.id {
                                             AppTopicInfo {
                                                 icon_id: data.icon_id.clone(),
-                                                topic_color: data.topic_color.clone(),
-                                                ..topic.clone()
+                                                ..t.clone()
                                             }
                                         } else {
-                                            topic.clone()
+                                            t.clone()
                                         }
                                     })
                                     .collect(),
                             );
-                            toast(&app_state, "Topic icon and color updated");
+                            toast(&app_state, "Topic icon updated");
+                            icon_picker.set(None);
                         } else {
                             toast(&app_state, "Failed to read icon response");
                         }
@@ -252,7 +329,7 @@ pub fn grounding() -> Html {
                     }
                     Err(err) => toast(&app_state, err.to_string()),
                 }
-                regenerating_icon.set(None);
+                icon_picking.set(false);
             });
         })
     };
@@ -954,10 +1031,10 @@ pub fn grounding() -> Html {
                                 let topic_for_edit = t.clone();
                                 let topic_for_load = t.clone();
                                 let topic_for_delete = t.clone();
+                                let topic_for_pick = t.clone();
                                 let topic_id = t.id;
-                                let icon_loading = *regenerating_icon == Some(topic_id);
                                 let card_loading = *loading_topic == Some(topic_id);
-                                let on_regenerate_icon = on_regenerate_icon.clone();
+                                let on_open_icon_picker = on_open_icon_picker.clone();
                                 let on_load_topic = on_load_topic.clone();
                                 let pending_topic_name = t.name.clone();
                                 let pending_count = t.pending_cards;
@@ -966,27 +1043,18 @@ pub fn grounding() -> Html {
                                 <div class="surface border rounded-md p-4 flex flex-col">
                                     <div class="flex justify-between items-start mb-2 gap-2">
                                         <h3 class="font-semibold text-lg truncate flex items-center gap-2 min-w-0">
-                                            <ShadcnTooltip content="Pick new icon with AI">
+                                            <ShadcnTooltip content="Pick topic icon">
                                             <button
                                                 type="button"
-                                                class="topic-icon-btn shrink-0 inline-flex items-center justify-center rounded-sm border border-transparent hover:border-token disabled:opacity-50"
-                                                disabled={icon_loading}
-                                                onclick={Callback::from(move |_: MouseEvent| on_regenerate_icon.emit(topic_id))}
+                                                class="topic-icon-btn shrink-0 inline-flex items-center justify-center rounded-sm border border-transparent hover:border-token"
+                                                onclick={Callback::from(move |_: MouseEvent| on_open_icon_picker.emit(topic_for_pick.clone()))}
                                             >
-                                                if icon_loading {
-                                                    <iconify-icon
-                                                        icon="radix-icons:reload"
-                                                        class="topic-icon radix-icon animate-spin opacity-70"
-                                                        aria-hidden="true"
-                                                    ></iconify-icon>
-                                                } else {
-                                                    <iconify-icon
-                                                        icon={display_icon(&t.icon_id).to_string()}
-                                                        class="topic-icon radix-icon"
-                                                        style={format!("color: {}", t.topic_color)}
-                                                        aria-hidden="true"
-                                                    ></iconify-icon>
-                                                }
+                                                <iconify-icon
+                                                    icon={display_icon(&t.icon_id).to_string()}
+                                                    class="topic-icon radix-icon"
+                                                    style={format!("color: {}", t.topic_color)}
+                                                    aria-hidden="true"
+                                                ></iconify-icon>
                                             </button>
                                             </ShadcnTooltip>
                                             <span class="truncate">{&t.name}</span>
@@ -1619,6 +1687,72 @@ pub fn grounding() -> Html {
             } else {
                 html! {}
             } }
+
+            if let Some(topic) = (*icon_picker).clone() {
+                <div class="fixed inset-0 z-[80] bg-black/60 p-4 flex items-center justify-center">
+                    <div class="surface border rounded-md w-full max-w-md p-4 space-y-4">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <h2 class="text-lg font-semibold">{"Pick an icon"}</h2>
+                                <p class="text-sm text-muted truncate">{format!("Topic: {}", topic.name)}</p>
+                            </div>
+                            <ShadcnButton
+                                variant={ButtonVariant::Outline}
+                                size={ButtonSize::Sm}
+                                onclick={on_close_icon_picker.clone()}
+                            >
+                                {"Close"}
+                            </ShadcnButton>
+                        </div>
+                        <div>
+                            <label class="block card-kicker mb-2">{"AI suggestions"}</label>
+                            if *icon_suggesting {
+                                <div class="flex items-center justify-center gap-2 py-8 text-sm text-muted">
+                                    <iconify-icon icon="radix-icons:reload" class="radix-icon animate-spin" aria-hidden="true"></iconify-icon>
+                                    {"Suggesting icons..."}
+                                </div>
+                            } else if icon_suggestions.is_empty() {
+                                <div class="py-8 text-center text-sm text-muted">{"No suggestions yet."}</div>
+                            } else {
+                                <div class="grid grid-cols-5 gap-2">
+                                    { for (*icon_suggestions).iter().map(|icon| {
+                                        let icon_id = icon.clone();
+                                        let on_pick = on_pick_icon.clone();
+                                        let picking = *icon_picking;
+                                        html! {
+                                            <button
+                                                type="button"
+                                                title={icon_id.clone()}
+                                                class="flex flex-col items-center gap-1 rounded-md border border-token p-3 hover:border-primary hover:bg-primary-soft disabled:opacity-50"
+                                                disabled={picking}
+                                                onclick={Callback::from(move |_: MouseEvent| on_pick.emit(icon_id.clone()))}
+                                            >
+                                                <iconify-icon icon={icon.clone()} class="topic-icon radix-icon text-2xl" aria-hidden="true"></iconify-icon>
+                                                <span class="w-full truncate text-center text-[10px] text-muted">{icon_short_name(icon)}</span>
+                                            </button>
+                                        }
+                                    }) }
+                                </div>
+                            }
+                            <div class="mt-4 flex items-center justify-between gap-2">
+                                <div class="flex items-center gap-2 text-sm text-muted">
+                                    <span class="text-xs">{"Current:"}</span>
+                                    <iconify-icon icon={display_icon(&topic.icon_id).to_string()} class="radix-icon" aria-hidden="true"></iconify-icon>
+                                </div>
+                                <ShadcnButton
+                                    variant={ButtonVariant::Secondary}
+                                    size={ButtonSize::Sm}
+                                    disabled={*icon_suggesting || *icon_picking}
+                                    onclick={on_reroll_icons.clone()}
+                                >
+                                    <iconify-icon icon="radix-icons:reload" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                    {"Suggest different icons"}
+                                </ShadcnButton>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
 
             if let Some(topic) = (*editing).clone() {
                 <TopicEditor topic={topic} documents={(*documents).clone()} sources_loaded={*sources_loaded} on_refresh_documents={Callback::from({

@@ -593,7 +593,7 @@ pub fn grounding_settings() -> Html {
                                         value={value}
                                         checked={selected}
                                         onchange={onchange}
-                                        class="mt-1"
+                                        class="image-source-mode-radio mt-1 size-5 shrink-0"
                                     />
                                     <span class="flex flex-col gap-1">
                                         <span class="font-medium">{title}</span>

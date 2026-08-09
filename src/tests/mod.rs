@@ -1,4 +1,5 @@
 mod grounding;
+mod icons;
 mod support;
 
 mod api_flow;

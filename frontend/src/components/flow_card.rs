@@ -18,6 +18,81 @@ fn repeatable_stack_layers(tipcard_type: &str, pending_count: u32, fullscreen: b
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CardContentKind {
+    Normal,
+    LlmError,
+    ApiKeyMissing,
+}
+
+impl CardContentKind {
+    fn detect(text: &str) -> Self {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return Self::Normal;
+        }
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.contains("api key missing") {
+            Self::ApiKeyMissing
+        } else if lower.starts_with("llm error:")
+            || lower.contains("\nllm error:")
+            || lower.contains("llm error: http")
+        {
+            Self::LlmError
+        } else {
+            Self::Normal
+        }
+    }
+
+    fn is_error(self) -> bool {
+        !matches!(self, Self::Normal)
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::Normal => "",
+            Self::LlmError => "Generation failed",
+            Self::ApiKeyMissing => "API key missing",
+        }
+    }
+
+    fn summary(self) -> &'static str {
+        match self {
+            Self::Normal => "",
+            Self::LlmError => "The model request failed. Expand for the full error.",
+            Self::ApiKeyMissing => {
+                "No LLM API key is configured. Add one in Settings to generate tips."
+            }
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        match self {
+            Self::Normal => "radix-icons:info-circled",
+            Self::LlmError => "radix-icons:exclamation-triangle",
+            Self::ApiKeyMissing => "radix-icons:lock-closed",
+        }
+    }
+}
+
+fn card_error_detail(
+    kind: CardContentKind,
+    full_content: &str,
+    compressed_content: &str,
+) -> String {
+    let primary = full_content.trim();
+    let secondary = compressed_content.trim();
+    let detail = if !primary.is_empty() {
+        primary
+    } else {
+        secondary
+    };
+    match kind {
+        CardContentKind::ApiKeyMissing | CardContentKind::LlmError => detail.to_string(),
+        CardContentKind::Normal => String::new(),
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum ReviewSway {
     Left,
@@ -136,6 +211,8 @@ fn human_datetime(value: &str) -> String {
 pub fn flow_card(props: &FlowCardProps) -> Html {
     let i18n = use_i18n();
     let expanded = use_state(|| false);
+    let error_expanded = use_state(|| false);
+    let error_copied = use_state(|| false);
     let copied = use_state(|| false);
     let lightbox_index = use_state(|| None::<usize>);
     let image_picker_open = use_state(|| false);
@@ -162,11 +239,22 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
         })
     };
 
+    let content_kind = CardContentKind::detect(&card.full_content);
+    let content_kind = if content_kind.is_error() {
+        content_kind
+    } else {
+        CardContentKind::detect(&card.compressed_content)
+    };
+    let error_detail =
+        card_error_detail(content_kind, &card.full_content, &card.compressed_content);
     let has_compact = card.review_message.is_none()
+        && !content_kind.is_error()
         && !card.compressed_content.is_empty()
         && card.compressed_content != card.full_content;
     let displayed_text = if let Some(message) = card.review_message.as_deref() {
         message
+    } else if content_kind.is_error() {
+        ""
     } else if !*expanded && has_compact && !props.fullscreen {
         &card.compressed_content
     } else {
@@ -348,6 +436,23 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
         })
     };
 
+    let on_copy_error = {
+        let text = error_detail.clone();
+        let error_copied = error_copied.clone();
+        Callback::from(move |_| {
+            if text.is_empty() {
+                return;
+            }
+            if let Some(window) = web_sys::window() {
+                let clipboard = window.navigator().clipboard();
+                let _ = clipboard.write_text(&text);
+                error_copied.set(true);
+                let error_copied = error_copied.clone();
+                gloo_timers::callback::Timeout::new(1200, move || error_copied.set(false)).forget();
+            }
+        })
+    };
+
     let is_known = card.repeat_count > 0 || card.status != "active";
     let badge_label = match card.tipcard_type.as_str() {
         "casual_tip" | "repeatable_tip" => {
@@ -457,7 +562,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                                 </span>
                             </ShadcnTooltip>
                         }
-                        <span class="card-topic-title truncate text-center">{&card.topic_name}</span>
+                        <span class="card-topic-title line-clamp-2 text-center break-words">{&card.topic_name}</span>
                     </div>
                     <div class="card-title-controls flex items-center gap-2 justify-self-end shrink-0">
                         <div class="relative">
@@ -555,6 +660,56 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                             </div>
                         </div>
                     </div>
+                } else if content_kind.is_error() {
+                    <div
+                        class="card-error-panel flex-1 flex flex-col gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-3"
+                        data-card-error={match content_kind {
+                            CardContentKind::ApiKeyMissing => "api-key",
+                            CardContentKind::LlmError => "llm",
+                            CardContentKind::Normal => "none",
+                        }}
+                        role="alert"
+                    >
+                        <div class="flex items-start gap-3">
+                            <span class="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive">
+                                <iconify-icon icon={content_kind.icon()} class="radix-icon text-lg" aria-hidden="true"></iconify-icon>
+                            </span>
+                            <div class="min-w-0 flex-1 space-y-1">
+                                <p class="text-sm font-semibold text-destructive">{content_kind.title()}</p>
+                                <p class="text-sm leading-6 text-muted">{content_kind.summary()}</p>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <ShadcnButton
+                                variant={ButtonVariant::Outline}
+                                size={ButtonSize::Sm}
+                                class={classes!("gap-1.5")}
+                                onclick={Callback::from({
+                                    let error_expanded = error_expanded.clone();
+                                    move |_| error_expanded.set(!*error_expanded)
+                                })}
+                            >
+                                <iconify-icon
+                                    icon={if *error_expanded { "radix-icons:chevron-up" } else { "radix-icons:chevron-down" }}
+                                    class="radix-icon"
+                                    aria-hidden="true"
+                                ></iconify-icon>
+                                {if *error_expanded { "Hide details" } else { "Show details" }}
+                            </ShadcnButton>
+                            <ShadcnButton
+                                variant={ButtonVariant::Outline}
+                                size={ButtonSize::Sm}
+                                class={classes!("gap-1.5", "card-error-copy", (*error_copied).then_some("copied"))}
+                                onclick={on_copy_error.clone()}
+                            >
+                                <iconify-icon icon="radix-icons:clipboard-copy" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                {if *error_copied { "Copied" } else { "Copy error" }}
+                            </ShadcnButton>
+                        </div>
+                        if *error_expanded {
+                            <pre class="card-error-detail text-xs leading-5 whitespace-pre-wrap break-words rounded-md border border-token bg-background/60 p-3 max-h-64 overflow-y-auto">{error_detail.clone()}</pre>
+                        }
+                    </div>
                 } else {
                     <div class={classes!(content_class, "card-text", if *expanded && has_compact { "is-expanded" } else { "is-compact" })}>
                         <div class="card-text-body markdown-content">
@@ -595,22 +750,24 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                             <div class="muted-surface border border-token p-2 flex-1 text-center text-sm font-medium text-muted">{"Review saved"}</div>
                         }
                     } else if card.tipcard_type == "casual_tip" || card.tipcard_type == "manual_tip" {
-                        <ShadcnTooltip content="Dismiss" class={classes!("flex-1")}>
+                        <ShadcnTooltip content="Dismiss this card" class={classes!("flex-1")}>
                             <ShadcnButton
                                 variant={ButtonVariant::Outline}
-                                class={classes!("w-full")}
+                                class={classes!("w-full", "gap-2")}
                                 onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(3), Some("dismiss".to_string()), ReviewSway::Left)))}
                             >
                                 <iconify-icon icon="radix-icons:cross-2" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                <span>{"Dismiss"}</span>
                             </ShadcnButton>
                         </ShadcnTooltip>
-                        <ShadcnTooltip content="Acknowledge" class={classes!("flex-1")}>
+                        <ShadcnTooltip content="Acknowledge this card" class={classes!("flex-1")}>
                             <ShadcnButton
                                 variant={ButtonVariant::Default}
-                                class={classes!("w-full")}
+                                class={classes!("w-full", "gap-2")}
                                 onclick={let review = review_with_animation.clone(); Callback::from(move |_| review.emit((Some(3), Some("acknowledge".to_string()), ReviewSway::Right)))}
                             >
                                 <iconify-icon icon="radix-icons:check" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                <span>{"Acknowledge"}</span>
                             </ShadcnButton>
                         </ShadcnTooltip>
                     } else if card.tipcard_type == "repeatable_tip" {
@@ -991,7 +1148,7 @@ pub fn flow_card_skeleton(props: &FlowCardSkeletonProps) -> Html {
 
 #[cfg(test)]
 mod tests {
-    use super::repeatable_stack_layers;
+    use super::{CardContentKind, card_error_detail, repeatable_stack_layers};
 
     #[test]
     fn repeatable_stack_matches_pending_card_count() {
@@ -1005,5 +1162,27 @@ mod tests {
     fn repeatable_stack_is_hidden_for_fullscreen_and_other_types() {
         assert_eq!(repeatable_stack_layers("repeatable_tip", 3, true), 0);
         assert_eq!(repeatable_stack_layers("casual_tip", 3, false), 0);
+    }
+
+    #[test]
+    fn detects_api_key_and_llm_error_content() {
+        assert_eq!(
+            CardContentKind::detect("Generated tip (API KEY MISSING)\n\nPrompt:\nhello"),
+            CardContentKind::ApiKeyMissing
+        );
+        assert_eq!(
+            CardContentKind::detect("LLM Error: HTTP 401 Unauthorized {\"error\":\"nope\"}"),
+            CardContentKind::LlmError
+        );
+        assert_eq!(
+            CardContentKind::detect("A normal tip about Rust ownership."),
+            CardContentKind::Normal
+        );
+    }
+
+    #[test]
+    fn error_detail_prefers_full_content() {
+        let detail = card_error_detail(CardContentKind::LlmError, "LLM Error: boom", "compressed");
+        assert_eq!(detail, "LLM Error: boom");
     }
 }

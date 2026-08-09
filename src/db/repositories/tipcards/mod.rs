@@ -34,7 +34,8 @@ pub use queue::{
     has_active_topic_card,
 };
 pub use writes::{
-    create_custom, create_generated_with_status, create_manual, delete_with_review, set_pinned,
+    create_custom, create_generated_with_status, create_manual, delete_failed_generation_cards,
+    delete_with_review, set_pinned,
 };
 
 pub(crate) fn topic_color_from_row(name: &str, color_hue: Option<i64>) -> String {

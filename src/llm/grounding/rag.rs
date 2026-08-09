@@ -2,11 +2,11 @@
 //! the service pre-retrieved (PostgreSQL full-text retrieval).
 
 use crate::llm::cards::ARRAY_FORMAT_INSTRUCTIONS;
-use crate::llm::transport::create_chat_completion;
+use crate::llm::transport::create_chat_completion_json;
 
-use super::{GroundingInput, GroundingOutcome, batch_size, build_batch, factual_fallback};
+use super::{GroundingInput, GroundingOutcome, batch_size, factual_fallback};
 
-pub async fn generate(input: GroundingInput<'_>) -> GroundingOutcome {
+pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, String> {
     // No key → offline fallback card.
     if input.api_key.is_empty() {
         return factual_fallback(&input).await;
@@ -38,23 +38,52 @@ pub async fn generate(input: GroundingInput<'_>) -> GroundingOutcome {
         )
     };
 
-    let response = create_chat_completion(
-        input.model,
-        &prompt,
-        input.api_key,
-        input.api_base,
-        input.reasoning,
-        Some(2048),
-    )
-    .await;
-
-    match GroundingOutcome::from_cards(build_batch(response, &input).await, Vec::new()) {
-        Some(outcome) => outcome,
-        None => {
-            tracing::warn!("rag grounding returned no parseable batch; using fallback");
-            factual_fallback(&input).await
+    let mut last_error = String::new();
+    for attempt in 1..=2 {
+        let started = std::time::Instant::now();
+        let response = create_chat_completion_json(
+            input.model,
+            &prompt,
+            input.api_key,
+            input.api_base,
+            input.reasoning,
+            Some(8192),
+        )
+        .await;
+        let duration_ms = started.elapsed().as_millis() as u64;
+        if response.is_error {
+            last_error = format!("LLM request failed: {}", response.content);
+            tracing::warn!(
+                topic = input.topic_name,
+                attempt,
+                duration_ms,
+                error = %last_error,
+                "rag grounding request failed"
+            );
+            if attempt < 2 {
+                tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                continue;
+            }
+            return Err(last_error);
+        }
+        let snippet = crate::llm::transport::content_snippet(&response.content, 200);
+        let cards = super::build_batch(response, &input).await;
+        if let Some(outcome) = GroundingOutcome::from_cards(cards, Vec::new()) {
+            return Ok(outcome);
+        }
+        last_error = format!("model returned no parseable card JSON: {snippet}");
+        tracing::warn!(
+            topic = input.topic_name,
+            attempt,
+            duration_ms,
+            error = %last_error,
+            "rag grounding response was not parseable JSON"
+        );
+        if attempt < 2 {
+            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
         }
     }
+    Err(last_error)
 }
 
 fn render_chunks(documents: &[super::DocChunk]) -> String {

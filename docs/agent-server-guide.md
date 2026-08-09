@@ -55,6 +55,7 @@ Put returned `sk_live_*` in `ApiRequest.auth` for every later call.
 | `tips` | Due cards, current daily cards, or cards after window rollover; repeatable topics stop at their per-topic daily limit |
 | `force_daily_refresh` | Empty = all generated topics; set `topic`/`tipcard_type` to target. Then call `tips` |
 | dashboard `POST /app/continue-daily-review` | Browser-only continuation for one repeatable topic: adds another full `daily_card_count` set to its current daily window and makes its next card available |
+| dashboard `POST /app/topics/suggest-icons` / `set-icon` | AI icon picker: `suggest-icons` returns 5 allowlisted icon ids for a topic (`{ id, excluded_icons? }` → `{ icons: [...] }`); exclusions apply only to that request. `set-icon` applies one (`{ id, icon_id }` → `{ icon_id }`) |
 | `review` | Grade or queue action on a card |
 
 ## More calls

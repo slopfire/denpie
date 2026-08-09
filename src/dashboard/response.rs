@@ -189,6 +189,29 @@ pub struct RegenerateTopicIconRes {
 }
 
 #[derive(Deserialize)]
+pub struct SuggestTopicIconsReq {
+    pub id: i64,
+    #[serde(default)]
+    pub excluded_icons: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct SuggestTopicIconsRes {
+    pub icons: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SetTopicIconReq {
+    pub id: i64,
+    pub icon_id: String,
+}
+
+#[derive(Serialize)]
+pub struct SetTopicIconRes {
+    pub icon_id: String,
+}
+
+#[derive(Deserialize)]
 pub struct DeleteTopicReq {
     pub id: i64,
 }

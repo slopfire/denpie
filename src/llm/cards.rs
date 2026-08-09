@@ -1,7 +1,10 @@
 use crate::llm::{
     compression::CompressionLevel,
     markdown::{MarkdownSegment, join_markdown_segments, split_markdown_segments},
-    transport::{LlmResponse, ReasoningConfig, TokenUsage, create_chat_completion},
+    transport::{
+        LlmResponse, ReasoningConfig, TokenUsage, create_chat_completion,
+        create_chat_completion_json,
+    },
 };
 
 pub const DEFAULT_PROMPT_TEMPLATE: &str = "\
@@ -36,7 +39,8 @@ Rules:
 - Do not request generic decoration, logos, repeated prose, or images that do not add information.";
 
 pub(crate) const ARRAY_FORMAT_INSTRUCTIONS: &str = "\
-Return your response as a single JSON array of card objects, each with exactly these keys:
+Return your response as a single JSON object with exactly one top-level key, \"cards\".
+The value of \"cards\" must be a JSON array of card objects, each with exactly these keys:
 - \"title\": a concise, specific card title, maximum 8 words, no quotes, no markdown.
 - \"content\": the full tip in markdown, practical and specific.
 - \"compressed\": a compact, mobile-friendly version of the same tip in markdown.
@@ -44,8 +48,8 @@ Return your response as a single JSON array of card objects, each with exactly t
 - \"image_query\": a short, specific image-search query when \"use_image\" is true; otherwise an empty string.
 
 Rules:
-- Output ONLY a valid JSON array. Do not wrap it in markdown code fences.
-- Do not add commentary outside the JSON array.
+- Output ONLY the valid JSON object. Do not wrap it in markdown code fences.
+- Do not add commentary outside the JSON object.
 - Each card must cover a distinct, non-overlapping idea.
 - Keep all facts, examples, commands, and caveats in each card's full \"content\".
 - The \"compressed\" version must only shorten the prose; do not invent new claims.
@@ -72,6 +76,15 @@ pub(crate) struct ParsedGeneratedCard {
     pub(crate) image_query: Option<serde_json::Value>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct ParsedCardBatch {
+    cards: Vec<ParsedGeneratedCard>,
+}
+
+/// How many times a single-card generation retries a request whose response was
+/// an error or not parseable as the requested JSON shape.
+const ONE_SHOT_MAX_ATTEMPTS: usize = 2;
+
 pub async fn generate_card(
     rendered_prompt: &str,
     compression_level: CompressionLevel,
@@ -79,7 +92,7 @@ pub async fn generate_card(
     api_key: &str,
     api_base: &str,
     reasoning: &ReasoningConfig,
-) -> GeneratedCard {
+) -> Result<GeneratedCard, String> {
     tracing::info!(
         model,
         prompt_len = rendered_prompt.len(),
@@ -87,14 +100,14 @@ pub async fn generate_card(
     );
     if api_key.is_empty() {
         let fallback = format!("Generated tip (API KEY MISSING)\n\nPrompt:\n{rendered_prompt}");
-        return GeneratedCard {
+        return Ok(GeneratedCard {
             title: fallback_title(&fallback),
             full_content: fallback.clone(),
             compressed_content: fallback,
             use_image: false,
             image_query: String::new(),
             usage: TokenUsage::default(),
-        };
+        });
     }
 
     let prompt = format!(
@@ -104,26 +117,59 @@ pub async fn generate_card(
         compression_level.oneshot_target()
     );
 
-    let response =
-        create_chat_completion(model, &prompt, api_key, api_base, reasoning, Some(2048)).await;
+    let mut last_error = String::new();
+    for attempt in 1..=ONE_SHOT_MAX_ATTEMPTS {
+        let started = std::time::Instant::now();
+        let response =
+            create_chat_completion_json(model, &prompt, api_key, api_base, reasoning, Some(4096))
+                .await;
+        let duration_ms = started.elapsed().as_millis() as u64;
+        if response.is_error {
+            last_error = format!("one-shot generation failed: {}", response.content);
+            tracing::warn!(
+                model,
+                attempt,
+                duration_ms,
+                error = %last_error,
+                "LLM generate card one-shot failed"
+            );
+            if attempt < ONE_SHOT_MAX_ATTEMPTS {
+                tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                continue;
+            }
+            return Err(last_error);
+        }
 
-    let parsed = parse_generated_card_response(&response.content);
-    if parsed.is_none() {
-        tracing::warn!(
-            content_len = response.content.len(),
-            "Failed to parse one-shot card response as JSON; using raw content"
+        let parsed = parse_generated_card_response(&response.content);
+        if let Some(parsed) = parsed {
+            return Ok(build_card_from_parsed(
+                Some(parsed),
+                &response.content,
+                response.usage,
+                compression_level,
+                model,
+                api_key,
+                api_base,
+            )
+            .await);
+        }
+        last_error = format!(
+            "model returned no parseable card JSON: {}",
+            crate::llm::transport::content_snippet(&response.content, 200)
         );
+        tracing::warn!(
+            model,
+            attempt,
+            duration_ms,
+            content_len = response.content.len(),
+            error = %last_error,
+            "one-shot card response was not parseable JSON"
+        );
+        if attempt < ONE_SHOT_MAX_ATTEMPTS {
+            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        }
     }
-    build_card_from_parsed(
-        parsed,
-        &response.content,
-        response.usage,
-        compression_level,
-        model,
-        api_key,
-        api_base,
-    )
-    .await
+    Err(last_error)
 }
 
 /// Finalize a parsed card into a [`GeneratedCard`]: resolve title/content with
@@ -229,37 +275,63 @@ pub(crate) fn parse_generated_card_response(raw: &str) -> Option<ParsedGenerated
     let json_text = strip_markdown_fences(cleaned).unwrap_or(cleaned);
     let json_text = json_text.trim();
 
-    if let Ok(parsed) = serde_json::from_str::<ParsedGeneratedCard>(json_text) {
-        return Some(parsed);
-    }
+    let parsed = if let Ok(parsed) = serde_json::from_str::<ParsedGeneratedCard>(json_text) {
+        parsed
+    } else if let Some(obj) = extract_json_object(json_text) {
+        serde_json::from_str::<ParsedGeneratedCard>(obj).ok()?
+    } else {
+        return None;
+    };
 
-    if let Some(obj) = extract_json_object(json_text) {
-        if let Ok(parsed) = serde_json::from_str::<ParsedGeneratedCard>(obj) {
-            return Some(parsed);
-        }
+    // A JSON object with no usable content (for example a `{"cards": [...]}`
+    // wrapper) is not a valid single card; treat it as unparseable so callers
+    // retry or surface an error instead of storing a garbage card.
+    if parsed
+        .content
+        .as_deref()
+        .is_some_and(|content| !content.trim().is_empty())
+    {
+        Some(parsed)
+    } else {
+        None
     }
-
-    None
 }
 
-/// Parse a JSON array of cards `[{title, content, compressed}, ...]`. Tolerates
-/// markdown fences and surrounding prose by extracting the first `[...]` span.
+/// Parse the JSON-object batch contract `{ "cards": [...] }`. Legacy top-level
+/// arrays remain accepted so responses from providers that ignore JSON-object
+/// mode and older prompts continue to work. Markdown fences and surrounding
+/// prose are tolerated for both shapes.
 pub(crate) fn parse_card_array(raw: &str) -> Vec<ParsedGeneratedCard> {
     let cleaned = raw.trim();
     let json_text = strip_markdown_fences(cleaned).unwrap_or(cleaned);
     let json_text = json_text.trim();
 
-    if let Ok(parsed) = serde_json::from_str::<Vec<ParsedGeneratedCard>>(json_text) {
-        return valid_generated_cards(parsed);
+    if let Some(cards) = parse_card_batch_json(json_text) {
+        return cards;
+    }
+
+    if let Some(object) = extract_json_object(json_text) {
+        if let Some(cards) = parse_card_batch_json(object) {
+            return cards;
+        }
     }
 
     if let Some(arr) = extract_json_array(json_text) {
-        if let Ok(parsed) = serde_json::from_str::<Vec<ParsedGeneratedCard>>(arr) {
-            return valid_generated_cards(parsed);
+        if let Some(cards) = parse_card_batch_json(arr) {
+            return cards;
         }
     }
 
     Vec::new()
+}
+
+fn parse_card_batch_json(json_text: &str) -> Option<Vec<ParsedGeneratedCard>> {
+    if let Ok(batch) = serde_json::from_str::<ParsedCardBatch>(json_text) {
+        return Some(valid_generated_cards(batch.cards));
+    }
+    serde_json::from_str::<Vec<ParsedGeneratedCard>>(json_text)
+        .ok()
+        .map(valid_generated_cards)
 }
 
 fn valid_generated_cards(cards: Vec<ParsedGeneratedCard>) -> Vec<ParsedGeneratedCard> {
@@ -372,6 +444,7 @@ async fn compress_text_segment(
             content: trimmed.to_string(),
             usage: TokenUsage::default(),
             citations: Vec::new(),
+            is_error: false,
         };
     }
 
@@ -380,6 +453,7 @@ async fn compress_text_segment(
             content: format!("Compressed: {}", trimmed),
             usage: TokenUsage::default(),
             citations: Vec::new(),
+            is_error: false,
         };
     }
 
@@ -418,6 +492,7 @@ pub async fn compress_card(
             content: full_content.trim().to_string(),
             usage: TokenUsage::default(),
             citations: Vec::new(),
+            is_error: false,
         };
     }
 
@@ -427,6 +502,7 @@ pub async fn compress_card(
             content: full_content.trim().to_string(),
             usage: TokenUsage::default(),
             citations: Vec::new(),
+            is_error: false,
         };
     }
 
@@ -466,11 +542,9 @@ pub async fn compress_card(
             }
             Err(err) => {
                 tracing::error!(%err, "Compression segment task panicked");
-                return LlmResponse {
-                    content: format!("LLM Error: compression segment task panicked: {err}"),
-                    usage: total_usage,
-                    citations: Vec::new(),
-                };
+                return LlmResponse::error(format!(
+                    "LLM Error: compression segment task panicked: {err}"
+                ));
             }
         }
     }
@@ -482,6 +556,7 @@ pub async fn compress_card(
         content: join_markdown_segments(&compressed_segments),
         usage: total_usage,
         citations: Vec::new(),
+        is_error: false,
     }
 }
 
@@ -643,6 +718,40 @@ mod tests {
         );
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].title.as_deref(), Some("Useful"));
+    }
+
+    #[test]
+    fn card_array_reads_json_object_batch() {
+        let cards = parse_card_array(
+            r#"{"cards":[{"title":"First","content":"Body 1"},{"title":"Second","content":"Body 2"}]}"#,
+        );
+        assert_eq!(cards.len(), 2);
+        assert_eq!(cards[0].title.as_deref(), Some("First"));
+        assert_eq!(cards[1].title.as_deref(), Some("Second"));
+    }
+
+    #[test]
+    fn card_array_reads_fenced_json_object_batch() {
+        let cards = parse_card_array(
+            "```json\n{\"cards\":[{\"title\":\"First\",\"content\":\"Body\"}]}\n```",
+        );
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].title.as_deref(), Some("First"));
+    }
+
+    #[test]
+    fn card_array_extracts_json_object_batch_from_extra_text() {
+        let cards = parse_card_array(
+            "Batch follows:\n{\"cards\":[{\"title\":\"First\",\"content\":\"Body\"}]}\nDone.",
+        );
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].title.as_deref(), Some("First"));
+    }
+
+    #[test]
+    fn card_array_rejects_lone_card_object() {
+        let cards = parse_card_array(r#"{"title":"Only","content":"Body"}"#);
+        assert!(cards.is_empty());
     }
 
     #[test]

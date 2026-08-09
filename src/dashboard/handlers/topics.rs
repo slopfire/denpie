@@ -6,7 +6,8 @@ use tower_sessions::Session;
 use crate::AppState;
 use crate::dashboard::response::{
     AppSummary, AppTopicInfo, DeleteTopicReq, RegenerateTopicIconReq, RegenerateTopicIconRes,
-    TopicInfo, UpdateTopicReq,
+    SetTopicIconReq, SetTopicIconRes, SuggestTopicIconsReq, SuggestTopicIconsRes, TopicInfo,
+    UpdateTopicReq,
 };
 use crate::dashboard::util::{current_user, optional_user};
 use crate::services::topics::{AdminTopicInfo, TopicService, UpdateTopicSettings};
@@ -143,6 +144,30 @@ pub async fn regenerate_topic_icon(
         icon_id: update.icon_id,
         topic_color: update.topic_color,
     }))
+}
+
+pub async fn suggest_topic_icons(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Json(req): Json<SuggestTopicIconsReq>,
+) -> Result<Json<SuggestTopicIconsRes>, (StatusCode, String)> {
+    let user = current_user(&state, &session).await?;
+    let icons = TopicService::suggest_topic_icons(&state, &user.id, req.id, &req.excluded_icons)
+        .await
+        .map_err(|err| err.into_status_body())?;
+    Ok(Json(SuggestTopicIconsRes { icons }))
+}
+
+pub async fn set_topic_icon(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Json(req): Json<SetTopicIconReq>,
+) -> Result<Json<SetTopicIconRes>, (StatusCode, String)> {
+    let user = current_user(&state, &session).await?;
+    let icon_id = TopicService::set_topic_icon(&state, &user.id, req.id, &req.icon_id)
+        .await
+        .map_err(|err| err.into_status_body())?;
+    Ok(Json(SetTopicIconRes { icon_id }))
 }
 
 pub async fn delete_topic(

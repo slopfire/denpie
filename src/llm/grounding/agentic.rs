@@ -2,15 +2,15 @@
 //! cards at once; the first is served now, the rest become a pending backlog.
 
 use crate::llm::cards::{ARRAY_FORMAT_INSTRUCTIONS, build_card_from_parsed, parse_card_array};
-use crate::llm::transport::create_chat_completion_grounded;
+use crate::llm::transport::{TokenUsage, create_chat_completion_grounded};
 
 use super::search::{render_hits, search_external};
 use super::{GroundingInput, GroundingOutcome, factual_fallback};
 
 const MIN_CARDS: i64 = 5;
-const MAX_CARDS: i64 = 10;
+const MAX_CARDS: i64 = 12;
 
-pub async fn generate(input: GroundingInput<'_>) -> GroundingOutcome {
+pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, String> {
     tracing::info!(
         topic = input.topic_name,
         model = input.model,
@@ -64,54 +64,95 @@ pub async fn generate(input: GroundingInput<'_>) -> GroundingOutcome {
         "agentic grounding requesting researched card batch"
     );
 
-    let response = create_chat_completion_grounded(
-        input.model,
-        &research_prompt,
-        input.api_key,
-        input.api_base,
-        input.reasoning,
-        Some(4096),
-        web_search,
-    )
-    .await;
+    let mut last_error = String::new();
+    let mut citations = Vec::new();
+    let mut parsed = Vec::new();
+    let mut response_usage = TokenUsage::default();
+    for attempt in 1..=2 {
+        let started = std::time::Instant::now();
+        let response = create_chat_completion_grounded(
+            input.model,
+            &research_prompt,
+            input.api_key,
+            input.api_base,
+            input.reasoning,
+            Some(8192),
+            web_search,
+            true,
+        )
+        .await;
+        let duration_ms = started.elapsed().as_millis() as u64;
 
-    tracing::info!(
-        topic = input.topic_name,
-        content_len = response.content.len(),
-        citations = response.citations.len(),
-        prompt_tokens = response.usage.prompt_tokens,
-        completion_tokens = response.usage.completion_tokens,
-        total_tokens = response.usage.total_tokens,
-        "agentic grounding research response received"
-    );
-
-    let citations = response.citations.clone();
-    let parsed = parse_card_array(&response.content)
-        .into_iter()
-        .take(n as usize)
-        .collect::<Vec<_>>();
-    tracing::info!(
-        topic = input.topic_name,
-        parsed_cards = parsed.len(),
-        "agentic grounding parsed researched card batch"
-    );
-
-    if parsed.is_empty() {
-        tracing::warn!(
+        tracing::info!(
+            topic = input.topic_name,
+            attempt,
+            duration_ms,
             content_len = response.content.len(),
-            "agentic grounding produced no parseable cards; falling back to single card"
+            citations = response.citations.len(),
+            prompt_tokens = response.usage.prompt_tokens,
+            completion_tokens = response.usage.completion_tokens,
+            total_tokens = response.usage.total_tokens,
+            "agentic grounding research response received"
         );
-        let mut outcome = factual_fallback(&input).await;
-        outcome.citations = citations;
-        return outcome;
+
+        if response.is_error {
+            last_error = format!("LLM request failed: {}", response.content);
+            tracing::warn!(
+                topic = input.topic_name,
+                attempt,
+                duration_ms,
+                error = %last_error,
+                "agentic grounding research request failed"
+            );
+            if attempt < 2 {
+                tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+                continue;
+            }
+            return Err(last_error);
+        }
+
+        citations = response.citations.clone();
+        response_usage = response.usage.clone();
+        parsed = parse_card_array(&response.content)
+            .into_iter()
+            .take(n as usize)
+            .collect::<Vec<_>>();
+        tracing::info!(
+            topic = input.topic_name,
+            attempt,
+            parsed_cards = parsed.len(),
+            "agentic grounding parsed researched card batch"
+        );
+
+        if !parsed.is_empty() {
+            break;
+        }
+        last_error = format!(
+            "model returned no parseable card JSON: {}",
+            crate::llm::transport::content_snippet(&response.content, 200)
+        );
+        tracing::warn!(
+            topic = input.topic_name,
+            attempt,
+            duration_ms,
+            content_len = response.content.len(),
+            error = %last_error,
+            "agentic grounding produced no parseable cards"
+        );
+        if attempt < 2 {
+            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        }
+    }
+    if parsed.is_empty() {
+        return Err(last_error);
     }
 
     // Build each card. The array response's token usage is attributed to the
     // first card; subsequent cards carry only their own compression usage.
     let mut cards = Vec::with_capacity(parsed.len());
-    let mut response_usage = response.usage;
+    let mut usage_budget = response_usage;
     for (index, item) in parsed.into_iter().enumerate() {
-        let base_usage = std::mem::take(&mut response_usage);
+        let base_usage = std::mem::take(&mut usage_budget);
         let card = build_card_from_parsed(
             Some(item),
             "",
@@ -142,7 +183,7 @@ pub async fn generate(input: GroundingInput<'_>) -> GroundingOutcome {
         "agentic grounding completed"
     );
 
-    outcome
+    Ok(outcome)
 }
 
 fn build_prompt(

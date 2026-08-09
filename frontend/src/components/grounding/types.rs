@@ -54,14 +54,25 @@ pub(crate) struct DeleteTopicReq {
 }
 
 #[derive(Serialize)]
-pub(crate) struct RegenerateTopicIconReq {
+pub(crate) struct SuggestTopicIconsReq {
     pub(crate) id: i64,
+    pub(crate) excluded_icons: Vec<String>,
 }
 
 #[derive(Deserialize)]
-pub(crate) struct RegenerateTopicIconRes {
+pub(crate) struct SuggestTopicIconsRes {
+    pub(crate) icons: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct SetTopicIconReq {
+    pub(crate) id: i64,
     pub(crate) icon_id: String,
-    pub(crate) topic_color: String,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct SetTopicIconRes {
+    pub(crate) icon_id: String,
 }
 
 #[derive(Serialize)]
@@ -73,6 +84,10 @@ pub(crate) struct ForceDailyRefreshReq {
 #[derive(Deserialize)]
 pub(crate) struct ForceDailyRefreshRes {
     pub(crate) refreshed_cards: u64,
+}
+
+pub(crate) fn icon_short_name(icon: &str) -> String {
+    icon.rsplit(':').next().unwrap_or(icon).replace('-', " ")
 }
 
 pub(crate) fn title_from_url(url: &str) -> String {

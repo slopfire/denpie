@@ -439,7 +439,14 @@ pub fn unified_flow() -> Html {
                         LocalStorage::delete("denpie_prefill_type");
                         load_cards.emit(true);
                     }
-                    _ => toast(&app_state, "Failed to add cards"),
+                    Ok(res) => {
+                        let message = res
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "Failed to add cards".to_string());
+                        toast(&app_state, message);
+                    }
+                    Err(_) => toast(&app_state, "Failed to add cards"),
                 }
                 pending_count.set(0);
             });
@@ -510,17 +517,28 @@ pub fn unified_flow() -> Html {
                                         manual_image_data: None,
                                         exclude_card_ids: Some(vec![id]),
                                     };
-                                    let next_ready = match Request::post("/app/tips")
+                                    let (next_ready, next_error) = match Request::post("/app/tips")
                                         .json(&next_req)
                                         .unwrap()
                                         .send()
                                         .await
                                     {
-                                        Ok(response) if response.ok() => response
-                                            .json::<Vec<serde_json::Value>>()
-                                            .await
-                                            .is_ok_and(|cards| !cards.is_empty()),
-                                        _ => false,
+                                        Ok(response) if response.ok() => (
+                                            response
+                                                .json::<Vec<serde_json::Value>>()
+                                                .await
+                                                .is_ok_and(|cards| !cards.is_empty()),
+                                            None,
+                                        ),
+                                        Ok(response) => (
+                                            false,
+                                            response
+                                                .text()
+                                                .await
+                                                .ok()
+                                                .filter(|text| !text.trim().is_empty()),
+                                        ),
+                                        Err(_) => (false, None),
                                     };
                                     if !next_ready {
                                         // Keep the completion card mounted. Reloading the flow
@@ -560,9 +578,15 @@ pub fn unified_flow() -> Html {
                                             next.push(placeholder.clone());
                                         }
                                         cards.set(next);
+                                        let message = next_error.unwrap_or_else(|| {
+                                            "Review saved, but the next card is unavailable"
+                                                .to_string()
+                                        });
                                         toast(
                                             &app_state,
-                                            "Review saved, but the next card is unavailable",
+                                            format!(
+                                                "Review saved, but the next card could not be loaded: {message}"
+                                            ),
                                         );
                                     }
                                 } else {
@@ -597,29 +621,37 @@ pub fn unified_flow() -> Html {
     let on_continue_cb = {
         let app_state = app_state.clone();
         let load_cards = load_cards.clone();
+        let pending_count = pending_count.clone();
         Callback::from(move |(topic, tipcard_type): (String, String)| {
             let app_state = app_state.clone();
             let load_cards = load_cards.clone();
+            let pending_count = pending_count.clone();
+            pending_count.set(1);
             wasm_bindgen_futures::spawn_local(async move {
                 let req = ContinueDailyReviewReq {
                     topics: topic,
                     tipcard_type: Some(tipcard_type),
                 };
-                let loaded = match Request::post("/app/continue-daily-review")
+                match Request::post("/app/continue-daily-review")
                     .json(&req)
                     .unwrap()
                     .send()
                     .await
                 {
-                    Ok(response) if response.ok() => true,
-                    _ => false,
-                };
-                if loaded {
-                    toast(&app_state, "Continuing today's review");
-                    load_cards.emit(true);
-                } else {
-                    toast(&app_state, "Could not continue today's review");
+                    Ok(response) if response.ok() => {
+                        toast(&app_state, "Continuing today's review");
+                        load_cards.emit(true);
+                    }
+                    Ok(response) => {
+                        let message = response
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "Could not continue today's review".to_string());
+                        toast(&app_state, message);
+                    }
+                    Err(err) => toast(&app_state, err.to_string()),
                 }
+                pending_count.set(0);
             });
         })
     };

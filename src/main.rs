@@ -139,7 +139,10 @@ async fn main() {
         api_keys: api_key_service,
         reviews: review_service,
         webauthn: webauthn_setup.webauthn,
+        generation_locks: std::sync::Mutex::new(std::collections::HashSet::new()),
+        self_arc: std::sync::OnceLock::new(),
     });
+    let _ = shared_state.self_arc.set(shared_state.clone());
     autoupdate::spawn(shared_state.settings_path.clone());
     daily_refresh::spawn(shared_state.clone());
     let session_layer = SessionManagerLayer::new(session_store)

@@ -364,7 +364,7 @@ pub fn admin_shell() -> Html {
                 </div>
             </header>
 
-            <main class="lg:ml-56 px-4 sm:px-6 lg:px-6 py-5 pb-20 max-w-none flex-1">
+            <main class="app-main lg:ml-56 px-4 sm:px-6 lg:px-6 py-5 pb-20 max-w-none flex-1">
                 <div class="mb-6">
                     <h1 class="text-xl font-semibold tracking-tight">{i18n.t("admin.user_management")}</h1>
                     <p class="text-muted mt-2">{i18n.t("admin.subtitle")}</p>

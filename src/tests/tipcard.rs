@@ -710,10 +710,12 @@ async fn test_max_active_cards_blocks_new_manual_card_but_keeps_due_cards_availa
     let state = make_state(db, settings_path);
 
     let topic_id = sqlx::query_scalar::<_, i64>(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', $1, $2) RETURNING id",
+        "INSERT INTO topics (user_id, name, tipcard_type, daily_card_count)
+         VALUES ('usr_test_admin', $1, $2, $3) RETURNING id",
     )
     .bind("spanish")
     .bind("repeatable_tip")
+    .bind(2_i64)
     .fetch_one(&state.db)
     .await
     .unwrap();
@@ -1194,10 +1196,12 @@ async fn test_app_tip_replacement_excludes_visible_cards() {
     let state = make_state(db, settings_path);
 
     let topic_id = sqlx::query_scalar::<_, i64>(
-        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ('usr_test_admin', $1, $2) RETURNING id",
+        "INSERT INTO topics (user_id, name, tipcard_type, daily_card_count)
+         VALUES ('usr_test_admin', $1, $2, $3) RETURNING id",
     )
     .bind("spanish")
     .bind("repeatable_tip")
+    .bind(2_i64)
     .fetch_one(&state.db)
     .await
     .unwrap();

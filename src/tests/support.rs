@@ -189,6 +189,8 @@ pub fn make_state(db: PgPool, settings_path: PathBuf) -> AppState {
         frontend_dist: test_frontend_dist(),
         settings_path,
         webauthn,
+        generation_locks: std::sync::Mutex::new(std::collections::HashSet::new()),
+        self_arc: std::sync::OnceLock::new(),
     }
 }
 

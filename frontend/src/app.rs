@@ -1,5 +1,5 @@
 use crate::i18n::{I18n, use_i18n};
-use crate::state::{AppAction, AppState, AuthStatus, UserProfile};
+use crate::state::{AppAction, AppState, AuthStatus, ToastKind, UserProfile};
 use gloo_net::http::Request;
 use yew::prelude::*;
 use yew_router::prelude::*;
@@ -110,7 +110,7 @@ fn app_root() -> Html {
                                 }
                             } else {
                                 html! {
-                                    <div id="app-shell" class="min-h-screen">
+                                    <div id="app-shell" class="app-shell min-h-screen">
                                         <Switch<View> render={|_| html! { <AppShell /> }} />
                                         <MobileNav />
                                     </div>
@@ -120,9 +120,7 @@ fn app_root() -> Html {
                     }
                 }
 
-                <div id="toast" class={classes!("toast", "surface", "border", "rounded-md", "px-3", "py-2", "text-sm", "font-medium", app_state.toast.show.then_some("show"))}>
-                    { &app_state.toast.message }
-                </div>
+                <AppToast />
             </ContextProvider<UseReducerHandle<AppState>>>
         </ContextProvider<I18n>>
     }
@@ -193,7 +191,7 @@ fn app_shell() -> Html {
     html! {
         <>
             <Sidebar current_view={current.clone()} />
-            <main class="lg:ml-56 px-4 sm:px-6 lg:px-6 py-5 pb-20 max-w-none">
+            <main class="app-main lg:ml-56 px-4 sm:px-6 lg:px-6 py-5 pb-20 max-w-none">
                 <RouteView active={is_active(View::Grounding)} mounted={is_mounted(&View::Grounding)}>
                     <Grounding />
                 </RouteView>
@@ -223,7 +221,7 @@ fn mobile_nav() -> Html {
     let i18n = use_i18n();
 
     html! {
-        <nav class="lg:hidden fixed bottom-0 inset-x-0 z-50 surface border-t grid grid-cols-5 px-2 py-2 rounded-none">
+        <nav class="mobile-bottom-nav lg:hidden z-50 w-full surface border-t grid grid-cols-5 rounded-none">
             <Link<View> to={View::Grounding} classes={classes!("nav-item", "rounded-md", "px-2", "py-2", "text-xs", "font-semibold", "text-center", (active_view == Some(View::Grounding)).then_some("active"))}>
                 <iconify-icon icon="tabler:circuit-ground" class="radix-icon block mx-auto"></iconify-icon>
                 <span class="sr-only">{i18n.t("nav.grounding")}</span>
@@ -245,5 +243,126 @@ fn mobile_nav() -> Html {
                 <span class="sr-only">{i18n.t("nav.api_keys")}</span>
             </Link<View>>
         </nav>
+    }
+}
+
+#[function_component(AppToast)]
+fn app_toast() -> Html {
+    let app_state = use_context::<UseReducerHandle<AppState>>().expect("AppState context");
+    let expanded = use_state(|| false);
+    let copied = use_state(|| false);
+
+    {
+        let expanded = expanded.clone();
+        let copied = copied.clone();
+        let key = (
+            app_state.toast.message.clone(),
+            app_state.toast.detail.clone(),
+            app_state.toast.show,
+        );
+        use_effect_with(key, move |_| {
+            expanded.set(false);
+            copied.set(false);
+            || ()
+        });
+    }
+
+    let toast = &app_state.toast;
+    let detail = toast
+        .detail
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(str::to_string);
+    let has_detail = detail.is_some();
+    let copy_text = detail.clone().unwrap_or_else(|| toast.message.clone());
+
+    let kind_class = match toast.kind {
+        ToastKind::Error => "toast-error",
+        ToastKind::Success => "toast-success",
+        ToastKind::Info => "toast-info",
+    };
+    let icon = match toast.kind {
+        ToastKind::Error => "radix-icons:exclamation-triangle",
+        ToastKind::Success => "radix-icons:check-circled",
+        ToastKind::Info => "radix-icons:info-circled",
+    };
+
+    let on_dismiss = {
+        let app_state = app_state.clone();
+        Callback::from(move |_| app_state.dispatch(AppAction::HideToast))
+    };
+    let on_toggle = {
+        let expanded = expanded.clone();
+        Callback::from(move |_| expanded.set(!*expanded))
+    };
+    let on_copy = {
+        let copied = copied.clone();
+        Callback::from(move |_| {
+            if copy_text.is_empty() {
+                return;
+            }
+            if let Some(window) = web_sys::window() {
+                let clipboard = window.navigator().clipboard();
+                let _ = clipboard.write_text(&copy_text);
+                copied.set(true);
+                let copied = copied.clone();
+                gloo_timers::callback::Timeout::new(1200, move || copied.set(false)).forget();
+            }
+        })
+    };
+
+    html! {
+        <div
+            id="toast"
+            class={classes!(
+                "toast",
+                "surface",
+                "border",
+                kind_class,
+                toast.show.then_some("show"),
+                (*expanded).then_some("is-expanded"),
+            )}
+            role={if toast.kind == ToastKind::Error { "alert" } else { "status" }}
+            aria-live={if toast.kind == ToastKind::Error { "assertive" } else { "polite" }}
+        >
+            <div class="toast-row">
+                <span class="toast-icon" aria-hidden="true">
+                    <iconify-icon icon={icon} class="radix-icon"></iconify-icon>
+                </span>
+                <div class="toast-body">
+                    <p class="toast-message">{&toast.message}</p>
+                    if *expanded {
+                        if let Some(detail_text) = detail.clone() {
+                            <pre class="toast-detail">{detail_text}</pre>
+                        }
+                    }
+                    if has_detail || toast.kind == ToastKind::Error {
+                        <div class="toast-actions">
+                            if has_detail {
+                                <button type="button" class="toast-action" onclick={on_toggle}>
+                                    {if *expanded { "Hide details" } else { "Show details" }}
+                                </button>
+                            }
+                            <button
+                                type="button"
+                                class={classes!("toast-action", (*copied).then_some("is-copied"))}
+                                onclick={on_copy}
+                            >
+                                {if *copied { "Copied" } else { "Copy" }}
+                            </button>
+                        </div>
+                    }
+                </div>
+                <button
+                    type="button"
+                    class="toast-dismiss"
+                    aria-label="Dismiss notification"
+                    onclick={on_dismiss}
+                >
+                    <iconify-icon icon="radix-icons:cross-2" class="radix-icon" aria-hidden="true"></iconify-icon>
+                </button>
+            </div>
+        </div>
     }
 }

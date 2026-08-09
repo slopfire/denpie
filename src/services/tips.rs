@@ -160,7 +160,9 @@ impl TipService {
                         .await
                         .map_err(|err| err.into_status_body())?;
                 if pending_needs_generation(pending) {
-                    Self::generate_tipcard(
+                    // Due cards are already in the response; a refill failure must
+                    // not discard them. Log and let the next request retry.
+                    if let Err(err) = Self::generate_tipcard(
                         GenerationContext {
                             state,
                             user_id,
@@ -183,7 +185,14 @@ impl TipService {
                         false,
                         &mut responses,
                     )
-                    .await?;
+                    .await
+                    {
+                        tracing::error!(
+                            topic = topic_name,
+                            error = %err.1,
+                            "pending refill failed; serving due cards anyway"
+                        );
+                    }
                 }
                 continue;
             }
@@ -304,12 +313,26 @@ impl TipService {
                         {
                             // Queue delivery replaces the reviewed card. It must
                             // not be blocked by the generation-only capacity gate.
+                            Self::maybe_spawn_pending_refill(&GenerationContext {
+                                state,
+                                user_id,
+                                topic_name,
+                                topic: &topic,
+                                settings: &settings,
+                            })
+                            .await;
                             decrement_room(&mut active_room);
                             continue;
                         }
                     }
                 }
-                let cards_to_generate = if needs_review_replacement {
+                let cards_to_generate = if topic.tipcard_type == "repeatable_tip" && daily_count > 0
+                {
+                    // Repeatable topics advance one reviewed card at a time. An
+                    // unreviewed card already in the daily flow must be returned
+                    // on its own rather than accompanied by the next queued card.
+                    0
+                } else if needs_review_replacement {
                     remaining_daily_cards
                 } else {
                     active_room.map_or(remaining_daily_cards, |room| {
@@ -330,7 +353,7 @@ impl TipService {
                 let cards_to_load = if cards_to_generate == 0 {
                     0
                 } else if topic.tipcard_type == "repeatable_tip" {
-                    count.min(10) as usize
+                    REPEATABLE_BATCH
                 } else {
                     cards_to_generate
                 };
@@ -363,15 +386,26 @@ impl TipService {
                     match result {
                         Ok(_) => {}
                         Err(err) => {
-                            let _ = daily_refresh::clear_window_refreshed(
-                                &state.db,
-                                user_id,
-                                topic.id,
-                                &topic.tipcard_type,
-                                daily_window_start,
-                            )
-                            .await;
-                            return Err(err);
+                            if responses.len() == response_count {
+                                // Nothing was served: surface the failure so the
+                                // frontend can toast the reason.
+                                let _ = daily_refresh::clear_window_refreshed(
+                                    &state.db,
+                                    user_id,
+                                    topic.id,
+                                    &topic.tipcard_type,
+                                    daily_window_start,
+                                )
+                                .await;
+                                return Err(err);
+                            }
+                            // The daily set was already served; the refill can
+                            // retry on the next request.
+                            tracing::error!(
+                                topic = topic_name,
+                                error = %err.1,
+                                "generation failed after daily cards were served"
+                            );
                         }
                     }
                     if responses.len() > response_count {
@@ -752,6 +786,11 @@ impl TipService {
             if primary_status == "active" && matches!(active_room, Some(0)) {
                 break;
             }
+            let batch = if topic.tipcard_type == "repeatable_tip" {
+                REPEATABLE_BATCH
+            } else {
+                1
+            };
             let created = Self::generate_tipcard(
                 GenerationContext {
                     state,
@@ -771,7 +810,7 @@ impl TipService {
                     compression_level: llm_compression_level,
                 },
                 primary_status,
-                1,
+                batch,
                 false,
                 &mut responses,
             )
@@ -951,9 +990,11 @@ impl TipService {
         .map_err(|err| err.into_status_body())?;
 
         // Delivery must never wait for an LLM refill when the next queued card is
-        // already available. Refill on a later empty-queue request instead.
+        // already available. Refill in the background once the queue approaches
+        // empty so later reviews find cards ready.
         if should_promote && pending_count > 0 {
             if Self::serve_pending_card(&ctx, &llm, image_strategy, false, responses).await? {
+                Self::maybe_spawn_pending_refill(&ctx).await;
                 return Ok(batch_size.max(1));
             }
         }
@@ -1002,7 +1043,7 @@ impl TipService {
                 Vec::new()
             };
 
-        let outcome = llm::ground_and_generate(
+        let outcome = match llm::ground_and_generate(
             grounding,
             llm::GroundingInput {
                 topic_name: ctx.topic_name,
@@ -1014,7 +1055,7 @@ impl TipService {
                 reasoning: generation_reasoning,
                 existing_titles: card_context.existing_titles(),
                 documents: &documents,
-                daily_card_count: batch_size.clamp(5, 10) as i64,
+                daily_card_count: batch_size.clamp(5, 12) as i64,
                 search: llm::SearchConfig {
                     provider: &ctx.settings.search_provider,
                     external_key: &ctx.settings.search_api_key,
@@ -1022,7 +1063,22 @@ impl TipService {
                 },
             },
         )
-        .await;
+        .await
+        {
+            Ok(outcome) => outcome,
+            Err(message) => {
+                tracing::error!(
+                    topic = ctx.topic_name,
+                    strategy = ?grounding,
+                    error = %message,
+                    "card generation failed"
+                );
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Card generation failed: {message}"),
+                ));
+            }
+        };
 
         Self::record_llm_token_usage(
             ctx.state,
@@ -1095,53 +1151,301 @@ impl TipService {
         replace_unseen: bool,
         responses: &mut Vec<TipCardJson>,
     ) -> ApiResult<bool> {
-        let card = if replace_unseen {
-            tipcards::replace_unseen_with_pending_card(
-                &ctx.state.db,
-                ctx.user_id,
-                ctx.topic.id,
-                &ctx.topic.tipcard_type,
-            )
-            .await
-        } else {
-            tipcards::take_pending_card(
-                &ctx.state.db,
-                ctx.user_id,
-                ctx.topic.id,
-                &ctx.topic.tipcard_type,
-            )
-            .await
-        }
-        .map_err(|err| err.into_status_body())?;
-        let Some(card) = card else {
-            return Ok(false);
-        };
-
-        let image_data = Self::retrieve_card_image(
-            ctx,
-            llm,
-            image_strategy,
-            card.id,
-            &card.title,
-            &card.full_content,
-            card.use_image,
-            &card.image_query,
-        )
-        .await;
-        responses.push(tip_response_json(
-            card.id,
-            ctx.topic_name,
-            card.full_content,
-            card.compressed_content,
-            if image_data.is_empty() {
-                parse_image_data(&card.image_data)
+        // Skip (and delete) cards whose content marks a failed generation, so a
+        // "Failed parsing text" or "LLM Error" card is never shown to the user.
+        for _ in 0..8 {
+            let card = if replace_unseen {
+                tipcards::replace_unseen_with_pending_card(
+                    &ctx.state.db,
+                    ctx.user_id,
+                    ctx.topic.id,
+                    &ctx.topic.tipcard_type,
+                )
+                .await
             } else {
-                image_data
-            },
+                tipcards::take_pending_card(
+                    &ctx.state.db,
+                    ctx.user_id,
+                    ctx.topic.id,
+                    &ctx.topic.tipcard_type,
+                )
+                .await
+            }
+            .map_err(|err| err.into_status_body())?;
+            let Some(card) = card else {
+                return Ok(false);
+            };
+
+            let failed = domain::tipcard::is_failed_generation_content(&card.full_content)
+                || domain::tipcard::is_failed_generation_content(&card.compressed_content)
+                || domain::tipcard::is_failed_generation_content(&card.title);
+            if !failed {
+                let image_data = Self::retrieve_card_image(
+                    ctx,
+                    llm,
+                    image_strategy,
+                    card.id,
+                    &card.title,
+                    &card.full_content,
+                    card.use_image,
+                    &card.image_query,
+                )
+                .await;
+                responses.push(tip_response_json(
+                    card.id,
+                    ctx.topic_name,
+                    card.full_content,
+                    card.compressed_content,
+                    if image_data.is_empty() {
+                        parse_image_data(&card.image_data)
+                    } else {
+                        image_data
+                    },
+                    ctx.topic.tipcard_type.clone(),
+                    card.pinned,
+                ));
+                return Ok(true);
+            }
+
+            tracing::warn!(
+                card_id = card.id,
+                topic = ctx.topic_name,
+                "dismissing card with failed generation content"
+            );
+            if let Err(err) =
+                tipcards::delete_with_review(&ctx.state.db, ctx.user_id, card.id).await
+            {
+                tracing::warn!(error = ?err, card_id = card.id, "failed to delete failed generation card");
+                return Ok(false);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Spawn a background pending refill for the topic when its queue has hit
+    /// the low-water mark. Never blocks or fails the caller.
+    async fn maybe_spawn_pending_refill(ctx: &GenerationContext<'_>) {
+        let pending = match tipcards::count_pending(
+            &ctx.state.db,
+            ctx.user_id,
+            ctx.topic.id,
+            &ctx.topic.tipcard_type,
+        )
+        .await
+        {
+            Ok(pending) => pending,
+            Err(err) => {
+                tracing::warn!(
+                    error = ?err,
+                    topic = ctx.topic_name,
+                    "failed to count pending for refill decision"
+                );
+                return;
+            }
+        };
+        if !pending_needs_generation(pending) {
+            return;
+        }
+        let Some(arc) = ctx.state.self_arc.get() else {
+            tracing::warn!(
+                topic = ctx.topic_name,
+                "AppState self_arc unset; skipping background refill"
+            );
+            return;
+        };
+        Self::spawn_pending_refill(
+            arc.clone(),
+            ctx.user_id.to_string(),
+            ctx.topic.id,
+            ctx.topic_name.to_string(),
             ctx.topic.tipcard_type.clone(),
-            card.pinned,
-        ));
-        Ok(true)
+        );
+    }
+
+    fn spawn_pending_refill(
+        state: std::sync::Arc<AppState>,
+        user_id: String,
+        topic_id: i64,
+        topic_name: String,
+        tipcard_type: String,
+    ) {
+        tokio::spawn(async move {
+            let started = std::time::Instant::now();
+            match Self::refill_pending_batch(&state, &user_id, topic_id, &topic_name, &tipcard_type)
+                .await
+            {
+                Ok(created) => tracing::info!(
+                    user_id,
+                    topic = %topic_name,
+                    created,
+                    duration_ms = started.elapsed().as_millis() as u64,
+                    "background pending refill completed"
+                ),
+                Err(message) => tracing::error!(
+                    user_id,
+                    topic = %topic_name,
+                    error = %message,
+                    "background pending refill failed"
+                ),
+            }
+        });
+    }
+
+    /// Claim the per-topic refill slot, run the refill, and release it. A claim
+    /// already held by another task makes this a no-op so concurrent requests
+    /// never start duplicate LLM refills for the same topic.
+    async fn refill_pending_batch(
+        state: &AppState,
+        user_id: &str,
+        topic_id: i64,
+        topic_name: &str,
+        tipcard_type: &str,
+    ) -> Result<usize, String> {
+        let key = (user_id.to_string(), topic_id);
+        {
+            let mut claims = state
+                .generation_locks
+                .lock()
+                .map_err(|_| "generation lock poisoned".to_string())?;
+            if claims.contains(&key) {
+                return Ok(0);
+            }
+            claims.insert(key.clone());
+        }
+        let result =
+            Self::refill_pending_unlocked(state, user_id, topic_id, topic_name, tipcard_type).await;
+        if let Ok(mut claims) = state.generation_locks.lock() {
+            claims.remove(&key);
+        }
+        result
+    }
+
+    /// Re-read settings and the topic, generate a fresh batch, and persist it as
+    /// pending. Skips when another request refilled the queue while the LLM call
+    /// was in flight.
+    #[allow(clippy::too_many_arguments)]
+    async fn refill_pending_unlocked(
+        state: &AppState,
+        user_id: &str,
+        topic_id: i64,
+        topic_name: &str,
+        tipcard_type: &str,
+    ) -> Result<usize, String> {
+        let pending = tipcards::count_pending(&state.db, user_id, topic_id, tipcard_type)
+            .await
+            .map_err(|err| err.into_status_body().1)?;
+        if !pending_needs_generation(pending) {
+            return Ok(0);
+        }
+
+        let defaults = state
+            .settings
+            .get_settings()
+            .map_err(|err| err.into_status_body().1)?;
+        let settings = user_settings::get(&state.db, user_id, defaults)
+            .await
+            .map_err(|err| err.into_status_body().1)?;
+        let topic = topics::find_by_id(&state.db, user_id, topic_id)
+            .await
+            .map_err(|err| err.into_status_body().1)?
+            .ok_or_else(|| "topic no longer exists".to_string())?;
+
+        let grounding = domain::grounding::GroundingStrategy::from_setting(
+            topic
+                .grounding_strategy
+                .as_deref()
+                .unwrap_or(&settings.grounding_strategy),
+        );
+        let llm_reasoning = llm::ReasoningConfig::new(settings.llm_reasoning_effort.clone());
+        let grounding_reasoning = llm::ReasoningConfig::new(settings.grounding_reasoning_effort());
+        let (generation_model, generation_reasoning) =
+            if matches!(grounding, domain::grounding::GroundingStrategy::Factual) {
+                (settings.llm_model.as_str(), llm_reasoning)
+            } else {
+                (settings.grounding_model(), grounding_reasoning)
+            };
+        let compression_level = topic
+            .compression_level
+            .as_deref()
+            .map(llm::CompressionLevel::from_setting)
+            .unwrap_or_else(|| {
+                llm::CompressionLevel::from_setting(&settings.llm_compression_level)
+            });
+        let template = topic
+            .prompt_template
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&settings.prompt_template);
+
+        let card_context = context::load_card_context(state, user_id, topic_id, tipcard_type)
+            .await
+            .map_err(|err| err.1)?;
+        let prompt = context::render_generation_prompt(topic_name, template, &card_context);
+        let documents: Vec<llm::DocChunk> =
+            if matches!(grounding, domain::grounding::GroundingStrategy::Rag) {
+                documents::retrieve_chunks(&state.db, user_id, topic_id, topic_name, 12)
+                    .await
+                    .map_err(|err| err.into_status_body().1)?
+                    .into_iter()
+                    .map(|chunk| llm::DocChunk { chunk })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+        let outcome = llm::ground_and_generate(
+            grounding,
+            llm::GroundingInput {
+                topic_name,
+                rendered_prompt: &prompt,
+                compression_level,
+                model: generation_model,
+                api_key: &settings.llm_api_key,
+                api_base: &settings.llm_base_url,
+                reasoning: &generation_reasoning,
+                existing_titles: card_context.existing_titles(),
+                documents: &documents,
+                daily_card_count: REPEATABLE_BATCH.clamp(5, 12) as i64,
+                search: llm::SearchConfig {
+                    provider: &settings.search_provider,
+                    external_key: &settings.search_api_key,
+                    base_url: &settings.search_base_url,
+                },
+            },
+        )
+        .await?;
+
+        // Another request may have refilled this topic while the LLM call ran.
+        let current_pending = tipcards::count_pending(&state.db, user_id, topic_id, tipcard_type)
+            .await
+            .map_err(|err| err.into_status_body().1)?;
+        if !pending_needs_generation(current_pending) {
+            return Ok(0);
+        }
+
+        let mut created = 0;
+        for card in outcome.cards() {
+            if let Err(err) = tipcards::create_generated_with_status(
+                &state.db,
+                user_id,
+                topic_id,
+                tipcard_type,
+                &card.title,
+                &card.full_content,
+                &card.compressed_content,
+                card.use_image,
+                &card.image_query,
+                "pending",
+            )
+            .await
+            {
+                tracing::warn!(error = ?err, "failed to persist background pending card");
+            } else {
+                created += 1;
+            }
+        }
+        Ok(created)
     }
 
     /// Retrieve and persist a single illustration for a freshly generated card.
@@ -1323,8 +1627,15 @@ pub(crate) fn is_queue_tipcard(tipcard_type: &str) -> bool {
     domain::tipcard::is_queue_tipcard(tipcard_type)
 }
 
+/// Number of cards generated per repeatable-topic load. A large batch keeps the
+/// pending queue full so reviews rarely block on a synchronous LLM refill.
+const REPEATABLE_BATCH: usize = 12;
+/// Refill the pending queue (synchronously or in the background) once it drops
+/// to this many cards, so the queue has a buffer before it empties.
+const REFILL_LOW_WATER: i64 = 3;
+
 fn pending_needs_generation(pending_count: i64) -> bool {
-    pending_count <= 2
+    pending_count <= REFILL_LOW_WATER
 }
 
 #[cfg(test)]
@@ -1336,7 +1647,8 @@ mod generation_queue_tests {
         assert!(pending_needs_generation(0));
         assert!(pending_needs_generation(1));
         assert!(pending_needs_generation(2));
-        assert!(!pending_needs_generation(3));
+        assert!(pending_needs_generation(3));
+        assert!(!pending_needs_generation(4));
         assert!(!pending_needs_generation(10));
     }
 }

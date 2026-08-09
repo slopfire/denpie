@@ -28,6 +28,12 @@ pub struct AppState {
     pub api_keys: services::api_keys::ApiKeyService,
     pub reviews: services::review::ReviewService,
     pub webauthn: Arc<Webauthn>,
+    /// Per-(user, topic) claims for in-flight background pending refills, so
+    /// concurrent requests never start duplicate LLM refills for the same topic.
+    pub generation_locks: std::sync::Mutex<std::collections::HashSet<(String, i64)>>,
+    /// Back-reference so background tasks can own an `Arc<AppState>`. Set once
+    /// right after construction; never read before that.
+    pub self_arc: std::sync::OnceLock<std::sync::Arc<AppState>>,
 }
 
 pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send + Sync + 'static>(
@@ -87,6 +93,11 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
             "/app/topics/regenerate-icon",
             post(dashboard::regenerate_topic_icon),
         )
+        .route(
+            "/app/topics/suggest-icons",
+            post(dashboard::suggest_topic_icons),
+        )
+        .route("/app/topics/set-icon", post(dashboard::set_topic_icon))
         .route("/app/tips", post(dashboard::app_tips))
         .route("/app/flow-cards", get(dashboard::flow_cards))
         .route("/app/flow-cards/:id", get(dashboard::flow_card_detail))

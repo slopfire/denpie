@@ -20,9 +20,20 @@ pub enum AuthStatus {
     Authenticated,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[allow(dead_code)]
+pub enum ToastKind {
+    #[default]
+    Info,
+    Success,
+    Error,
+}
+
 #[derive(Clone, PartialEq, Default)]
 pub struct ToastMessage {
     pub message: String,
+    pub detail: Option<String>,
+    pub kind: ToastKind,
     pub show: bool,
 }
 
@@ -37,7 +48,11 @@ pub enum AppAction {
     SetSession(Option<UserProfile>),
     SetUser(Option<UserProfile>),
     SetAdminMode(bool),
-    ShowToast(String),
+    ShowToast {
+        message: String,
+        detail: Option<String>,
+        kind: ToastKind,
+    },
     HideToast,
 }
 
@@ -70,9 +85,15 @@ impl Reducible for AppState {
                 ..(*self).clone()
             }
             .into(),
-            AppAction::ShowToast(message) => AppState {
+            AppAction::ShowToast {
+                message,
+                detail,
+                kind,
+            } => AppState {
                 toast: ToastMessage {
                     message,
+                    detail,
+                    kind,
                     show: true,
                 },
                 ..(*self).clone()
@@ -81,6 +102,8 @@ impl Reducible for AppState {
             AppAction::HideToast => AppState {
                 toast: ToastMessage {
                     message: self.toast.message.clone(),
+                    detail: self.toast.detail.clone(),
+                    kind: self.toast.kind,
                     show: false,
                 },
                 ..(*self).clone()
