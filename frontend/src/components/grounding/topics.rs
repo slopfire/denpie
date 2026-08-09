@@ -2,11 +2,11 @@
 use super::documents::*;
 use super::types::*;
 use crate::api::toast;
+use crate::api_v1;
 use crate::components::button::{ButtonSize, ButtonType, ButtonVariant, ShadcnButton};
 use crate::components::select::{SelectOption, ShadcnSelect};
 use crate::i18n::{I18n, use_i18n};
 use crate::state::AppState;
-use gloo_net::http::Request;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{FileReader, HtmlInputElement, HtmlTextAreaElement};
@@ -103,33 +103,30 @@ pub fn topic_editor(props: &TopicEditorProps) -> Html {
             e.prevent_default();
             let app_state = app_state.clone();
             let on_saved = on_saved.clone();
-            let req = UpdateTopicReq {
-                id: topic_id,
-                prompt_template: Some((*prompt_template).clone()),
-                daily_card_count: Some(daily_card_count.parse().unwrap_or(0)),
-                daily_time_zone: Some((*daily_time_zone).clone()),
-                daily_update_time: Some((*daily_update_time).clone()),
-                compression_level: Some((*compression_level).clone()),
-                grounding_strategy: Some((*grounding_strategy).clone()),
-                image_strategy: Some((*image_strategy).clone()),
-            };
+            let prompt_template = Some((*prompt_template).clone());
+            let daily_card_count = Some(daily_card_count.parse().unwrap_or(0));
+            let daily_time_zone = Some((*daily_time_zone).clone());
+            let daily_update_time = Some((*daily_update_time).clone());
+            let compression_level = Some((*compression_level).clone());
+            let grounding_strategy = Some((*grounding_strategy).clone());
+            let image_strategy = Some((*image_strategy).clone());
             wasm_bindgen_futures::spawn_local(async move {
-                match Request::patch("/app/topics")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
+                match api_v1::update_topic(
+                    topic_id,
+                    prompt_template,
+                    daily_card_count,
+                    daily_time_zone,
+                    daily_update_time,
+                    compression_level,
+                    grounding_strategy,
+                    image_strategy,
+                )
+                .await
                 {
-                    Ok(res) if res.ok() => {
+                    Ok(()) => {
                         toast(&app_state, "Topic saved");
                         on_saved.emit(());
                     }
-                    Ok(res) => toast(
-                        &app_state,
-                        res.text()
-                            .await
-                            .unwrap_or_else(|_| "Failed to save topic".to_string()),
-                    ),
                     Err(err) => toast(&app_state, err.to_string()),
                 }
             });
@@ -149,26 +146,30 @@ pub fn topic_editor(props: &TopicEditorProps) -> Html {
                 return;
             }
             let links = source_links(&input);
-            let requests = if links.is_empty() {
-                vec![AddDocumentReq {
-                    topic_ids: vec![topic_id],
-                    source_type: "document".to_string(),
-                    title: String::new(),
-                    url: None,
-                    content: input,
-                }]
-            } else {
-                links
-                    .into_iter()
-                    .map(|url| AddDocumentReq {
-                        topic_ids: vec![topic_id],
-                        source_type: "link".to_string(),
-                        title: link_title(&url),
-                        url: Some(url),
-                        content: String::new(),
-                    })
-                    .collect()
-            };
+            // (topic_ids, source_type, title, url, content)
+            let requests: Vec<(Vec<i64>, String, String, Option<String>, String)> =
+                if links.is_empty() {
+                    vec![(
+                        vec![topic_id],
+                        "document".to_string(),
+                        String::new(),
+                        None,
+                        input,
+                    )]
+                } else {
+                    links
+                        .into_iter()
+                        .map(|url| {
+                            (
+                                vec![topic_id],
+                                "link".to_string(),
+                                link_title(&url),
+                                Some(url),
+                                String::new(),
+                            )
+                        })
+                        .collect()
+                };
             let app_state = app_state.clone();
             let source_input = source_input.clone();
             let source_adding = source_adding.clone();
@@ -176,29 +177,13 @@ pub fn topic_editor(props: &TopicEditorProps) -> Html {
             source_adding.set(true);
             wasm_bindgen_futures::spawn_local(async move {
                 let count = requests.len();
-                for req in requests {
-                    match Request::post("/app/documents")
-                        .json(&req)
-                        .unwrap()
-                        .send()
-                        .await
+                for (topic_ids, source_type, title, url, content) in requests {
+                    if let Err(err) =
+                        api_v1::create_document(topic_ids, source_type, title, url, content).await
                     {
-                        Ok(res) if res.ok() => {}
-                        Ok(res) => {
-                            toast(
-                                &app_state,
-                                res.text()
-                                    .await
-                                    .unwrap_or_else(|_| "Failed to add source".to_string()),
-                            );
-                            source_adding.set(false);
-                            return;
-                        }
-                        Err(err) => {
-                            toast(&app_state, err.to_string());
-                            source_adding.set(false);
-                            return;
-                        }
+                        toast(&app_state, err.to_string());
+                        source_adding.set(false);
+                        return;
                     }
                 }
                 toast(
@@ -225,40 +210,24 @@ pub fn topic_editor(props: &TopicEditorProps) -> Html {
             if links.len() != 1 {
                 return;
             }
-            let req = ExploreLinkReq {
-                url: links[0].clone(),
-            };
+            let url = links[0].clone();
             let app_state = app_state.clone();
             let source_input = source_input.clone();
             let source_exploring = source_exploring.clone();
             source_exploring.set(true);
             wasm_bindgen_futures::spawn_local(async move {
-                match Request::post("/app/documents/explore")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
-                {
-                    Ok(res) if res.ok() => match res.json::<Vec<ExploredLink>>().await {
-                        Ok(links) => {
-                            let count = links.len();
-                            source_input.set(
-                                links
-                                    .into_iter()
-                                    .map(|link| link.url)
-                                    .collect::<Vec<_>>()
-                                    .join("\n"),
-                            );
-                            toast(&app_state, format!("Found {count} documentation pages"));
-                        }
-                        Err(err) => toast(&app_state, err.to_string()),
-                    },
-                    Ok(res) => toast(
-                        &app_state,
-                        res.text()
-                            .await
-                            .unwrap_or_else(|_| "Could not explore link".to_string()),
-                    ),
+                match api_v1::explore_link(url).await {
+                    Ok(links) => {
+                        let count = links.len();
+                        source_input.set(
+                            links
+                                .into_iter()
+                                .map(|link| link.url)
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+                        );
+                        toast(&app_state, format!("Found {count} documentation pages"));
+                    }
                     Err(err) => toast(&app_state, err.to_string()),
                 }
                 source_exploring.set(false);
@@ -303,31 +272,26 @@ pub fn topic_editor(props: &TopicEditorProps) -> Html {
                 return;
             }
             uploading.set(true);
-            let req = UploadDocumentReq {
-                filename: (*name).clone(),
-                title: None,
-                data_url: (*data).clone(),
-                topic_ids: vec![topic_id],
-            };
+            let filename = (*name).clone();
+            let data_url = (*data).clone();
             let app_state = app_state.clone();
             let data = data.clone();
             let name = name.clone();
             let uploading = uploading.clone();
             let refresh_documents = refresh_documents.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                match Request::post("/app/documents/upload")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
-                {
-                    Ok(res) if res.ok() => {
+                let upload = async {
+                    let (mime_type, bytes) = api_v1::decode_data_url(&data_url)?;
+                    api_v1::upload_document(vec![topic_id], filename, mime_type, None, bytes).await
+                };
+                match upload.await {
+                    Ok(_) => {
                         toast(&app_state, "File uploaded to topic");
                         data.set(String::new());
                         name.set(String::new());
                         refresh_documents.emit(());
                     }
-                    _ => toast(&app_state, "Failed to upload file"),
+                    Err(_) => toast(&app_state, "Failed to upload file"),
                 }
                 uploading.set(false);
             });
@@ -342,15 +306,9 @@ pub fn topic_editor(props: &TopicEditorProps) -> Html {
             let app_state = app_state.clone();
             let refresh_documents = refresh_documents.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let req = AttachDocumentReq { topic_id };
-                match Request::post(&format!("/app/documents/{id}/topics"))
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
-                {
-                    Ok(res) if res.ok() => refresh_documents.emit(()),
-                    _ => toast(&app_state, "Failed to attach source"),
+                match api_v1::attach_document_topic(id, topic_id).await {
+                    Ok(()) => refresh_documents.emit(()),
+                    Err(_) => toast(&app_state, "Failed to attach source"),
                 }
             });
         })
@@ -363,12 +321,9 @@ pub fn topic_editor(props: &TopicEditorProps) -> Html {
             let app_state = app_state.clone();
             let refresh_documents = refresh_documents.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                match Request::delete(&format!("/app/documents/{id}/topics/{topic_id}"))
-                    .send()
-                    .await
-                {
-                    Ok(res) if res.ok() => refresh_documents.emit(()),
-                    _ => toast(&app_state, "Failed to detach source"),
+                match api_v1::detach_document_topic(id, topic_id).await {
+                    Ok(()) => refresh_documents.emit(()),
+                    Err(_) => toast(&app_state, "Failed to detach source"),
                 }
             });
         })

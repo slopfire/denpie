@@ -5,17 +5,19 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
+use tower_sessions::Session;
 
 use crate::{AppState, db::repositories};
 
-use super::auth::{request_api_key, require_api_key};
+use super::auth::resolve_principal;
 
 pub async fn tipcard_image(
     State(state): State<Arc<AppState>>,
+    session: Session,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<Response, (StatusCode, String)> {
-    let user = authenticate(&state, &headers, "cards:read").await?;
+    let user = authenticate(&state, &headers, &session, "cards:read").await?;
     let image = repositories::tipcards::find_image(&state.db, &user.id, id)
         .await
         .map_err(|err| err.into_status_body())?;
@@ -32,10 +34,11 @@ pub async fn tipcard_image(
 
 pub async fn pool_image(
     State(state): State<Arc<AppState>>,
+    session: Session,
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<Response, (StatusCode, String)> {
-    let user = authenticate(&state, &headers, "images:read").await?;
+    let user = authenticate(&state, &headers, &session, "images:read").await?;
     let image = repositories::image_pool::find_pool_image(&state.db, &user.id, id)
         .await
         .map_err(|err| err.into_status_body())?
@@ -54,10 +57,10 @@ pub async fn pool_image(
 async fn authenticate(
     state: &AppState,
     headers: &HeaderMap,
+    session: &Session,
     scope: &'static str,
 ) -> Result<crate::auth::AuthUser, (StatusCode, String)> {
-    let api_key = request_api_key(headers, "")?;
-    let principal = require_api_key(state, &api_key).await?;
+    let principal = resolve_principal(state, headers, "", session).await?;
     if !principal.has_scope(scope) {
         return Err((
             StatusCode::FORBIDDEN,

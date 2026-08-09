@@ -50,6 +50,12 @@ def validate(manifest: dict[str, object], proto_source: str) -> list[dict[str, s
     operations = manifest.get("operations")
     if not isinstance(operations, list):
         raise ValueError("manifest operations must be a list")
+    result_fields = manifest.get("result_fields")
+    if not isinstance(result_fields, dict) or not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in result_fields.items()
+    ):
+        raise ValueError("manifest result_fields must be a string map")
 
     required = {"operation", "request", "result", "auth", "scope", "kind", "summary"}
     normalized: list[dict[str, str]] = []
@@ -77,12 +83,33 @@ def validate(manifest: dict[str, object], proto_source: str) -> list[dict[str, s
             f"missing={missing}, extra={extra}, request_type_mismatch={mismatched}"
         )
 
-    response_types = set(oneof_fields(proto_source, "ApiResponse", "result").values())
+    if set(result_fields) != set(manifest_operations):
+        missing = sorted(set(manifest_operations) - set(result_fields))
+        extra = sorted(set(result_fields) - set(manifest_operations))
+        raise ValueError(
+            f"result_fields must cover every operation exactly: missing={missing}, extra={extra}"
+        )
+
+    response_fields = oneof_fields(proto_source, "ApiResponse", "result")
+    response_types = set(response_fields.values())
     invalid_results = sorted(
         {item["result"] for item in normalized} - response_types
     )
     if invalid_results:
         raise ValueError(f"results absent from ApiResponse.result: {invalid_results}")
+    mismatched_results = sorted(
+        item["operation"]
+        for item in normalized
+        if response_fields.get(result_fields[item["operation"]]) != item["result"]
+    )
+    if mismatched_results:
+        raise ValueError(
+            "operation result field/message mismatch: " + ", ".join(mismatched_results)
+        )
+    normalized = [
+        {**item, "result_field": result_fields[item["operation"]]}
+        for item in normalized
+    ]
     validate_transport_policy(normalized, TRANSPORT.read_text())
     return normalized
 
@@ -142,7 +169,7 @@ def render(version: str, operations: list[dict[str, str]]) -> str:
             "one-time secret mutation": "required; success is not replayable",
         }[item["kind"]]
         rows.append(
-            "| `{operation}` | `{request}` | `{result}` | {auth} | `{scope}` | "
+            "| `{operation}` | `{request}` | `{result_field}` (`{result}`) | {auth} | `{scope}` | "
             "{kind} | {idempotency} | {summary} |".format(
                 **{key: cell(value) for key, value in item.items()},
                 idempotency=idempotency,

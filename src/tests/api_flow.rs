@@ -1297,3 +1297,221 @@ async fn test_v1_one_time_api_key_results_are_not_stored_in_plaintext() {
         other => panic!("unexpected response: {other:?}"),
     }
 }
+
+#[tokio::test]
+async fn test_v1_accepts_browser_session_without_bearer() {
+    // spawn_test_server logs in via /auth/login and keeps a cookie jar.
+    let (url, client) = spawn_test_server().await;
+
+    // Read through session: no Authorization header, empty body auth.
+    let settings = post_api_v1(
+        &url,
+        &client,
+        None,
+        "session-get-settings",
+        crate::api::pb::ApiRequest {
+            auth: String::new(),
+            op: Some(crate::api::pb::api_request::Op::GetSettings(
+                crate::api::pb::Empty {},
+            )),
+        },
+    )
+    .await;
+    assert_eq!(
+        settings.status(),
+        reqwest::StatusCode::OK,
+        "session cookie should authorize get_settings"
+    );
+    let settings = crate::api::pb::ApiV1Response::decode(settings.bytes().await.unwrap()).unwrap();
+    match settings.outcome.unwrap() {
+        crate::api::pb::api_v1_response::Outcome::Success(success) => {
+            assert!(matches!(
+                success.result,
+                Some(crate::api::pb::api_response::Result::Settings(_))
+            ));
+        }
+        other => panic!("unexpected response: {other:?}"),
+    }
+
+    // Mutation through session with idempotency (frontend pin-style empty-ish update).
+    let pin = post_api_v1_with_idempotency(
+        &url,
+        &client,
+        None,
+        "session-force-refresh",
+        "session-force-refresh-key",
+        crate::api::pb::ApiRequest {
+            auth: String::new(),
+            op: Some(crate::api::pb::api_request::Op::ForceDailyRefresh(
+                crate::api::pb::ForceDailyRefreshRequest {
+                    topics: String::new(),
+                    tipcard_type: String::new(),
+                },
+            )),
+        },
+    )
+    .await;
+    assert_eq!(
+        pin.status(),
+        reqwest::StatusCode::OK,
+        "session cookie should authorize mutations"
+    );
+    let pin = crate::api::pb::ApiV1Response::decode(pin.bytes().await.unwrap()).unwrap();
+    match pin.outcome.unwrap() {
+        crate::api::pb::api_v1_response::Outcome::Success(success) => {
+            assert!(matches!(
+                success.result,
+                Some(crate::api::pb::api_response::Result::ForceDailyRefresh(_))
+            ));
+        }
+        other => panic!("unexpected response: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_v1_session_review_acknowledge_and_grade_only() {
+    // Frontend-shaped review_v1 envelopes: acknowledge (casual/manual) and
+    // Unspecified action (grade-only Again/Good/Easy). Session cookie only.
+    let (url, client) = spawn_test_server().await;
+
+    // Create a manual card via tips_v1 so we have a real card_id.
+    let create = post_api_v1_with_idempotency(
+        &url,
+        &client,
+        None,
+        "session-create-manual",
+        "session-create-manual-key",
+        crate::api::pb::ApiRequest {
+            auth: String::new(),
+            op: Some(crate::api::pb::api_request::Op::TipsV1(
+                crate::api::pb::TipsRequestV1 {
+                    count: 1,
+                    topics: vec!["review-smoke".into()],
+                    tipcard_type: crate::api::pb::TipcardTypeValue::Manual as i32,
+                    exclude_card_ids: vec![],
+                    manual_content: "Session review smoke card".into(),
+                    manual_compressed_content: String::new(),
+                    manual_image_data: vec![],
+                },
+            )),
+        },
+    )
+    .await;
+    assert_eq!(create.status(), reqwest::StatusCode::OK);
+    let create = crate::api::pb::ApiV1Response::decode(create.bytes().await.unwrap()).unwrap();
+    let card_id = match create.outcome.unwrap() {
+        crate::api::pb::api_v1_response::Outcome::Success(success) => match success.result.unwrap()
+        {
+            crate::api::pb::api_response::Result::Tips(tips) => {
+                assert!(!tips.tips.is_empty());
+                tips.tips[0].id
+            }
+            other => panic!("unexpected create result: {other:?}"),
+        },
+        other => panic!("unexpected create outcome: {other:?}"),
+    };
+
+    // Acknowledge — what casual/manual Acknowledge button sends after migration.
+    let ack = post_api_v1_with_idempotency(
+        &url,
+        &client,
+        None,
+        "session-review-ack",
+        "session-review-ack-key",
+        crate::api::pb::ApiRequest {
+            auth: String::new(),
+            op: Some(crate::api::pb::api_request::Op::ReviewV1(
+                crate::api::pb::ReviewRequestV1 {
+                    card_id,
+                    grade: 3,
+                    action: crate::api::pb::ReviewActionValue::Acknowledge as i32,
+                },
+            )),
+        },
+    )
+    .await;
+    assert_eq!(
+        ack.status(),
+        reqwest::StatusCode::OK,
+        "acknowledge review_v1 must succeed"
+    );
+    let ack = crate::api::pb::ApiV1Response::decode(ack.bytes().await.unwrap()).unwrap();
+    match ack.outcome.unwrap() {
+        crate::api::pb::api_v1_response::Outcome::Success(success) => {
+            assert!(matches!(
+                success.result,
+                Some(crate::api::pb::api_response::Result::Ok(_))
+            ));
+        }
+        other => panic!("acknowledge failed: {other:?}"),
+    }
+
+    // Second card for grade-only Unspecified action.
+    let create2 = post_api_v1_with_idempotency(
+        &url,
+        &client,
+        None,
+        "session-create-manual-2",
+        "session-create-manual-2-key",
+        crate::api::pb::ApiRequest {
+            auth: String::new(),
+            op: Some(crate::api::pb::api_request::Op::TipsV1(
+                crate::api::pb::TipsRequestV1 {
+                    count: 1,
+                    topics: vec!["grade-only-smoke".into()],
+                    tipcard_type: crate::api::pb::TipcardTypeValue::Manual as i32,
+                    exclude_card_ids: vec![],
+                    manual_content: "Grade-only smoke card".into(),
+                    manual_compressed_content: String::new(),
+                    manual_image_data: vec![],
+                },
+            )),
+        },
+    )
+    .await;
+    assert_eq!(create2.status(), reqwest::StatusCode::OK);
+    let create2 = crate::api::pb::ApiV1Response::decode(create2.bytes().await.unwrap()).unwrap();
+    let card_id2 = match create2.outcome.unwrap() {
+        crate::api::pb::api_v1_response::Outcome::Success(success) => match success.result.unwrap()
+        {
+            crate::api::pb::api_response::Result::Tips(tips) => tips.tips[0].id,
+            other => panic!("unexpected create2 result: {other:?}"),
+        },
+        other => panic!("unexpected create2 outcome: {other:?}"),
+    };
+
+    let grade_only = post_api_v1_with_idempotency(
+        &url,
+        &client,
+        None,
+        "session-review-grade",
+        "session-review-grade-key",
+        crate::api::pb::ApiRequest {
+            auth: String::new(),
+            op: Some(crate::api::pb::api_request::Op::ReviewV1(
+                crate::api::pb::ReviewRequestV1 {
+                    card_id: card_id2,
+                    grade: 5,
+                    action: crate::api::pb::ReviewActionValue::Unspecified as i32,
+                },
+            )),
+        },
+    )
+    .await;
+    assert_eq!(
+        grade_only.status(),
+        reqwest::StatusCode::OK,
+        "grade-only (Unspecified action) review_v1 must succeed"
+    );
+    let grade_only =
+        crate::api::pb::ApiV1Response::decode(grade_only.bytes().await.unwrap()).unwrap();
+    match grade_only.outcome.unwrap() {
+        crate::api::pb::api_v1_response::Outcome::Success(success) => {
+            assert!(matches!(
+                success.result,
+                Some(crate::api::pb::api_response::Result::Ok(_))
+            ));
+        }
+        other => panic!("grade-only failed: {other:?}"),
+    }
+}

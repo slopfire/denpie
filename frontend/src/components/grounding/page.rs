@@ -5,6 +5,7 @@ use super::settings::GroundingSettings;
 use super::topics::{TopicEditor, tip_type_label};
 use super::types::*;
 use crate::api::toast;
+use crate::api_v1;
 use crate::app::View;
 use crate::components::archive::ArchiveQuery;
 use crate::components::button::{ButtonSize, ButtonType, ButtonVariant, ShadcnButton};
@@ -15,7 +16,6 @@ use crate::i18n::use_i18n;
 use crate::state::AppState;
 use crate::topic_visual::display_icon;
 use gloo_net::http::Request;
-use serde::Deserialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use web_sys::{FileReader, HtmlDialogElement, HtmlInputElement, HtmlTextAreaElement};
@@ -156,30 +156,23 @@ pub fn grounding() -> Html {
             let pool_images = pool_images.clone();
             let sources_loaded = sources_loaded.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(res) = Request::get("/app/summary").send().await {
-                    if let Ok(data) = res.json::<AppSummary>().await {
-                        summary.set(Some(data));
-                    }
+                if let Ok(data) = api_v1::get_summary().await {
+                    summary.set(Some(AppSummary::from(data)));
                 }
+                // Session JSON — no v1 op for token-spend.
                 if let Ok(res) = Request::get("/admin/token-spend").send().await {
                     if let Ok(data) = res.json::<TokenSpend>().await {
                         token_spend.set(Some(data));
                     }
                 }
-                if let Ok(res) = Request::get("/app/topics").send().await {
-                    if let Ok(data) = res.json::<Vec<AppTopicInfo>>().await {
-                        topics.set(data);
-                    }
+                if let Ok(data) = api_v1::list_app_topics().await {
+                    topics.set(data.into_iter().map(AppTopicInfo::from).collect());
                 }
-                if let Ok(res) = Request::get("/app/documents").send().await {
-                    if let Ok(data) = res.json::<Vec<DocumentInfo>>().await {
-                        documents.set(data);
-                    }
+                if let Ok(data) = api_v1::list_documents().await {
+                    documents.set(data.into_iter().map(DocumentInfo::from).collect());
                 }
-                if let Ok(res) = Request::get("/app/image-pool").send().await {
-                    if let Ok(data) = res.json::<Vec<PoolImageInfo>>().await {
-                        pool_images.set(data);
-                    }
+                if let Ok(data) = api_v1::list_pool_images().await {
+                    pool_images.set(data.into_iter().map(PoolImageInfo::from).collect());
                 }
                 sources_loaded.set(true);
             });
@@ -193,10 +186,8 @@ pub fn grounding() -> Html {
         Callback::from(move |_| {
             let topics = topics.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(res) = Request::get("/app/topics").send().await {
-                    if let Ok(data) = res.json::<Vec<AppTopicInfo>>().await {
-                        topics.set(data);
-                    }
+                if let Ok(data) = api_v1::list_app_topics().await {
+                    topics.set(data.into_iter().map(AppTopicInfo::from).collect());
                 }
             });
         })
@@ -219,6 +210,7 @@ pub fn grounding() -> Html {
                     id: topic_id,
                     excluded_icons,
                 };
+                // Session JSON — no v1 op for suggest-icons.
                 let result = Request::post("/app/topics/suggest-icons")
                     .json(&req)
                     .unwrap()
@@ -290,6 +282,7 @@ pub fn grounding() -> Html {
                     id: topic.id,
                     icon_id: icon_id.clone(),
                 };
+                // Session JSON — no v1 op for set-icon.
                 let result = Request::post("/app/topics/set-icon")
                     .json(&req)
                     .unwrap()
@@ -347,32 +340,14 @@ pub fn grounding() -> Html {
             let loading_topic = loading_topic.clone();
             let navigator = navigator.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let req = ForceDailyRefreshReq {
-                    topics: topic.name,
-                    tipcard_type: Some(topic.tipcard_type),
-                };
-                let result = Request::post("/app/daily-refresh")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await;
-                match result {
-                    Ok(res) if res.ok() => match res.json::<ForceDailyRefreshRes>().await {
-                        Ok(result) if result.refreshed_cards > 0 => {
-                            toast(&app_state, "New card loaded");
-                            if let Some(nav) = navigator {
-                                nav.push(&View::Flow);
-                            }
+                match api_v1::force_daily_refresh(topic.name, Some(topic.tipcard_type)).await {
+                    Ok(refreshed) if refreshed > 0 => {
+                        toast(&app_state, "New card loaded");
+                        if let Some(nav) = navigator {
+                            nav.push(&View::Flow);
                         }
-                        Ok(_) => toast(&app_state, "No new card available"),
-                        Err(_) => toast(&app_state, "Failed to read refresh response"),
-                    },
-                    Ok(res) => toast(
-                        &app_state,
-                        res.text()
-                            .await
-                            .unwrap_or_else(|_| "Failed to load card".to_string()),
-                    ),
+                    }
+                    Ok(_) => toast(&app_state, "No new card available"),
                     Err(err) => toast(&app_state, err.to_string()),
                 }
                 loading_topic.set(None);
@@ -403,26 +378,12 @@ pub fn grounding() -> Html {
                 let app_state = app_state.clone();
                 let refresh_topics = refresh_topics.clone();
                 let confirm_delete = confirm_delete.clone();
-                let req = DeleteTopicReq { id: topic.id };
+                let topic_id = topic.id;
                 wasm_bindgen_futures::spawn_local(async move {
-                    match Request::delete("/app/topics")
-                        .json(&req)
-                        .unwrap()
-                        .send()
-                        .await
-                    {
-                        Ok(res) if res.ok() => {
+                    match api_v1::delete_topic(topic_id).await {
+                        Ok(()) => {
                             toast(&app_state, "Topic deleted");
                             refresh_topics.emit(());
-                            confirm_delete.set(None);
-                        }
-                        Ok(res) => {
-                            toast(
-                                &app_state,
-                                res.text()
-                                    .await
-                                    .unwrap_or_else(|_| "Failed to delete topic".to_string()),
-                            );
                             confirm_delete.set(None);
                         }
                         Err(err) => {
@@ -456,10 +417,8 @@ pub fn grounding() -> Html {
             Callback::from(move |_| {
                 let documents = documents.clone();
                 wasm_bindgen_futures::spawn_local(async move {
-                    if let Ok(res) = Request::get("/app/documents").send().await {
-                        if let Ok(data) = res.json::<Vec<DocumentInfo>>().await {
-                            documents.set(data);
-                        }
+                    if let Ok(data) = api_v1::list_documents().await {
+                        documents.set(data.into_iter().map(DocumentInfo::from).collect());
                     }
                 });
             })
@@ -477,31 +436,27 @@ pub fn grounding() -> Html {
             let doc_content = doc_content.clone();
             let app_state = app_state.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let req = AddDocumentReq {
-                    topic_ids: Vec::new(),
-                    source_type: source_type.clone(),
+                match api_v1::create_document(
+                    Vec::new(),
+                    source_type,
                     title,
-                    url: if url_val.is_empty() {
+                    if url_val.is_empty() {
                         None
                     } else {
                         Some(url_val)
                     },
                     content,
-                };
-                match Request::post("/app/documents")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
+                )
+                .await
                 {
-                    Ok(res) if res.ok() => {
+                    Ok(_) => {
                         toast(&app_state, "Document added");
                         doc_title.set(String::new());
                         doc_url.set(String::new());
                         doc_content.set(String::new());
                         refresh.emit(());
                     }
-                    _ => toast(&app_state, "Failed to add document"),
+                    Err(_) => toast(&app_state, "Failed to add document"),
                 }
             });
         })
@@ -536,28 +491,22 @@ pub fn grounding() -> Html {
                 for (i, url) in urls.iter().enumerate() {
                     bulk_progress.set(Some((i, total)));
                     let title = title_from_url(url);
-                    let req = AddDocumentReq {
-                        topic_ids: Vec::new(),
-                        source_type: "link".into(),
+                    match api_v1::create_document(
+                        Vec::new(),
+                        "link".into(),
                         title,
-                        url: Some(url.clone()),
-                        content: String::new(),
-                    };
-                    match Request::post("/app/documents")
-                        .json(&req)
-                        .unwrap()
-                        .send()
-                        .await
+                        Some(url.clone()),
+                        String::new(),
+                    )
+                    .await
                     {
-                        Ok(res) if res.ok() => ok += 1,
-                        _ => fail += 1,
+                        Ok(_) => ok += 1,
+                        Err(_) => fail += 1,
                     }
                 }
                 bulk_progress.set(Some((total, total)));
-                if let Ok(res) = Request::get("/app/documents").send().await {
-                    if let Ok(data) = res.json::<Vec<DocumentInfo>>().await {
-                        documents.set(data);
-                    }
+                if let Ok(data) = api_v1::list_documents().await {
+                    documents.set(data.into_iter().map(DocumentInfo::from).collect());
                 }
                 bulk_progress.set(None);
                 bulk_urls.set(String::new());
@@ -584,22 +533,14 @@ pub fn grounding() -> Html {
             let documents = documents.clone();
             let app_state = app_state.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let req = DeleteDocumentReq { id };
-                match Request::delete("/app/documents")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
-                {
-                    Ok(res) if res.ok() => {
+                match api_v1::delete_document(id).await {
+                    Ok(()) => {
                         toast(&app_state, "Document deleted");
-                        if let Ok(res) = Request::get("/app/documents").send().await {
-                            if let Ok(data) = res.json::<Vec<DocumentInfo>>().await {
-                                documents.set(data);
-                            }
+                        if let Ok(data) = api_v1::list_documents().await {
+                            documents.set(data.into_iter().map(DocumentInfo::from).collect());
                         }
                     }
-                    _ => toast(&app_state, "Failed to delete document"),
+                    Err(_) => toast(&app_state, "Failed to delete document"),
                 }
             });
         })
@@ -612,13 +553,9 @@ pub fn grounding() -> Html {
             let viewing_document = viewing_document.clone();
             let app_state = app_state.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                match Request::get(&format!("/app/documents/{}", id)).send().await {
-                    Ok(res) if res.ok() => {
-                        if let Ok(doc) = res.json::<DocumentDetail>().await {
-                            viewing_document.set(Some(doc));
-                        }
-                    }
-                    _ => toast(&app_state, "Failed to load document"),
+                match api_v1::get_document(id).await {
+                    Ok(doc) => viewing_document.set(Some(DocumentDetail::from(doc))),
+                    Err(_) => toast(&app_state, "Failed to load document"),
                 }
             });
         })
@@ -672,29 +609,20 @@ pub fn grounding() -> Html {
             let documents = documents.clone();
             doc_file_uploading.set(true);
             wasm_bindgen_futures::spawn_local(async move {
-                let req = UploadDocumentReq {
-                    filename: filename.clone(),
-                    title: None,
-                    data_url,
-                    topic_ids: Vec::new(),
+                let upload = async {
+                    let (mime_type, data) = api_v1::decode_data_url(&data_url)?;
+                    api_v1::upload_document(Vec::new(), filename, mime_type, None, data).await
                 };
-                match Request::post("/app/documents/upload")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
-                {
-                    Ok(res) if res.ok() => {
+                match upload.await {
+                    Ok(_) => {
                         toast(&app_state, "File uploaded");
                         doc_file_data.set(String::new());
                         doc_file_name.set(String::new());
-                        if let Ok(res) = Request::get("/app/documents").send().await {
-                            if let Ok(data) = res.json::<Vec<DocumentInfo>>().await {
-                                documents.set(data);
-                            }
+                        if let Ok(data) = api_v1::list_documents().await {
+                            documents.set(data.into_iter().map(DocumentInfo::from).collect());
                         }
                     }
-                    _ => toast(&app_state, "Failed to upload file"),
+                    Err(_) => toast(&app_state, "Failed to upload file"),
                 }
                 doc_file_uploading.set(false);
             });
@@ -710,10 +638,8 @@ pub fn grounding() -> Html {
             Callback::from(move |_| {
                 let pool_images = pool_images.clone();
                 wasm_bindgen_futures::spawn_local(async move {
-                    if let Ok(res) = Request::get("/app/image-pool").send().await {
-                        if let Ok(data) = res.json::<Vec<PoolImageInfo>>().await {
-                            pool_images.set(data);
-                        }
+                    if let Ok(data) = api_v1::list_pool_images().await {
+                        pool_images.set(data.into_iter().map(PoolImageInfo::from).collect());
                     }
                 });
             })
@@ -729,52 +655,15 @@ pub fn grounding() -> Html {
             let file_input_ref = file_input_ref.clone();
             let app_state = app_state.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let req = AddPoolImageReq { image_data, name };
-                match Request::post("/app/image-pool")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
-                {
-                    Ok(res) if res.ok() => {
-                        #[derive(Deserialize)]
-                        struct AddPoolImageRes {
-                            name: String,
-                            annotated: bool,
-                            fallback_reason: Option<String>,
-                            model: Option<String>,
-                        }
-                        let message = match res.json::<AddPoolImageRes>().await {
-                            Ok(data) if data.annotated => {
-                                let model = data.model.unwrap_or_else(|| "vision".to_string());
-                                format!("Image added · annotated as «{}» via {}", data.name, model)
-                            }
-                            Ok(data) => {
-                                let reason = data
-                                    .fallback_reason
-                                    .unwrap_or_else(|| "annotation skipped".to_string());
-                                let model = data
-                                    .model
-                                    .map(|m| format!(" · model {m}"))
-                                    .unwrap_or_default();
-                                format!("Image added · fallback ({reason}){model}")
-                            }
-                            Err(_) => "Image added".to_string(),
-                        };
-                        toast(&app_state, message);
+                match api_v1::create_pool_image(image_data, name, None).await {
+                    Ok(_) => {
+                        toast(&app_state, "Image added");
                         img_name.set(String::new());
                         img_data.set(String::new());
                         if let Some(input) = file_input_ref.cast::<HtmlInputElement>() {
                             input.set_value("");
                         }
                         refresh.emit(());
-                    }
-                    Ok(res) => {
-                        let message = res
-                            .text()
-                            .await
-                            .unwrap_or_else(|_| "Failed to add image".to_string());
-                        toast(&app_state, message);
                     }
                     Err(err) => toast(&app_state, err.to_string()),
                 }
@@ -789,22 +678,14 @@ pub fn grounding() -> Html {
             let pool_images = pool_images.clone();
             let app_state = app_state.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let req = DeletePoolImageReq { id };
-                match Request::delete("/app/image-pool")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
-                {
-                    Ok(res) if res.ok() => {
+                match api_v1::delete_pool_image(id).await {
+                    Ok(()) => {
                         toast(&app_state, "Image deleted");
-                        if let Ok(res) = Request::get("/app/image-pool").send().await {
-                            if let Ok(data) = res.json::<Vec<PoolImageInfo>>().await {
-                                pool_images.set(data);
-                            }
+                        if let Ok(data) = api_v1::list_pool_images().await {
+                            pool_images.set(data.into_iter().map(PoolImageInfo::from).collect());
                         }
                     }
-                    _ => toast(&app_state, "Failed to delete image"),
+                    Err(_) => toast(&app_state, "Failed to delete image"),
                 }
             });
         })
@@ -832,6 +713,7 @@ pub fn grounding() -> Html {
             let rename_desc = rename_desc.clone();
             let app_state = app_state.clone();
             wasm_bindgen_futures::spawn_local(async move {
+                // Session JSON — no v1 op for pool image rename.
                 let req = RenamePoolImageReq {
                     id: img.id,
                     name,
@@ -848,10 +730,8 @@ pub fn grounding() -> Html {
                         editing_image.set(None);
                         rename_name.set(String::new());
                         rename_desc.set(String::new());
-                        if let Ok(res) = Request::get("/app/image-pool").send().await {
-                            if let Ok(data) = res.json::<Vec<PoolImageInfo>>().await {
-                                pool_images.set(data);
-                            }
+                        if let Ok(data) = api_v1::list_pool_images().await {
+                            pool_images.set(data.into_iter().map(PoolImageInfo::from).collect());
                         }
                     }
                     _ => toast(&app_state, "Failed to rename image"),
@@ -867,6 +747,7 @@ pub fn grounding() -> Html {
             let pool_images = pool_images.clone();
             let app_state = app_state.clone();
             wasm_bindgen_futures::spawn_local(async move {
+                // Session JSON — no v1 op for tag removal.
                 let req = RemovePoolImageTagReq { id, tag };
                 match Request::delete("/app/image-pool/tag")
                     .json(&req)
@@ -875,10 +756,8 @@ pub fn grounding() -> Html {
                     .await
                 {
                     Ok(res) if res.ok() => {
-                        if let Ok(res) = Request::get("/app/image-pool").send().await {
-                            if let Ok(data) = res.json::<Vec<PoolImageInfo>>().await {
-                                pool_images.set(data);
-                            }
+                        if let Ok(data) = api_v1::list_pool_images().await {
+                            pool_images.set(data.into_iter().map(PoolImageInfo::from).collect());
                         }
                     }
                     _ => toast(&app_state, "Failed to remove tag"),
@@ -1039,6 +918,8 @@ pub fn grounding() -> Html {
                                 let pending_topic_name = t.name.clone();
                                 let pending_count = t.pending_cards;
                                 let pending_navigator = navigator.clone();
+                                let scheduled_topic_name = t.name.clone();
+                                let scheduled_navigator = navigator.clone();
                                 html! {
                                 <div class="surface border rounded-md p-4 flex flex-col">
                                     <div class="flex justify-between items-start mb-2 gap-2">
@@ -1064,29 +945,50 @@ pub fn grounding() -> Html {
                                     <div class="text-sm text-muted">
                                         {format!("{} due / {} total", t.due_cards, t.total_cards)}
                                     </div>
-                                    <ShadcnButton
-                                        variant={ButtonVariant::Outline}
-                                        size={ButtonSize::Sm}
-                                        class="mt-3 w-full"
-                                        disabled={pending_count == 0}
-                                        onclick={Callback::from(move |_: MouseEvent| {
-                                            if pending_count == 0 {
-                                                return;
-                                            }
-                                            if let Some(nav) = pending_navigator.clone() {
-                                                let _ = nav.push_with_query(
-                                                    &View::Archive,
-                                                    &ArchiveQuery {
-                                                        status: Some("pending".to_string()),
-                                                        topic: Some(pending_topic_name.clone()),
-                                                    },
-                                                );
-                                            }
-                                        })}
-                                    >
-                                        <iconify-icon icon="radix-icons:eye-open" class="radix-icon" aria-hidden="true"></iconify-icon>
-                                        {format!("Show {pending_count} pending cards")}
-                                    </ShadcnButton>
+                                    <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <ShadcnButton
+                                            variant={ButtonVariant::Outline}
+                                            size={ButtonSize::Sm}
+                                            class="w-full"
+                                            disabled={pending_count == 0}
+                                            onclick={Callback::from(move |_: MouseEvent| {
+                                                if pending_count == 0 {
+                                                    return;
+                                                }
+                                                if let Some(nav) = pending_navigator.clone() {
+                                                    let _ = nav.push_with_query(
+                                                        &View::Archive,
+                                                        &ArchiveQuery {
+                                                            status: Some("pending".to_string()),
+                                                            topic: Some(pending_topic_name.clone()),
+                                                        },
+                                                    );
+                                                }
+                                            })}
+                                        >
+                                            <iconify-icon icon="radix-icons:layers" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                            {i18n.tf("grounding.show_pending_cards", &[("count", pending_count.to_string())])}
+                                        </ShadcnButton>
+                                        <ShadcnButton
+                                            variant={ButtonVariant::Outline}
+                                            size={ButtonSize::Sm}
+                                            class="w-full"
+                                            onclick={Callback::from(move |_: MouseEvent| {
+                                                if let Some(nav) = scheduled_navigator.clone() {
+                                                    let _ = nav.push_with_query(
+                                                        &View::Archive,
+                                                        &ArchiveQuery {
+                                                            status: Some("scheduled".to_string()),
+                                                            topic: Some(scheduled_topic_name.clone()),
+                                                        },
+                                                    );
+                                                }
+                                            })}
+                                        >
+                                            <iconify-icon icon="radix-icons:calendar" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                            {i18n.t("grounding.show_scheduled_cards")}
+                                        </ShadcnButton>
+                                    </div>
                                     <div class="mt-3 grid grid-cols-3 gap-2">
                                         <ShadcnButton
                                             variant={ButtonVariant::Secondary}
@@ -1464,7 +1366,7 @@ pub fn grounding() -> Html {
                                                 let on_start_rename = on_start_rename.clone();
                                                 let on_remove_tag = on_remove_tag.clone();
                                                 let img_for_rename = img.clone();
-                                                let img_url = format!("/app/pool-images/{}", id);
+                                                let img_url = api_v1::pool_image_url(id);
                                                 let pool_lightbox_index = pool_lightbox_index.clone();
                                                 html! {
                                                     <div class="surface border rounded-md p-3 flex flex-col text-center">
@@ -1594,7 +1496,7 @@ pub fn grounding() -> Html {
                                             let on_start_rename = on_start_rename.clone();
                                             let on_remove_tag = on_remove_tag.clone();
                                             let img_for_rename = img.clone();
-                                            let img_url = format!("/app/pool-images/{}", id);
+                                            let img_url = api_v1::pool_image_url(id);
                                             let pool_lightbox_index = pool_lightbox_index.clone();
                                             html! {
                                                 <div class="surface border rounded-md p-3 flex flex-col text-center">
@@ -1669,9 +1571,16 @@ pub fn grounding() -> Html {
 
             { if let Some(index) = *pool_lightbox_index {
                 let pool_image_urls: Vec<String> = if *pool_expanded {
-                    filtered_pool_images.iter().map(|img| format!("/app/pool-images/{}", img.id)).collect()
+                    filtered_pool_images
+                        .iter()
+                        .map(|img| api_v1::pool_image_url(img.id))
+                        .collect()
                 } else {
-                    pool_images.iter().take(20).map(|img| format!("/app/pool-images/{}", img.id)).collect()
+                    pool_images
+                        .iter()
+                        .take(20)
+                        .map(|img| api_v1::pool_image_url(img.id))
+                        .collect()
                 };
                 let on_close = {
                     let pool_lightbox_index = pool_lightbox_index.clone();

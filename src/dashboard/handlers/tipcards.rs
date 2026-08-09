@@ -159,6 +159,7 @@ pub async fn flow_cards(
         .map_err(|err| err.into_status_body())?;
     let mut cards = Vec::new();
     for row in rows {
+        let card_images = images_map.get(&row.id);
         cards.push(FlowCardInfo {
             id: row.id,
             topic_name: row.topic_name,
@@ -173,10 +174,9 @@ pub async fn flow_cards(
             next_review_at: row.next_review_at,
             repeat_count: row.repeats,
             pinned: row.pinned,
-            image_count: row.image_count,
+            image_count: card_images.map_or(0, |images| images.len() as i64),
             pending_count: row.pending_count,
-            thumbnail_urls: images_map
-                .get(&row.id)
+            thumbnail_urls: card_images
                 .map(|imgs| {
                     imgs.iter()
                         .take(4)

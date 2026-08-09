@@ -7,11 +7,14 @@ Base: http://127.0.0.1:3017
 Schema: proto/denpie.proto
 ```
 
-The browser uses session-authenticated `/app/*` and `/admin/*` routes. API
-clients use an API key. New clients should prefer the versioned envelope in
-[`api-v1.md`](api-v1.md), including its required durable idempotency keys for
-mutations; this page documents the compatibility surface. Its lifecycle is
-defined by the [API compatibility policy](api-compatibility.md).
+The browser UI prefers the versioned protobuf surface in [`api-v1.md`](api-v1.md)
+(`POST /api/v1`) for every operation that has a v1 counterpart. After normal
+session login, the same-origin cookie authorizes those calls (session principal
+with full scopes); external clients still use `Authorization: Bearer sk_live_…`.
+Mutations send durable idempotency keys. Remaining session JSON under `/app/*`
+and `/admin/*` is only for auth/session, admin-only surfaces, or features that
+still lack a v1 operation. This page documents the compatibility `POST /api`
+surface. Its lifecycle is defined by the [API compatibility policy](api-compatibility.md).
 
 ## Auth
 
@@ -92,7 +95,9 @@ Repeatable cards use three learning actions:
 
 Generation receives recent titles and compact card content grouped by feedback. Unseen repeatable backlog cards older than the latest feedback are skipped, so stale generation cannot override the learner signal. The model infers a useful next concept; this is personalization around the existing SM-2 scheduler, not a separate scheduling algorithm.
 
-Generated topics behave as decks. Every grounding strategy, including factual generation, creates 5-10 cards in one batch and stores the entire batch as `pending`. A card request promotes and returns the oldest pending card immediately; an available card never waits for an LLM refill. This queue replacement, including an empty-queue refill directly after a review, bypasses `max_active_cards`, which limits newly created active cards rather than switching the reviewed card. For repeatable topics, `daily_card_count` is the number of distinct cards reviewed in that topic's daily window. Page loading promotes one pending card only while that daily limit has room, so pending-only decks survive reloads without bypassing the learner's limit. An empty queue is bootstrapped on demand, while refresh paths replenish queues observed at the low-water mark of one or two pending cards. Repeatable topics expose one stable browser card per topic: after a review, its grid slot switches to a loading skeleton until the active replacement arrives, without reflowing the layout or closing fullscreen. After the final daily card, the browser replaces it with a persisted completion card. `Continue` starts one more full set for that topic in the current daily window: it immediately shows the next card, then normal review actions advance through the remaining `daily_card_count - 1` cards before the completion card returns.
+Generated topics behave as decks. Every grounding strategy, including factual generation, creates 5-12 cards in one batch and stores the entire batch as `pending`. A card request promotes and returns the oldest pending card immediately; an available card never waits for an LLM refill. This queue replacement, including an empty-queue refill directly after a review, bypasses `max_active_cards`, which limits newly created active cards rather than switching the reviewed card. For repeatable topics, `daily_card_count` is the number of distinct cards reviewed in that topic's daily window. Page loading promotes one pending card only while that daily limit has room, so pending-only decks survive reloads without bypassing the learner's limit. An empty queue is bootstrapped on demand, while refresh paths replenish queues observed at the low-water mark of three pending cards. Repeatable topics expose one stable browser card per topic: after a review, its grid slot switches to a loading skeleton until the active replacement arrives, without reflowing the layout or closing fullscreen. After the final daily card, the browser replaces it with a persisted completion card. `Continue` starts one more full set for that topic in the current daily window: it immediately shows the next card, then normal review actions advance through the remaining `daily_card_count - 1` cards before the completion card returns.
+
+Generated card rows and their SM-2 review rows are committed atomically, and card creation verifies that the topic belongs to the same user and card type. Batch persistence locks the topic only for the final queue-depth check and inserts, after external generation has completed; concurrent generation requests may both reach the model, but only one low-water batch is stored. Review scheduling uses the same topic-first lock order and keeps the review row locked from state load through update so concurrent submissions cannot overwrite one another. Daily eligibility and pending-card promotion share one topic-locked transaction and one bulk eligibility query across topics.
 
 Reviewed placeholders are persisted in browser storage, so they survive a page reload until the real card becomes due again or is deleted.
 

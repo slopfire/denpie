@@ -20,6 +20,9 @@ describe wire behavior rather than dashboard internals.
 - Published a generated complete operation reference, field/error semantics,
   compatibility policy, schema packaging, and tested curl, Python, TypeScript,
   and Rust examples.
+- Added an additive-only v1 contract ledger, exhaustive build-generated
+  operation/result mapping, runtime success-variant validation, and mandatory
+  local/CI contract gates.
 
 ## Legacy compatibility surface
 

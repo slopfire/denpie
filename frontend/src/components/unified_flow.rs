@@ -1,4 +1,5 @@
 use crate::api::toast;
+use crate::api_v1;
 use crate::app::View;
 use crate::components::flow_card::{FlowCard, FlowCardSkeleton};
 use crate::i18n::use_i18n;
@@ -44,54 +45,8 @@ pub struct TipcardInfo {
     pub review_message: Option<String>,
 }
 
-#[derive(Deserialize, Clone, PartialEq)]
-struct FlowCardSummary {
-    id: i64,
-    topic_name: String,
-    topic_icon: String,
-    topic_color: String,
-    title: String,
-    full_content: String,
-    compressed_content: String,
-    created_at: String,
-    tipcard_type: String,
-    status: String,
-    next_review_at: String,
-    repeat_count: u32,
-    pinned: bool,
-    image_count: i64,
-    #[serde(default)]
-    pending_count: u32,
-    thumbnail_urls: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct FlowCardPage {
-    cards: Vec<FlowCardSummary>,
-    next_cursor: Option<String>,
-    has_more: bool,
-}
-
-#[derive(Deserialize, Clone)]
-struct FlowCardDetail {
-    id: i64,
-    topic_name: String,
-    topic_icon: String,
-    topic_color: String,
-    title: String,
-    full_content: String,
-    compressed_content: String,
-    created_at: String,
-    tipcard_type: String,
-    status: String,
-    next_review_at: String,
-    repeat_count: u32,
-    pinned: bool,
-    image_urls: Vec<String>,
-}
-
-impl From<FlowCardSummary> for TipcardInfo {
-    fn from(card: FlowCardSummary) -> Self {
+impl From<api_v1::FlowCardSummary> for TipcardInfo {
+    fn from(card: api_v1::FlowCardSummary) -> Self {
         Self {
             id: card.id,
             topic_name: card.topic_name,
@@ -113,8 +68,8 @@ impl From<FlowCardSummary> for TipcardInfo {
     }
 }
 
-impl From<FlowCardDetail> for TipcardInfo {
-    fn from(card: FlowCardDetail) -> Self {
+impl From<api_v1::FlowCardDetail> for TipcardInfo {
+    fn from(card: api_v1::FlowCardDetail) -> Self {
         Self {
             id: card.id,
             topic_name: card.topic_name,
@@ -130,33 +85,42 @@ impl From<FlowCardDetail> for TipcardInfo {
             next_review_at: card.next_review_at,
             repeat_count: card.repeat_count,
             pinned: card.pinned,
+            pending_count: card.pending_count,
+            review_message: None,
+        }
+    }
+}
+
+impl From<api_v1::InventoryCard> for TipcardInfo {
+    fn from(card: api_v1::InventoryCard) -> Self {
+        Self {
+            id: card.id,
+            topic_name: card.topic_name,
+            topic_icon: card.topic_icon,
+            topic_color: card.topic_color,
+            title: card.title,
+            full_content: card.full_content,
+            compressed_content: card.compressed_content,
+            image_data: Vec::new(),
+            created_at: card.created_at,
+            tipcard_type: card.tipcard_type,
+            status: card.status,
+            next_review_at: card.next_review_at,
+            repeat_count: card.repeat_count,
+            pinned: card.pinned,
             pending_count: 0,
             review_message: None,
         }
     }
 }
 
-#[derive(Serialize)]
-struct CreateTipReq {
-    count: Option<u32>,
-    topics: String,
-    tipcard_type: Option<String>,
-    manual_content: Option<String>,
-    manual_image_data: Option<Vec<String>>,
-    exclude_card_ids: Option<Vec<i64>>,
-}
-
-#[derive(Serialize)]
-struct ContinueDailyReviewReq {
-    topics: String,
-    tipcard_type: Option<String>,
-}
-
-#[derive(Serialize)]
-struct ReviewReq {
-    card_id: i64,
-    grade: Option<u8>,
-    action: Option<String>,
+fn topics_csv_to_list(topics: &str) -> Vec<String> {
+    topics
+        .split(',')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 fn stored_reviewed_placeholders() -> HashMap<i64, TipcardInfo> {
@@ -171,7 +135,7 @@ fn stored_reviewed_placeholders() -> HashMap<i64, TipcardInfo> {
 }
 
 #[derive(Serialize)]
-struct PinReq {
+struct PinImagesReq {
     id: i64,
     pinned: Option<bool>,
     image_data: Option<Vec<String>>,
@@ -194,7 +158,12 @@ pub fn unified_flow() -> Html {
     let next_cursor = use_state(|| None::<String>);
     let has_more = use_state(|| true);
     let loading = use_state(|| false);
+    let load_in_flight = use_mut_ref(|| false);
+    let detail_in_flight_ids = use_mut_ref(HashSet::<i64>::new);
     let pending_count = use_state(|| 0usize);
+    let reviewing_card_ids = use_state(HashSet::<i64>::new);
+    let review_in_flight_ids = use_mut_ref(HashSet::<i64>::new);
+    let review_idempotency_keys = use_mut_ref(HashMap::<i64, String>::new);
     let replacement_pending_topics = use_mut_ref(HashSet::<String>::new);
     let replacement_loading_topics = use_state(HashSet::<String>::new);
     let pinned_card_order =
@@ -243,10 +212,12 @@ pub fn unified_flow() -> Html {
         let next_cursor = next_cursor.clone();
         let has_more = has_more.clone();
         let loading = loading.clone();
+        let load_in_flight = load_in_flight.clone();
+        let app_state = app_state.clone();
         let replacement_pending_topics = replacement_pending_topics.clone();
         let replacement_loading_topics = replacement_loading_topics.clone();
         Callback::from(move |reset: bool| {
-            if *loading {
+            if *load_in_flight.borrow() {
                 return;
             }
             let cards = cards.clone();
@@ -255,95 +226,85 @@ pub fn unified_flow() -> Html {
             let next_cursor = next_cursor.clone();
             let has_more = has_more.clone();
             let loading = loading.clone();
+            let load_in_flight = load_in_flight.clone();
+            let app_state = app_state.clone();
             let replacement_pending_topics = replacement_pending_topics.clone();
             let replacement_loading_topics = replacement_loading_topics.clone();
             let cursor = if reset { None } else { (*next_cursor).clone() };
             if !reset && cursor.is_none() && !*has_more {
                 return;
             }
+            *load_in_flight.borrow_mut() = true;
             loading.set(true);
             wasm_bindgen_futures::spawn_local(async move {
-                let mut url = format!("/app/flow-cards?limit={PAGE_LIMIT}");
-                if let Some(cursor) = cursor {
-                    url.push_str("&cursor=");
-                    url.push_str(
-                        &js_sys::encode_uri_component(&cursor)
-                            .as_string()
-                            .unwrap_or_default(),
-                    );
-                }
-                match Request::get(&url).send().await {
-                    Ok(res) if res.ok() => {
-                        if let Ok(page) = res.json::<FlowCardPage>().await {
-                            let mut new_cards: Vec<TipcardInfo> =
-                                page.cards.into_iter().map(Into::into).collect();
-                            if reset {
-                                let loaded_ids =
-                                    new_cards.iter().map(|card| card.id).collect::<HashSet<_>>();
-                                let active_repeatable_topics = new_cards
-                                    .iter()
-                                    .filter(|card| {
-                                        card.tipcard_type == "repeatable_tip"
-                                            && card.status == "active"
-                                    })
-                                    .map(|card| card.topic_name.as_str())
-                                    .collect::<HashSet<_>>();
-                                let mut loading_topics = (*replacement_loading_topics).clone();
-                                loading_topics.retain(|topic| {
-                                    !active_repeatable_topics.contains(topic.as_str())
-                                });
-                                replacement_loading_topics.set(loading_topics);
-                                replacement_pending_topics.borrow_mut().retain(|topic| {
-                                    !active_repeatable_topics.contains(topic.as_str())
-                                });
-                                // Read storage again on the first page response. It prevents a
-                                // reload from dropping a completion card while the flow fetch is
-                                // resolving during component initialization.
-                                let mut placeholder_map = (*reviewed_placeholders).clone();
-                                placeholder_map.extend(stored_reviewed_placeholders());
-                                placeholder_map.retain(|id, card| {
-                                    !loaded_ids.contains(id)
-                                        && !active_repeatable_topics
-                                            .contains(card.topic_name.as_str())
-                                });
-                                let placeholders =
-                                    placeholder_map.values().cloned().collect::<Vec<_>>();
-                                reviewed_placeholders.set(placeholder_map);
-                                new_cards.extend(placeholders);
-                                let loaded = new_cards
-                                    .iter()
-                                    .map(|card| (card.id, false))
-                                    .collect::<HashMap<_, _>>();
-                                detail_loaded.set(loaded);
-                                cards.set(new_cards);
-                            } else {
-                                let mut merged = (*cards).clone();
-                                let mut loaded = (*detail_loaded).clone();
-                                let mut placeholders = (*reviewed_placeholders).clone();
-                                for card in new_cards {
-                                    if let Some(existing) =
-                                        merged.iter_mut().find(|existing| existing.id == card.id)
-                                    {
-                                        if existing.review_message.is_some() {
-                                            placeholders.remove(&card.id);
-                                            loaded.insert(card.id, false);
-                                            *existing = card;
-                                        }
-                                    } else {
-                                        loaded.entry(card.id).or_insert(false);
-                                        merged.push(card);
+                match api_v1::list_flow_cards(PAGE_LIMIT as u32, cursor).await {
+                    Ok(page) => {
+                        let mut new_cards: Vec<TipcardInfo> =
+                            page.cards.into_iter().map(Into::into).collect();
+                        if reset {
+                            let loaded_ids =
+                                new_cards.iter().map(|card| card.id).collect::<HashSet<_>>();
+                            let active_repeatable_topics = new_cards
+                                .iter()
+                                .filter(|card| {
+                                    card.tipcard_type == "repeatable_tip" && card.status == "active"
+                                })
+                                .map(|card| card.topic_name.as_str())
+                                .collect::<HashSet<_>>();
+                            let mut loading_topics = (*replacement_loading_topics).clone();
+                            loading_topics
+                                .retain(|topic| !active_repeatable_topics.contains(topic.as_str()));
+                            replacement_loading_topics.set(loading_topics);
+                            replacement_pending_topics
+                                .borrow_mut()
+                                .retain(|topic| !active_repeatable_topics.contains(topic.as_str()));
+                            // Read storage again on the first page response. It prevents a
+                            // reload from dropping a completion card while the flow fetch is
+                            // resolving during component initialization.
+                            let mut placeholder_map = (*reviewed_placeholders).clone();
+                            placeholder_map.extend(stored_reviewed_placeholders());
+                            placeholder_map.retain(|id, card| {
+                                !loaded_ids.contains(id)
+                                    && !active_repeatable_topics.contains(card.topic_name.as_str())
+                            });
+                            let placeholders =
+                                placeholder_map.values().cloned().collect::<Vec<_>>();
+                            reviewed_placeholders.set(placeholder_map);
+                            new_cards.extend(placeholders);
+                            let loaded = new_cards
+                                .iter()
+                                .map(|card| (card.id, false))
+                                .collect::<HashMap<_, _>>();
+                            detail_loaded.set(loaded);
+                            cards.set(new_cards);
+                        } else {
+                            let mut merged = (*cards).clone();
+                            let mut loaded = (*detail_loaded).clone();
+                            let mut placeholders = (*reviewed_placeholders).clone();
+                            for card in new_cards {
+                                if let Some(existing) =
+                                    merged.iter_mut().find(|existing| existing.id == card.id)
+                                {
+                                    if existing.review_message.is_some() {
+                                        placeholders.remove(&card.id);
+                                        loaded.insert(card.id, false);
+                                        *existing = card;
                                     }
+                                } else {
+                                    loaded.entry(card.id).or_insert(false);
+                                    merged.push(card);
                                 }
-                                reviewed_placeholders.set(placeholders);
-                                detail_loaded.set(loaded);
-                                cards.set(merged);
                             }
-                            next_cursor.set(page.next_cursor);
-                            has_more.set(page.has_more);
+                            reviewed_placeholders.set(placeholders);
+                            detail_loaded.set(loaded);
+                            cards.set(merged);
                         }
+                        next_cursor.set(page.next_cursor);
+                        has_more.set(page.has_more);
                     }
-                    _ => {}
+                    Err(err) => toast(&app_state, err.to_string()),
                 }
+                *load_in_flight.borrow_mut() = false;
                 loading.set(false);
             });
         })
@@ -358,26 +319,35 @@ pub fn unified_flow() -> Html {
     let request_detail = {
         let cards = cards.clone();
         let detail_loaded = detail_loaded.clone();
+        let detail_in_flight_ids = detail_in_flight_ids.clone();
+        let app_state = app_state.clone();
         Callback::from(move |id: i64| {
+            if !detail_in_flight_ids.borrow_mut().insert(id) {
+                return;
+            }
             let cards = cards.clone();
             let detail_loaded = detail_loaded.clone();
+            let detail_in_flight_ids = detail_in_flight_ids.clone();
+            let app_state = app_state.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(res) = Request::get(&format!("/app/flow-cards/{id}")).send().await {
-                    if res.ok() {
-                        if let Ok(detail) = res.json::<FlowCardDetail>().await {
-                            let mut updated_card: TipcardInfo = detail.into();
-                            let mut next = (*cards).clone();
-                            if let Some(card) = next.iter_mut().find(|card| card.id == id) {
+                match api_v1::get_tipcard(id).await {
+                    Ok(detail) => {
+                        let mut updated_card: TipcardInfo = detail.into();
+                        let mut next = (*cards).clone();
+                        if let Some(card) = next.iter_mut().find(|card| card.id == id) {
+                            if updated_card.pending_count == 0 {
                                 updated_card.pending_count = card.pending_count;
-                                *card = updated_card;
                             }
-                            let mut loaded = (*detail_loaded).clone();
-                            loaded.insert(id, true);
-                            detail_loaded.set(loaded);
-                            cards.set(next);
+                            *card = updated_card;
                         }
+                        let mut loaded = (*detail_loaded).clone();
+                        loaded.insert(id, true);
+                        detail_loaded.set(loaded);
+                        cards.set(next);
                     }
+                    Err(err) => toast(&app_state, err.to_string()),
                 }
+                detail_in_flight_ids.borrow_mut().remove(&id);
             });
         })
     };
@@ -416,37 +386,32 @@ pub fn unified_flow() -> Html {
             pending_count.set(n_skeletons);
 
             wasm_bindgen_futures::spawn_local(async move {
-                let req = CreateTipReq {
-                    count: (ttype == "repeatable_tip").then_some(5),
-                    topics,
-                    tipcard_type: Some(ttype.clone()),
-                    manual_content: if ttype == "manual_tip" {
+                let topic_list = topics_csv_to_list(&topics);
+                match api_v1::tips_v1(
+                    (ttype == "repeatable_tip").then_some(5),
+                    topic_list,
+                    &ttype,
+                    None,
+                    if ttype == "manual_tip" {
                         Some(content)
                     } else {
                         None
                     },
-                    manual_image_data: if ttype == "manual_tip" {
+                    if ttype == "manual_tip" {
                         Some(images)
                     } else {
                         None
                     },
-                    exclude_card_ids: None,
-                };
-                match Request::post("/app/tips").json(&req).unwrap().send().await {
-                    Ok(res) if res.ok() => {
+                )
+                .await
+                {
+                    Ok(_) => {
                         toast(&app_state, "Cards added");
                         LocalStorage::delete("denpie_prefill_topic");
                         LocalStorage::delete("denpie_prefill_type");
                         load_cards.emit(true);
                     }
-                    Ok(res) => {
-                        let message = res
-                            .text()
-                            .await
-                            .unwrap_or_else(|_| "Failed to add cards".to_string());
-                        toast(&app_state, message);
-                    }
-                    Err(_) => toast(&app_state, "Failed to add cards"),
+                    Err(err) => toast(&app_state, err.to_string()),
                 }
                 pending_count.set(0);
             });
@@ -460,14 +425,31 @@ pub fn unified_flow() -> Html {
         let load_cards = load_cards.clone();
         let replacement_pending_topics = replacement_pending_topics.clone();
         let replacement_loading_topics = replacement_loading_topics.clone();
+        let reviewing_card_ids = reviewing_card_ids.clone();
+        let review_in_flight_ids = review_in_flight_ids.clone();
+        let review_idempotency_keys = review_idempotency_keys.clone();
         Callback::from(
             move |(id, grade, action): (i64, Option<u8>, Option<String>)| {
+                if !review_in_flight_ids.borrow_mut().insert(id) {
+                    return;
+                }
+                let mut reviewing = (*reviewing_card_ids).clone();
+                reviewing.insert(id);
+                reviewing_card_ids.set(reviewing);
+                let idempotency_key = review_idempotency_keys
+                    .borrow_mut()
+                    .entry(id)
+                    .or_insert_with(api_v1::new_idempotency_key)
+                    .clone();
                 let cards = cards.clone();
                 let reviewed_placeholders = reviewed_placeholders.clone();
                 let app_state = app_state.clone();
                 let load_cards = load_cards.clone();
                 let replacement_pending_topics = replacement_pending_topics.clone();
                 let replacement_loading_topics = replacement_loading_topics.clone();
+                let reviewing_card_ids = reviewing_card_ids.clone();
+                let review_in_flight_ids = review_in_flight_ids.clone();
+                let review_idempotency_keys = review_idempotency_keys.clone();
                 wasm_bindgen_futures::spawn_local(async move {
                     let reviewed_card = cards.iter().find(|card| card.id == id).cloned();
                     let reviewed_repeatable_topic = reviewed_card.as_ref().and_then(|card| {
@@ -494,51 +476,24 @@ pub fn unified_flow() -> Html {
                         .forget();
                     }
                     let action_name = action.clone().unwrap_or_default();
-                    let req = ReviewReq {
-                        card_id: id,
-                        grade,
-                        action,
-                    };
-                    match Request::post("/app/review")
-                        .json(&req)
-                        .unwrap()
-                        .send()
-                        .await
-                    {
-                        Ok(res) if res.ok() => {
+                    match api_v1::review_v1_with_key(id, grade, action, idempotency_key).await {
+                        Ok(()) => {
+                            review_idempotency_keys.borrow_mut().remove(&id);
                             let mut reload_flow = true;
                             if let Some(mut placeholder) = reviewed_card {
                                 if placeholder.tipcard_type == "repeatable_tip" {
-                                    let next_req = CreateTipReq {
-                                        count: Some(1),
-                                        topics: placeholder.topic_name.clone(),
-                                        tipcard_type: Some("repeatable_tip".to_string()),
-                                        manual_content: None,
-                                        manual_image_data: None,
-                                        exclude_card_ids: Some(vec![id]),
-                                    };
-                                    let (next_ready, next_error) = match Request::post("/app/tips")
-                                        .json(&next_req)
-                                        .unwrap()
-                                        .send()
-                                        .await
+                                    let (next_ready, next_error) = match api_v1::tips_v1(
+                                        Some(1),
+                                        vec![placeholder.topic_name.clone()],
+                                        "repeatable_tip",
+                                        Some(vec![id]),
+                                        None,
+                                        None,
+                                    )
+                                    .await
                                     {
-                                        Ok(response) if response.ok() => (
-                                            response
-                                                .json::<Vec<serde_json::Value>>()
-                                                .await
-                                                .is_ok_and(|cards| !cards.is_empty()),
-                                            None,
-                                        ),
-                                        Ok(response) => (
-                                            false,
-                                            response
-                                                .text()
-                                                .await
-                                                .ok()
-                                                .filter(|text| !text.trim().is_empty()),
-                                        ),
-                                        Err(_) => (false, None),
+                                        Ok(cards) => (!cards.is_empty(), None),
+                                        Err(err) => (false, Some(err.to_string())),
                                     };
                                     if !next_ready {
                                         // Keep the completion card mounted. Reloading the flow
@@ -603,16 +558,23 @@ pub fn unified_flow() -> Html {
                                 load_cards.emit(true);
                             }
                         }
-                        _ => {
+                        Err(err) => {
+                            if !err.mutation_outcome_indeterminate {
+                                review_idempotency_keys.borrow_mut().remove(&id);
+                            }
                             if let Some(topic) = reviewed_repeatable_topic {
                                 replacement_pending_topics.borrow_mut().remove(&topic);
                                 let mut loading_topics = (*replacement_loading_topics).clone();
                                 loading_topics.remove(&topic);
                                 replacement_loading_topics.set(loading_topics);
                             }
-                            toast(&app_state, "Review failed");
+                            toast(&app_state, err.to_string());
                         }
                     }
+                    review_in_flight_ids.borrow_mut().remove(&id);
+                    let mut reviewing = (*reviewing_card_ids).clone();
+                    reviewing.remove(&id);
+                    reviewing_card_ids.set(reviewing);
                 });
             },
         )
@@ -628,26 +590,10 @@ pub fn unified_flow() -> Html {
             let pending_count = pending_count.clone();
             pending_count.set(1);
             wasm_bindgen_futures::spawn_local(async move {
-                let req = ContinueDailyReviewReq {
-                    topics: topic,
-                    tipcard_type: Some(tipcard_type),
-                };
-                match Request::post("/app/continue-daily-review")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
-                {
-                    Ok(response) if response.ok() => {
+                match api_v1::continue_daily_review(vec![topic], Some(tipcard_type)).await {
+                    Ok(_) => {
                         toast(&app_state, "Continuing today's review");
                         load_cards.emit(true);
-                    }
-                    Ok(response) => {
-                        let message = response
-                            .text()
-                            .await
-                            .unwrap_or_else(|_| "Could not continue today's review".to_string());
-                        toast(&app_state, message);
                     }
                     Err(err) => toast(&app_state, err.to_string()),
                 }
@@ -663,32 +609,20 @@ pub fn unified_flow() -> Html {
             let cards = cards.clone();
             let pinned_card_order = pinned_card_order.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let req = PinReq {
-                    id,
-                    pinned: Some(pinned),
-                    image_data: None,
-                };
-                if let Ok(res) = Request::patch("/admin/tipcards")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
-                {
-                    if res.ok() {
-                        let mut next = (*cards).clone();
-                        if let Some(card) = next.iter_mut().find(|card| card.id == id) {
-                            card.pinned = pinned;
-                        }
-                        let pinned_ids = next
-                            .iter()
-                            .filter(|card| card.pinned)
-                            .map(|card| card.id)
-                            .collect::<Vec<_>>();
-                        let order = normalize_card_order((*pinned_card_order).clone(), &pinned_ids);
-                        let _ = LocalStorage::set(PINNED_CARD_ORDER_KEY, &order);
-                        pinned_card_order.set(order);
-                        cards.set(next);
+                if api_v1::pin_tipcard(id, pinned).await.is_ok() {
+                    let mut next = (*cards).clone();
+                    if let Some(card) = next.iter_mut().find(|card| card.id == id) {
+                        card.pinned = pinned;
                     }
+                    let pinned_ids = next
+                        .iter()
+                        .filter(|card| card.pinned)
+                        .map(|card| card.id)
+                        .collect::<Vec<_>>();
+                    let order = normalize_card_order((*pinned_card_order).clone(), &pinned_ids);
+                    let _ = LocalStorage::set(PINNED_CARD_ORDER_KEY, &order);
+                    pinned_card_order.set(order);
+                    cards.set(next);
                 }
             });
         })
@@ -703,7 +637,8 @@ pub fn unified_flow() -> Html {
             let app_state = app_state.clone();
             let detail_loaded = detail_loaded.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let req = PinReq {
+                // Tipcard image replace has no v1 op yet — keep session dashboard route.
+                let req = PinImagesReq {
                     id,
                     pinned: None,
                     image_data: Some(image_data),
@@ -745,23 +680,19 @@ pub fn unified_flow() -> Html {
             let fullscreen_card_key = fullscreen_card_key.clone();
             let deleted_card_key = cards.iter().find(|card| card.id == id).map(flow_card_key);
             wasm_bindgen_futures::spawn_local(async move {
-                let req = serde_json::json!({ "id": id });
-                if Request::delete("/admin/tipcards")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
-                    .is_ok()
-                {
-                    toast(&app_state, "Card deleted");
-                    if deleted_card_key == *fullscreen_card_key {
-                        set_fullscreen_body_class(false);
-                        fullscreen_card_key.set(None);
+                match api_v1::delete_tipcard(id).await {
+                    Ok(()) => {
+                        toast(&app_state, "Card deleted");
+                        if deleted_card_key == *fullscreen_card_key {
+                            set_fullscreen_body_class(false);
+                            fullscreen_card_key.set(None);
+                        }
+                        cards.set(cards.iter().filter(|card| card.id != id).cloned().collect());
+                        let mut placeholders = (*reviewed_placeholders).clone();
+                        placeholders.remove(&id);
+                        reviewed_placeholders.set(placeholders);
                     }
-                    cards.set(cards.iter().filter(|card| card.id != id).cloned().collect());
-                    let mut placeholders = (*reviewed_placeholders).clone();
-                    placeholders.remove(&id);
-                    reviewed_placeholders.set(placeholders);
+                    Err(err) => toast(&app_state, err.to_string()),
                 }
             });
         })
@@ -972,6 +903,7 @@ pub fn unified_flow() -> Html {
                 fullscreen={*fullscreen_card_key == Some(card_key.clone())}
                 detail_loaded={detail_loaded.get(&id).copied().unwrap_or(false)}
                 enable_drag={enable_drag}
+                review_pending={review_in_flight_ids.borrow().contains(&id)}
             />
         }
     };

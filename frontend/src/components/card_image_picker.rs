@@ -1,10 +1,11 @@
 use std::collections::HashSet;
 
 use gloo_net::http::Request;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use web_sys::HtmlInputElement;
 use yew::{create_portal, prelude::*};
 
+use crate::api_v1;
 use crate::image_compress::{collect_files, compress_files_to_data_urls};
 
 const MAX_CARD_IMAGES: usize = 4;
@@ -17,12 +18,21 @@ enum PickerTab {
     Suggest,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct PoolImageInfo {
     id: i64,
     name: String,
     description: Option<String>,
     tags: Vec<String>,
+}
+
+fn from_pool_image_row(img: api_v1::PoolImageRow) -> PoolImageInfo {
+    PoolImageInfo {
+        id: img.id,
+        name: img.name,
+        description: img.description,
+        tags: img.tags,
+    }
 }
 
 #[derive(Serialize)]
@@ -99,21 +109,14 @@ pub fn card_image_picker(props: &CardImagePickerProps) -> Html {
                 pool_loading.set(true);
                 let session_id = *session.borrow();
                 wasm_bindgen_futures::spawn_local(async move {
-                    let result = Request::get("/app/image-pool").send().await;
+                    let result = api_v1::list_pool_images().await;
                     if *session.borrow() != session_id {
                         return;
                     }
                     match result {
-                        Ok(response) if response.ok() => match response.json().await {
-                            Ok(images) => pool_images.set(images),
-                            Err(error) => on_error.emit(error.to_string()),
-                        },
-                        Ok(response) => on_error.emit(
-                            response
-                                .text()
-                                .await
-                                .unwrap_or_else(|_| "Failed to load the Local Image Pool".into()),
-                        ),
+                        Ok(images) => {
+                            pool_images.set(images.into_iter().map(from_pool_image_row).collect())
+                        }
                         Err(error) => on_error.emit(error.to_string()),
                     }
                     pool_loading.set(false);
@@ -242,6 +245,7 @@ pub fn card_image_picker(props: &CardImagePickerProps) -> Html {
             let on_error = on_error.clone();
             let session = session.clone();
             wasm_bindgen_futures::spawn_local(async move {
+                // Session JSON — no v1 op for tipcard-images/append.
                 let result = match Request::post("/app/tipcard-images/append").json(&request) {
                     Ok(builder) => match builder.send().await {
                         Ok(response) if response.ok() => Ok(()),
@@ -314,7 +318,7 @@ pub fn card_image_picker(props: &CardImagePickerProps) -> Html {
                                 aria-pressed={selected.to_string()}
                                 onclick={Callback::from(move |_| toggle.emit(id))}
                             >
-                                <img src={format!("/app/pool-images/{id}")} alt="" class="w-full h-28 object-cover rounded" loading="lazy" />
+                                <img src={api_v1::pool_image_url(id)} alt="" class="w-full h-28 object-cover rounded" loading="lazy" />
                                 <span class="block mt-2 text-sm font-medium truncate">{&image.name}</span>
                                 if selected {
                                     <span class="absolute top-3 right-3 rounded-full bg-primary-solid p-1 inline-flex">

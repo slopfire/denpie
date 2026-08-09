@@ -1,5 +1,6 @@
 use crate::AppState;
 use axum::http::{HeaderMap, StatusCode, header};
+use tower_sessions::Session;
 
 use crate::services::api_keys::ApiPrincipal;
 
@@ -39,6 +40,34 @@ pub(crate) async fn require_api_key(state: &AppState, api_key: &str) -> ApiResul
         .verify_principal(api_key)
         .await
         .map_err(|err| err.into_status_body())
+}
+
+/// Resolve API v1 auth for browser and key clients.
+///
+/// Priority: `Authorization: Bearer` → non-empty body `auth` → logged-in session.
+/// Session principals hold full `*` scopes so the same-origin UI can call v1 after
+/// normal login without storing a raw API key.
+pub(crate) async fn resolve_principal(
+    state: &AppState,
+    headers: &HeaderMap,
+    body_auth: &str,
+    session: &Session,
+) -> ApiResult<ApiPrincipal> {
+    if headers.get(header::AUTHORIZATION).is_some() {
+        let api_key = request_api_key(headers, "")?;
+        return require_api_key(state, &api_key).await;
+    }
+    let body_auth = body_auth.trim();
+    if !body_auth.is_empty() {
+        return require_api_key(state, body_auth).await;
+    }
+    match crate::auth::current_user(state, session).await {
+        Ok(user) => Ok(ApiPrincipal::from_session(user)),
+        Err(_) => Err((
+            StatusCode::UNAUTHORIZED,
+            "Authentication required".to_string(),
+        )),
+    }
 }
 
 pub(crate) async fn create_scoped_api_key(

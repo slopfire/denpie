@@ -55,3 +55,12 @@ CI publishes the same bundle as the `denpie-api-v1-schema` artifact.
 Consumers should pin a tagged Denpie release or a schema-bundle checksum for
 reproducible code generation. Tracking the repository's default branch opts
 into additive changes as they land.
+
+The committed [`api/contract-v1.json`](../api/contract-v1.json) ledger records
+every protected message field, enum value, reservation, operation result,
+authentication mode, scope, and mutation policy. `just api-check` compares the
+schema, manifest, generated Rust contract, and generated reference to that
+ledger. Compatible additions must be recorded with `just api-contract-update`;
+the command refuses removals or changes to existing v1 members. CI also proves
+the ledger is monotonic relative to the branch's base revision, preventing a
+schema and its historical entry from being weakened together.

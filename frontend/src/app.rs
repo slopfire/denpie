@@ -75,13 +75,10 @@ fn app_root() -> Html {
         use_effect_with(auth_status, move |auth_status| {
             if *auth_status == AuthStatus::Authenticated {
                 wasm_bindgen_futures::spawn_local(async move {
-                    if let Ok(settings_res) = Request::get("/admin/settings").send().await {
-                        if settings_res.ok() {
-                            if let Ok(mut settings) = settings_res.json::<SettingsRes>().await {
-                                apply_local_appearance_overrides(&mut settings);
-                                apply_appearance(&settings);
-                            }
-                        }
+                    if let Ok(settings_view) = crate::api_v1::get_settings().await {
+                        let mut settings = SettingsRes::from(settings_view);
+                        apply_local_appearance_overrides(&mut settings);
+                        apply_appearance(&settings);
                     }
                 });
             }

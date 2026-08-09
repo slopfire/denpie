@@ -332,9 +332,17 @@ async fn pending_only_topic_promotes_one_card_for_page_load() {
         .unwrap();
     }
 
-    tipcards::promote_pending_for_empty_topics(&pool, user, &[topic_id])
-        .await
-        .unwrap();
+    tipcards::promote_pending_within_daily_limits(
+        &pool,
+        user,
+        &[tipcards::DailyReviewTarget {
+            topic_id,
+            window_start: chrono::Utc::now() - chrono::Duration::days(1),
+            daily_card_count: 1,
+        }],
+    )
+    .await
+    .unwrap();
 
     let (active, pending) = sqlx::query_as::<_, (i64, i64)>(
         "SELECT

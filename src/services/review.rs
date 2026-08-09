@@ -20,7 +20,8 @@ impl ReviewService {
         grade: u8,
         action: &str,
     ) -> AppResult<()> {
-        let row = reviews::load_for_card(&self.pool, user_id, card_id).await?;
+        let mut tx = self.pool.begin().await?;
+        let row = reviews::load_for_card_for_update(&mut tx, user_id, card_id).await?;
 
         if domain::tipcard::is_queue_tipcard(&row.tipcard_type)
             || row.tipcard_type == "repeatable_tip"
@@ -104,7 +105,7 @@ impl ReviewService {
             };
 
             reviews::update_queue_state(
-                &self.pool,
+                &mut tx,
                 user_id,
                 card_id,
                 reviews::QueueReviewUpdate {
@@ -116,6 +117,7 @@ impl ReviewService {
                 },
             )
             .await?;
+            tx.commit().await?;
             return Ok(());
         }
 
@@ -123,13 +125,15 @@ impl ReviewService {
         let next_review = domain::review::next_review(&mut scheduling_state, grade);
         let new_state_json = serde_json::to_string(&scheduling_state)?;
         reviews::update_review_schedule(
-            &self.pool,
+            &mut tx,
             user_id,
             card_id,
             new_state_json,
             row.repeats,
             next_review,
         )
-        .await
+        .await?;
+        tx.commit().await?;
+        Ok(())
     }
 }

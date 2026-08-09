@@ -1,8 +1,8 @@
 use crate::api::{toast, toast_key};
+use crate::api_v1;
 use crate::i18n::use_i18n;
 use crate::state::AppState;
-use gloo_net::http::Request;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
@@ -13,14 +13,14 @@ pub struct ApiKeyInfo {
     pub created_at: String,
 }
 
-#[derive(Serialize)]
-struct CreateKeyReq {
-    client_name: Option<String>,
-}
-
-#[derive(Serialize)]
-struct DeleteKeyReq {
-    id: i64,
+impl From<api_v1::ApiKeyRow> for ApiKeyInfo {
+    fn from(row: api_v1::ApiKeyRow) -> Self {
+        Self {
+            id: row.id,
+            client_name: row.client_name,
+            created_at: row.created_at,
+        }
+    }
 }
 
 #[function_component(ApiKeys)]
@@ -36,10 +36,8 @@ pub fn api_keys() -> Html {
         Callback::from(move |_| {
             let keys = keys.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(res) = Request::get("/admin/keys").send().await {
-                    if let Ok(data) = res.json::<Vec<ApiKeyInfo>>().await {
-                        keys.set(data);
-                    }
+                if let Ok(data) = api_v1::list_api_keys().await {
+                    keys.set(data.into_iter().map(ApiKeyInfo::from).collect());
                 }
             });
         })
@@ -69,36 +67,18 @@ pub fn api_keys() -> Html {
             let i18n = i18n.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
-                let req = CreateKeyReq {
-                    client_name: if key_name.is_empty() {
-                        None
-                    } else {
-                        Some(key_name)
-                    },
+                let client_name = if key_name.is_empty() {
+                    None
+                } else {
+                    Some(key_name)
                 };
-                match Request::post("/admin/keys")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
-                {
-                    Ok(res) if res.ok() => {
-                        if let Ok(key) = res.json::<String>().await {
-                            new_key.set(Some(key));
-                            toast_key(&app_state, &i18n, "toast.key_generated");
-                            refresh_keys.emit(());
-                        }
+                match api_v1::create_api_key(client_name).await {
+                    Ok(key) => {
+                        new_key.set(Some(key));
+                        toast_key(&app_state, &i18n, "toast.key_generated");
+                        refresh_keys.emit(());
                     }
-                    Ok(res) => {
-                        let msg = res
-                            .text()
-                            .await
-                            .unwrap_or_else(|_| i18n.t("toast.failed_generate_key"));
-                        toast(&app_state, msg);
-                    }
-                    Err(e) => {
-                        toast(&app_state, e.to_string());
-                    }
+                    Err(e) => toast(&app_state, e.to_string()),
                 }
             });
         })
@@ -118,16 +98,12 @@ pub fn api_keys() -> Html {
                 let refresh_keys = refresh_keys.clone();
                 let i18n = i18n.clone();
                 wasm_bindgen_futures::spawn_local(async move {
-                    let req = DeleteKeyReq { id };
-                    if Request::delete("/admin/keys")
-                        .json(&req)
-                        .unwrap()
-                        .send()
-                        .await
-                        .is_ok()
-                    {
-                        toast_key(&app_state, &i18n, "toast.key_deleted");
-                        refresh_keys.emit(());
+                    match api_v1::delete_api_key(id).await {
+                        Ok(()) => {
+                            toast_key(&app_state, &i18n, "toast.key_deleted");
+                            refresh_keys.emit(());
+                        }
+                        Err(err) => toast(&app_state, err.to_string()),
                     }
                 });
             }

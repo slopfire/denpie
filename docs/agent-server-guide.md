@@ -25,14 +25,17 @@ Schema: proto/denpie.proto
 ```
 
 For new automation use `POST /api/v1`, `ApiV1Request` / `ApiV1Response`, and
-`Authorization: Bearer ...`. See [`api-v1.md`](api-v1.md).
+`Authorization: Bearer ...`. The browser SPA also uses `POST /api/v1` after
+session login (cookie principal). See [`api-v1.md`](api-v1.md).
 
 | Surface | Auth | Notes |
 |---|---|---|
-| `POST /api/v1` | Bearer API key | Recommended; request IDs + structured errors + durable mutation idempotency |
-| `POST /api` | API key | Stable client surface |
-| `GET /` | session | Browser dashboard |
-| `/auth/*`, `/admin/*`, `/app/*` | session | Dashboard internals |
+| `POST /api/v1` | Bearer API key **or** browser session | Recommended; request IDs + structured errors + durable mutation idempotency |
+| `GET /api/v1/*-images/*` | Bearer **or** session | Card/pool image bytes for clients and browser `<img>` |
+| `POST /api` | API key | Compatibility surface |
+| `GET /` | session | Browser dashboard shell |
+| `/auth/*` | session | Login, logout, passkeys, profile |
+| `/admin/*`, `/app/*` | session | Remaining dashboard-only ops without a v1 counterpart |
 | Legacy public routes | — | `404` |
 
 ## Bootstrap (first key)

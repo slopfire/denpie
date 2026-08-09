@@ -6,7 +6,7 @@ work_dir=$(mktemp -d)
 trap 'rm -r "$work_dir"' EXIT HUP INT TERM
 
 cd "$repo_root"
-python3 scripts/generate-api-reference.py --check
+sh scripts/check-api-contract.sh
 python3 scripts/check-api-docs.py
 
 mkdir -p "$work_dir/python"

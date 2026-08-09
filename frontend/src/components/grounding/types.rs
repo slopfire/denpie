@@ -1,4 +1,5 @@
 //! Shared types and pure helpers for the grounding view.
+use crate::api_v1;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Clone, PartialEq)]
@@ -7,6 +8,17 @@ pub struct AppSummary {
     pub active_cards: i64,
     pub total_cards: i64,
     pub topics: i64,
+}
+
+impl From<api_v1::AppSummaryView> for AppSummary {
+    fn from(s: api_v1::AppSummaryView) -> Self {
+        Self {
+            due_cards: s.due_cards,
+            active_cards: s.active_cards,
+            total_cards: s.total_cards,
+            topics: s.topics,
+        }
+    }
 }
 
 #[derive(Deserialize, Clone, PartialEq)]
@@ -36,23 +48,30 @@ pub struct AppTopicInfo {
     pub image_strategy: String,
 }
 
-#[derive(Serialize)]
-pub(crate) struct UpdateTopicReq {
-    pub(crate) id: i64,
-    pub(crate) prompt_template: Option<String>,
-    pub(crate) daily_card_count: Option<u32>,
-    pub(crate) daily_time_zone: Option<String>,
-    pub(crate) daily_update_time: Option<String>,
-    pub(crate) compression_level: Option<String>,
-    pub(crate) grounding_strategy: Option<String>,
-    pub(crate) image_strategy: Option<String>,
+impl From<api_v1::AppTopicView> for AppTopicInfo {
+    fn from(t: api_v1::AppTopicView) -> Self {
+        Self {
+            id: t.id,
+            name: t.name,
+            tipcard_type: t.tipcard_type,
+            icon_id: t.icon_id,
+            topic_color: t.topic_color,
+            prompt_template: t.prompt_template,
+            total_cards: t.total_cards,
+            due_cards: t.due_cards,
+            pending_cards: t.pending_cards,
+            completed_cards: t.completed_cards,
+            daily_card_count: t.daily_card_count,
+            daily_time_zone: t.daily_time_zone,
+            daily_update_time: t.daily_update_time,
+            compression_level: t.compression_level,
+            grounding_strategy: t.grounding_strategy,
+            image_strategy: t.image_strategy,
+        }
+    }
 }
 
-#[derive(Serialize)]
-pub(crate) struct DeleteTopicReq {
-    pub(crate) id: i64,
-}
-
+/// Session JSON — no v1 op for icon suggestions.
 #[derive(Serialize)]
 pub(crate) struct SuggestTopicIconsReq {
     pub(crate) id: i64,
@@ -64,6 +83,7 @@ pub(crate) struct SuggestTopicIconsRes {
     pub(crate) icons: Vec<String>,
 }
 
+/// Session JSON — no v1 op for set-icon.
 #[derive(Serialize)]
 pub(crate) struct SetTopicIconReq {
     pub(crate) id: i64,
@@ -73,17 +93,6 @@ pub(crate) struct SetTopicIconReq {
 #[derive(Deserialize)]
 pub(crate) struct SetTopicIconRes {
     pub(crate) icon_id: String,
-}
-
-#[derive(Serialize)]
-pub(crate) struct ForceDailyRefreshReq {
-    pub(crate) topics: String,
-    pub(crate) tipcard_type: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct ForceDailyRefreshRes {
-    pub(crate) refreshed_cards: u64,
 }
 
 pub(crate) fn icon_short_name(icon: &str) -> String {

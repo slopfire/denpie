@@ -112,7 +112,9 @@ impl TopicService {
     }
 
     pub async fn delete_topic_by_id(state: &AppState, user_id: &str, id: i64) -> AppResult<()> {
-        topics::delete_cascade(&state.db, user_id, id).await
+        let image_paths = topics::delete_cascade(&state.db, user_id, id).await?;
+        crate::image_store::remove_stored_files(&state.image_dir, &image_paths).await;
+        Ok(())
     }
 
     pub async fn regenerate_topic_icon(

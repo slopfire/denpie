@@ -25,7 +25,8 @@ pub async fn stack_due_repeatable_cards(pool: &PgPool, user_id: &str) -> AppResu
         )
         UPDATE review_states
         SET status = 'pending'
-        WHERE card_id IN (
+        WHERE status = 'active' AND repeats = 0
+          AND card_id IN (
             SELECT card_id FROM ranked WHERE position > 1 AND repeats = 0
         )",
     )
@@ -57,8 +58,8 @@ pub async fn park_unseen_active_topic_cards(
     Ok(())
 }
 
-pub async fn promote_pending_for_empty_topics(
-    pool: &PgPool,
+pub(super) async fn promote_pending_for_empty_topics_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     user_id: &str,
     eligible_topic_ids: &[i64],
 ) -> AppResult<()> {
@@ -100,7 +101,8 @@ pub async fn promote_pending_for_empty_topics(
         )
         UPDATE review_states
         SET status = 'active', next_review_at = $3
-        WHERE card_id IN (
+        WHERE status = 'pending'
+          AND card_id IN (
             SELECT card_id FROM candidates WHERE position = 1
         )",
     )
@@ -108,7 +110,7 @@ pub async fn promote_pending_for_empty_topics(
     .bind(now)
     .bind(now)
     .bind(eligible_topic_ids)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }

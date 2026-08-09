@@ -98,6 +98,7 @@ pub(crate) async fn list_pool_images(state: &AppState, user_id: &str) -> ApiResu
                 name: row.name,
                 description: row.description.unwrap_or_default(),
                 created_at: row.created_at.to_rfc3339(),
+                tags: crate::llm::tags_from_json(&row.tags),
             })
             .collect(),
     })

@@ -314,8 +314,28 @@ fn prepare_incoming_image(
 }
 
 async fn remove_files(image_dir: &Path, names: &[String]) {
+    remove_stored_files(image_dir, names).await;
+}
+
+/// Remove image files whose database records were deleted. Stored paths are
+/// constrained to a single filename so corrupt metadata cannot escape the image
+/// directory.
+pub async fn remove_stored_files(image_dir: &Path, names: &[String]) {
     for name in names {
-        let _ = fs::remove_file(image_dir.join(name)).await;
+        let mut components = Path::new(name).components();
+        if !matches!(components.next(), Some(std::path::Component::Normal(_)))
+            || components.next().is_some()
+        {
+            tracing::warn!(storage_path = name, "refusing to remove unsafe image path");
+            continue;
+        }
+        match fs::remove_file(image_dir.join(name)).await {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                tracing::warn!(error = ?err, storage_path = name, "failed to remove image file")
+            }
+        }
     }
 }
 

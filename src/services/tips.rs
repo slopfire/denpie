@@ -1114,27 +1114,29 @@ impl TipService {
         }
 
         // Every grounding strategy writes its complete batch to pending first.
-        let mut created_count = 0;
-        for card in outcome.cards() {
-            if let Err(err) = tipcards::create_generated_with_status(
-                &ctx.state.db,
-                ctx.user_id,
-                ctx.topic.id,
-                &ctx.topic.tipcard_type,
-                &card.title,
-                &card.full_content,
-                &card.compressed_content,
-                card.use_image,
-                &card.image_query,
-                "pending",
-            )
-            .await
-            {
-                tracing::warn!(error = ?err, "failed to persist pending card");
-            } else {
-                created_count += 1;
-            }
-        }
+        // The repository locks the topic and rechecks queue depth, preventing
+        // concurrent LLM requests from persisting duplicate batches.
+        let cards = outcome
+            .cards()
+            .map(|card| tipcards::GeneratedCardParams {
+                title: &card.title,
+                full_content: &card.full_content,
+                compressed_content: &card.compressed_content,
+                use_image: card.use_image,
+                image_query: &card.image_query,
+            })
+            .collect::<Vec<_>>();
+        let created_count = tipcards::create_pending_batch_if_needed(
+            &ctx.state.db,
+            ctx.user_id,
+            ctx.topic.id,
+            &ctx.topic.tipcard_type,
+            REFILL_LOW_WATER,
+            &cards,
+        )
+        .await
+        .map_err(|err| err.into_status_body())?
+        .len();
 
         if !should_promote {
             return Ok(created_count);
@@ -1212,11 +1214,14 @@ impl TipService {
                 topic = ctx.topic_name,
                 "dismissing card with failed generation content"
             );
-            if let Err(err) =
-                tipcards::delete_with_review(&ctx.state.db, ctx.user_id, card.id).await
-            {
-                tracing::warn!(error = ?err, card_id = card.id, "failed to delete failed generation card");
-                return Ok(false);
+            match tipcards::delete_with_review(&ctx.state.db, ctx.user_id, card.id).await {
+                Ok(image_paths) => {
+                    image_store::remove_stored_files(&ctx.state.image_dir, &image_paths).await;
+                }
+                Err(err) => {
+                    tracing::warn!(error = ?err, card_id = card.id, "failed to delete failed generation card");
+                    return Ok(false);
+                }
             }
         }
         Ok(false)
@@ -1424,28 +1429,27 @@ impl TipService {
             return Ok(0);
         }
 
-        let mut created = 0;
-        for card in outcome.cards() {
-            if let Err(err) = tipcards::create_generated_with_status(
-                &state.db,
-                user_id,
-                topic_id,
-                tipcard_type,
-                &card.title,
-                &card.full_content,
-                &card.compressed_content,
-                card.use_image,
-                &card.image_query,
-                "pending",
-            )
-            .await
-            {
-                tracing::warn!(error = ?err, "failed to persist background pending card");
-            } else {
-                created += 1;
-            }
-        }
-        Ok(created)
+        let cards = outcome
+            .cards()
+            .map(|card| tipcards::GeneratedCardParams {
+                title: &card.title,
+                full_content: &card.full_content,
+                compressed_content: &card.compressed_content,
+                use_image: card.use_image,
+                image_query: &card.image_query,
+            })
+            .collect::<Vec<_>>();
+        tipcards::create_pending_batch_if_needed(
+            &state.db,
+            user_id,
+            topic_id,
+            tipcard_type,
+            REFILL_LOW_WATER,
+            &cards,
+        )
+        .await
+        .map(|ids| ids.len())
+        .map_err(|err| err.into_status_body().1)
     }
 
     /// Retrieve and persist a single illustration for a freshly generated card.

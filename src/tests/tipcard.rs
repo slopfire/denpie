@@ -44,6 +44,267 @@ async fn test_topic_names_can_repeat_across_users() {
 }
 
 #[tokio::test]
+async fn card_creation_rejects_foreign_and_mismatched_topics() {
+    let db = setup_db().await;
+    sqlx::query(
+        "INSERT INTO users (id, username, password_hash, role) VALUES ($1, $2, '', 'user')",
+    )
+    .bind("usr_card_owner")
+    .bind("card-owner")
+    .execute(&db)
+    .await
+    .unwrap();
+    let foreign_topic = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ($1, 'foreign cards', 'repeatable_tip') RETURNING id",
+    )
+    .bind("usr_card_owner")
+    .fetch_one(&db)
+    .await
+    .unwrap();
+
+    let foreign_result = crate::db::repositories::tipcards::create_generated_with_status(
+        &db,
+        TEST_USER_ID,
+        foreign_topic,
+        "repeatable_tip",
+        "foreign",
+        "full",
+        "compact",
+        false,
+        "",
+        "pending",
+    )
+    .await;
+    assert!(matches!(
+        foreign_result,
+        Err(crate::error::AppError::NotFound(_))
+    ));
+
+    let own_topic = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ($1, 'typed cards', 'repeatable_tip') RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let cards = [crate::db::repositories::tipcards::GeneratedCardParams {
+        title: "wrong type",
+        full_content: "full",
+        compressed_content: "compact",
+        use_image: false,
+        image_query: "",
+    }];
+    let mismatched_result = crate::db::repositories::tipcards::create_pending_batch_if_needed(
+        &db,
+        TEST_USER_ID,
+        own_topic,
+        "casual_tip",
+        0,
+        &cards,
+    )
+    .await;
+    assert!(matches!(
+        mismatched_result,
+        Err(crate::error::AppError::Validation(_))
+    ));
+
+    let count =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tipcards WHERE topic_id = ANY($1)")
+            .bind(vec![foreign_topic, own_topic])
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[tokio::test]
+async fn generated_card_creation_rolls_back_when_review_state_insert_fails() {
+    let settings_path = unique_settings_path();
+    fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+        .await
+        .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ($1, 'atomic creation', 'repeatable_tip') RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "CREATE FUNCTION reject_review_state_insert() RETURNS trigger
+         LANGUAGE plpgsql AS $$
+         BEGIN
+             RAISE EXCEPTION 'forced review state failure';
+         END
+         $$",
+    )
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER reject_review_state_insert
+         BEFORE INSERT ON review_states
+         FOR EACH ROW EXECUTE FUNCTION reject_review_state_insert()",
+    )
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let result = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "must roll back",
+        "full",
+        "compact",
+        false,
+        "",
+        "pending",
+    )
+    .await;
+    assert!(result.is_err());
+
+    let card_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM tipcards WHERE user_id = $1 AND topic_id = $2",
+    )
+    .bind(TEST_USER_ID)
+    .bind(topic_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(card_count, 0);
+}
+
+#[tokio::test]
+async fn concurrent_generated_batches_persist_only_once() {
+    let settings_path = unique_settings_path();
+    fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+        .await
+        .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ($1, 'atomic batch', 'repeatable_tip') RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(3));
+    let mut tasks = Vec::new();
+    for _ in 0..2 {
+        let pool = state.db.clone();
+        let barrier = barrier.clone();
+        tasks.push(tokio::spawn(async move {
+            barrier.wait().await;
+            let cards = [
+                crate::db::repositories::tipcards::GeneratedCardParams {
+                    title: "batch one",
+                    full_content: "full one",
+                    compressed_content: "compact one",
+                    use_image: false,
+                    image_query: "",
+                },
+                crate::db::repositories::tipcards::GeneratedCardParams {
+                    title: "batch two",
+                    full_content: "full two",
+                    compressed_content: "compact two",
+                    use_image: false,
+                    image_query: "",
+                },
+            ];
+            crate::db::repositories::tipcards::create_pending_batch_if_needed(
+                &pool,
+                TEST_USER_ID,
+                topic_id,
+                "repeatable_tip",
+                0,
+                &cards,
+            )
+            .await
+            .unwrap()
+            .len()
+        }));
+    }
+    barrier.wait().await;
+    let first = tasks.remove(0).await.unwrap();
+    let second = tasks.remove(0).await.unwrap();
+    assert_eq!(first + second, 2);
+
+    let pending = crate::db::repositories::tipcards::count_pending(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+    )
+    .await
+    .unwrap();
+    assert_eq!(pending, 2);
+}
+
+#[tokio::test]
+async fn flow_cursor_uses_timestamp_keyset_without_repeating_cards() {
+    let settings_path = unique_settings_path();
+    fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+        .await
+        .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ($1, 'cursor cards', 'casual_tip') RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    for index in 0..3 {
+        crate::db::repositories::tipcards::create_generated_with_status(
+            &state.db,
+            TEST_USER_ID,
+            topic_id,
+            "casual_tip",
+            &format!("cursor {index}"),
+            "full",
+            "compact",
+            false,
+            "",
+            "active",
+        )
+        .await
+        .unwrap();
+    }
+
+    let first =
+        crate::db::repositories::tipcards::list_flow_cards(&state.db, TEST_USER_ID, None, 2)
+            .await
+            .unwrap();
+    assert_eq!(first.len(), 2);
+    let last = first.last().unwrap();
+    let cursor = (i64::from(last.pinned), last.created_at.clone(), last.id);
+    let second = crate::db::repositories::tipcards::list_flow_cards(
+        &state.db,
+        TEST_USER_ID,
+        Some(cursor),
+        2,
+    )
+    .await
+    .unwrap();
+    assert_eq!(second.len(), 1);
+    assert!(first.iter().all(|card| card.id != second[0].id));
+}
+
+#[tokio::test]
 async fn test_repeatable_topic_returns_one_new_card_after_review() {
     let (url, client) = spawn_test_server().await;
     let api_key = bootstrap_api_key(&url, &client, "daily_topic").await;
@@ -316,7 +577,7 @@ async fn test_manual_tipcards_are_created_from_user_text() {
 }
 
 #[tokio::test]
-async fn test_manual_tipcards_store_and_update_images() {
+async fn test_manual_tipcards_store_update_and_delete_image_files() {
     let settings_path = unique_settings_path();
     fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
         .await
@@ -385,6 +646,23 @@ async fn test_manual_tipcards_store_and_update_images() {
             .unwrap();
     assert_eq!(updated_image.0, "image/webp");
     assert!(updated_image.1 > 0);
+
+    let storage_path: String =
+        sqlx::query_scalar("SELECT storage_path FROM tipcard_images WHERE card_id = $1")
+            .bind(tips[0].id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    let file_path = state.image_dir.join(&storage_path);
+    assert!(fs::metadata(&file_path).await.is_ok());
+
+    crate::services::tipcards::TipcardService::delete(&state, TEST_USER_ID, tips[0].id)
+        .await
+        .unwrap();
+    assert!(matches!(
+        fs::metadata(&file_path).await,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound
+    ));
 }
 
 #[tokio::test]

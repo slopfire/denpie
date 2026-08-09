@@ -31,7 +31,7 @@ dev:
 # --- verification tiers -------------------------------------------------------
 
 # Fastest loop while editing: fmt check + compile (no tests, no frontend rebuild).
-quick:
+quick: api-check
   cargo fmt --all --check
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo check --workspace
 
@@ -56,6 +56,16 @@ lint:
 api-reference:
   python3 scripts/generate-api-reference.py
 
+# Fast, dependency-light guard for wire compatibility and operation policy drift.
+api-check:
+  sh scripts/check-api-contract.sh
+
+# Record additive v1 members. Breaking changes fail and require a new API major.
+api-contract-update:
+  python3 scripts/generate-api-reference.py
+  python3 scripts/check-api-contract.py --update
+  sh scripts/check-api-contract.sh
+
 # Package the canonical proto, descriptor set, manifest, and checksums.
 api-schema:
   sh scripts/package-api-schema.sh
@@ -65,7 +75,7 @@ docs-check:
   sh scripts/check-api-docs.sh
 
 # One full local gate: fmt + clippy + tests. Prefer this once at the end of a task.
-verify:
+verify: api-check
   cargo fmt --all --check
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo clippy --workspace --all-targets -- -D warnings
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo test --workspace
@@ -88,7 +98,7 @@ playwright-install:
   PLAYWRIGHT_BROWSERS_PATH=0 bunx playwright install chromium
 
 # Full gate including release frontend build (CI-shaped).
-ci:
+ci: api-check
   cargo fmt --all --check
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo clippy --workspace --all-targets -- -D warnings
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo test --workspace

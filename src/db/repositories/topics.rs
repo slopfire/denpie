@@ -255,53 +255,46 @@ pub async fn set_icon_id(
     Ok(())
 }
 
-pub async fn delete_cascade(pool: &PgPool, user_id: &str, id: i64) -> AppResult<()> {
+pub async fn delete_cascade(pool: &PgPool, user_id: &str, id: i64) -> AppResult<Vec<String>> {
     let mut tx = pool.begin().await?;
-
-    sqlx::query(
-        "DELETE FROM review_states
-         WHERE card_id IN (SELECT id FROM tipcards WHERE topic_id = $1 AND user_id = $2)",
+    let exists = sqlx::query_scalar::<_, i64>(
+        "SELECT id FROM topics WHERE id = $1 AND user_id = $2 FOR UPDATE",
     )
     .bind(id)
     .bind(user_id)
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+    if exists.is_none() {
+        return Err(AppError::NotFound("Topic not found".to_string()));
+    }
 
-    sqlx::query(
+    let image_paths = sqlx::query_scalar::<_, String>(
         "DELETE FROM tipcard_images
          WHERE user_id = $1
-           AND card_id IN (SELECT id FROM tipcards WHERE topic_id = $2 AND user_id = $3)",
+           AND card_id IN (SELECT id FROM tipcards WHERE topic_id = $2 AND user_id = $3)
+         RETURNING storage_path",
     )
     .bind(user_id)
     .bind(id)
     .bind(user_id)
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
 
+    // review states and daily allowances cascade from cards/topics.
     sqlx::query("DELETE FROM tipcards WHERE topic_id = $1 AND user_id = $2")
         .bind(id)
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
 
-    sqlx::query("DELETE FROM daily_refresh_runs WHERE topic_id = $1 AND user_id = $2")
+    sqlx::query("DELETE FROM topics WHERE id = $1 AND user_id = $2")
         .bind(id)
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
-
-    let result = sqlx::query("DELETE FROM topics WHERE id = $1 AND user_id = $2")
-        .bind(id)
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-
-    if result.rows_affected() == 0 {
-        return Err(AppError::NotFound("Topic not found".to_string()));
-    }
 
     tx.commit().await?;
-    Ok(())
+    Ok(image_paths)
 }
 
 pub async fn get_settings(pool: &PgPool, user_id: &str, id: i64) -> AppResult<TopicSettingsRecord> {

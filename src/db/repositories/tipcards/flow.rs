@@ -18,11 +18,6 @@ pub async fn list_flow_cards(
         "{},
        (
            SELECT COUNT(*)
-           FROM tipcard_images card_image
-           WHERE card_image.card_id = t.id AND card_image.user_id = t.user_id
-       ) AS image_count,
-       (
-           SELECT COUNT(*)
            FROM review_states pending_review
            JOIN tipcards pending_card ON pending_card.id = pending_review.card_id
            WHERE pending_card.user_id = t.user_id
@@ -39,7 +34,7 @@ pub async fn list_flow_cards(
     builder.push_bind(user_id);
     builder.push(
         " AND COALESCE(r.status, CASE WHEN top.tipcard_type = 'custom_tip' THEN 'custom' ELSE 'active' END) = 'active'
-          AND (COALESCE(t.pinned, 0) = 1 OR r.next_review_at IS NULL OR r.next_review_at <= ",
+          AND (t.pinned = 1 OR r.next_review_at IS NULL OR r.next_review_at <= ",
     );
     builder.push_bind(now);
     builder.push(")");
@@ -65,21 +60,21 @@ pub async fn list_flow_cards(
     );
 
     if let Some((pinned, created_at, id)) = cursor {
-        builder.push(" AND (COALESCE(t.pinned, 0) < ");
+        builder.push(" AND (t.pinned < ");
         builder.push_bind(pinned);
-        builder.push(" OR (COALESCE(t.pinned, 0) = ");
+        builder.push(" OR (t.pinned = ");
         builder.push_bind(pinned);
-        builder.push(" AND (CAST(t.created_at AS TEXT) < ");
+        builder.push(" AND (t.created_at < CAST(");
         builder.push_bind(created_at.clone());
-        builder.push(" OR (CAST(t.created_at AS TEXT) = ");
+        builder.push(" AS TIMESTAMPTZ) OR (t.created_at = CAST(");
         builder.push_bind(created_at);
-        builder.push(" AND t.id < ");
+        builder.push(" AS TIMESTAMPTZ) AND t.id < ");
         builder.push_bind(id);
         builder.push("))))");
     }
 
     builder.push(
-        " ORDER BY pinned DESC, t.created_at DESC, t.id DESC
+        " ORDER BY t.pinned DESC, t.created_at DESC, t.id DESC
           LIMIT ",
     );
     builder.push_bind(limit);
@@ -98,7 +93,6 @@ pub async fn list_flow_cards(
             String,
             String,
             String,
-            i64,
             i64,
             i64,
             i64,
@@ -123,8 +117,7 @@ pub async fn list_flow_cards(
             state_data: row.11,
             pinned: row.13 != 0,
             repeats: row.12 as u32,
-            image_count: row.14,
-            pending_count: row.15,
+            pending_count: row.14,
         })
         .collect())
 }

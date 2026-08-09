@@ -1,11 +1,10 @@
 //! Grounding settings panel (fact sources, strategies, image sources).
 use super::image_sources::{ImageSourceKind, ImageSourceSettings, parse_image_sources};
 use crate::api::toast;
+use crate::api_v1;
 use crate::components::select::{SelectOption, ShadcnSelect};
 use crate::state::AppState;
-use gloo_net::http::Request;
 use gloo_timers::callback::Timeout;
-use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlInputElement, HtmlTextAreaElement};
 use yew::prelude::*;
@@ -14,21 +13,40 @@ fn default_scrape_provider() -> String {
     "scrapling".to_string()
 }
 
-#[derive(Deserialize, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 struct GroundingSettingsRes {
     grounding_strategy: String,
     grounding_model: String,
     grounding_reasoning_effort: String,
     image_strategy: String,
     search_provider: String,
-    #[serde(default = "default_scrape_provider")]
     scrape_provider: String,
     search_api_key: String,
     search_base_url: String,
     image_sources: String,
 }
 
-#[derive(Serialize, Default)]
+impl From<api_v1::SettingsView> for GroundingSettingsRes {
+    fn from(s: api_v1::SettingsView) -> Self {
+        Self {
+            grounding_strategy: s.grounding_strategy,
+            grounding_model: s.grounding_model,
+            grounding_reasoning_effort: s.grounding_reasoning_effort,
+            image_strategy: s.image_strategy,
+            search_provider: s.search_provider,
+            scrape_provider: if s.scrape_provider.is_empty() {
+                default_scrape_provider()
+            } else {
+                s.scrape_provider
+            },
+            search_api_key: s.search_api_key,
+            search_base_url: s.search_base_url,
+            image_sources: s.image_sources,
+        }
+    }
+}
+
+#[derive(Default)]
 struct GroundingSettingsPatch {
     grounding_strategy: Option<String>,
     grounding_model: Option<String>,
@@ -61,6 +79,21 @@ impl GroundingSettingsPatch {
         merge!(search_base_url);
         merge!(image_sources);
     }
+
+    fn to_v1(&self) -> api_v1::SettingsPatch {
+        api_v1::SettingsPatch {
+            grounding_strategy: self.grounding_strategy.clone(),
+            grounding_model: self.grounding_model.clone(),
+            grounding_reasoning_effort: self.grounding_reasoning_effort.clone(),
+            image_strategy: self.image_strategy.clone(),
+            search_provider: self.search_provider.clone(),
+            scrape_provider: self.scrape_provider.clone(),
+            search_api_key: self.search_api_key.clone(),
+            search_base_url: self.search_base_url.clone(),
+            image_sources: self.image_sources.clone(),
+            ..Default::default()
+        }
+    }
 }
 
 fn save_grounding_settings(
@@ -70,21 +103,8 @@ fn save_grounding_settings(
 ) {
     status.set("Saving...".to_string());
     wasm_bindgen_futures::spawn_local(async move {
-        match Request::post("/admin/settings")
-            .json(&patch)
-            .unwrap()
-            .send()
-            .await
-        {
-            Ok(response) if response.ok() => status.set("Saved".to_string()),
-            Ok(response) => {
-                let message = response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Failed to save grounding settings".to_string());
-                status.set("Save failed".to_string());
-                toast(&app_state, message);
-            }
+        match api_v1::update_settings(patch.to_v1()).await {
+            Ok(()) => status.set("Saved".to_string()),
             Err(error) => {
                 status.set("Save failed".to_string());
                 toast(&app_state, error.to_string());
@@ -107,26 +127,10 @@ pub fn grounding_settings() -> Html {
         let save_status = save_status.clone();
         use_effect_with((), move |_| {
             wasm_bindgen_futures::spawn_local(async move {
-                match Request::get("/admin/settings").send().await {
-                    Ok(response) if response.ok() => {
-                        match response.json::<GroundingSettingsRes>().await {
-                            Ok(data) => {
-                                settings.set(Some(data));
-                                save_status.set(String::new());
-                            }
-                            Err(error) => {
-                                save_status.set("Failed to load settings".to_string());
-                                toast(&app_state, error.to_string());
-                            }
-                        }
-                    }
-                    Ok(response) => {
-                        let message = response
-                            .text()
-                            .await
-                            .unwrap_or_else(|_| "Failed to load grounding settings".to_string());
-                        save_status.set("Failed to load settings".to_string());
-                        toast(&app_state, message);
+                match api_v1::get_settings().await {
+                    Ok(data) => {
+                        settings.set(Some(GroundingSettingsRes::from(data)));
+                        save_status.set(String::new());
                     }
                     Err(error) => {
                         save_status.set("Failed to load settings".to_string());

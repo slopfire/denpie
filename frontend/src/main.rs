@@ -7,6 +7,7 @@
 
 mod account_switch;
 mod api;
+mod api_v1;
 mod app;
 mod components;
 mod hooks;
@@ -14,6 +15,7 @@ mod i18n;
 mod image_compress;
 mod markdown;
 mod passkeys;
+mod pb;
 mod state;
 mod topic_visual;
 

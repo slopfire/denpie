@@ -37,6 +37,8 @@ jobs:
       DATABASE_URL: postgres://denpie:denpie@127.0.0.1:5432/denpie
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -51,6 +53,17 @@ jobs:
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler postgresql-client
+
+      - name: Enforce API v1 contract
+        env:
+          API_CONTRACT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$API_CONTRACT_BASE" ] && \
+             [ "$API_CONTRACT_BASE" != "0000000000000000000000000000000000000000" ]; then
+            sh scripts/check-api-contract.sh --against-git "$API_CONTRACT_BASE"
+          else
+            sh scripts/check-api-contract.sh
+          fi
 
       - name: Check formatting
         run: cargo fmt --all --check

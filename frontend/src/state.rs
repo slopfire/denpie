@@ -54,7 +54,11 @@ pub enum AppAction {
         kind: ToastKind,
     },
     HideToast,
-    AutoHideToast,
+    AutoHideToast {
+        message: String,
+        detail: Option<String>,
+        kind: ToastKind,
+    },
 }
 
 impl Reducible for AppState {
@@ -110,17 +114,36 @@ impl Reducible for AppState {
                 ..(*self).clone()
             }
             .into(),
-            AppAction::AutoHideToast if self.toast.kind == ToastKind::Error => self,
-            AppAction::AutoHideToast => AppState {
-                toast: ToastMessage {
-                    message: self.toast.message.clone(),
-                    detail: self.toast.detail.clone(),
-                    kind: self.toast.kind,
-                    show: false,
-                },
-                ..(*self).clone()
+            // Error toasts stay visible until dismissed. `self.toast.kind` is
+            // checked as well as the timer's recorded kind so a stale timer
+            // fired over an error toast can never hide it.
+            AppAction::AutoHideToast {
+                message: _,
+                detail: _,
+                kind,
+            } if kind == ToastKind::Error || self.toast.kind == ToastKind::Error => self,
+            // Only hide the exact toast the timer was created for; a timer from
+            // a replaced toast must not hide a newer one.
+            AppAction::AutoHideToast {
+                message,
+                detail,
+                kind,
+            } if self.toast.message == message
+                && self.toast.detail == detail
+                && self.toast.kind == kind =>
+            {
+                AppState {
+                    toast: ToastMessage {
+                        message: self.toast.message.clone(),
+                        detail: self.toast.detail.clone(),
+                        kind: self.toast.kind,
+                        show: false,
+                    },
+                    ..(*self).clone()
+                }
+                .into()
             }
-            .into(),
+            AppAction::AutoHideToast { .. } => self,
         }
     }
 }
@@ -143,10 +166,76 @@ mod tests {
             ..AppState::default()
         });
 
-        let state = state.reduce(AppAction::AutoHideToast);
+        let state = state.reduce(AppAction::AutoHideToast {
+            message: "Failed to save".to_string(),
+            detail: None,
+            kind: ToastKind::Error,
+        });
         assert!(state.toast.show);
 
         let state = state.reduce(AppAction::HideToast);
+        assert!(!state.toast.show);
+    }
+
+    #[test]
+    fn auto_hide_timer_cannot_hide_an_error_toast_that_replaced_it() {
+        // A stale Info timer must not hide an error toast that replaced the
+        // toast the timer was created for, even when messages match.
+        let state = Rc::new(AppState {
+            toast: ToastMessage {
+                message: "The model request failed".to_string(),
+                kind: ToastKind::Error,
+                show: true,
+                ..ToastMessage::default()
+            },
+            ..AppState::default()
+        });
+
+        let state = state.reduce(AppAction::AutoHideToast {
+            message: "The model request failed".to_string(),
+            detail: None,
+            kind: ToastKind::Info,
+        });
+        assert!(state.toast.show);
+    }
+
+    #[test]
+    fn stale_timer_does_not_hide_a_newer_toast() {
+        let state = Rc::new(AppState {
+            toast: ToastMessage {
+                message: "Newer toast".to_string(),
+                kind: ToastKind::Info,
+                show: true,
+                ..ToastMessage::default()
+            },
+            ..AppState::default()
+        });
+
+        let state = state.reduce(AppAction::AutoHideToast {
+            message: "Older toast".to_string(),
+            detail: None,
+            kind: ToastKind::Info,
+        });
+        assert!(state.toast.show);
+    }
+
+    #[test]
+    fn matching_info_timer_hides_its_own_toast() {
+        let state = Rc::new(AppState {
+            toast: ToastMessage {
+                message: "Profile refreshed".to_string(),
+                kind: ToastKind::Info,
+                show: true,
+                ..ToastMessage::default()
+            },
+            ..AppState::default()
+        });
+
+        let state = state.reduce(AppAction::AutoHideToast {
+            message: "Profile refreshed".to_string(),
+            detail: None,
+            kind: ToastKind::Info,
+        });
         assert!(!state.toast.show);
     }
 }

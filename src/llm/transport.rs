@@ -49,6 +49,74 @@ pub(crate) fn content_snippet(content: &str, max_chars: usize) -> String {
     out
 }
 
+/// Largest provider error body embedded in a user-visible diagnostic. Bodies
+/// beyond this are truncated so a misbehaving proxy cannot blow up the toast.
+const MAX_ERROR_BODY_CHARS: usize = 1500;
+
+/// Longest extracted provider error message kept in the headline.
+const MAX_ERROR_MESSAGE_CHARS: usize = 500;
+
+/// Format a non-2xx provider response into a usable diagnostic.
+///
+/// OpenAI-compatible providers return errors shaped like
+/// `{"error":{"message":…,"type":…,"code":…}}`. Extract those fields into a
+/// short headline instead of dumping the raw body; keep the raw body (bounded)
+/// on a second line for debugging. Plain-text and unparseable bodies fall back
+/// to the raw text inline.
+fn format_http_error(status: reqwest::StatusCode, body: &str) -> String {
+    let body = body.trim();
+    let raw = content_snippet(body, MAX_ERROR_BODY_CHARS);
+    let mut extracted = None::<(Option<String>, Option<String>, Option<String>)>;
+    if let Ok(value) = serde_json::from_str::<Value>(body) {
+        if let Some(error) = value.get("error") {
+            let field = |key: &str| {
+                error
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_owned)
+            };
+            let message =
+                field("message").map(|text| content_snippet(&text, MAX_ERROR_MESSAGE_CHARS));
+            if message.is_some() || field("type").is_some() || field("code").is_some() {
+                extracted = Some((message, field("type"), field("code")));
+            }
+        }
+    }
+
+    let headline = match extracted {
+        Some((Some(message), Some(error_type), Some(code))) => {
+            format!("LLM Error: HTTP {status} ({error_type}, {code}) {message}")
+        }
+        Some((Some(message), Some(error_type), None)) => {
+            format!("LLM Error: HTTP {status} ({error_type}) {message}")
+        }
+        Some((Some(message), None, _)) => format!("LLM Error: HTTP {status} {message}"),
+        Some((None, Some(error_type), Some(code))) => {
+            format!("LLM Error: HTTP {status} ({error_type}, {code})")
+        }
+        Some((None, Some(error_type), None)) => format!("LLM Error: HTTP {status} ({error_type})"),
+        Some((None, None, Some(code))) => format!("LLM Error: HTTP {status} (code={code})"),
+        None | Some((None, None, None)) => {
+            let mut head = format!("LLM Error: HTTP {status}");
+            if !raw.is_empty() {
+                head.push(' ');
+                head.push_str(&raw);
+            }
+            head
+        }
+    };
+    if body.is_empty() {
+        return headline;
+    }
+    if headline.contains(&raw) {
+        // Plain-text or already-inline body: the headline carries everything.
+        return headline;
+    }
+    format!("{headline}\nRaw response: {raw}")
+}
+
 #[derive(Clone, Debug)]
 pub struct ReasoningConfig {
     pub effort: String,
@@ -143,7 +211,7 @@ pub async fn create_vision_completion(
             if !res.status().is_success() {
                 let status = res.status();
                 let error_body = res.text().await.unwrap_or_default();
-                return LlmResponse::error(format!("LLM Error: HTTP {} {}", status, error_body));
+                return LlmResponse::error(format_http_error(status, &error_body));
             }
 
             match res.json::<Value>().await {
@@ -270,7 +338,7 @@ pub async fn create_chat_completion_grounded(
                     .await;
                     continue;
                 }
-                let message = format!("LLM Error: HTTP {} {}", status, error_body);
+                let message = format_http_error(status, error_body);
                 tracing::warn!(
                     model,
                     attempt,
@@ -489,7 +557,9 @@ fn normalize_reasoning_effort(effort: &str) -> &'static str {
 mod tests {
     use serde_json::json;
 
-    use super::{ReasoningConfig, build_chat_body, extract_message_content, map_response};
+    use super::{
+        ReasoningConfig, build_chat_body, extract_message_content, format_http_error, map_response,
+    };
 
     #[test]
     fn raw_content_supports_text_part_arrays() {
@@ -569,6 +639,53 @@ mod tests {
             false,
         );
         assert!(plain.get("response_format").is_none());
+    }
+
+    #[test]
+    fn format_http_error_extracts_provider_error_fields() {
+        let message = format_http_error(
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            r#"{"error":{"message":"Insufficient credits","type":"insufficient_quota","code":"insufficient_quota","param":null}}"#,
+        );
+        let (head, rest) = message.split_once('\n').unwrap_or((message.as_str(), ""));
+        assert_eq!(
+            head,
+            "LLM Error: HTTP 429 Too Many Requests (insufficient_quota, insufficient_quota) Insufficient credits"
+        );
+        assert!(rest.starts_with("Raw response: {"));
+        assert!(rest.contains("insufficient_quota"));
+    }
+
+    #[test]
+    fn format_http_error_falls_back_to_plain_text_body() {
+        let message = format_http_error(reqwest::StatusCode::BAD_REQUEST, "Too Many Requests");
+        assert_eq!(message, "LLM Error: HTTP 400 Bad Request Too Many Requests");
+    }
+
+    #[test]
+    fn format_http_error_handles_empty_body() {
+        let message = format_http_error(reqwest::StatusCode::INTERNAL_SERVER_ERROR, "");
+        assert_eq!(message, "LLM Error: HTTP 500 Internal Server Error");
+        let message = format_http_error(reqwest::StatusCode::INTERNAL_SERVER_ERROR, "   ");
+        assert_eq!(message, "LLM Error: HTTP 500 Internal Server Error");
+    }
+
+    #[test]
+    fn format_http_error_truncates_oversized_bodies() {
+        let body = format!(r#"{{"error":{{"message":"{}"}}}}"#, "x".repeat(10_000));
+        let message = format_http_error(reqwest::StatusCode::BAD_REQUEST, &body);
+        assert!(message.contains("LLM Error: HTTP 400"));
+        assert!(message.chars().count() < 2_300);
+        assert!(message.contains('…'));
+    }
+
+    #[test]
+    fn format_http_error_inlines_unparseable_json_body() {
+        let body = r#"{"detail":"upstream unavailable"}"#;
+        let message = format_http_error(reqwest::StatusCode::BAD_GATEWAY, body);
+        // No usable `error` object: the raw body stays on the headline and is
+        // not duplicated on a second line.
+        assert_eq!(message, format!("LLM Error: HTTP 502 Bad Gateway {body}"));
     }
 
     #[test]

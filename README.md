@@ -59,6 +59,7 @@ Transmission keeps pinned cards in a separate top section. Beneath it, topic pic
 
 ```bash
 just quick            # fmt check + compile (default while editing)
+just api-check        # additive v1 wire/operation/result contract
 just test-one <filter>  # targeted tests
 just verify           # one full gate: fmt + clippy + tests
 just docs-check       # generated API reference + four executable client examples
@@ -83,6 +84,7 @@ Grounding/image strategies log stage progress at `info`. LLM transport detail is
 | Complete v1 operation table | [`docs/api-v1-reference.md`](docs/api-v1-reference.md) |
 | API examples (curl, Python, TypeScript, Rust) | [`examples/api/README.md`](examples/api/README.md) |
 | API schema bundle | [`api/schema/v1/README.md`](api/schema/v1/README.md) |
+| Rules for adding/changing API operations | [`docs/api-development-rules.md`](docs/api-development-rules.md) |
 | API compatibility and changelog | [`docs/api-compatibility.md`](docs/api-compatibility.md), [`docs/api-changelog.md`](docs/api-changelog.md) |
 | `POST /api` compatibility reference | [`docs/protobuf-api.md`](docs/protobuf-api.md) |
 | Agent ops cheat sheet | [`docs/agent-server-guide.md`](docs/agent-server-guide.md) |
@@ -147,7 +149,7 @@ local network addresses, validate every redirect, and cap redirects and response
 - Providers start disabled — enable at least one.
 - Denpie tries enabled providers in order until one returns a valid image.
 
-Topic cards with an agentic backlog link to pending cards in the Archive.
+Topic cards link to their queued pending cards and reviewed SM-2 scheduled cards in the Archive.
 
 ### Self-updates
 

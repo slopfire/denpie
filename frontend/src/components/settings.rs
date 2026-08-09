@@ -1,4 +1,5 @@
 use crate::api::toast;
+use crate::api_v1;
 use crate::components::select::{SelectOption, ShadcnSelect};
 use crate::state::AppState;
 use gloo_net::http::Request;
@@ -46,6 +47,48 @@ pub struct SettingsRes {
     pub search_api_key: String,
     pub search_base_url: String,
     pub image_sources: String,
+}
+
+impl From<api_v1::SettingsView> for SettingsRes {
+    fn from(s: api_v1::SettingsView) -> Self {
+        Self {
+            server_version: s.server_version,
+            build_sha: s.build_sha,
+            model: s.model,
+            vision_model: s.vision_model,
+            compress_model: s.compress_model,
+            template: s.template,
+            api_key: s.api_key,
+            base_url: s.base_url,
+            compress_base_url: s.compress_base_url,
+            reasoning_effort: s.reasoning_effort,
+            compress_reasoning_effort: s.compress_reasoning_effort,
+            compression_level: s.compression_level,
+            color_scheme: s.color_scheme,
+            transparency: s.transparency,
+            blur_intensity: s.blur_intensity,
+            autoupdate_enabled: s.autoupdate_enabled,
+            autoupdate_repo: s.autoupdate_repo,
+            autoupdate_branch: s.autoupdate_branch,
+            autoupdate_check_interval_secs: s.autoupdate_check_interval_secs,
+            autoupdate_command: s.autoupdate_command,
+            autoupdate_last_seen_sha: s.autoupdate_last_seen_sha,
+            daily_time_zone: s.daily_time_zone,
+            daily_update_time: s.daily_update_time,
+            max_active_cards: s.max_active_cards,
+            grounding_strategy: s.grounding_strategy,
+            image_strategy: s.image_strategy,
+            search_provider: s.search_provider,
+            scrape_provider: if s.scrape_provider.is_empty() {
+                default_scrape_provider()
+            } else {
+                s.scrape_provider
+            },
+            search_api_key: s.search_api_key,
+            search_base_url: s.search_base_url,
+            image_sources: s.image_sources,
+        }
+    }
 }
 
 impl SettingsRes {
@@ -114,17 +157,6 @@ impl SettingsRes {
     }
 }
 
-#[derive(Serialize)]
-struct ForceDailyRefreshRequest {
-    topics: String,
-    tipcard_type: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ForceDailyRefreshResponse {
-    refreshed_cards: u64,
-}
-
 const PENDING_SETTINGS_KEY: &str = "denpie-pending-settings";
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -157,6 +189,41 @@ struct UpdateSettingsPatch {
 }
 
 impl UpdateSettingsPatch {
+    fn to_v1(&self) -> api_v1::SettingsPatch {
+        api_v1::SettingsPatch {
+            vision_model: self.vision_model.clone(),
+            model: self.model.clone(),
+            compress_model: self.compress_model.clone(),
+            template: self.template.clone(),
+            api_key: self.api_key.clone(),
+            base_url: self.base_url.clone(),
+            compress_base_url: self.compress_base_url.clone(),
+            reasoning_effort: self.reasoning_effort.clone(),
+            compress_reasoning_effort: self.compress_reasoning_effort.clone(),
+            compression_level: self.compression_level.clone(),
+            autoupdate_enabled: self.autoupdate_enabled,
+            autoupdate_repo: self.autoupdate_repo.clone(),
+            autoupdate_branch: self.autoupdate_branch.clone(),
+            max_active_cards: self.max_active_cards,
+            grounding_strategy: self.grounding_strategy.clone(),
+            image_strategy: self.image_strategy.clone(),
+            search_api_key: self.search_api_key.clone(),
+            search_provider: self.search_provider.clone(),
+            scrape_provider: self.scrape_provider.clone(),
+            search_base_url: self.search_base_url.clone(),
+            image_sources: self.image_sources.clone(),
+            autoupdate_check_interval_secs: self.autoupdate_check_interval_secs,
+            autoupdate_command: self.autoupdate_command.clone(),
+            daily_time_zone: self.daily_time_zone.clone(),
+            daily_update_time: self.daily_update_time.clone(),
+            grounding_model: None,
+            grounding_reasoning_effort: None,
+            color_scheme: None,
+            transparency: None,
+            blur_intensity: None,
+        }
+    }
+
     fn durable_selects(&self) -> Self {
         Self {
             reasoning_effort: self.reasoning_effort.clone(),
@@ -387,46 +454,24 @@ fn save_settings_now(
 ) {
     status.set("Saving...".to_string());
     wasm_bindgen_futures::spawn_local(async move {
-        match Request::post("/admin/settings")
-            .json(&request.patch)
-            .unwrap()
-            .send()
-            .await
-        {
-            Ok(res) if res.ok() => {
-                match Request::get("/admin/settings").send().await {
-                    Ok(refresh) if refresh.ok() => {
-                        if let Ok(mut server_settings) = refresh.json::<SettingsRes>().await {
-                            clear_pending_selects();
-                            apply_local_appearance_overrides(&mut server_settings);
-                            apply_appearance(&server_settings);
-                            settings_state.set(Some(server_settings.clone()));
-                            last_saved.set(Some(server_settings));
-                            status.set("Saved".to_string());
-                        } else {
-                            // Keep optimistic snapshot if refresh payload is invalid.
-                            settings_state.set(Some(request.snapshot.clone()));
-                            last_saved.set(Some(request.snapshot));
-                            status.set("Saved".to_string());
-                        }
-                    }
-                    _ => {
-                        clear_pending_selects();
-                        // Keep optimistic snapshot if refresh request fails.
-                        settings_state.set(Some(request.snapshot.clone()));
-                        last_saved.set(Some(request.snapshot));
-                        status.set("Saved".to_string());
-                    }
+        match api_v1::update_settings(request.patch.to_v1()).await {
+            Ok(()) => match api_v1::get_settings().await {
+                Ok(server) => {
+                    let mut server_settings = SettingsRes::from(server);
+                    clear_pending_selects();
+                    apply_local_appearance_overrides(&mut server_settings);
+                    apply_appearance(&server_settings);
+                    settings_state.set(Some(server_settings.clone()));
+                    last_saved.set(Some(server_settings));
+                    status.set("Saved".to_string());
                 }
-            }
-            Ok(res) => {
-                let message = res
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "Failed to save settings".to_string());
-                status.set("Save failed".to_string());
-                toast(&app_state, message);
-            }
+                Err(_) => {
+                    clear_pending_selects();
+                    settings_state.set(Some(request.snapshot.clone()));
+                    last_saved.set(Some(request.snapshot));
+                    status.set("Saved".to_string());
+                }
+            },
             Err(err) => {
                 status.set("Save failed".to_string());
                 toast(&app_state, err.to_string());
@@ -457,44 +502,31 @@ pub fn settings() -> Html {
         let save_status = save_status.clone();
         use_effect_with((), move |_| {
             wasm_bindgen_futures::spawn_local(async move {
-                match Request::get("/admin/settings").send().await {
-                    Ok(res) if res.ok() => {
-                        if let Ok(data) = res.json::<SettingsRes>().await {
-                            let mut data = data;
-                            apply_local_appearance_overrides(&mut data);
-                            let pending = load_pending_selects();
-                            if let Some(pending) = &pending {
-                                data.apply_patch(pending);
-                            }
-                            let snapshot = data.clone();
-                            apply_appearance(&data);
-                            last_saved.set(Some(data.clone()));
-                            settings.set(Some(data));
-                            save_status.set(String::new());
-                            if let Some(pending) = pending {
-                                save_settings_now(
-                                    app_state.clone(),
-                                    settings.clone(),
-                                    save_status.clone(),
-                                    last_saved.clone(),
-                                    SaveRequest {
-                                        patch: pending,
-                                        snapshot,
-                                    },
-                                );
-                            }
-                        } else {
-                            save_status.set("Failed to load settings".to_string());
-                            toast(&app_state, "Failed to parse settings response");
+                match api_v1::get_settings().await {
+                    Ok(data) => {
+                        let mut data = SettingsRes::from(data);
+                        apply_local_appearance_overrides(&mut data);
+                        let pending = load_pending_selects();
+                        if let Some(pending) = &pending {
+                            data.apply_patch(pending);
                         }
-                    }
-                    Ok(res) => {
-                        save_status.set("Failed to load settings".to_string());
-                        let message = res
-                            .text()
-                            .await
-                            .unwrap_or_else(|_| "Failed to load settings".to_string());
-                        toast(&app_state, message);
+                        let snapshot = data.clone();
+                        apply_appearance(&data);
+                        last_saved.set(Some(data.clone()));
+                        settings.set(Some(data));
+                        save_status.set(String::new());
+                        if let Some(pending) = pending {
+                            save_settings_now(
+                                app_state.clone(),
+                                settings.clone(),
+                                save_status.clone(),
+                                last_saved.clone(),
+                                SaveRequest {
+                                    patch: pending,
+                                    snapshot,
+                                },
+                            );
+                        }
                     }
                     Err(err) => {
                         save_status.set("Failed to load settings".to_string());
@@ -643,29 +675,12 @@ pub fn settings() -> Html {
             let force_refreshing = force_refreshing.clone();
             force_refreshing.set(true);
             wasm_bindgen_futures::spawn_local(async move {
-                let req = ForceDailyRefreshRequest {
-                    topics: String::new(),
-                    tipcard_type: None,
-                };
-                if let Ok(res) = Request::post("/app/daily-refresh")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
-                {
-                    if res.ok() {
-                        match res.json::<ForceDailyRefreshResponse>().await {
-                            Ok(result) => toast(
-                                &app_state,
-                                format!("Force refresh loaded {} cards", result.refreshed_cards),
-                            ),
-                            Err(_) => toast(&app_state, "Force refresh completed"),
-                        }
-                    } else {
-                        toast(&app_state, "Failed to refresh");
-                    }
-                } else {
-                    toast(&app_state, "Failed to refresh");
+                match api_v1::force_daily_refresh(String::new(), None).await {
+                    Ok(refreshed) => toast(
+                        &app_state,
+                        format!("Force refresh loaded {refreshed} cards"),
+                    ),
+                    Err(err) => toast(&app_state, err.to_string()),
                 }
                 force_refreshing.set(false);
             });
@@ -686,34 +701,15 @@ pub fn settings() -> Html {
             vision_testing.set(true);
             vision_test_status.set("Calling vision model…".to_string());
             wasm_bindgen_futures::spawn_local(async move {
-                #[derive(Deserialize)]
-                struct VisionTestRes {
-                    ok: bool,
-                    model: String,
-                    message: String,
-                }
-                match Request::post("/admin/settings/test-vision").send().await {
-                    Ok(res) if res.ok() => {
-                        if let Ok(data) = res.json::<VisionTestRes>().await {
-                            let status = if data.ok {
-                                format!("OK · {} · {}", data.model, data.message)
-                            } else {
-                                format!("Failed · {} · {}", data.model, data.message)
-                            };
-                            vision_test_status.set(status.clone());
-                            toast(&app_state, status);
+                match api_v1::test_vision_model().await {
+                    Ok(data) => {
+                        let status = if data.ok {
+                            format!("OK · {} · {}", data.model, data.message)
                         } else {
-                            vision_test_status.set("Invalid response from server".to_string());
-                            toast(&app_state, "Invalid vision test response");
-                        }
-                    }
-                    Ok(res) => {
-                        let message = res
-                            .text()
-                            .await
-                            .unwrap_or_else(|_| "Vision test failed".to_string());
-                        vision_test_status.set(message.clone());
-                        toast(&app_state, message);
+                            format!("Failed · {} · {}", data.model, data.message)
+                        };
+                        vision_test_status.set(status.clone());
+                        toast(&app_state, status);
                     }
                     Err(err) => {
                         vision_test_status.set(err.to_string());

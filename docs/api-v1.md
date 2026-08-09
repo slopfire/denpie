@@ -13,6 +13,7 @@ typed card/review requests, and durable idempotency for mutations.
 | Presence, timestamps, IDs, pagination, binary fields | [Field semantics](api-v1-semantics.md) |
 | HTTP/protobuf errors, infrastructure failures, retries | [Errors and retries](api-v1-errors.md) |
 | Versioning and deprecation guarantees | [Compatibility policy](api-compatibility.md) |
+| Rules and gates for API contributors | [API development rules](api-development-rules.md) |
 | Consumer-visible changes | [API changelog](api-changelog.md) |
 | Executable curl, Python, TypeScript, and Rust clients | [API examples](../examples/api/README.md) |
 | Canonical wire schema | [`proto/denpie.proto`](../proto/denpie.proto) |
@@ -23,13 +24,16 @@ typed card/review requests, and durable idempotency for mutations.
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/v1` | Versioned protobuf request/response envelope |
-| `GET /api/v1/tipcard-images/{id}` | Bearer-authenticated card image bytes |
-| `GET /api/v1/pool-images/{id}` | Bearer-authenticated pool image bytes |
+| `GET /api/v1/tipcard-images/{id}` | Authenticated card image bytes (Bearer or session) |
+| `GET /api/v1/pool-images/{id}` | Authenticated pool image bytes (Bearer or session) |
 | `POST /api` | Compatibility endpoint for existing `ApiRequest` clients |
 
 `POST /api/v1` accepts `application/x-protobuf` and `application/protobuf`.
-Send API credentials in `Authorization: Bearer sk_live_...`. `ApiRequest.auth`
-remains a fallback so one request message can be sent to either transport.
+Send API credentials in `Authorization: Bearer sk_live_...`, or put the raw key
+in `ApiRequest.auth`. The browser SPA instead relies on the logged-in session
+cookie: when no Bearer/body key is present, a valid session is accepted as a
+full-access principal so same-origin UI (and `<img src>` image GETs) work after
+normal login without storing a raw key.
 
 ## Envelope
 

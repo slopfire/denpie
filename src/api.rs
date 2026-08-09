@@ -2,6 +2,7 @@ pub mod pb;
 
 mod admin;
 mod auth;
+mod contract;
 mod documents;
 mod images;
 mod resources;

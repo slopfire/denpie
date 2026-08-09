@@ -13,7 +13,9 @@ mod queue;
 mod writes;
 
 pub use context_titles::list_context_titles;
-pub use daily_allowances::{add_extra_cards, extra_cards_in_window};
+pub use daily_allowances::{
+    add_extra_cards, extra_cards_in_window, promote_pending_within_daily_limits,
+};
 pub use flow::list_flow_cards;
 pub use images::{
     append_image_records, find_image, list_images, list_images_for_cards, replace_image_records,
@@ -21,21 +23,22 @@ pub use images::{
 pub use info::{get_tipcard_info, list_admin, list_filtered};
 #[allow(unused_imports)]
 pub use models::{
-    CardContextTitleRecord, CreateManualParams, FlowCardRecord, ScheduledCardRecord, TipcardFilter,
-    TipcardImageRecord, TipcardInfoRecord,
+    CardContextTitleRecord, CreateManualParams, DailyReviewTarget, FlowCardRecord,
+    GeneratedCardParams, ScheduledCardRecord, TipcardFilter, TipcardImageRecord, TipcardInfoRecord,
 };
 #[allow(unused_imports)]
 pub use pending::{
-    count_pending, park_unseen_active_topic_cards, promote_pending_for_empty_topics,
-    replace_unseen_with_pending_card, stack_due_repeatable_cards, take_pending_card,
+    count_pending, park_unseen_active_topic_cards, replace_unseen_with_pending_card,
+    stack_due_repeatable_cards, take_pending_card,
 };
 pub use queue::{
     active_card_count, count_reviewed_in_window, find_daily_topic_cards, find_due_topic_cards,
     has_active_topic_card,
 };
+#[allow(unused_imports)]
 pub use writes::{
-    create_custom, create_generated_with_status, create_manual, delete_failed_generation_cards,
-    delete_with_review, set_pinned,
+    create_custom, create_generated_with_status, create_manual, create_pending_batch_if_needed,
+    delete_failed_generation_cards, delete_with_review, set_pinned,
 };
 
 pub(crate) fn topic_color_from_row(name: &str, color_hue: Option<i64>) -> String {

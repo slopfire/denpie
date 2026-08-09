@@ -15,6 +15,14 @@ fn looks_like_error(message: &str) -> bool {
         || lower.contains("not found")
         || lower.contains("timeout")
         || lower.contains("panic")
+        || lower.contains("could not")
+        || lower.contains("cannot")
+        || lower.contains("unavailable")
+        || lower.contains("missing")
+        || lower.contains("expired")
+        || lower.contains("refused")
+        || lower.contains("rate limit")
+        || lower.contains("too many requests")
         || lower.starts_with("llm error")
         || lower.contains("api key missing")
 }
@@ -95,15 +103,28 @@ fn toast_with(
     detail: Option<String>,
     kind: ToastKind,
 ) {
+    // A message that reads like an error must never auto-hide, regardless of
+    // which helper dispatched it. This is the single enforcement point.
+    let kind = if looks_like_error(&message) {
+        ToastKind::Error
+    } else {
+        kind
+    };
     app_state.dispatch(AppAction::ShowToast {
-        message,
-        detail,
+        message: message.clone(),
+        detail: detail.clone(),
         kind,
     });
     if let Some(timeout_ms) = toast_timeout_ms(kind) {
         let state = app_state.clone();
         Timeout::new(timeout_ms, move || {
-            state.dispatch(AppAction::AutoHideToast);
+            // Carry this toast's identity so a stale timer can never hide a
+            // newer toast (or an error toast that replaced it).
+            state.dispatch(AppAction::AutoHideToast {
+                message,
+                detail,
+                kind,
+            });
         })
         .forget();
     }
@@ -138,7 +159,15 @@ mod tests {
     fn detects_errorish_messages() {
         assert!(looks_like_error("Failed to parse settings response"));
         assert!(looks_like_error("LLM Error: HTTP 401"));
+        assert!(looks_like_error(
+            "Review saved, but the next card could not be loaded: LLM Error: HTTP 429"
+        ));
+        assert!(looks_like_error("Vision model is unavailable"));
+        assert!(looks_like_error("LLM API key is missing"));
+        assert!(looks_like_error("Rate limit exceeded, retry later"));
         assert!(!looks_like_error("Profile refreshed"));
+        assert!(!looks_like_error("No new card available"));
+        assert!(!looks_like_error("Cards added"));
     }
 
     #[test]

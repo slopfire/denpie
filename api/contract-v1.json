@@ -1,0 +1,2605 @@
+{
+  "api_version": "v1",
+  "operations": {
+    "add_document": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "AddDocumentRequest",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "documents:write"
+    },
+    "add_pool_image": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "AddPoolImageRequest",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "images:write"
+    },
+    "attach_document_topic": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "AttachDocumentTopicRequest",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "documents:write"
+    },
+    "bootstrap_api_key": {
+      "auth": "admin token in request",
+      "kind": "one-time secret mutation",
+      "request": "BootstrapApiKeyRequest",
+      "result": "ApiKeyCreated",
+      "result_field": "api_key_created",
+      "scope": "none"
+    },
+    "continue_daily_review": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "ContinueDailyReviewRequest",
+      "result": "ContinueDailyReviewResponse",
+      "result_field": "continue_daily_review",
+      "scope": "cards:write"
+    },
+    "create_api_key": {
+      "auth": "Bearer API key",
+      "kind": "one-time secret mutation",
+      "request": "CreateApiKeyRequest",
+      "result": "ApiKeyCreated",
+      "result_field": "api_key_created",
+      "scope": "keys:manage"
+    },
+    "create_api_key_v1": {
+      "auth": "Bearer API key",
+      "kind": "one-time secret mutation",
+      "request": "CreateApiKeyV1Request",
+      "result": "ApiKeyCreated",
+      "result_field": "api_key_created",
+      "scope": "keys:manage"
+    },
+    "create_document": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "AddDocumentRequest",
+      "result": "DocumentDetail",
+      "result_field": "document_created",
+      "scope": "documents:write"
+    },
+    "create_pool_image": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "AddPoolImageRequest",
+      "result": "PoolImageCreated",
+      "result_field": "pool_image_created",
+      "scope": "images:write"
+    },
+    "delete_api_key": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "DeleteByIdRequest",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "keys:manage"
+    },
+    "delete_document": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "DeleteByIdRequest",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "documents:write"
+    },
+    "delete_pool_image": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "DeleteByIdRequest",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "images:write"
+    },
+    "delete_tipcard": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "DeleteByIdRequest",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "cards:write"
+    },
+    "delete_topic": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "DeleteByIdRequest",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "topics:write"
+    },
+    "detach_document_topic": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "AttachDocumentTopicRequest",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "documents:write"
+    },
+    "explore_link": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "ExploreLinkRequest",
+      "result": "ExploredLinks",
+      "result_field": "explored_links",
+      "scope": "documents:write"
+    },
+    "force_daily_refresh": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "ForceDailyRefreshRequest",
+      "result": "ForceDailyRefreshResponse",
+      "result_field": "force_daily_refresh",
+      "scope": "cards:write"
+    },
+    "get_api_info": {
+      "auth": "none",
+      "kind": "read",
+      "request": "Empty",
+      "result": "ApiInfo",
+      "result_field": "api_info",
+      "scope": "none"
+    },
+    "get_document": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "GetByIdRequest",
+      "result": "DocumentDetail",
+      "result_field": "document_detail",
+      "scope": "documents:read"
+    },
+    "get_settings": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "Empty",
+      "result": "Settings",
+      "result_field": "settings",
+      "scope": "settings:read"
+    },
+    "get_summary": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "Empty",
+      "result": "AppSummary",
+      "result_field": "summary",
+      "scope": "cards:read"
+    },
+    "get_tipcard": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "GetByIdRequest",
+      "result": "TipcardDetail",
+      "result_field": "tipcard_detail",
+      "scope": "cards:read"
+    },
+    "get_topics": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "Empty",
+      "result": "GetTopicsResponse",
+      "result_field": "topics",
+      "scope": "topics:read"
+    },
+    "list_admin_topics": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "Empty",
+      "result": "AdminTopics",
+      "result_field": "admin_topics",
+      "scope": "topics:read"
+    },
+    "list_api_keys": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "Empty",
+      "result": "ApiKeys",
+      "result_field": "api_keys",
+      "scope": "keys:manage"
+    },
+    "list_app_topics": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "Empty",
+      "result": "AppTopics",
+      "result_field": "app_topics",
+      "scope": "topics:read"
+    },
+    "list_documents": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "Empty",
+      "result": "Documents",
+      "result_field": "documents",
+      "scope": "documents:read"
+    },
+    "list_flow_cards": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "ListFlowCardsRequest",
+      "result": "FlowCardPage",
+      "result_field": "flow_card_page",
+      "scope": "cards:read"
+    },
+    "list_pool_images": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "Empty",
+      "result": "PoolImages",
+      "result_field": "pool_images",
+      "scope": "images:read"
+    },
+    "list_tipcards": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "Empty",
+      "result": "Tipcards",
+      "result_field": "tipcards",
+      "scope": "cards:read"
+    },
+    "pin_tipcard": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "PinTipcardRequest",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "cards:write"
+    },
+    "review": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "ReviewPayload",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "reviews:write"
+    },
+    "review_v1": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "ReviewRequestV1",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "reviews:write"
+    },
+    "submit_custom_tipcard": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "CustomTipcardRequest",
+      "result": "TipsResponse",
+      "result_field": "tips",
+      "scope": "cards:write"
+    },
+    "test_vision_model": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "Empty",
+      "result": "VisionModelTest",
+      "result_field": "vision_model_test",
+      "scope": "diagnostics:run"
+    },
+    "tips": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "TipsQuery",
+      "result": "TipsResponse",
+      "result_field": "tips",
+      "scope": "cards:write"
+    },
+    "tips_v1": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "TipsRequestV1",
+      "result": "TipsResponse",
+      "result_field": "tips",
+      "scope": "cards:write"
+    },
+    "update_settings": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "UpdateSettingsRequest",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "settings:write"
+    },
+    "update_topic": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "UpdateTopicRequest",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "topics:write"
+    },
+    "upload_document": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "UploadDocumentRequest",
+      "result": "DocumentDetail",
+      "result_field": "document_created",
+      "scope": "documents:write"
+    }
+  },
+  "wire": {
+    "enums": {
+      "ApiErrorCode": {
+        "reserved": [],
+        "values": {
+          "API_ERROR_CODE_CONFLICT": 5,
+          "API_ERROR_CODE_INTERNAL": 8,
+          "API_ERROR_CODE_INVALID_ARGUMENT": 1,
+          "API_ERROR_CODE_NOT_FOUND": 4,
+          "API_ERROR_CODE_PERMISSION_DENIED": 3,
+          "API_ERROR_CODE_RATE_LIMITED": 6,
+          "API_ERROR_CODE_UNAUTHENTICATED": 2,
+          "API_ERROR_CODE_UNSPECIFIED": 0,
+          "API_ERROR_CODE_UNSUPPORTED_MEDIA_TYPE": 7
+        }
+      },
+      "ReviewActionValue": {
+        "reserved": [],
+        "values": {
+          "REVIEW_ACTION_VALUE_AGAIN": 1,
+          "REVIEW_ACTION_VALUE_LEARNED": 2,
+          "REVIEW_ACTION_VALUE_SKIP_KNOWN": 3,
+          "REVIEW_ACTION_VALUE_SKIP_NOT_INTERESTED": 4,
+          "REVIEW_ACTION_VALUE_SKIP_TOO_DIFFICULT": 5,
+          "REVIEW_ACTION_VALUE_UNSPECIFIED": 0
+        }
+      },
+      "TipcardTypeValue": {
+        "reserved": [],
+        "values": {
+          "TIPCARD_TYPE_VALUE_CASUAL": 2,
+          "TIPCARD_TYPE_VALUE_CUSTOM": 4,
+          "TIPCARD_TYPE_VALUE_MANUAL": 3,
+          "TIPCARD_TYPE_VALUE_REPEATABLE": 1,
+          "TIPCARD_TYPE_VALUE_UNSPECIFIED": 0
+        }
+      }
+    },
+    "messages": {
+      "AddDocumentRequest": {
+        "fields": {
+          "content": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "source_type": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "title": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic_id_opt": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic_ids": {
+            "cardinality": "repeated",
+            "number": 6,
+            "oneof": null,
+            "type": "int64"
+          },
+          "url": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "AddPoolImageRequest": {
+        "fields": {
+          "description": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "image_data": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          },
+          "name": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "AdminTopic": {
+        "fields": {
+          "compression_level": {
+            "cardinality": "singular",
+            "number": 7,
+            "oneof": null,
+            "type": "string"
+          },
+          "daily_card_count": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "uint32"
+          },
+          "daily_time_zone": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "daily_update_time": {
+            "cardinality": "singular",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_strategy": {
+            "cardinality": "singular",
+            "number": 8,
+            "oneof": null,
+            "type": "string"
+          },
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "image_strategy": {
+            "cardinality": "singular",
+            "number": 9,
+            "oneof": null,
+            "type": "string"
+          },
+          "name": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "prompt_template": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": [
+          "10"
+        ]
+      },
+      "AdminTopics": {
+        "fields": {
+          "topics": {
+            "cardinality": "repeated",
+            "number": 1,
+            "oneof": null,
+            "type": "AdminTopic"
+          }
+        },
+        "reserved": []
+      },
+      "ApiError": {
+        "fields": {
+          "code": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "ApiErrorCode"
+          },
+          "message": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "retryable": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "bool"
+          }
+        },
+        "reserved": []
+      },
+      "ApiInfo": {
+        "fields": {
+          "api_version": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          },
+          "build_sha": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "capabilities": {
+            "cardinality": "repeated",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "server_version": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "ApiKeyCreated": {
+        "fields": {
+          "api_key": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "ApiKeyInfo": {
+        "fields": {
+          "client_name": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "created_at": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "expires_at": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "last_used_at": {
+            "cardinality": "singular",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "scopes": {
+            "cardinality": "repeated",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "ApiKeys": {
+        "fields": {
+          "keys": {
+            "cardinality": "repeated",
+            "number": 1,
+            "oneof": null,
+            "type": "ApiKeyInfo"
+          }
+        },
+        "reserved": []
+      },
+      "ApiRequest": {
+        "fields": {
+          "add_document": {
+            "cardinality": "singular",
+            "number": 22,
+            "oneof": "op",
+            "type": "AddDocumentRequest"
+          },
+          "add_pool_image": {
+            "cardinality": "singular",
+            "number": 25,
+            "oneof": "op",
+            "type": "AddPoolImageRequest"
+          },
+          "attach_document_topic": {
+            "cardinality": "singular",
+            "number": 28,
+            "oneof": "op",
+            "type": "AttachDocumentTopicRequest"
+          },
+          "auth": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          },
+          "bootstrap_api_key": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": "op",
+            "type": "BootstrapApiKeyRequest"
+          },
+          "continue_daily_review": {
+            "cardinality": "singular",
+            "number": 34,
+            "oneof": "op",
+            "type": "ContinueDailyReviewRequest"
+          },
+          "create_api_key": {
+            "cardinality": "singular",
+            "number": 9,
+            "oneof": "op",
+            "type": "CreateApiKeyRequest"
+          },
+          "create_api_key_v1": {
+            "cardinality": "singular",
+            "number": 42,
+            "oneof": "op",
+            "type": "CreateApiKeyV1Request"
+          },
+          "create_document": {
+            "cardinality": "singular",
+            "number": 37,
+            "oneof": "op",
+            "type": "AddDocumentRequest"
+          },
+          "create_pool_image": {
+            "cardinality": "singular",
+            "number": 39,
+            "oneof": "op",
+            "type": "AddPoolImageRequest"
+          },
+          "delete_api_key": {
+            "cardinality": "singular",
+            "number": 11,
+            "oneof": "op",
+            "type": "DeleteByIdRequest"
+          },
+          "delete_document": {
+            "cardinality": "singular",
+            "number": 24,
+            "oneof": "op",
+            "type": "DeleteByIdRequest"
+          },
+          "delete_pool_image": {
+            "cardinality": "singular",
+            "number": 27,
+            "oneof": "op",
+            "type": "DeleteByIdRequest"
+          },
+          "delete_tipcard": {
+            "cardinality": "singular",
+            "number": 14,
+            "oneof": "op",
+            "type": "DeleteByIdRequest"
+          },
+          "delete_topic": {
+            "cardinality": "singular",
+            "number": 18,
+            "oneof": "op",
+            "type": "DeleteByIdRequest"
+          },
+          "detach_document_topic": {
+            "cardinality": "singular",
+            "number": 29,
+            "oneof": "op",
+            "type": "AttachDocumentTopicRequest"
+          },
+          "explore_link": {
+            "cardinality": "singular",
+            "number": 35,
+            "oneof": "op",
+            "type": "ExploreLinkRequest"
+          },
+          "force_daily_refresh": {
+            "cardinality": "singular",
+            "number": 21,
+            "oneof": "op",
+            "type": "ForceDailyRefreshRequest"
+          },
+          "get_api_info": {
+            "cardinality": "singular",
+            "number": 30,
+            "oneof": "op",
+            "type": "Empty"
+          },
+          "get_document": {
+            "cardinality": "singular",
+            "number": 33,
+            "oneof": "op",
+            "type": "GetByIdRequest"
+          },
+          "get_settings": {
+            "cardinality": "singular",
+            "number": 7,
+            "oneof": "op",
+            "type": "Empty"
+          },
+          "get_summary": {
+            "cardinality": "singular",
+            "number": 15,
+            "oneof": "op",
+            "type": "Empty"
+          },
+          "get_tipcard": {
+            "cardinality": "singular",
+            "number": 32,
+            "oneof": "op",
+            "type": "GetByIdRequest"
+          },
+          "get_topics": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": "op",
+            "type": "Empty"
+          },
+          "list_admin_topics": {
+            "cardinality": "singular",
+            "number": 12,
+            "oneof": "op",
+            "type": "Empty"
+          },
+          "list_api_keys": {
+            "cardinality": "singular",
+            "number": 10,
+            "oneof": "op",
+            "type": "Empty"
+          },
+          "list_app_topics": {
+            "cardinality": "singular",
+            "number": 16,
+            "oneof": "op",
+            "type": "Empty"
+          },
+          "list_documents": {
+            "cardinality": "singular",
+            "number": 23,
+            "oneof": "op",
+            "type": "Empty"
+          },
+          "list_flow_cards": {
+            "cardinality": "singular",
+            "number": 31,
+            "oneof": "op",
+            "type": "ListFlowCardsRequest"
+          },
+          "list_pool_images": {
+            "cardinality": "singular",
+            "number": 26,
+            "oneof": "op",
+            "type": "Empty"
+          },
+          "list_tipcards": {
+            "cardinality": "singular",
+            "number": 13,
+            "oneof": "op",
+            "type": "Empty"
+          },
+          "pin_tipcard": {
+            "cardinality": "singular",
+            "number": 19,
+            "oneof": "op",
+            "type": "PinTipcardRequest"
+          },
+          "review": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": "op",
+            "type": "ReviewPayload"
+          },
+          "review_v1": {
+            "cardinality": "singular",
+            "number": 41,
+            "oneof": "op",
+            "type": "ReviewRequestV1"
+          },
+          "submit_custom_tipcard": {
+            "cardinality": "singular",
+            "number": 20,
+            "oneof": "op",
+            "type": "CustomTipcardRequest"
+          },
+          "test_vision_model": {
+            "cardinality": "singular",
+            "number": 36,
+            "oneof": "op",
+            "type": "Empty"
+          },
+          "tips": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": "op",
+            "type": "TipsQuery"
+          },
+          "tips_v1": {
+            "cardinality": "singular",
+            "number": 40,
+            "oneof": "op",
+            "type": "TipsRequestV1"
+          },
+          "update_settings": {
+            "cardinality": "singular",
+            "number": 8,
+            "oneof": "op",
+            "type": "UpdateSettingsRequest"
+          },
+          "update_topic": {
+            "cardinality": "singular",
+            "number": 17,
+            "oneof": "op",
+            "type": "UpdateTopicRequest"
+          },
+          "upload_document": {
+            "cardinality": "singular",
+            "number": 38,
+            "oneof": "op",
+            "type": "UploadDocumentRequest"
+          }
+        },
+        "reserved": []
+      },
+      "ApiResponse": {
+        "fields": {
+          "admin_topics": {
+            "cardinality": "singular",
+            "number": 8,
+            "oneof": "result",
+            "type": "AdminTopics"
+          },
+          "api_info": {
+            "cardinality": "singular",
+            "number": 15,
+            "oneof": "result",
+            "type": "ApiInfo"
+          },
+          "api_key_created": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": "result",
+            "type": "ApiKeyCreated"
+          },
+          "api_keys": {
+            "cardinality": "singular",
+            "number": 7,
+            "oneof": "result",
+            "type": "ApiKeys"
+          },
+          "app_topics": {
+            "cardinality": "singular",
+            "number": 11,
+            "oneof": "result",
+            "type": "AppTopics"
+          },
+          "continue_daily_review": {
+            "cardinality": "singular",
+            "number": 19,
+            "oneof": "result",
+            "type": "ContinueDailyReviewResponse"
+          },
+          "document_created": {
+            "cardinality": "singular",
+            "number": 22,
+            "oneof": "result",
+            "type": "DocumentDetail"
+          },
+          "document_detail": {
+            "cardinality": "singular",
+            "number": 18,
+            "oneof": "result",
+            "type": "DocumentDetail"
+          },
+          "documents": {
+            "cardinality": "singular",
+            "number": 13,
+            "oneof": "result",
+            "type": "Documents"
+          },
+          "explored_links": {
+            "cardinality": "singular",
+            "number": 20,
+            "oneof": "result",
+            "type": "ExploredLinks"
+          },
+          "flow_card_page": {
+            "cardinality": "singular",
+            "number": 16,
+            "oneof": "result",
+            "type": "FlowCardPage"
+          },
+          "force_daily_refresh": {
+            "cardinality": "singular",
+            "number": 12,
+            "oneof": "result",
+            "type": "ForceDailyRefreshResponse"
+          },
+          "ok": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": "result",
+            "type": "Empty"
+          },
+          "pool_image_created": {
+            "cardinality": "singular",
+            "number": 23,
+            "oneof": "result",
+            "type": "PoolImageCreated"
+          },
+          "pool_images": {
+            "cardinality": "singular",
+            "number": 14,
+            "oneof": "result",
+            "type": "PoolImages"
+          },
+          "settings": {
+            "cardinality": "singular",
+            "number": 6,
+            "oneof": "result",
+            "type": "Settings"
+          },
+          "summary": {
+            "cardinality": "singular",
+            "number": 10,
+            "oneof": "result",
+            "type": "AppSummary"
+          },
+          "tipcard_detail": {
+            "cardinality": "singular",
+            "number": 17,
+            "oneof": "result",
+            "type": "TipcardDetail"
+          },
+          "tipcards": {
+            "cardinality": "singular",
+            "number": 9,
+            "oneof": "result",
+            "type": "Tipcards"
+          },
+          "tips": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": "result",
+            "type": "TipsResponse"
+          },
+          "topics": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": "result",
+            "type": "GetTopicsResponse"
+          },
+          "vision_model_test": {
+            "cardinality": "singular",
+            "number": 21,
+            "oneof": "result",
+            "type": "VisionModelTest"
+          }
+        },
+        "reserved": []
+      },
+      "ApiV1Request": {
+        "fields": {
+          "call": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "ApiRequest"
+          },
+          "idempotency_key": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "request_id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "ApiV1Response": {
+        "fields": {
+          "error": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": "outcome",
+            "type": "ApiError"
+          },
+          "request_id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          },
+          "success": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": "outcome",
+            "type": "ApiResponse"
+          }
+        },
+        "reserved": []
+      },
+      "AppSummary": {
+        "fields": {
+          "active_cards": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "int64"
+          },
+          "due_cards": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "int64"
+          },
+          "topics": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "total_cards": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "int64"
+          }
+        },
+        "reserved": []
+      },
+      "AppTopicInfo": {
+        "fields": {
+          "completed_cards": {
+            "cardinality": "singular",
+            "number": 8,
+            "oneof": null,
+            "type": "int64"
+          },
+          "compression_level": {
+            "cardinality": "singular",
+            "number": 12,
+            "oneof": null,
+            "type": "string"
+          },
+          "daily_card_count": {
+            "cardinality": "singular",
+            "number": 9,
+            "oneof": null,
+            "type": "uint32"
+          },
+          "daily_time_zone": {
+            "cardinality": "singular",
+            "number": 10,
+            "oneof": null,
+            "type": "string"
+          },
+          "daily_update_time": {
+            "cardinality": "singular",
+            "number": 11,
+            "oneof": null,
+            "type": "string"
+          },
+          "due_cards": {
+            "cardinality": "singular",
+            "number": 7,
+            "oneof": null,
+            "type": "int64"
+          },
+          "grounding_strategy": {
+            "cardinality": "singular",
+            "number": 13,
+            "oneof": null,
+            "type": "string"
+          },
+          "icon_id": {
+            "cardinality": "singular",
+            "number": 16,
+            "oneof": null,
+            "type": "string"
+          },
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "image_strategy": {
+            "cardinality": "singular",
+            "number": 14,
+            "oneof": null,
+            "type": "string"
+          },
+          "name": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "pending_cards": {
+            "cardinality": "singular",
+            "number": 18,
+            "oneof": null,
+            "type": "int64"
+          },
+          "prompt_template": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "tipcard_type": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic_color": {
+            "cardinality": "singular",
+            "number": 17,
+            "oneof": null,
+            "type": "string"
+          },
+          "total_cards": {
+            "cardinality": "singular",
+            "number": 6,
+            "oneof": null,
+            "type": "int64"
+          }
+        },
+        "reserved": [
+          "15",
+          "3"
+        ]
+      },
+      "AppTopics": {
+        "fields": {
+          "topics": {
+            "cardinality": "repeated",
+            "number": 1,
+            "oneof": null,
+            "type": "AppTopicInfo"
+          }
+        },
+        "reserved": []
+      },
+      "AttachDocumentTopicRequest": {
+        "fields": {
+          "document_id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "topic_id": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "int64"
+          }
+        },
+        "reserved": []
+      },
+      "BootstrapApiKeyRequest": {
+        "fields": {
+          "admin_token": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          },
+          "client_name": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "ContinueDailyReviewRequest": {
+        "fields": {
+          "tipcard_type": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "topics": {
+            "cardinality": "repeated",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "ContinueDailyReviewResponse": {
+        "fields": {
+          "available_cards": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "uint64"
+          }
+        },
+        "reserved": []
+      },
+      "CreateApiKeyRequest": {
+        "fields": {
+          "client_name": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "CreateApiKeyV1Request": {
+        "fields": {
+          "client_name": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          },
+          "expires_at": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "scopes": {
+            "cardinality": "repeated",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "CustomTipcardRequest": {
+        "fields": {
+          "compressed_content": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "full_content": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "title": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "DeleteByIdRequest": {
+        "fields": {
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          }
+        },
+        "reserved": []
+      },
+      "DocumentDetail": {
+        "fields": {
+          "content": {
+            "cardinality": "singular",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "created_at": {
+            "cardinality": "singular",
+            "number": 7,
+            "oneof": null,
+            "type": "string"
+          },
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "source_type": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "title": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic_ids": {
+            "cardinality": "repeated",
+            "number": 2,
+            "oneof": null,
+            "type": "int64"
+          },
+          "url": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "DocumentInfo": {
+        "fields": {
+          "created_at": {
+            "cardinality": "singular",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "source_type": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "title": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic_id": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "int64"
+          },
+          "topic_ids": {
+            "cardinality": "repeated",
+            "number": 7,
+            "oneof": null,
+            "type": "int64"
+          },
+          "url": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "Documents": {
+        "fields": {
+          "docs": {
+            "cardinality": "repeated",
+            "number": 1,
+            "oneof": null,
+            "type": "DocumentInfo"
+          }
+        },
+        "reserved": []
+      },
+      "Empty": {
+        "fields": {},
+        "reserved": []
+      },
+      "ExploreLinkRequest": {
+        "fields": {
+          "url": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "ExploredLink": {
+        "fields": {
+          "title": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          },
+          "url": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "ExploredLinks": {
+        "fields": {
+          "links": {
+            "cardinality": "repeated",
+            "number": 1,
+            "oneof": null,
+            "type": "ExploredLink"
+          }
+        },
+        "reserved": []
+      },
+      "FlowCardInfo": {
+        "fields": {
+          "compressed_content": {
+            "cardinality": "singular",
+            "number": 7,
+            "oneof": null,
+            "type": "string"
+          },
+          "created_at": {
+            "cardinality": "singular",
+            "number": 8,
+            "oneof": null,
+            "type": "string"
+          },
+          "full_content": {
+            "cardinality": "singular",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "images": {
+            "cardinality": "repeated",
+            "number": 15,
+            "oneof": null,
+            "type": "TipcardImageInfo"
+          },
+          "next_review_at": {
+            "cardinality": "singular",
+            "number": 11,
+            "oneof": null,
+            "type": "string"
+          },
+          "pending_count": {
+            "cardinality": "singular",
+            "number": 14,
+            "oneof": null,
+            "type": "int64"
+          },
+          "pinned": {
+            "cardinality": "singular",
+            "number": 13,
+            "oneof": null,
+            "type": "bool"
+          },
+          "repeat_count": {
+            "cardinality": "singular",
+            "number": 12,
+            "oneof": null,
+            "type": "uint32"
+          },
+          "status": {
+            "cardinality": "singular",
+            "number": 10,
+            "oneof": null,
+            "type": "string"
+          },
+          "tipcard_type": {
+            "cardinality": "singular",
+            "number": 9,
+            "oneof": null,
+            "type": "string"
+          },
+          "title": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic_color": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic_icon": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic_name": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "FlowCardPage": {
+        "fields": {
+          "cards": {
+            "cardinality": "repeated",
+            "number": 1,
+            "oneof": null,
+            "type": "FlowCardInfo"
+          },
+          "has_more": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "bool"
+          },
+          "next_page_token": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "ForceDailyRefreshRequest": {
+        "fields": {
+          "tipcard_type": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "topics": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": [
+          "2"
+        ]
+      },
+      "ForceDailyRefreshResponse": {
+        "fields": {
+          "refreshed_cards": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "uint64"
+          }
+        },
+        "reserved": []
+      },
+      "GetByIdRequest": {
+        "fields": {
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          }
+        },
+        "reserved": []
+      },
+      "GetTopicsResponse": {
+        "fields": {
+          "topics": {
+            "cardinality": "repeated",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "ListFlowCardsRequest": {
+        "fields": {
+          "page_size": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "uint32"
+          },
+          "page_token": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "PinTipcardRequest": {
+        "fields": {
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "pinned": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "bool"
+          }
+        },
+        "reserved": []
+      },
+      "PoolImageCreated": {
+        "fields": {
+          "annotated": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "bool"
+          },
+          "description": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "download_path": {
+            "cardinality": "singular",
+            "number": 8,
+            "oneof": null,
+            "type": "string"
+          },
+          "fallback_reason": {
+            "cardinality": "singular",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "model": {
+            "cardinality": "singular",
+            "number": 7,
+            "oneof": null,
+            "type": "string"
+          },
+          "name": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "tags": {
+            "cardinality": "repeated",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "PoolImageInfo": {
+        "fields": {
+          "created_at": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "description": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "name": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "tags": {
+            "cardinality": "repeated",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "PoolImages": {
+        "fields": {
+          "images": {
+            "cardinality": "repeated",
+            "number": 1,
+            "oneof": null,
+            "type": "PoolImageInfo"
+          }
+        },
+        "reserved": []
+      },
+      "ReviewPayload": {
+        "fields": {
+          "action": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "card_id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "grade": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "uint32"
+          }
+        },
+        "reserved": []
+      },
+      "ReviewRequestV1": {
+        "fields": {
+          "action": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "ReviewActionValue"
+          },
+          "card_id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "grade": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "uint32"
+          }
+        },
+        "reserved": []
+      },
+      "Settings": {
+        "fields": {
+          "api_key": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "autoupdate_branch": {
+            "cardinality": "singular",
+            "number": 12,
+            "oneof": null,
+            "type": "string"
+          },
+          "autoupdate_check_interval_secs": {
+            "cardinality": "singular",
+            "number": 13,
+            "oneof": null,
+            "type": "uint64"
+          },
+          "autoupdate_command": {
+            "cardinality": "singular",
+            "number": 14,
+            "oneof": null,
+            "type": "string"
+          },
+          "autoupdate_enabled": {
+            "cardinality": "singular",
+            "number": 10,
+            "oneof": null,
+            "type": "bool"
+          },
+          "autoupdate_last_seen_sha": {
+            "cardinality": "singular",
+            "number": 15,
+            "oneof": null,
+            "type": "string"
+          },
+          "autoupdate_repo": {
+            "cardinality": "singular",
+            "number": 11,
+            "oneof": null,
+            "type": "string"
+          },
+          "base_url": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "blur_intensity": {
+            "cardinality": "singular",
+            "number": 31,
+            "oneof": null,
+            "type": "string"
+          },
+          "color_scheme": {
+            "cardinality": "singular",
+            "number": 9,
+            "oneof": null,
+            "type": "string"
+          },
+          "compress_base_url": {
+            "cardinality": "singular",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "compress_model": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "compress_reasoning_effort": {
+            "cardinality": "singular",
+            "number": 8,
+            "oneof": null,
+            "type": "string"
+          },
+          "compression_level": {
+            "cardinality": "singular",
+            "number": 19,
+            "oneof": null,
+            "type": "string"
+          },
+          "daily_time_zone": {
+            "cardinality": "singular",
+            "number": 16,
+            "oneof": null,
+            "type": "string"
+          },
+          "daily_update_time": {
+            "cardinality": "singular",
+            "number": 17,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_model": {
+            "cardinality": "singular",
+            "number": 25,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_reasoning_effort": {
+            "cardinality": "singular",
+            "number": 26,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_strategy": {
+            "cardinality": "singular",
+            "number": 20,
+            "oneof": null,
+            "type": "string"
+          },
+          "image_sources": {
+            "cardinality": "singular",
+            "number": 24,
+            "oneof": null,
+            "type": "string"
+          },
+          "image_strategy": {
+            "cardinality": "singular",
+            "number": 21,
+            "oneof": null,
+            "type": "string"
+          },
+          "max_active_cards": {
+            "cardinality": "singular",
+            "number": 18,
+            "oneof": null,
+            "type": "uint64"
+          },
+          "model": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          },
+          "reasoning_effort": {
+            "cardinality": "singular",
+            "number": 7,
+            "oneof": null,
+            "type": "string"
+          },
+          "scrape_provider": {
+            "cardinality": "singular",
+            "number": 28,
+            "oneof": null,
+            "type": "string"
+          },
+          "search_api_key": {
+            "cardinality": "singular",
+            "number": 22,
+            "oneof": null,
+            "type": "string"
+          },
+          "search_base_url": {
+            "cardinality": "singular",
+            "number": 23,
+            "oneof": null,
+            "type": "string"
+          },
+          "search_provider": {
+            "cardinality": "singular",
+            "number": 27,
+            "oneof": null,
+            "type": "string"
+          },
+          "template": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "transparency": {
+            "cardinality": "singular",
+            "number": 30,
+            "oneof": null,
+            "type": "string"
+          },
+          "vision_model": {
+            "cardinality": "singular",
+            "number": 29,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "TipCardResponse": {
+        "fields": {
+          "compressed_content": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "full_content": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "pinned": {
+            "cardinality": "singular",
+            "number": 7,
+            "oneof": null,
+            "type": "bool"
+          },
+          "tipcard_type": {
+            "cardinality": "singular",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": [
+          "5"
+        ]
+      },
+      "TipcardDetail": {
+        "fields": {
+          "card": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "FlowCardInfo"
+          }
+        },
+        "reserved": []
+      },
+      "TipcardImageInfo": {
+        "fields": {
+          "byte_size": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "int64"
+          },
+          "download_path": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "mime_type": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "position": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "int64"
+          }
+        },
+        "reserved": []
+      },
+      "TipcardInfo": {
+        "fields": {
+          "compressed_content": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "created_at": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "full_content": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "next_review_at": {
+            "cardinality": "singular",
+            "number": 9,
+            "oneof": null,
+            "type": "string"
+          },
+          "pinned": {
+            "cardinality": "singular",
+            "number": 11,
+            "oneof": null,
+            "type": "bool"
+          },
+          "repeat_count": {
+            "cardinality": "singular",
+            "number": 10,
+            "oneof": null,
+            "type": "uint32"
+          },
+          "status": {
+            "cardinality": "singular",
+            "number": 8,
+            "oneof": null,
+            "type": "string"
+          },
+          "tipcard_type": {
+            "cardinality": "singular",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "title": {
+            "cardinality": "singular",
+            "number": 12,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic_color": {
+            "cardinality": "singular",
+            "number": 14,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic_icon": {
+            "cardinality": "singular",
+            "number": 13,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic_name": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": [
+          "7"
+        ]
+      },
+      "Tipcards": {
+        "fields": {
+          "cards": {
+            "cardinality": "repeated",
+            "number": 1,
+            "oneof": null,
+            "type": "TipcardInfo"
+          }
+        },
+        "reserved": []
+      },
+      "TipsQuery": {
+        "fields": {
+          "count": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "uint64"
+          },
+          "exclude_card_ids": {
+            "cardinality": "repeated",
+            "number": 5,
+            "oneof": null,
+            "type": "int64"
+          },
+          "manual_compressed_content": {
+            "cardinality": "singular",
+            "number": 7,
+            "oneof": null,
+            "type": "string"
+          },
+          "manual_content": {
+            "cardinality": "singular",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "tipcard_type": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "topics": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": [
+          "3"
+        ]
+      },
+      "TipsRequestV1": {
+        "fields": {
+          "count": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "uint32"
+          },
+          "exclude_card_ids": {
+            "cardinality": "repeated",
+            "number": 4,
+            "oneof": null,
+            "type": "int64"
+          },
+          "manual_compressed_content": {
+            "cardinality": "singular",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "manual_content": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "manual_image_data": {
+            "cardinality": "repeated",
+            "number": 7,
+            "oneof": null,
+            "type": "string"
+          },
+          "tipcard_type": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "TipcardTypeValue"
+          },
+          "topics": {
+            "cardinality": "repeated",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "TipsResponse": {
+        "fields": {
+          "tips": {
+            "cardinality": "repeated",
+            "number": 1,
+            "oneof": null,
+            "type": "TipCardResponse"
+          }
+        },
+        "reserved": []
+      },
+      "UpdateSettingsRequest": {
+        "fields": {
+          "api_key": {
+            "cardinality": "optional",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "autoupdate_branch": {
+            "cardinality": "optional",
+            "number": 12,
+            "oneof": null,
+            "type": "string"
+          },
+          "autoupdate_check_interval_secs": {
+            "cardinality": "optional",
+            "number": 13,
+            "oneof": null,
+            "type": "uint64"
+          },
+          "autoupdate_command": {
+            "cardinality": "optional",
+            "number": 14,
+            "oneof": null,
+            "type": "string"
+          },
+          "autoupdate_enabled": {
+            "cardinality": "optional",
+            "number": 10,
+            "oneof": null,
+            "type": "bool"
+          },
+          "autoupdate_repo": {
+            "cardinality": "optional",
+            "number": 11,
+            "oneof": null,
+            "type": "string"
+          },
+          "base_url": {
+            "cardinality": "optional",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "blur_intensity": {
+            "cardinality": "optional",
+            "number": 30,
+            "oneof": null,
+            "type": "string"
+          },
+          "color_scheme": {
+            "cardinality": "optional",
+            "number": 9,
+            "oneof": null,
+            "type": "string"
+          },
+          "compress_base_url": {
+            "cardinality": "optional",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "compress_model": {
+            "cardinality": "optional",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "compress_reasoning_effort": {
+            "cardinality": "optional",
+            "number": 8,
+            "oneof": null,
+            "type": "string"
+          },
+          "compression_level": {
+            "cardinality": "optional",
+            "number": 18,
+            "oneof": null,
+            "type": "string"
+          },
+          "daily_time_zone": {
+            "cardinality": "optional",
+            "number": 15,
+            "oneof": null,
+            "type": "string"
+          },
+          "daily_update_time": {
+            "cardinality": "optional",
+            "number": 16,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_model": {
+            "cardinality": "optional",
+            "number": 24,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_reasoning_effort": {
+            "cardinality": "optional",
+            "number": 25,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_strategy": {
+            "cardinality": "optional",
+            "number": 19,
+            "oneof": null,
+            "type": "string"
+          },
+          "image_sources": {
+            "cardinality": "optional",
+            "number": 23,
+            "oneof": null,
+            "type": "string"
+          },
+          "image_strategy": {
+            "cardinality": "optional",
+            "number": 20,
+            "oneof": null,
+            "type": "string"
+          },
+          "max_active_cards": {
+            "cardinality": "optional",
+            "number": 17,
+            "oneof": null,
+            "type": "uint64"
+          },
+          "model": {
+            "cardinality": "optional",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          },
+          "reasoning_effort": {
+            "cardinality": "optional",
+            "number": 7,
+            "oneof": null,
+            "type": "string"
+          },
+          "scrape_provider": {
+            "cardinality": "optional",
+            "number": 27,
+            "oneof": null,
+            "type": "string"
+          },
+          "search_api_key": {
+            "cardinality": "optional",
+            "number": 21,
+            "oneof": null,
+            "type": "string"
+          },
+          "search_base_url": {
+            "cardinality": "optional",
+            "number": 22,
+            "oneof": null,
+            "type": "string"
+          },
+          "search_provider": {
+            "cardinality": "optional",
+            "number": 26,
+            "oneof": null,
+            "type": "string"
+          },
+          "template": {
+            "cardinality": "optional",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "transparency": {
+            "cardinality": "optional",
+            "number": 29,
+            "oneof": null,
+            "type": "string"
+          },
+          "vision_model": {
+            "cardinality": "optional",
+            "number": 28,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "UpdateTopicRequest": {
+        "fields": {
+          "compression_level": {
+            "cardinality": "optional",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "daily_card_count": {
+            "cardinality": "optional",
+            "number": 3,
+            "oneof": null,
+            "type": "uint32"
+          },
+          "daily_time_zone": {
+            "cardinality": "optional",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "daily_update_time": {
+            "cardinality": "optional",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_strategy": {
+            "cardinality": "optional",
+            "number": 7,
+            "oneof": null,
+            "type": "string"
+          },
+          "id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "image_strategy": {
+            "cardinality": "optional",
+            "number": 8,
+            "oneof": null,
+            "type": "string"
+          },
+          "prompt_template": {
+            "cardinality": "optional",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": [
+          "9"
+        ]
+      },
+      "UploadDocumentRequest": {
+        "fields": {
+          "data": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "bytes"
+          },
+          "filename": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "mime_type": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "title": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic_ids": {
+            "cardinality": "repeated",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          }
+        },
+        "reserved": []
+      },
+      "VisionModelTest": {
+        "fields": {
+          "message": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "model": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "ok": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "bool"
+          }
+        },
+        "reserved": []
+      }
+    },
+    "package": "denpie",
+    "syntax": "proto3"
+  }
+}

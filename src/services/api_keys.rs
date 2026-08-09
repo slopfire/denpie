@@ -27,14 +27,33 @@ pub const API_KEY_SCOPES: &[&str] = &[
 ];
 
 #[derive(Clone, Debug)]
+enum PrincipalActor {
+    ApiKey {
+        key_id: i64,
+    },
+    /// Logged-in browser session; treated as full-access for same-origin UI.
+    Session,
+}
+
+#[derive(Clone, Debug)]
 pub struct ApiPrincipal {
     pub user: AuthUser,
-    key_id: i64,
+    actor: PrincipalActor,
     scopes: BTreeSet<String>,
     expires_at: Option<DateTime<Utc>>,
 }
 
 impl ApiPrincipal {
+    /// Full-access principal for a same-origin browser session (no raw API key).
+    pub fn from_session(user: AuthUser) -> Self {
+        Self {
+            user,
+            actor: PrincipalActor::Session,
+            scopes: BTreeSet::from(["*".to_string()]),
+            expires_at: None,
+        }
+    }
+
     pub fn has_scope(&self, scope: &str) -> bool {
         self.scopes.contains("*") || self.scopes.contains(scope)
     }
@@ -44,7 +63,10 @@ impl ApiPrincipal {
     }
 
     pub fn idempotency_actor_id(&self) -> String {
-        format!("api_key:{}", self.key_id)
+        match &self.actor {
+            PrincipalActor::ApiKey { key_id } => format!("api_key:{key_id}"),
+            PrincipalActor::Session => format!("session:{}", self.user.id),
+        }
     }
 
     pub fn can_create_unrestricted_key(&self) -> bool {
@@ -100,7 +122,9 @@ impl ApiKeyService {
         api_keys::verify(&self.pool, api_key).await.map(|verified| {
             let _ = verified.client_name;
             ApiPrincipal {
-                key_id: verified.id,
+                actor: PrincipalActor::ApiKey {
+                    key_id: verified.id,
+                },
                 scopes: verified.scopes.into_iter().collect(),
                 expires_at: verified.expires_at,
                 user: AuthUser {

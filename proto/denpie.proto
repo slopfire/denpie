@@ -251,6 +251,10 @@ message TipcardInfo {
     uint32 repeat_count = 10;
     bool pinned = 11;
     reserved 7; // was topic_class
+    // Dashboard-parity display fields for inventory/archive UIs.
+    string title = 12;
+    string topic_icon = 13;
+    string topic_color = 14;
 }
 
 message Tipcards {
@@ -280,6 +284,10 @@ message AppTopicInfo {
     string image_strategy = 14;
     reserved 3; // was class_name
     reserved 15;
+    // Dashboard-parity visual + queue fields for the browser grounding UI.
+    string icon_id = 16;
+    string topic_color = 17;
+    int64 pending_cards = 18;
 }
 
 message AppTopics {
@@ -347,6 +355,7 @@ message PoolImageInfo {
     string name = 2;
     string description = 3;
     string created_at = 4;
+    repeated string tags = 5;
 }
 
 message PoolImages {
@@ -494,12 +503,15 @@ enum TipcardTypeValue {
 }
 
 enum ReviewActionValue {
+    // Unspecified means grade-only: no named action string (empty action).
     REVIEW_ACTION_VALUE_UNSPECIFIED = 0;
     REVIEW_ACTION_VALUE_AGAIN = 1;
     REVIEW_ACTION_VALUE_LEARNED = 2;
     REVIEW_ACTION_VALUE_SKIP_KNOWN = 3;
     REVIEW_ACTION_VALUE_SKIP_NOT_INTERESTED = 4;
     REVIEW_ACTION_VALUE_SKIP_TOO_DIFFICULT = 5;
+    // Casual/manual Acknowledge (and "acknowledged" alias on the string API).
+    REVIEW_ACTION_VALUE_ACKNOWLEDGE = 6;
 }
 
 message UploadDocumentRequest {

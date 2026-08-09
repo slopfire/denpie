@@ -1,4 +1,5 @@
 use crate::api::{toast, toast_key};
+use crate::api_v1;
 use crate::components::flow_card::FlowCard;
 use crate::components::select::{SelectOption, ShadcnSelect};
 use crate::components::unified_flow::TipcardInfo;
@@ -40,7 +41,11 @@ fn filter_and_sort_archive_cards(
     let mut filtered: Vec<_> = cards
         .iter()
         .filter(|card| {
-            let status_ok = status == "all" || card.status == status;
+            let status_ok = match status {
+                "all" => true,
+                "scheduled" => card.status == "active" && card.repeat_count > 0,
+                _ => card.status == status,
+            };
             let text_ok = q.is_empty()
                 || card.title.to_lowercase().contains(&q)
                 || card.topic_name.to_lowercase().contains(&q)
@@ -100,7 +105,7 @@ pub fn archive() -> Html {
         use_effect_with((path, query), move |(path, query)| {
             if path == "/archive" {
                 let next_status = match query.status.as_deref() {
-                    Some("active" | "completed" | "custom" | "pending") => {
+                    Some("active" | "completed" | "custom" | "pending" | "scheduled") => {
                         query.status.clone().unwrap_or_default()
                     }
                     _ => "all".to_string(),
@@ -118,10 +123,8 @@ pub fn archive() -> Html {
         Callback::from(move |_| {
             let cards = cards.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                if let Ok(res) = Request::get("/admin/tipcards").send().await {
-                    if let Ok(data) = res.json::<Vec<TipcardInfo>>().await {
-                        cards.set(data);
-                    }
+                if let Ok(data) = api_v1::list_tipcards().await {
+                    cards.set(data.into_iter().map(TipcardInfo::from).collect());
                 }
             });
         })
@@ -192,18 +195,7 @@ pub fn archive() -> Html {
         Callback::from(move |(id, pinned): (i64, bool)| {
             let refresh_cards = refresh_cards.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let req = PatchTipcardReq {
-                    id,
-                    pinned: Some(pinned),
-                    image_data: None,
-                };
-                if Request::patch("/admin/tipcards")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
-                    .is_ok()
-                {
+                if api_v1::pin_tipcard(id, pinned).await.is_ok() {
                     refresh_cards.emit(());
                 }
             });
@@ -221,14 +213,8 @@ pub fn archive() -> Html {
             let i18n = i18n.clone();
             let fullscreen_card_id = fullscreen_card_id.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let req = serde_json::json!({ "id": id });
-                match Request::delete("/admin/tipcards")
-                    .json(&req)
-                    .unwrap()
-                    .send()
-                    .await
-                {
-                    Ok(res) if res.ok() => {
+                match api_v1::delete_tipcard(id).await {
+                    Ok(()) => {
                         if *fullscreen_card_id == Some(id) {
                             set_fullscreen_body_class(false);
                             fullscreen_card_id.set(None);
@@ -236,12 +222,6 @@ pub fn archive() -> Html {
                         toast_key(&app_state, &i18n, "toast.card_deleted");
                         refresh_cards.emit(());
                     }
-                    Ok(res) => toast(
-                        &app_state,
-                        res.text()
-                            .await
-                            .unwrap_or_else(|_| i18n.t("toast.failed_delete_card")),
-                    ),
                     Err(err) => toast(&app_state, err.to_string()),
                 }
             });
@@ -357,6 +337,7 @@ pub fn archive() -> Html {
                                 SelectOption { value: "active".into(), label: i18n.t("archive.status_active") },
                                 SelectOption { value: "completed".into(), label: i18n.t("archive.status_completed") },
                                 SelectOption { value: "pending".into(), label: i18n.t("archive.status_pending") },
+                                SelectOption { value: "scheduled".into(), label: i18n.t("archive.status_scheduled") },
                                 SelectOption { value: "custom".into(), label: i18n.t("archive.status_custom") },
                             ]}
                         />
@@ -412,7 +393,15 @@ pub fn archive() -> Html {
                     })}
                 >
                     <iconify-icon icon="radix-icons:arrow-left" class="radix-icon" aria-hidden="true"></iconify-icon>
-                    {format!("Pending cards for {}", *topic_filter)}
+                    {
+                        if *status == "scheduled" {
+                            i18n.tf("archive.scheduled_cards_for", &[("topic", (*topic_filter).clone())])
+                        } else if *status == "pending" {
+                            i18n.tf("archive.pending_cards_for", &[("topic", (*topic_filter).clone())])
+                        } else {
+                            i18n.tf("archive.cards_for", &[("topic", (*topic_filter).clone())])
+                        }
+                    }
                 </button>
             }
 
@@ -467,4 +456,48 @@ fn set_fullscreen_body_class(fullscreen: bool) {
     let _ = body
         .class_list()
         .toggle_with_force("has-fullscreen-card", fullscreen);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::filter_and_sort_archive_cards;
+    use crate::components::unified_flow::TipcardInfo;
+
+    fn card(id: i64, status: &str, repeat_count: u32) -> TipcardInfo {
+        TipcardInfo {
+            id,
+            topic_name: "Rust".to_string(),
+            topic_icon: String::new(),
+            topic_color: String::new(),
+            title: format!("Card {id}"),
+            full_content: String::new(),
+            compressed_content: String::new(),
+            image_data: Vec::new(),
+            created_at: String::new(),
+            tipcard_type: "repeatable_tip".to_string(),
+            status: status.to_string(),
+            next_review_at: String::new(),
+            repeat_count,
+            pinned: false,
+            pending_count: 0,
+            review_message: None,
+        }
+    }
+
+    #[test]
+    fn scheduled_filter_keeps_only_reviewed_active_cards() {
+        let cards = vec![
+            card(1, "active", 2),
+            card(2, "active", 0),
+            card(3, "pending", 0),
+            card(4, "dismissed", 2),
+        ];
+
+        let filtered = filter_and_sort_archive_cards(&cards, "", "scheduled", "Rust", "topic");
+
+        assert_eq!(
+            filtered.iter().map(|card| card.id).collect::<Vec<_>>(),
+            vec![1]
+        );
+    }
 }

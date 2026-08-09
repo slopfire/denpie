@@ -42,10 +42,15 @@ Full detail: `docs/feature-integration.md`. Use CodeGraph first if the area is u
 ### New protobuf operation
 
 1. Messages in `proto/denpie.proto`
-2. Build so `build.rs` regenerates Rust
-3. Dispatch in `src/api/transport.rs`
-4. Shared logic → `src/services/` when dashboard or others need it
-5. Integration test on `POST /api`: auth, success, main failure path
+2. Register request/result/auth/scope/mutation policy in `api/operations-v1.json`
+3. Build so `build.rs` regenerates Rust and its runtime result assertion
+4. Dispatch in `src/api/transport.rs`
+5. Shared logic → `src/services/` when dashboard or others need it
+6. Integration test on `POST /api/v1`: auth, idempotency when mutating, success,
+   structured main failure path
+7. Update docs/examples/changelog, then run `just api-contract-update` and
+   `just api-check`. Breaking v1 changes require a new major API; see
+   `docs/api-development-rules.md`.
 
 ### New dashboard endpoint
 

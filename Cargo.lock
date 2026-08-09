@@ -1394,6 +1394,7 @@ dependencies = [
 name = "frontend"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "futures-channel",
  "gloo-events 0.2.0",
  "gloo-file 0.3.0",
@@ -1402,6 +1403,8 @@ dependencies = [
  "gloo-timers 0.4.0",
  "js-sys",
  "lazy_static",
+ "prost",
+ "prost-build",
  "regex",
  "serde",
  "serde_json",

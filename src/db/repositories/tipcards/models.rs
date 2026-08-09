@@ -73,7 +73,6 @@ pub struct FlowCardRecord {
     pub state_data: String,
     pub pinned: bool,
     pub repeats: u32,
-    pub image_count: i64,
     pub pending_count: i64,
 }
 
@@ -101,4 +100,18 @@ pub struct CreateManualParams<'a> {
     pub full_content: &'a str,
     pub compressed_content: &'a str,
     pub image_data_json: &'a str,
+}
+
+pub struct GeneratedCardParams<'a> {
+    pub title: &'a str,
+    pub full_content: &'a str,
+    pub compressed_content: &'a str,
+    pub use_image: bool,
+    pub image_query: &'a str,
+}
+
+pub struct DailyReviewTarget {
+    pub topic_id: i64,
+    pub window_start: chrono::DateTime<chrono::Utc>,
+    pub daily_card_count: i64,
 }

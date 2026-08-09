@@ -16,8 +16,9 @@ use super::{
     admin::{app_summary_pb, app_topics_pb, list_admin_topics_pb, list_tipcards_pb},
     auth::{
         create_raw_api_key, create_scoped_api_key, delete_api_key_by_id, list_api_keys_pb,
-        request_api_key, require_api_key,
+        request_api_key, require_api_key, resolve_principal,
     },
+    contract,
     documents::{
         add_document, add_pool_image, attach_document_topic, delete_document, delete_pool_image,
         detach_document_topic, list_documents, list_pool_images,
@@ -45,6 +46,7 @@ pub async fn unified_api(
 
 pub async fn api_v1(
     State(state): State<Arc<AppState>>,
+    session: tower_sessions::Session,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -102,7 +104,16 @@ pub async fn api_v1(
         Err((status, message)) => return v1_error_response(status, request_id, message),
     };
 
-    execute_v1_request(&state, &headers, call, request_id, idempotency_key, policy).await
+    execute_v1_request(
+        &state,
+        &headers,
+        &session,
+        call,
+        request_id,
+        idempotency_key,
+        policy,
+    )
+    .await
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,6 +126,7 @@ enum MutationPolicy {
 async fn execute_v1_request(
     state: &AppState,
     headers: &HeaderMap,
+    session: &tower_sessions::Session,
     request: pb::ApiRequest,
     request_id: String,
     idempotency_key: Option<String>,
@@ -123,6 +135,7 @@ async fn execute_v1_request(
     let op = request.op.expect("API v1 operation was validated");
     let request_hash = hash_api_operation(&op);
     let op_name = api_op_name(&op);
+    let expected_result = contract::expected_result_field(&op);
 
     let response = match op {
         pb::api_request::Op::BootstrapApiKey(req) => {
@@ -145,25 +158,24 @@ async fn execute_v1_request(
                 policy,
                 request_id,
                 async move {
-                    create_bootstrap_key(state, &operation_user_id, req.client_name).await
+                    let response =
+                        create_bootstrap_key(state, &operation_user_id, req.client_name).await?;
+                    validate_operation_result(expected_result, response)
                 },
             )
             .await
         }
-        pb::api_request::Op::GetApiInfo(_) => v1_result_response(
-            request_id,
-            Ok(pb::ApiResponse {
-                result: Some(pb::api_response::Result::ApiInfo(resources::api_info())),
-            }),
-        ),
+        pb::api_request::Op::GetApiInfo(_) => {
+            let result = validate_operation_result(
+                expected_result,
+                pb::ApiResponse {
+                    result: Some(pb::api_response::Result::ApiInfo(resources::api_info())),
+                },
+            );
+            v1_result_response(request_id, result)
+        }
         other => {
-            let api_key = match request_api_key(headers, &request.auth) {
-                Ok(api_key) => api_key,
-                Err((status, message)) => {
-                    return v1_error_response(status, request_id, message);
-                }
-            };
-            let principal = match require_api_key(state, &api_key).await {
+            let principal = match resolve_principal(state, headers, &request.auth, session).await {
                 Ok(principal) => principal,
                 Err((status, message)) => {
                     return v1_error_response(status, request_id, message);
@@ -176,7 +188,8 @@ async fn execute_v1_request(
             if policy == MutationPolicy::ReadOnly {
                 v1_result_response(
                     request_id,
-                    handle_authenticated_op(state, &principal, other).await,
+                    handle_authenticated_op_checked(state, &principal, other, expected_result)
+                        .await,
                 )
             } else {
                 let actor_id = principal.idempotency_actor_id();
@@ -191,7 +204,7 @@ async fn execute_v1_request(
                     &request_hash,
                     policy,
                     request_id,
-                    handle_authenticated_op(state, &principal, other),
+                    handle_authenticated_op_checked(state, &principal, other, expected_result),
                 )
                 .await
             }
@@ -379,9 +392,10 @@ async fn execute_request(
         .op
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing API operation".to_string()))?;
     let op_name = api_op_name(&op);
+    let expected_result = contract::expected_result_field(&op);
 
     async {
-        Ok::<_, (StatusCode, String)>(match op {
+        let response = match op {
             pb::api_request::Op::BootstrapApiKey(req) => {
                 let user_id = authorize_bootstrap(state, &req.admin_token).await?;
                 create_bootstrap_key(state, &user_id, req.client_name).await?
@@ -394,7 +408,8 @@ async fn execute_request(
                 let user = require_api_key(state, &api_key).await?;
                 handle_authenticated_op(state, &user, other).await?
             }
-        })
+        };
+        validate_operation_result(expected_result, response)
     }
     .instrument(tracing::info_span!("api_request", op = op_name))
     .await
@@ -723,6 +738,35 @@ fn insert_idempotency_headers(response: &mut Response, idempotency_key: &str, re
             .headers_mut()
             .insert("idempotency-replayed", HeaderValue::from_static("true"));
     }
+}
+
+async fn handle_authenticated_op_checked(
+    state: &AppState,
+    principal: &crate::services::api_keys::ApiPrincipal,
+    op: pb::api_request::Op,
+    expected_result: &'static str,
+) -> Result<pb::ApiResponse, (StatusCode, String)> {
+    let response = handle_authenticated_op(state, principal, op).await?;
+    validate_operation_result(expected_result, response)
+}
+
+fn validate_operation_result(
+    expected: &'static str,
+    response: pb::ApiResponse,
+) -> Result<pb::ApiResponse, (StatusCode, String)> {
+    let actual = contract::actual_result_field(&response);
+    if actual == Some(expected) {
+        return Ok(response);
+    }
+    tracing::error!(
+        expected,
+        actual,
+        "API operation returned the wrong result variant"
+    );
+    Err((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Internal server error".to_string(),
+    ))
 }
 
 async fn handle_authenticated_op(
@@ -1069,14 +1113,17 @@ fn tipcard_type_value(
 
 fn review_action_value(value: i32) -> Result<&'static str, (StatusCode, String)> {
     match pb::ReviewActionValue::try_from(value).ok() {
+        // Grade-only reviews (Again/Good/Easy on non-named-action UIs) send Unspecified.
+        Some(pb::ReviewActionValue::Unspecified) => Ok(""),
         Some(pb::ReviewActionValue::Again) => Ok("again"),
         Some(pb::ReviewActionValue::Learned) => Ok("learned"),
         Some(pb::ReviewActionValue::SkipKnown) => Ok("skip_known"),
         Some(pb::ReviewActionValue::SkipNotInterested) => Ok("skip_not_interested"),
         Some(pb::ReviewActionValue::SkipTooDifficult) => Ok("skip_too_difficult"),
+        Some(pb::ReviewActionValue::Acknowledge) => Ok("acknowledge"),
         _ => Err((
             StatusCode::BAD_REQUEST,
-            "action must be again, learned, skip_known, skip_not_interested, or skip_too_difficult"
+            "action must be unspecified (grade-only), again, learned, skip_known, skip_not_interested, skip_too_difficult, or acknowledge"
                 .to_string(),
         )),
     }
@@ -1180,5 +1227,49 @@ fn api_op_name(op: &pb::api_request::Op) -> &'static str {
         pb::api_request::Op::TipsV1(_) => "tips_v1",
         pb::api_request::Op::ReviewV1(_) => "review_v1",
         pb::api_request::Op::CreateApiKeyV1(_) => "create_api_key_v1",
+    }
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+
+    #[test]
+    fn operation_result_contract_accepts_expected_variant() {
+        let response = pb::ApiResponse {
+            result: Some(pb::api_response::Result::ApiInfo(resources::api_info())),
+        };
+        assert!(validate_operation_result("api_info", response).is_ok());
+    }
+
+    #[test]
+    fn operation_result_contract_rejects_wrong_variant() {
+        let error = validate_operation_result("api_info", empty_response()).unwrap_err();
+        assert_eq!(error.0, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.1, "Internal server error");
+    }
+
+    #[test]
+    fn review_v1_unspecified_is_grade_only_empty_action() {
+        assert_eq!(
+            review_action_value(pb::ReviewActionValue::Unspecified as i32).unwrap(),
+            ""
+        );
+    }
+
+    #[test]
+    fn review_v1_acknowledge_maps_to_domain_string() {
+        assert_eq!(
+            review_action_value(pb::ReviewActionValue::Acknowledge as i32).unwrap(),
+            "acknowledge"
+        );
+    }
+
+    #[test]
+    fn review_v1_skip_not_interested_is_dismiss_path() {
+        assert_eq!(
+            review_action_value(pb::ReviewActionValue::SkipNotInterested as i32).unwrap(),
+            "skip_not_interested"
+        );
     }
 }

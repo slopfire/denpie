@@ -29,7 +29,9 @@ impl TipcardService {
     ) -> crate::error::AppResult<Vec<tipcards_repo::FlowCardRecord>> {
         // Sweep legacy generation-failure placeholders ("Failed parsing text",
         // "LLM Error: ...") out of queues so they can never surface in the flow.
-        let purged = tipcards_repo::delete_failed_generation_cards(&state.db, user_id).await?;
+        let (purged, image_paths) =
+            tipcards_repo::delete_failed_generation_cards(&state.db, user_id).await?;
+        image_store::remove_stored_files(&state.image_dir, &image_paths).await;
         if purged > 0 {
             tracing::warn!(user_id, purged, "purged failed generation cards");
         }
@@ -46,42 +48,21 @@ impl TipcardService {
     ) -> crate::error::AppResult<()> {
         let defaults = state.settings.get_settings()?;
         let settings = user_settings::get(&state.db, user_id, defaults).await?;
-        let targets = topics::list_generated_targets(&state.db, user_id).await?;
-        let mut eligible_topic_ids = Vec::new();
-
-        for (topic, tipcard_type) in targets {
-            if tipcard_type != "repeatable_tip" {
-                continue;
-            }
-            let daily_window_start = domain::scheduling::topic_daily_window_start(
-                &topic,
-                &settings.daily_time_zone,
-                &settings.daily_update_time,
-            );
-            let reviewed_count = tipcards_repo::count_reviewed_in_window(
-                &state.db,
-                user_id,
-                topic.id,
-                daily_window_start,
-            )
-            .await?;
-            let extra_cards = tipcards_repo::extra_cards_in_window(
-                &state.db,
-                user_id,
-                topic.id,
-                &tipcard_type,
-                daily_window_start,
-            )
-            .await?;
-            let daily_review_limit =
-                domain::scheduling::topic_daily_card_count(&topic).saturating_add(extra_cards);
-            if reviewed_count < daily_review_limit {
-                eligible_topic_ids.push(topic.id);
-            }
-        }
-
-        tipcards_repo::promote_pending_for_empty_topics(&state.db, user_id, &eligible_topic_ids)
-            .await
+        let targets = topics::list_generated_targets(&state.db, user_id)
+            .await?
+            .into_iter()
+            .filter(|(_, tipcard_type)| tipcard_type == "repeatable_tip")
+            .map(|(topic, _)| tipcards_repo::DailyReviewTarget {
+                topic_id: topic.id,
+                window_start: domain::scheduling::topic_daily_window_start(
+                    &topic,
+                    &settings.daily_time_zone,
+                    &settings.daily_update_time,
+                ),
+                daily_card_count: domain::scheduling::topic_daily_card_count(&topic) as i64,
+            })
+            .collect::<Vec<_>>();
+        tipcards_repo::promote_pending_within_daily_limits(&state.db, user_id, &targets).await
     }
 
     pub async fn tipcard_detail(
@@ -106,7 +87,9 @@ impl TipcardService {
     }
 
     pub async fn delete(state: &AppState, user_id: &str, id: i64) -> crate::error::AppResult<()> {
-        tipcards_repo::delete_with_review(&state.db, user_id, id).await
+        let image_paths = tipcards_repo::delete_with_review(&state.db, user_id, id).await?;
+        image_store::remove_stored_files(&state.image_dir, &image_paths).await;
+        Ok(())
     }
 
     pub async fn set_pinned(

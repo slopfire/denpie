@@ -23,6 +23,9 @@ Invariants below stay here. Do not duplicate long procedures in this file.
 4. **SQL:** bound parameters only in repositories.
 5. **Docs:** change code → update docs/examples in the same change.
 6. **CodeGraph:** if `.codegraph/` exists, use it before search/read thrash. See `codegraph`.
+7. **API v1:** additive-only wire contract; every operation must declare its result,
+   scope, mutation/idempotency policy, docs, and tests. Run `just api-check`; see
+   `docs/api-development-rules.md`.
 
 ## Quick start
 
@@ -30,6 +33,7 @@ Invariants below stay here. Do not duplicate long procedures in this file.
 just shell          # pinned toolchain
 just db-up          # local PostgreSQL
 just quick          # fmt check + compile (default while editing)
+just api-check      # v1 wire/operation/result/docs contract
 just test-one <f>   # targeted tests
 just verify         # one full gate at end of a task
 just agent-server   # isolated :3027 runtime + test login + smoke

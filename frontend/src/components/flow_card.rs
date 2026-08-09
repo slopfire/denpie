@@ -138,6 +138,8 @@ pub struct FlowCardProps {
     pub enable_drag: bool,
     #[prop_or(true)]
     pub enable_measure: bool,
+    #[prop_or_default]
+    pub review_pending: bool,
 }
 
 fn highlight_card_code_blocks(root: &web_sys::Element) {
@@ -205,6 +207,14 @@ fn human_datetime(value: &str) -> String {
     } else {
         format!("in {amount} {unit}")
     }
+}
+
+fn is_known_card(status: &str, repeat_count: u32) -> bool {
+    status != "pending" && (repeat_count > 0 || matches!(status, "reviewed" | "dismissed"))
+}
+
+fn has_scheduled_repeat(status: &str, repeat_count: u32) -> bool {
+    status == "active" && repeat_count > 0
 }
 
 #[function_component(FlowCard)]
@@ -276,8 +286,9 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
         let leaving = leaving.clone();
         let root_ref = root_ref.clone();
         let grid_min_height = grid_min_height.clone();
+        let review_pending = props.review_pending;
         Callback::from(move |(grade, action, sway)| {
-            if leaving.is_some() {
+            if review_pending || leaving.is_some() {
                 return;
             }
             if lock_grid_height {
@@ -302,8 +313,31 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     };
     {
         let leaving = leaving.clone();
-        use_effect_with((id, card.status.clone()), move |_| {
+        use_effect_with((id, card.status.clone(), props.review_pending), move |_| {
             leaving.set(None);
+            || ()
+        });
+    }
+    {
+        let expanded = expanded.clone();
+        let error_expanded = error_expanded.clone();
+        let lightbox_index = lightbox_index.clone();
+        let image_picker_open = image_picker_open.clone();
+        let skip_open = skip_open.clone();
+        let more_open = more_open.clone();
+        let metadata_open = metadata_open.clone();
+        let grid_min_height = grid_min_height.clone();
+        let dragging = dragging.clone();
+        use_effect_with(id, move |_| {
+            expanded.set(false);
+            error_expanded.set(false);
+            lightbox_index.set(None);
+            image_picker_open.set(false);
+            skip_open.set(false);
+            more_open.set(false);
+            metadata_open.set(false);
+            grid_min_height.set(None);
+            dragging.set(false);
             || ()
         });
     }
@@ -453,7 +487,9 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
         })
     };
 
-    let is_known = card.repeat_count > 0 || card.status != "active";
+    // Pending cards are unseen queue entries. A non-active status alone does not
+    // make them known; `reviewed` is the client-side completion placeholder.
+    let is_known = is_known_card(&card.status, card.repeat_count);
     let badge_label = match card.tipcard_type.as_str() {
         "casual_tip" | "repeatable_tip" => {
             if is_known {
@@ -481,7 +517,11 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     };
     let metadata_id = format!("card-metadata-{id}");
     let created_label = human_datetime(&card.created_at);
-    let next_review_label = human_datetime(&card.next_review_at);
+    let next_review_label = if has_scheduled_repeat(&card.status, card.repeat_count) {
+        human_datetime(&card.next_review_at)
+    } else {
+        String::new()
+    };
 
     let article_classes = if fullscreen {
         "flow-card is-fullscreen fullscreen-card-enter surface border fixed top-0 right-0 bottom-0 z-[70] overflow-hidden flex flex-col"
@@ -747,7 +787,15 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                                 </ShadcnButton>
                             </ShadcnTooltip>
                         } else {
-                            <div class="muted-surface border border-token p-2 flex-1 text-center text-sm font-medium text-muted">{"Review saved"}</div>
+                            <div
+                                data-review-saved="true"
+                                class="flex flex-1 items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-primary"
+                            >
+                                <span class="inline-flex size-6 items-center justify-center rounded-full bg-primary-soft">
+                                    <iconify-icon icon="radix-icons:check" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                </span>
+                                <span>{i18n.t("flow.daily_complete_status")}</span>
+                            </div>
                         }
                     } else if card.tipcard_type == "casual_tip" || card.tipcard_type == "manual_tip" {
                         <ShadcnTooltip content="Dismiss this card" class={classes!("flex-1")}>
@@ -1148,7 +1196,22 @@ pub fn flow_card_skeleton(props: &FlowCardSkeletonProps) -> Html {
 
 #[cfg(test)]
 mod tests {
-    use super::{CardContentKind, card_error_detail, repeatable_stack_layers};
+    use super::{
+        CardContentKind, card_error_detail, has_scheduled_repeat, is_known_card,
+        repeatable_stack_layers,
+    };
+
+    #[test]
+    fn pending_cards_are_new_and_not_scheduled() {
+        assert!(!is_known_card("pending", 0));
+        assert!(!has_scheduled_repeat("pending", 0));
+    }
+
+    #[test]
+    fn reviewed_active_cards_are_known_and_scheduled() {
+        assert!(is_known_card("active", 1));
+        assert!(has_scheduled_repeat("active", 1));
+    }
 
     #[test]
     fn repeatable_stack_matches_pending_card_count() {

@@ -202,8 +202,20 @@ CREATE INDEX IF NOT EXISTS idx_api_idempotency_expiry
 CREATE INDEX IF NOT EXISTS idx_api_idempotency_user_id
     ON api_idempotency_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_tipcards_user_id ON tipcards(user_id);
+CREATE INDEX IF NOT EXISTS idx_tipcards_flow_cursor
+    ON tipcards(user_id, pinned DESC, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_tipcards_topic_queue
+    ON tipcards(user_id, topic_id, tipcard_type, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_review_states_active_due
+    ON review_states(next_review_at, card_id)
+    WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_review_states_pending_card
+    ON review_states(card_id)
+    WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_tipcard_images_card_id ON tipcard_images(card_id);
 CREATE INDEX IF NOT EXISTS idx_tipcard_images_user_id ON tipcard_images(user_id);
+CREATE INDEX IF NOT EXISTS idx_tipcard_images_user_card_position
+    ON tipcard_images(user_id, card_id, position, id);
 CREATE INDEX IF NOT EXISTS idx_llm_token_usage_user_id ON llm_token_usage(user_id);
 CREATE INDEX IF NOT EXISTS idx_daily_refresh_runs_user_id ON daily_refresh_runs(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_documents_user_id ON user_documents(user_id);

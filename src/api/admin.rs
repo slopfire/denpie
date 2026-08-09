@@ -52,6 +52,9 @@ pub(crate) async fn list_tipcards_pb(state: &AppState, user_id: &str) -> ApiResu
                 next_review_at: row.next_review_at,
                 repeat_count: row.repeats,
                 pinned: row.pinned,
+                title: row.title,
+                topic_icon: row.topic_icon,
+                topic_color: row.topic_color,
             })
             .collect(),
     })
@@ -92,6 +95,9 @@ pub(crate) async fn app_topics_pb(state: &AppState, user_id: &str) -> ApiResult<
                 total_cards: row.total_cards,
                 due_cards: row.due_cards,
                 completed_cards: row.completed_cards,
+                icon_id: row.icon_id,
+                topic_color: row.topic_color,
+                pending_cards: row.pending_cards,
             })
             .collect(),
     })

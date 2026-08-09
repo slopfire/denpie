@@ -575,6 +575,73 @@ async fn test_repeatable_review_uses_srs_schedule() {
 }
 
 #[tokio::test]
+async fn concurrent_reviews_serialize_scheduling_state_updates() {
+    let settings_path = unique_settings_path();
+    fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+        .await
+        .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ($1, 'concurrent reviews', 'repeatable_tip') RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    let card_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "serialized review",
+        "full",
+        "compact",
+        false,
+        "",
+        "active",
+    )
+    .await
+    .unwrap();
+
+    let barrier = Arc::new(tokio::sync::Barrier::new(3));
+    let first_service = state.reviews.clone();
+    let first_barrier = barrier.clone();
+    let first = tokio::spawn(async move {
+        first_barrier.wait().await;
+        first_service
+            .apply_review(TEST_USER_ID, card_id, 5, "learned")
+            .await
+    });
+    let second_service = state.reviews.clone();
+    let second_barrier = barrier.clone();
+    let second = tokio::spawn(async move {
+        second_barrier.wait().await;
+        second_service
+            .apply_review(TEST_USER_ID, card_id, 5, "learned")
+            .await
+    });
+    barrier.wait().await;
+    first.await.unwrap().unwrap();
+    second.await.unwrap().unwrap();
+
+    let (repeats, state_data) = sqlx::query_as::<_, (i64, String)>(
+        "SELECT repeats, state_data FROM review_states WHERE card_id = $1",
+    )
+    .bind(card_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    let state: crate::domain::review::RepeatableState = serde_json::from_str(&state_data).unwrap();
+    assert_eq!(repeats, 2);
+    assert_eq!(state.repeats, 2);
+    assert_eq!(state.scheduling_state.data.repetitions, 2);
+    assert_eq!(state.scheduling_state.data.interval, 6);
+}
+
+#[tokio::test]
 async fn test_casual_acknowledge_uses_srs_schedule() {
     let settings_path = unique_settings_path();
     fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
