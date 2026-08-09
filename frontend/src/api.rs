@@ -49,12 +49,11 @@ fn split_toast_parts(message: &str) -> (String, Option<String>) {
     (trimmed.to_string(), None)
 }
 
-fn toast_timeout_ms(kind: ToastKind, has_detail: bool) -> u32 {
+fn toast_timeout_ms(kind: ToastKind) -> Option<u32> {
     match kind {
-        ToastKind::Error if has_detail => 8_000,
-        ToastKind::Error => 5_000,
-        ToastKind::Success => 2_400,
-        ToastKind::Info => 2_800,
+        ToastKind::Error => None,
+        ToastKind::Success => Some(2_400),
+        ToastKind::Info => Some(2_800),
     }
 }
 
@@ -96,17 +95,18 @@ fn toast_with(
     detail: Option<String>,
     kind: ToastKind,
 ) {
-    let has_detail = detail.as_ref().is_some_and(|d| !d.trim().is_empty());
     app_state.dispatch(AppAction::ShowToast {
         message,
         detail,
         kind,
     });
-    let state = app_state.clone();
-    Timeout::new(toast_timeout_ms(kind, has_detail), move || {
-        state.dispatch(AppAction::HideToast);
-    })
-    .forget();
+    if let Some(timeout_ms) = toast_timeout_ms(kind) {
+        let state = app_state.clone();
+        Timeout::new(timeout_ms, move || {
+            state.dispatch(AppAction::AutoHideToast);
+        })
+        .forget();
+    }
 }
 
 pub fn toast_key(app_state: &UseReducerHandle<AppState>, i18n: &I18n, key: &str) {
@@ -115,7 +115,8 @@ pub fn toast_key(app_state: &UseReducerHandle<AppState>, i18n: &I18n, key: &str)
 
 #[cfg(test)]
 mod tests {
-    use super::{looks_like_error, split_toast_parts};
+    use super::{looks_like_error, split_toast_parts, toast_timeout_ms};
+    use crate::state::ToastKind;
 
     #[test]
     fn splits_multiline_error_into_summary_and_detail() {
@@ -138,5 +139,12 @@ mod tests {
         assert!(looks_like_error("Failed to parse settings response"));
         assert!(looks_like_error("LLM Error: HTTP 401"));
         assert!(!looks_like_error("Profile refreshed"));
+    }
+
+    #[test]
+    fn error_toasts_do_not_have_an_auto_hide_timeout() {
+        assert_eq!(toast_timeout_ms(ToastKind::Error), None);
+        assert_eq!(toast_timeout_ms(ToastKind::Success), Some(2_400));
+        assert_eq!(toast_timeout_ms(ToastKind::Info), Some(2_800));
     }
 }

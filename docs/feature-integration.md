@@ -33,7 +33,8 @@ Agent procedure (same content, checklist form): [`.agents/skills/add-feature`](.
 2. Placeholders → `use_i18n().tf("group.key", &[("name", value)])`
 3. Group by surface: `nav.*`, `auth.*`, `toast.*`, `confirm.*`, `api_keys.*`
 4. Frontend-authored toasts/confirms: translated strings. Backend error bodies may show as-is.
-5. Do **not** translate protocol/storage IDs (`tipcard_type`, review actions, roles, routes, localStorage keys, MIME types, API enums). Map to labels at the UI edge.
+5. Error toasts stay visible until the user dismisses them; success and info toasts dismiss automatically.
+6. Do **not** translate protocol/storage IDs (`tipcard_type`, review actions, roles, routes, localStorage keys, MIME types, API enums). Map to labels at the UI edge.
 
 ## New Yew UI component
 

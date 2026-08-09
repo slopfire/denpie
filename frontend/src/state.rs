@@ -54,6 +54,7 @@ pub enum AppAction {
         kind: ToastKind,
     },
     HideToast,
+    AutoHideToast,
 }
 
 impl Reducible for AppState {
@@ -109,6 +110,43 @@ impl Reducible for AppState {
                 ..(*self).clone()
             }
             .into(),
+            AppAction::AutoHideToast if self.toast.kind == ToastKind::Error => self,
+            AppAction::AutoHideToast => AppState {
+                toast: ToastMessage {
+                    message: self.toast.message.clone(),
+                    detail: self.toast.detail.clone(),
+                    kind: self.toast.kind,
+                    show: false,
+                },
+                ..(*self).clone()
+            }
+            .into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AppAction, AppState, ToastKind, ToastMessage};
+    use std::rc::Rc;
+    use yew::Reducible;
+
+    #[test]
+    fn error_toasts_ignore_auto_hide_but_can_be_dismissed() {
+        let state = Rc::new(AppState {
+            toast: ToastMessage {
+                message: "Failed to save".to_string(),
+                kind: ToastKind::Error,
+                show: true,
+                ..ToastMessage::default()
+            },
+            ..AppState::default()
+        });
+
+        let state = state.reduce(AppAction::AutoHideToast);
+        assert!(state.toast.show);
+
+        let state = state.reduce(AppAction::HideToast);
+        assert!(!state.toast.show);
     }
 }
