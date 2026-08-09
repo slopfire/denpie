@@ -52,8 +52,9 @@ Put returned `sk_live_*` in `ApiRequest.auth` for every later call.
 |---|---|
 | `get_settings` / `update_settings` | LLM + runtime config |
 | `create_api_key` / `list_api_keys` / `delete_api_key` | Key management |
-| `tips` | Due cards, current daily cards, or cards after window rollover |
+| `tips` | Due cards, current daily cards, or cards after window rollover; repeatable topics stop at their per-topic daily limit |
 | `force_daily_refresh` | Empty = all generated topics; set `topic`/`tipcard_type` to target. Then call `tips` |
+| dashboard `POST /app/continue-daily-review` | Browser-only continuation for one repeatable topic: adds another full `daily_card_count` set to its current daily window and makes its next card available |
 | `review` | Grade or queue action on a card |
 
 ## More calls

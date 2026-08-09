@@ -13,7 +13,9 @@ pub use handlers::settings::{get_settings, test_vision_model, update_settings};
 pub use handlers::tipcards::{
     append_tipcard_images, delete_tipcard, flow_card_detail, flow_cards, list_tipcards, pin_tipcard,
 };
-pub use handlers::tips::{app_review, app_tips, force_daily_refresh, token_spend};
+pub use handlers::tips::{
+    app_review, app_tips, continue_daily_review, force_daily_refresh, token_spend,
+};
 pub use handlers::topics::{
     app_summary, app_topics, delete_topic, list_topics, regenerate_topic_icon, update_topic,
 };

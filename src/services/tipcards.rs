@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     AppState,
-    db::repositories::{image_pool, tipcards as tipcards_repo},
+    db::repositories::{image_pool, tipcards as tipcards_repo, topics, user_settings},
     domain, image_store,
     types::ApiResult,
 };
@@ -28,8 +28,54 @@ impl TipcardService {
         limit: i64,
     ) -> crate::error::AppResult<Vec<tipcards_repo::FlowCardRecord>> {
         tipcards_repo::stack_due_repeatable_cards(&state.db, user_id).await?;
-        tipcards_repo::promote_pending_for_empty_topics(&state.db, user_id).await?;
+        Self::promote_pending_within_daily_limit(state, user_id).await?;
         tipcards_repo::list_flow_cards(&state.db, user_id, cursor, limit).await
+    }
+
+    /// Make one queued repeatable card visible only while its topic has room in
+    /// the learner's current daily set. Scheduled cards remain governed by SM-2.
+    pub async fn promote_pending_within_daily_limit(
+        state: &AppState,
+        user_id: &str,
+    ) -> crate::error::AppResult<()> {
+        let defaults = state.settings.get_settings()?;
+        let settings = user_settings::get(&state.db, user_id, defaults).await?;
+        let targets = topics::list_generated_targets(&state.db, user_id).await?;
+        let mut eligible_topic_ids = Vec::new();
+
+        for (topic, tipcard_type) in targets {
+            if tipcard_type != "repeatable_tip" {
+                continue;
+            }
+            let daily_window_start = domain::scheduling::topic_daily_window_start(
+                &topic,
+                &settings.daily_time_zone,
+                &settings.daily_update_time,
+            );
+            let reviewed_count = tipcards_repo::count_reviewed_in_window(
+                &state.db,
+                user_id,
+                topic.id,
+                daily_window_start,
+            )
+            .await?;
+            let extra_cards = tipcards_repo::extra_cards_in_window(
+                &state.db,
+                user_id,
+                topic.id,
+                &tipcard_type,
+                daily_window_start,
+            )
+            .await?;
+            let daily_review_limit =
+                domain::scheduling::topic_daily_card_count(&topic).saturating_add(extra_cards);
+            if reviewed_count < daily_review_limit {
+                eligible_topic_ids.push(topic.id);
+            }
+        }
+
+        tipcards_repo::promote_pending_for_empty_topics(&state.db, user_id, &eligible_topic_ids)
+            .await
     }
 
     pub async fn tipcard_detail(

@@ -1,4 +1,4 @@
 pub use crate::types::{
-    ApiResult, ForceDailyRefreshRequest, ForceDailyRefreshResponse, ReviewJsonRequest, TipCardJson,
-    TipsJsonRequest,
+    ApiResult, ContinueDailyReviewRequest, ForceDailyRefreshRequest, ForceDailyRefreshResponse,
+    ReviewJsonRequest, TipCardJson, TipsJsonRequest,
 };

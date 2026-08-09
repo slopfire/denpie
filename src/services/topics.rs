@@ -164,8 +164,10 @@ impl TopicService {
         user_id: &str,
     ) -> AppResult<topics::AppSummaryRecord> {
         crate::db::repositories::tipcards::stack_due_repeatable_cards(&state.db, user_id).await?;
-        crate::db::repositories::tipcards::promote_pending_for_empty_topics(&state.db, user_id)
-            .await?;
+        crate::services::tipcards::TipcardService::promote_pending_within_daily_limit(
+            state, user_id,
+        )
+        .await?;
         topics::app_summary(&state.db, user_id, chrono::Utc::now()).await
     }
 
@@ -174,8 +176,10 @@ impl TopicService {
         user_id: &str,
     ) -> AppResult<Vec<topics::AppTopicRecord>> {
         crate::db::repositories::tipcards::stack_due_repeatable_cards(&state.db, user_id).await?;
-        crate::db::repositories::tipcards::promote_pending_for_empty_topics(&state.db, user_id)
-            .await?;
+        crate::services::tipcards::TipcardService::promote_pending_within_daily_limit(
+            state, user_id,
+        )
+        .await?;
         topics::list_app_topics(&state.db, user_id, chrono::Utc::now()).await
     }
 }

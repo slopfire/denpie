@@ -99,6 +99,10 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         .route("/app/tipcard-images/:id", get(serve_tipcard_image))
         .route("/app/pool-images/:id", get(serve_pool_image))
         .route("/app/daily-refresh", post(dashboard::force_daily_refresh))
+        .route(
+            "/app/continue-daily-review",
+            post(dashboard::continue_daily_review),
+        )
         .route("/app/review", post(dashboard::app_review))
         .route(
             "/app/documents",

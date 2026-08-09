@@ -24,6 +24,6 @@ pub use topics::{TopicVisualUpdate, delete_topic_by_id, regenerate_topic_icon};
 pub use transport::unified_api;
 #[allow(unused_imports)]
 pub use types::{
-    ApiResult, ForceDailyRefreshRequest, ForceDailyRefreshResponse, ReviewJsonRequest, TipCardJson,
-    TipsJsonRequest,
+    ApiResult, ContinueDailyReviewRequest, ForceDailyRefreshRequest, ForceDailyRefreshResponse,
+    ReviewJsonRequest, TipCardJson, TipsJsonRequest,
 };

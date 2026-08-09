@@ -197,7 +197,7 @@ async fn test_repeatable_topic_returns_one_new_card_after_review() {
 }
 
 #[tokio::test]
-async fn test_repeatable_tipcards_can_dismiss_and_get_new_card() {
+async fn test_repeatable_tipcards_stop_after_the_default_daily_limit() {
     let (url, client) = spawn_test_server().await;
     let api_key = bootstrap_api_key(&url, &client, "repeatable_flow").await;
 
@@ -259,8 +259,7 @@ async fn test_repeatable_tipcards_can_dismiss_and_get_new_card() {
         crate::api::pb::api_response::Result::Tips(tips) => tips,
         other => panic!("unexpected response: {:?}", other),
     };
-    assert_eq!(second_resp.tips.len(), 1);
-    assert_ne!(second_resp.tips[0].id, first_id);
+    assert!(second_resp.tips.is_empty());
 }
 
 #[tokio::test]
@@ -879,6 +878,310 @@ async fn test_max_active_cards_blocks_new_manual_card_but_keeps_due_cards_availa
     };
     assert_eq!(err.0, axum::http::StatusCode::CONFLICT);
     assert_eq!(err.1, "Max active cards reached");
+}
+
+#[tokio::test]
+async fn repeatable_review_refills_an_empty_queue_at_active_card_limit() {
+    let settings_path = unique_settings_path();
+    fs::write(
+        &settings_path,
+        "admin_token: test_admin_token_xyz\nmax_active_cards: 1\n",
+    )
+    .await
+    .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type, daily_card_count)
+         VALUES ($1, $2, $3, $4) RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .bind("English Grammar")
+    .bind("repeatable_tip")
+    .bind(2_i64)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    let reviewed_card_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "Present perfect",
+        "Use the present perfect for unfinished time periods.",
+        "Present perfect for unfinished time periods.",
+        false,
+        "",
+        "active",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        crate::db::repositories::tipcards::active_card_count(&state.db, TEST_USER_ID)
+            .await
+            .unwrap(),
+        1
+    );
+
+    crate::api::apply_review(&state, TEST_USER_ID, reviewed_card_id, 5, "learned")
+        .await
+        .unwrap();
+    let filler_topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .bind("Capacity filler")
+    .bind("manual_tip")
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        filler_topic_id,
+        "manual_tip",
+        "Keep the cap full",
+        "This due card occupies the configured active-card limit.",
+        "This due card occupies the configured active-card limit.",
+        false,
+        "",
+        "active",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        crate::db::repositories::tipcards::active_card_count(&state.db, TEST_USER_ID)
+            .await
+            .unwrap(),
+        1,
+        "another due card fills the active-card limit after the review"
+    );
+
+    let replacement = crate::api::build_tips(
+        &state,
+        TEST_USER_ID,
+        crate::api::TipsJsonRequest {
+            count: Some(1),
+            topics: "English Grammar".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+            exclude_card_ids: Some(vec![reviewed_card_id]),
+            manual_content: None,
+            manual_compressed_content: None,
+            manual_image_data: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(replacement.len(), 1);
+    assert_ne!(replacement[0].id, reviewed_card_id);
+    assert_eq!(
+        crate::db::repositories::tipcards::active_card_count(&state.db, TEST_USER_ID)
+            .await
+            .unwrap(),
+        2,
+        "the scheduled review and its immediate replacement may coexist"
+    );
+}
+
+#[tokio::test]
+async fn repeatable_cards_stop_at_the_topic_daily_limit_until_continued() {
+    let settings_path = unique_settings_path();
+    fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+        .await
+        .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type, daily_card_count)
+         VALUES ($1, $2, $3, $4) RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .bind("English Grammar")
+    .bind("repeatable_tip")
+    .bind(2_i64)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    let first_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "First card",
+        "First daily card",
+        "First daily card",
+        false,
+        "",
+        "active",
+    )
+    .await
+    .unwrap();
+    let second_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "Second card",
+        "Second daily card",
+        "Second daily card",
+        false,
+        "",
+        "pending",
+    )
+    .await
+    .unwrap();
+    let third_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "Third card",
+        "Third daily card",
+        "Third daily card",
+        false,
+        "",
+        "pending",
+    )
+    .await
+    .unwrap();
+    let fourth_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "Fourth card",
+        "Fourth daily card",
+        "Fourth daily card",
+        false,
+        "",
+        "pending",
+    )
+    .await
+    .unwrap();
+
+    crate::api::apply_review(&state, TEST_USER_ID, first_id, 5, "learned")
+        .await
+        .unwrap();
+    let second = crate::api::build_tips(
+        &state,
+        TEST_USER_ID,
+        crate::api::TipsJsonRequest {
+            count: Some(1),
+            topics: "English Grammar".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+            exclude_card_ids: Some(vec![first_id]),
+            manual_content: None,
+            manual_compressed_content: None,
+            manual_image_data: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        second.iter().map(|card| card.id).collect::<Vec<_>>(),
+        vec![second_id]
+    );
+
+    crate::api::apply_review(&state, TEST_USER_ID, second_id, 5, "learned")
+        .await
+        .unwrap();
+    let stopped = crate::api::build_tips(
+        &state,
+        TEST_USER_ID,
+        crate::api::TipsJsonRequest {
+            count: Some(1),
+            topics: "English Grammar".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+            exclude_card_ids: Some(vec![second_id]),
+            manual_content: None,
+            manual_compressed_content: None,
+            manual_image_data: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        stopped.is_empty(),
+        "the final daily review must not advance itself"
+    );
+
+    let flow_cards =
+        crate::services::tipcards::TipcardService::list_flow_cards(&state, TEST_USER_ID, None, 48)
+            .await
+            .unwrap();
+    assert!(
+        !flow_cards.iter().any(|card| card.id == third_id),
+        "a page refresh must not bypass the daily limit"
+    );
+
+    crate::api::tips::continue_daily_review(
+        &state,
+        TEST_USER_ID,
+        crate::api::ContinueDailyReviewRequest {
+            topics: "English Grammar".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+        },
+    )
+    .await
+    .unwrap();
+    let continued =
+        crate::services::tipcards::TipcardService::list_flow_cards(&state, TEST_USER_ID, None, 48)
+            .await
+            .unwrap();
+    assert!(
+        continued.iter().any(|card| card.id == third_id),
+        "Continue must show the first card in the next full set"
+    );
+
+    crate::api::apply_review(&state, TEST_USER_ID, third_id, 5, "learned")
+        .await
+        .unwrap();
+    let fourth = crate::api::build_tips(
+        &state,
+        TEST_USER_ID,
+        crate::api::TipsJsonRequest {
+            count: Some(1),
+            topics: "English Grammar".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+            exclude_card_ids: Some(vec![third_id]),
+            manual_content: None,
+            manual_compressed_content: None,
+            manual_image_data: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        fourth.iter().map(|card| card.id).collect::<Vec<_>>(),
+        vec![fourth_id],
+        "Continue must add the topic's full daily-card count, not just one card"
+    );
+
+    crate::api::apply_review(&state, TEST_USER_ID, fourth_id, 5, "learned")
+        .await
+        .unwrap();
+    let final_stop = crate::api::build_tips(
+        &state,
+        TEST_USER_ID,
+        crate::api::TipsJsonRequest {
+            count: Some(1),
+            topics: "English Grammar".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+            exclude_card_ids: Some(vec![fourth_id]),
+            manual_content: None,
+            manual_compressed_content: None,
+            manual_image_data: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        final_stop.is_empty(),
+        "the continued set must stop after its configured number of cards"
+    );
 }
 
 #[tokio::test]

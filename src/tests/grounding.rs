@@ -332,7 +332,7 @@ async fn pending_only_topic_promotes_one_card_for_page_load() {
         .unwrap();
     }
 
-    tipcards::promote_pending_for_empty_topics(&pool, user)
+    tipcards::promote_pending_for_empty_topics(&pool, user, &[topic_id])
         .await
         .unwrap();
 

@@ -38,6 +38,12 @@ pub struct ForceDailyRefreshRequest {
     pub tipcard_type: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct ContinueDailyReviewRequest {
+    pub topics: String,
+    pub tipcard_type: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct ForceDailyRefreshResponse {
     pub refreshed_cards: u64,

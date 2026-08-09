@@ -8,8 +8,8 @@ use crate::dashboard::response::TokenSpend;
 use crate::dashboard::util::{current_user, optional_user};
 use crate::services::tips::TipService;
 use crate::types::{
-    ForceDailyRefreshRequest, ForceDailyRefreshResponse, ReviewJsonRequest, TipCardJson,
-    TipsJsonRequest,
+    ContinueDailyReviewRequest, ForceDailyRefreshRequest, ForceDailyRefreshResponse,
+    ReviewJsonRequest, TipCardJson, TipsJsonRequest,
 };
 
 pub async fn token_spend(State(state): State<Arc<AppState>>, session: Session) -> Json<TokenSpend> {
@@ -71,6 +71,17 @@ pub async fn force_daily_refresh(
 ) -> Result<Json<ForceDailyRefreshResponse>, (StatusCode, String)> {
     let user = current_user(&state, &session).await?;
     TipService::force_daily_refresh(&state, &user.id, req)
+        .await
+        .map(Json)
+}
+
+pub async fn continue_daily_review(
+    State(state): State<Arc<AppState>>,
+    session: Session,
+    Json(req): Json<ContinueDailyReviewRequest>,
+) -> Result<Json<ForceDailyRefreshResponse>, (StatusCode, String)> {
+    let user = current_user(&state, &session).await?;
+    TipService::continue_daily_review(&state, &user.id, req)
         .await
         .map(Json)
 }

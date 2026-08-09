@@ -19,6 +19,7 @@ const TRANSMISSION_MAX_PICKS_PER_TOPIC: usize = 3;
 const REVIEWED_PLACEHOLDERS_KEY: &str = "denpie-reviewed-placeholders";
 const FLOW_GRID_COLUMNS_KEY: &str = "denpie-flow-grid-columns";
 const PINNED_CARD_ORDER_KEY: &str = "denpie-pinned-card-order";
+const REPLACEMENT_SKELETON_DELAY_MS: u32 = 180;
 
 #[derive(Deserialize, Serialize, Clone, PartialEq)]
 pub struct TipcardInfo {
@@ -146,10 +147,27 @@ struct CreateTipReq {
 }
 
 #[derive(Serialize)]
+struct ContinueDailyReviewReq {
+    topics: String,
+    tipcard_type: Option<String>,
+}
+
+#[derive(Serialize)]
 struct ReviewReq {
     card_id: i64,
     grade: Option<u8>,
     action: Option<String>,
+}
+
+fn stored_reviewed_placeholders() -> HashMap<i64, TipcardInfo> {
+    web_sys::window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .and_then(|storage| storage.get_item(REVIEWED_PLACEHOLDERS_KEY).ok().flatten())
+        .and_then(|raw| serde_json::from_str::<Vec<TipcardInfo>>(&raw).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|card| (card.id, card))
+        .collect()
 }
 
 #[derive(Serialize)]
@@ -163,20 +181,22 @@ struct PinReq {
 pub fn unified_flow() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
     let i18n = use_i18n();
-    let cards = use_state(Vec::<TipcardInfo>::new);
-    let reviewed_placeholders = use_state(|| {
-        LocalStorage::get::<Vec<TipcardInfo>>(REVIEWED_PLACEHOLDERS_KEY)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|card| (card.id, card))
-            .collect::<HashMap<_, _>>()
+    // Render a saved completion card immediately while the first flow request is
+    // in flight; the response below replaces it when a real card is due.
+    let cards = use_state(|| {
+        stored_reviewed_placeholders()
+            .into_values()
+            .collect::<Vec<_>>()
     });
+    let reviewed_placeholders = use_state(stored_reviewed_placeholders);
     let detail_loaded = use_state(HashMap::<i64, bool>::new);
     let card_heights = use_state(HashMap::<i64, f64>::new);
     let next_cursor = use_state(|| None::<String>);
     let has_more = use_state(|| true);
     let loading = use_state(|| false);
     let pending_count = use_state(|| 0usize);
+    let replacement_pending_topics = use_mut_ref(HashSet::<String>::new);
+    let replacement_loading_topics = use_state(HashSet::<String>::new);
     let pinned_card_order =
         use_state(|| LocalStorage::get::<Vec<i64>>(PINNED_CARD_ORDER_KEY).unwrap_or_default());
     let topics_input =
@@ -223,6 +243,8 @@ pub fn unified_flow() -> Html {
         let next_cursor = next_cursor.clone();
         let has_more = has_more.clone();
         let loading = loading.clone();
+        let replacement_pending_topics = replacement_pending_topics.clone();
+        let replacement_loading_topics = replacement_loading_topics.clone();
         Callback::from(move |reset: bool| {
             if *loading {
                 return;
@@ -233,6 +255,8 @@ pub fn unified_flow() -> Html {
             let next_cursor = next_cursor.clone();
             let has_more = has_more.clone();
             let loading = loading.clone();
+            let replacement_pending_topics = replacement_pending_topics.clone();
+            let replacement_loading_topics = replacement_loading_topics.clone();
             let cursor = if reset { None } else { (*next_cursor).clone() };
             if !reset && cursor.is_none() && !*has_more {
                 return;
@@ -264,7 +288,19 @@ pub fn unified_flow() -> Html {
                                     })
                                     .map(|card| card.topic_name.as_str())
                                     .collect::<HashSet<_>>();
+                                let mut loading_topics = (*replacement_loading_topics).clone();
+                                loading_topics.retain(|topic| {
+                                    !active_repeatable_topics.contains(topic.as_str())
+                                });
+                                replacement_loading_topics.set(loading_topics);
+                                replacement_pending_topics.borrow_mut().retain(|topic| {
+                                    !active_repeatable_topics.contains(topic.as_str())
+                                });
+                                // Read storage again on the first page response. It prevents a
+                                // reload from dropping a completion card while the flow fetch is
+                                // resolving during component initialization.
                                 let mut placeholder_map = (*reviewed_placeholders).clone();
+                                placeholder_map.extend(stored_reviewed_placeholders());
                                 placeholder_map.retain(|id, card| {
                                     !loaded_ids.contains(id)
                                         && !active_repeatable_topics
@@ -415,14 +451,41 @@ pub fn unified_flow() -> Html {
         let reviewed_placeholders = reviewed_placeholders.clone();
         let app_state = app_state.clone();
         let load_cards = load_cards.clone();
+        let replacement_pending_topics = replacement_pending_topics.clone();
+        let replacement_loading_topics = replacement_loading_topics.clone();
         Callback::from(
             move |(id, grade, action): (i64, Option<u8>, Option<String>)| {
                 let cards = cards.clone();
                 let reviewed_placeholders = reviewed_placeholders.clone();
                 let app_state = app_state.clone();
                 let load_cards = load_cards.clone();
+                let replacement_pending_topics = replacement_pending_topics.clone();
+                let replacement_loading_topics = replacement_loading_topics.clone();
                 wasm_bindgen_futures::spawn_local(async move {
                     let reviewed_card = cards.iter().find(|card| card.id == id).cloned();
+                    let reviewed_repeatable_topic = reviewed_card.as_ref().and_then(|card| {
+                        (card.tipcard_type == "repeatable_tip").then(|| card.topic_name.clone())
+                    });
+                    if let Some(topic) = &reviewed_repeatable_topic {
+                        replacement_pending_topics
+                            .borrow_mut()
+                            .insert(topic.clone());
+
+                        let pending_topics = replacement_pending_topics.clone();
+                        let loading_topics = replacement_loading_topics.clone();
+                        let topic = topic.clone();
+                        gloo_timers::callback::Timeout::new(
+                            REPLACEMENT_SKELETON_DELAY_MS,
+                            move || {
+                                if pending_topics.borrow().contains(&topic) {
+                                    let mut loading = (*loading_topics).clone();
+                                    loading.insert(topic);
+                                    loading_topics.set(loading);
+                                }
+                            },
+                        )
+                        .forget();
+                    }
                     let action_name = action.clone().unwrap_or_default();
                     let req = ReviewReq {
                         card_id: id,
@@ -436,6 +499,7 @@ pub fn unified_flow() -> Html {
                         .await
                     {
                         Ok(res) if res.ok() => {
+                            let mut reload_flow = true;
                             if let Some(mut placeholder) = reviewed_card {
                                 if placeholder.tipcard_type == "repeatable_tip" {
                                     let next_req = CreateTipReq {
@@ -459,6 +523,17 @@ pub fn unified_flow() -> Html {
                                         _ => false,
                                     };
                                     if !next_ready {
+                                        // Keep the completion card mounted. Reloading the flow
+                                        // here races the state update above and can replace the
+                                        // newly inserted placeholder with an empty page.
+                                        reload_flow = false;
+                                        replacement_pending_topics
+                                            .borrow_mut()
+                                            .remove(&placeholder.topic_name);
+                                        let mut loading_topics =
+                                            (*replacement_loading_topics).clone();
+                                        loading_topics.remove(&placeholder.topic_name);
+                                        replacement_loading_topics.set(loading_topics);
                                         placeholder.status = "reviewed".to_string();
                                         placeholder.review_message =
                                             Some(review_placeholder_message(
@@ -500,42 +575,50 @@ pub fn unified_flow() -> Html {
                                     );
                                 }
                             }
-                            load_cards.emit(true);
+                            if reload_flow {
+                                load_cards.emit(true);
+                            }
                         }
-                        _ => toast(&app_state, "Review failed"),
+                        _ => {
+                            if let Some(topic) = reviewed_repeatable_topic {
+                                replacement_pending_topics.borrow_mut().remove(&topic);
+                                let mut loading_topics = (*replacement_loading_topics).clone();
+                                loading_topics.remove(&topic);
+                                replacement_loading_topics.set(loading_topics);
+                            }
+                            toast(&app_state, "Review failed");
+                        }
                     }
                 });
             },
         )
     };
 
-    let on_learn_more_cb = {
+    let on_continue_cb = {
         let app_state = app_state.clone();
         let load_cards = load_cards.clone();
         Callback::from(move |(topic, tipcard_type): (String, String)| {
             let app_state = app_state.clone();
             let load_cards = load_cards.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let req = CreateTipReq {
-                    count: Some(5),
+                let req = ContinueDailyReviewReq {
                     topics: topic,
                     tipcard_type: Some(tipcard_type),
-                    manual_content: None,
-                    manual_image_data: None,
-                    exclude_card_ids: None,
                 };
-                let loaded = match Request::post("/app/tips").json(&req).unwrap().send().await {
-                    Ok(response) if response.ok() => response
-                        .json::<Vec<serde_json::Value>>()
-                        .await
-                        .is_ok_and(|cards| !cards.is_empty()),
+                let loaded = match Request::post("/app/continue-daily-review")
+                    .json(&req)
+                    .unwrap()
+                    .send()
+                    .await
+                {
+                    Ok(response) if response.ok() => true,
                     _ => false,
                 };
                 if loaded {
-                    toast(&app_state, "More cards loaded");
+                    toast(&app_state, "Continuing today's review");
                     load_cards.emit(true);
                 } else {
-                    toast(&app_state, "Could not load more cards");
+                    toast(&app_state, "Could not continue today's review");
                 }
             });
         })
@@ -844,7 +927,7 @@ pub fn unified_flow() -> Html {
                 key={card_key.clone()}
                 card={card}
                 on_review={on_review_cb.clone()}
-                on_learn_more={on_learn_more_cb.clone()}
+                on_continue={on_continue_cb.clone()}
                 on_toggle_pin={on_toggle_pin_cb.clone()}
                 on_delete={on_delete_cb.clone()}
                 on_reorder={on_reorder_pinned.clone()}
@@ -1088,11 +1171,29 @@ pub fn unified_flow() -> Html {
             >
                 {
                     for (0..*pending_count).map(|i| html! {
-                        <FlowCardSkeleton key={format!("skeleton-{i}")} list_mode={list_mode} />
+                        <FlowCardSkeleton
+                            key={format!("skeleton-{i}")}
+                            list_mode={list_mode}
+                            label="Generating card"
+                        />
                     })
                 }
                 {
-                    for transmission_picks.iter().map(|card| render_flow_card(card, false))
+                    for transmission_picks.iter().map(|card| {
+                        if card.tipcard_type == "repeatable_tip"
+                            && replacement_loading_topics.contains(&card.topic_name)
+                        {
+                            html! {
+                                <FlowCardSkeleton
+                                    key={format!("replacement-skeleton:{}", card.topic_name)}
+                                    list_mode={list_mode}
+                                    label="Loading next card"
+                                />
+                            }
+                        } else {
+                            render_flow_card(card, false)
+                        }
+                    })
                 }
             </div>
 
@@ -1324,19 +1425,19 @@ fn split_topic_picks(cards: &[TipcardInfo]) -> (Vec<TipcardInfo>, Vec<TipcardInf
 fn review_placeholder_message(action: &str, _previous_review_at: &str) -> String {
     match action {
         "again" | "repeat" => {
-            "Saved for another review. It will return on its SM-2 schedule.".to_string()
+            "Saved for another review on its SM-2 schedule. Come back tomorrow, or continue with another card now.".to_string()
         }
         "learned" | "memorize" => {
-            "Marked as learned. It will return when SM-2 schedules it.".to_string()
+            "Marked as learned on its SM-2 schedule. Come back tomorrow, or continue with another card now.".to_string()
         }
-        "skip_known" => "Skipped as already known. The next card will build beyond it.".to_string(),
+        "skip_known" => "Skipped as already known. Come back tomorrow, or continue with another card now.".to_string(),
         "skip_too_difficult" => {
-            "Skipped as too difficult. The next card will be an easier step.".to_string()
+            "Skipped as too difficult. Come back tomorrow, or continue with another card now.".to_string()
         }
         "skip_not_interested" | "dismiss" => {
-            "Skipped as not interesting. Future cards will change direction.".to_string()
+            "Skipped as not interesting. Come back tomorrow, or continue with another card now.".to_string()
         }
-        _ => "Review saved. This card will return on its schedule.".to_string(),
+        _ => "Review saved on its schedule. Come back tomorrow, or continue with another card now.".to_string(),
     }
 }
 

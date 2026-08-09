@@ -95,6 +95,34 @@ pub async fn active_card_count(pool: &PgPool, user_id: &str) -> AppResult<i64> {
     .await?)
 }
 
+/// Count distinct repeatable cards reviewed in a topic's current daily window.
+///
+/// `reviewed_at` is updated by every repeatable review, so this measures cards
+/// that have actually been worked through rather than the generated backlog.
+pub async fn count_reviewed_in_window(
+    pool: &PgPool,
+    user_id: &str,
+    topic_id: i64,
+    daily_window_start: DateTime<Utc>,
+) -> AppResult<usize> {
+    let count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)
+         FROM review_states r
+         JOIN tipcards t ON t.id = r.card_id
+         WHERE t.user_id = $1
+           AND t.topic_id = $2
+           AND t.tipcard_type = 'repeatable_tip'
+           AND r.reviewed_at >= $3",
+    )
+    .bind(user_id)
+    .bind(topic_id)
+    .bind(daily_window_start)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(count.max(0) as usize)
+}
+
 pub async fn has_active_topic_card(pool: &PgPool, user_id: &str, topic_id: i64) -> AppResult<bool> {
     Ok(sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS(

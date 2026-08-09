@@ -8,6 +8,9 @@ use crate::{
     },
 };
 
+#[cfg(test)]
+use crate::types::ContinueDailyReviewRequest;
+
 pub async fn build_tips(
     state: &AppState,
     user_id: &str,
@@ -22,6 +25,15 @@ pub async fn force_daily_refresh(
     req: ForceDailyRefreshRequest,
 ) -> ApiResult<ForceDailyRefreshResponse> {
     TipService::force_daily_refresh(state, user_id, req).await
+}
+
+#[cfg(test)]
+pub async fn continue_daily_review(
+    state: &AppState,
+    user_id: &str,
+    req: ContinueDailyReviewRequest,
+) -> ApiResult<ForceDailyRefreshResponse> {
+    TipService::continue_daily_review(state, user_id, req).await
 }
 
 pub async fn refresh_due_daily_topics(state: &AppState) -> ApiResult<u64> {

@@ -57,7 +57,15 @@ pub async fn park_unseen_active_topic_cards(
     Ok(())
 }
 
-pub async fn promote_pending_for_empty_topics(pool: &PgPool, user_id: &str) -> AppResult<()> {
+pub async fn promote_pending_for_empty_topics(
+    pool: &PgPool,
+    user_id: &str,
+    eligible_topic_ids: &[i64],
+) -> AppResult<()> {
+    if eligible_topic_ids.is_empty() {
+        return Ok(());
+    }
+
     let now = Utc::now();
     sqlx::query(
         "WITH candidates AS (
@@ -71,6 +79,7 @@ pub async fn promote_pending_for_empty_topics(pool: &PgPool, user_id: &str) -> A
             WHERE t.user_id = $1
               AND t.tipcard_type = 'repeatable_tip'
               AND r.status = 'pending'
+              AND t.topic_id = ANY($4)
               AND t.created_at >= COALESCE((
                   SELECT MAX(r3.reviewed_at)
                   FROM review_states r3
@@ -98,6 +107,7 @@ pub async fn promote_pending_for_empty_topics(pool: &PgPool, user_id: &str) -> A
     .bind(user_id)
     .bind(now)
     .bind(now)
+    .bind(eligible_topic_ids)
     .execute(pool)
     .await?;
     Ok(())

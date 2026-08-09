@@ -3,6 +3,7 @@ use crate::components::card_image_picker::CardImagePicker;
 use crate::components::image_lightbox::ImageLightbox;
 use crate::components::tooltip::ShadcnTooltip;
 use crate::components::unified_flow::TipcardInfo;
+use crate::i18n::use_i18n;
 use crate::markdown::render_markdown;
 use crate::topic_visual::display_icon;
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
@@ -39,7 +40,7 @@ pub struct FlowCardProps {
     pub card: TipcardInfo,
     pub on_review: Callback<(i64, Option<u8>, Option<String>)>,
     #[prop_or_default]
-    pub on_learn_more: Callback<(String, String)>,
+    pub on_continue: Callback<(String, String)>,
     pub on_toggle_pin: Callback<(i64, bool)>,
     pub on_delete: Callback<i64>,
     #[prop_or_default]
@@ -133,6 +134,7 @@ fn human_datetime(value: &str) -> String {
 
 #[function_component(FlowCard)]
 pub fn flow_card(props: &FlowCardProps) -> Html {
+    let i18n = use_i18n();
     let expanded = use_state(|| false);
     let copied = use_state(|| false);
     let lightbox_index = use_state(|| None::<usize>);
@@ -174,7 +176,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let html_content = render_markdown(displayed_text);
 
     let on_review = props.on_review.clone();
-    let on_learn_more = props.on_learn_more.clone();
+    let on_continue = props.on_continue.clone();
     let on_toggle_pin = props.on_toggle_pin.clone();
     let on_delete = props.on_delete.clone();
     let on_reorder = props.on_reorder.clone();
@@ -538,31 +540,59 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                     </div>
                 }
 
-                <div class={classes!(content_class, "card-text", card.review_message.is_some().then_some("muted-surface border border-token p-4"), if *expanded && has_compact { "is-expanded" } else { "is-compact" })}>
-                    <div class="card-text-body markdown-content">
-                        { Html::from_html_unchecked(AttrValue::from(html_content)) }
-                        if has_compact && !fullscreen {
-                            <ShadcnTooltip content={if *expanded { "Show compact text" } else { "Expand text" }}>
-                                <button onclick={toggle_expand} class="card-inline-expand rounded-md border border-token">
-                                    <iconify-icon icon={if *expanded { "radix-icons:double-arrow-up" } else { "radix-icons:double-arrow-down" }} class="radix-icon"></iconify-icon>
-                                </button>
-                            </ShadcnTooltip>
-                        }
+                if card.review_message.is_some() {
+                    <div
+                        data-review-placeholder="true"
+                        class="card-review-placeholder muted-surface border border-token rounded-md flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
+                    >
+                        <span class="inline-flex size-10 items-center justify-center rounded-full bg-primary-soft text-primary">
+                            <iconify-icon icon="radix-icons:check-circled" class="radix-icon text-xl" aria-hidden="true"></iconify-icon>
+                        </span>
+                        <div class="max-w-md space-y-1.5">
+                            <p class="text-base font-semibold">{i18n.t("flow.daily_complete_title")}</p>
+                            <div class="markdown-content text-sm leading-6 text-muted">
+                                { Html::from_html_unchecked(AttrValue::from(html_content)) }
+                            </div>
+                        </div>
                     </div>
-                </div>
+                } else {
+                    <div class={classes!(content_class, "card-text", if *expanded && has_compact { "is-expanded" } else { "is-compact" })}>
+                        <div class="card-text-body markdown-content">
+                            { Html::from_html_unchecked(AttrValue::from(html_content)) }
+                            if has_compact && !fullscreen {
+                                <ShadcnTooltip content={if *expanded { "Show compact text" } else { "Expand text" }}>
+                                    <button onclick={toggle_expand} class="card-inline-expand rounded-md border border-token">
+                                        <iconify-icon icon={if *expanded { "radix-icons:double-arrow-up" } else { "radix-icons:double-arrow-down" }} class="radix-icon"></iconify-icon>
+                                    </button>
+                                </ShadcnTooltip>
+                            }
+                        </div>
+                    </div>
+                }
 
                 <div class="card-actions mt-5 pt-4 border-t border-token flex items-center gap-2">
                     if card.status != "active" {
-                        <div class="muted-surface border border-token p-2 flex-1 text-center text-sm font-medium text-muted">{"Review saved"}</div>
                         if card.tipcard_type == "repeatable_tip" && card.review_message.is_some() {
-                            <ShadcnButton
-                                variant={ButtonVariant::Default}
-                                onclick={Callback::from({
-                                    let topic_name = card.topic_name.clone();
-                                    let tipcard_type = card.tipcard_type.clone();
-                                    move |_| on_learn_more.emit((topic_name.clone(), tipcard_type.clone()))
-                                })}
-                            >{"Learn more"}</ShadcnButton>
+                            <div class="flex flex-1 items-center gap-2 text-sm font-medium text-muted">
+                                <iconify-icon icon="radix-icons:check" class="radix-icon text-primary" aria-hidden="true"></iconify-icon>
+                                <span>{i18n.t("flow.daily_complete_status")}</span>
+                            </div>
+                            <ShadcnTooltip content={i18n.t("flow.continue_tooltip")}>
+                                <ShadcnButton
+                                    variant={ButtonVariant::Outline}
+                                    class={classes!("gap-2")}
+                                    onclick={Callback::from({
+                                        let topic_name = card.topic_name.clone();
+                                        let tipcard_type = card.tipcard_type.clone();
+                                        move |_| on_continue.emit((topic_name.clone(), tipcard_type.clone()))
+                                    })}
+                                >
+                                    <iconify-icon icon="radix-icons:arrow-right" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                    {i18n.t("flow.continue")}
+                                </ShadcnButton>
+                            </ShadcnTooltip>
+                        } else {
+                            <div class="muted-surface border border-token p-2 flex-1 text-center text-sm font-medium text-muted">{"Review saved"}</div>
                         }
                     } else if card.tipcard_type == "casual_tip" || card.tipcard_type == "manual_tip" {
                         <ShadcnTooltip content="Dismiss" class={classes!("flex-1")}>
@@ -919,6 +949,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
 #[derive(Properties, PartialEq)]
 pub struct FlowCardSkeletonProps {
     pub list_mode: bool,
+    pub label: AttrValue,
 }
 
 #[function_component(FlowCardSkeleton)]
@@ -930,7 +961,7 @@ pub fn flow_card_skeleton(props: &FlowCardSkeletonProps) -> Html {
     };
 
     html! {
-        <article class={article_classes} aria-busy="true" aria-label="Generating card">
+        <article class={article_classes} aria-busy="true" aria-label={props.label.clone()}>
             <div class="p-4 flex flex-col flex-1">
                 <div class="flex justify-between items-start gap-3 border-b border-token pb-3 mb-4">
                     <div class="flex items-center gap-2 min-w-0 flex-1">

@@ -11,8 +11,8 @@ use crate::{
         topics::TopicService,
     },
     types::{
-        ApiResult, ForceDailyRefreshRequest, ForceDailyRefreshResponse, TipCardJson,
-        TipsJsonRequest,
+        ApiResult, ContinueDailyReviewRequest, ForceDailyRefreshRequest, ForceDailyRefreshResponse,
+        TipCardJson, TipsJsonRequest,
     },
 };
 
@@ -126,9 +126,7 @@ impl TipService {
                 continue;
             }
 
-            let daily_card_count = if is_queue_tipcard(&topic.tipcard_type)
-                || topic.tipcard_type == "repeatable_tip"
-            {
+            let daily_card_count = if is_queue_tipcard(&topic.tipcard_type) {
                 1
             } else {
                 domain::scheduling::topic_daily_card_count(&topic)
@@ -208,6 +206,37 @@ impl TipService {
                 .await
                 .map_err(|err| err.into_status_body())?;
                 let daily_count = daily_cards.len();
+                let reviewed_count = if topic.tipcard_type == "repeatable_tip" {
+                    tipcards::count_reviewed_in_window(
+                        &state.db,
+                        user_id,
+                        topic.id,
+                        daily_window_start,
+                    )
+                    .await
+                    .map_err(|err| err.into_status_body())?
+                } else {
+                    0
+                };
+                let daily_review_limit = if topic.tipcard_type == "repeatable_tip" {
+                    let extra_cards = tipcards::extra_cards_in_window(
+                        &state.db,
+                        user_id,
+                        topic.id,
+                        &topic.tipcard_type,
+                        daily_window_start,
+                    )
+                    .await
+                    .map_err(|err| err.into_status_body())?;
+                    daily_card_count.saturating_add(extra_cards)
+                } else {
+                    daily_card_count
+                };
+                let remaining_daily_cards = if topic.tipcard_type == "repeatable_tip" {
+                    daily_review_limit.saturating_sub(reviewed_count)
+                } else {
+                    daily_card_count.saturating_sub(daily_count)
+                };
                 for card in daily_cards {
                     responses.push(tip_response_json(
                         card.id,
@@ -219,7 +248,11 @@ impl TipService {
                         card.pinned,
                     ));
                 }
-                if topic.tipcard_type == "repeatable_tip" && daily_count == 0 {
+                let mut needs_review_replacement = false;
+                if topic.tipcard_type == "repeatable_tip"
+                    && daily_count == 0
+                    && remaining_daily_cards > 0
+                {
                     // An excluded card can still be due when callers are merely
                     // paginating. Only promote its replacement after review has
                     // actually moved it off the due queue.
@@ -236,6 +269,10 @@ impl TipService {
                         .map_err(|err| err.into_status_body())?
                         .is_empty();
                     if !excluded_card_is_still_due {
+                        // The dashboard excludes the card it just reviewed. That card
+                        // remains scheduled as active, so generating its replacement
+                        // must not be blocked by the user's active-card limit.
+                        needs_review_replacement = !exclude_card_ids.is_empty();
                         let image_strategy = domain::grounding::ImageStrategy::from_setting(
                             topic
                                 .image_strategy
@@ -272,10 +309,13 @@ impl TipService {
                         }
                     }
                 }
-                let remaining_daily_cards = daily_card_count.saturating_sub(daily_count);
-                let cards_to_generate = active_room.map_or(remaining_daily_cards, |room| {
-                    remaining_daily_cards.min(room)
-                });
+                let cards_to_generate = if needs_review_replacement {
+                    remaining_daily_cards
+                } else {
+                    active_room.map_or(remaining_daily_cards, |room| {
+                        remaining_daily_cards.min(room)
+                    })
+                };
                 if cards_to_generate > 0 {
                     daily_refresh::mark_window_refreshed(
                         &state.db,
@@ -413,6 +453,81 @@ impl TipService {
             )
             .await?;
         }
+        Ok(ForceDailyRefreshResponse { refreshed_cards })
+    }
+
+    /// Start one more full daily set for a repeatable topic in the current
+    /// daily window. The immediate card is rotated into view now; subsequent
+    /// cards are delivered normally as the learner reviews this additional set.
+    pub async fn continue_daily_review(
+        state: &AppState,
+        user_id: &str,
+        req: ContinueDailyReviewRequest,
+    ) -> ApiResult<ForceDailyRefreshResponse> {
+        let topic_names = req
+            .topics
+            .split(',')
+            .map(str::trim)
+            .filter(|topic| !topic.is_empty())
+            .count();
+        if topic_names != 1 || req.tipcard_type.as_deref() != Some("repeatable_tip") {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Continue is only available for one repeatable topic".to_string(),
+            ));
+        }
+
+        let targets = Self::force_refresh_targets(
+            state,
+            user_id,
+            ForceDailyRefreshRequest {
+                topics: req.topics,
+                tipcard_type: req.tipcard_type,
+            },
+        )
+        .await?;
+        if targets.len() != 1 || targets[0].0.tipcard_type != "repeatable_tip" {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Continue is only available for one repeatable topic".to_string(),
+            ));
+        }
+
+        let refreshed_cards =
+            Self::generate_fresh_daily_cards(state, user_id, &targets, true).await?;
+        if refreshed_cards == 0 {
+            return Err((
+                StatusCode::CONFLICT,
+                "Could not prepare another card to continue this review".to_string(),
+            ));
+        }
+
+        let defaults = state
+            .settings
+            .get_settings()
+            .map_err(|err| err.into_status_body())?;
+        let settings = user_settings::get(&state.db, user_id, defaults)
+            .await
+            .map_err(|err| err.into_status_body())?;
+        let topic = &targets[0].0;
+        let daily_window_start = domain::scheduling::topic_daily_window_start(
+            topic,
+            &settings.daily_time_zone,
+            &settings.daily_update_time,
+        );
+        let extra_cards = domain::scheduling::topic_daily_card_count(topic);
+        tipcards::add_extra_cards(
+            &state.db,
+            user_id,
+            topic.id,
+            &topic.tipcard_type,
+            daily_window_start,
+            extra_cards,
+        )
+        .await
+        .map_err(|err| err.into_status_body())?;
+        Self::mark_targets_current_window(state, user_id, &targets).await?;
+
         Ok(ForceDailyRefreshResponse { refreshed_cards })
     }
 
@@ -625,6 +740,7 @@ impl TipService {
                     .map_err(|err| err.into_status_body())?;
             }
             let primary_status = if topic.tipcard_type == "repeatable_tip"
+                && !rotate_repeatable
                 && tipcards::has_active_topic_card(&state.db, user_id, topic.id)
                     .await
                     .map_err(|err| err.into_status_body())?

@@ -4,6 +4,7 @@ pub(crate) mod models;
 pub(crate) mod queries;
 
 mod context_titles;
+mod daily_allowances;
 mod flow;
 mod images;
 mod info;
@@ -12,6 +13,7 @@ mod queue;
 mod writes;
 
 pub use context_titles::list_context_titles;
+pub use daily_allowances::{add_extra_cards, extra_cards_in_window};
 pub use flow::list_flow_cards;
 pub use images::{
     append_image_records, find_image, list_images, list_images_for_cards, replace_image_records,
@@ -28,7 +30,8 @@ pub use pending::{
     replace_unseen_with_pending_card, stack_due_repeatable_cards, take_pending_card,
 };
 pub use queue::{
-    active_card_count, find_daily_topic_cards, find_due_topic_cards, has_active_topic_card,
+    active_card_count, count_reviewed_in_window, find_daily_topic_cards, find_due_topic_cards,
+    has_active_topic_card,
 };
 pub use writes::{
     create_custom, create_generated_with_status, create_manual, delete_with_review, set_pinned,
