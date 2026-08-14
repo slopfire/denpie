@@ -201,7 +201,12 @@ remain plain-text for compatibility. New clients should use `/api/v1`.
 
 - Versioned requests are limited to 56 MiB so a manual card can carry up to four
   validated image data URLs. Individual decoded images remain limited to 10 MiB.
-- API v1 is rate-limited per source IP at 10 requests/second with a burst of 50.
+- `POST /api/v1` is rate-limited per source IP at 10 requests/second with a
+  burst of 50. Authenticated image downloads (`GET /api/v1/tipcard-images/:id`
+  and `GET /api/v1/pool-images/:id`) use a separate limit of 50/second with a
+  burst of 200 so a page of card thumbnails cannot starve review mutations.
+- A 429 on `POST /api/v1` is a protobuf `RATE_LIMITED` error (`retryable=true`).
+  The mutation did not run; retry the same envelope after `Retry-After`.
 - Retry only when `ApiError.retryable` is true. When retrying a mutation, reuse
   its original idempotency key and payload; never generate a new key for an
   ambiguous attempt.

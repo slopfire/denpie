@@ -600,6 +600,58 @@ fn v1_error_response(status: StatusCode, request_id: String, message: String) ->
     response
 }
 
+/// Replace a middleware/proxy plain-text or HTML error with the documented
+/// `ApiV1Response.error` envelope so the browser never tries to decode
+/// `"Too Many Requests"` or `<!DOCTYPE html>` as protobuf.
+pub async fn replace_non_protobuf_v1_error(response: Response) -> Response {
+    if response.status().is_success() || is_protobuf_content_type(response.headers()) {
+        return response;
+    }
+    let status = response.status();
+    let retry_after = response.headers().get(header::RETRY_AFTER).cloned();
+    let request_id = response
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let body = axum::body::to_bytes(response.into_body(), 8 * 1024)
+        .await
+        .unwrap_or_default();
+    v1_error_from_plain_response(status, retry_after, request_id.as_deref(), &body)
+}
+
+fn v1_error_from_plain_response(
+    status: StatusCode,
+    retry_after: Option<HeaderValue>,
+    existing_request_id: Option<&str>,
+    body: &[u8],
+) -> Response {
+    let request_id = existing_request_id
+        .filter(|id| valid_request_id(id))
+        .map(str::to_owned)
+        .unwrap_or_else(generate_request_id);
+    let mut response = v1_error_response(status, request_id, plain_error_message(status, body));
+    if let Some(retry_after) = retry_after {
+        response
+            .headers_mut()
+            .insert(header::RETRY_AFTER, retry_after);
+    }
+    response
+}
+
+fn plain_error_message(status: StatusCode, body: &[u8]) -> String {
+    if status == StatusCode::TOO_MANY_REQUESTS {
+        return "Too many requests; retry shortly".to_string();
+    }
+    let text = String::from_utf8_lossy(body);
+    let text = text.trim();
+    if text.is_empty() || text.starts_with('<') {
+        format!("HTTP {} response was not protobuf", status.as_u16())
+    } else {
+        text.chars().take(300).collect()
+    }
+}
+
 fn v1_result_response(
     request_id: String,
     result: Result<pb::ApiResponse, (StatusCode, String)>,
@@ -1283,6 +1335,57 @@ mod contract_tests {
         assert_eq!(
             review_action_value(pb::ReviewActionValue::SkipNotInterested as i32).unwrap(),
             "skip_not_interested"
+        );
+    }
+
+    #[test]
+    fn governor_text_429_becomes_structured_rate_limit() {
+        use axum::http::HeaderValue;
+
+        let message = plain_error_message(StatusCode::TOO_MANY_REQUESTS, b"Too Many Requests");
+        assert_eq!(message, "Too many requests; retry shortly");
+        let (status, envelope) = v1_message_from_result(
+            "req_rate".into(),
+            Err((StatusCode::TOO_MANY_REQUESTS, message)),
+        );
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        match envelope.outcome {
+            Some(pb::api_v1_response::Outcome::Error(err)) => {
+                assert_eq!(err.code, pb::ApiErrorCode::RateLimited as i32);
+                assert!(err.retryable);
+            }
+            other => panic!("expected rate-limit error, got {other:?}"),
+        }
+
+        let response = v1_error_from_plain_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            Some(HeaderValue::from_static("1")),
+            None,
+            b"Too Many Requests",
+        );
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers()[header::RETRY_AFTER], "1");
+        assert!(is_protobuf_content_type(response.headers()));
+    }
+
+    #[test]
+    fn html_error_page_is_rewritten_without_leaking_markup() {
+        let message = plain_error_message(
+            StatusCode::BAD_GATEWAY,
+            b"<!DOCTYPE html><html>bad gateway</html>",
+        );
+        assert_eq!(message, "HTTP 502 response was not protobuf");
+
+        let response = v1_error_from_plain_response(
+            StatusCode::BAD_GATEWAY,
+            None,
+            Some("req_html"),
+            b"<!DOCTYPE html><html>bad gateway</html>",
+        );
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(
+            response.headers()["x-request-id"].to_str().unwrap(),
+            "req_html"
         );
     }
 }

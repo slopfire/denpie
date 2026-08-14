@@ -16,7 +16,7 @@ searches.
 | 409 | `CONFLICT` | State conflict, capacity limit, or idempotency conflict | no, except an in-progress identical mutation |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | Request is not protobuf | no |
 | 422 | `INVALID_ARGUMENT` | Semantically unprocessable input | no |
-| 429 | `RATE_LIMITED` | Per-source-IP rate limit | yes |
+| 429 | `RATE_LIMITED` | Per-source-IP rate limit on `POST /api/v1` | yes |
 | 500-599 | `INTERNAL` | Database, filesystem, configuration, conversion, or upstream failure | yes |
 
 The server is authoritative: use the returned `retryable` value rather than
@@ -30,6 +30,7 @@ Some failures occur before Denpie can return a protobuf body:
 | Observation | Meaning | Client action |
 |---|---|---|
 | DNS, connection, or TLS error | The request did not receive an HTTP response | Retry reads with backoff. Retry a mutation only with its original key and exact payload. |
+| HTTP 429 with protobuf `RATE_LIMITED` | Denpie rejected the request at the `POST /api/v1` limiter | The mutation did not run. Honor `Retry-After` and reuse the same idempotency key. |
 | Proxy-generated HTML/plain text | A reverse proxy rejected or failed the request | Record status/body/request headers; retry only if proxy policy and mutation rules allow. |
 | HTTP response with truncated/invalid protobuf | Connection or intermediary corrupted the response | Treat the mutation outcome as ambiguous and retry only with the same key and payload. |
 | 502/503/504 from a proxy | Upstream unavailable or timed out | Honor `Retry-After` when present and use exponential backoff with jitter. |

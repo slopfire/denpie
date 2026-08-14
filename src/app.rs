@@ -2,7 +2,7 @@ use axum::{
     Router,
     body::Body,
     extract::{DefaultBodyLimit, Path, Request, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, Method, StatusCode},
     http::{HeaderValue, header},
     middleware::Next,
     response::{IntoResponse, Response},
@@ -56,6 +56,16 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
         GovernorConfigBuilder::default()
             .per_second(10)
             .burst_size(50)
+            .finish()
+            .unwrap(),
+    );
+    // Card and pool image GETs are same-origin <img> loads. Sharing the POST
+    // /api/v1 burst of 50 with a page of thumbnails 429s review clicks and
+    // used to return plain text the WASM client decoded as protobuf.
+    let image_governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(50)
+            .burst_size(200)
             .finish()
             .unwrap(),
     );
@@ -198,11 +208,18 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
                 crate::domain::tipcard::MAX_IMAGE_REQUEST_BYTES,
             )),
         )
-        .route("/api/v1/tipcard-images/:id", get(api::api_tipcard_image))
-        .route("/api/v1/pool-images/:id", get(api::api_pool_image))
         .layer(GovernorLayer {
             config: api_governor_conf,
-        });
+        })
+        .layer(axum::middleware::from_fn(ensure_v1_protobuf_errors))
+        .merge(
+            Router::new()
+                .route("/api/v1/tipcard-images/:id", get(api::api_tipcard_image))
+                .route("/api/v1/pool-images/:id", get(api::api_pool_image))
+                .layer(GovernorLayer {
+                    config: image_governor_conf,
+                }),
+        );
 
     let frontend_serve = ServeDir::new(frontend_dist.clone()).fallback(
         tower_http::services::ServeFile::new(frontend_dist.join("index.html")),
@@ -332,6 +349,16 @@ async fn serve_pool_image(
 
 async fn not_found() -> StatusCode {
     StatusCode::NOT_FOUND
+}
+
+async fn ensure_v1_protobuf_errors(req: Request<Body>, next: Next) -> Response {
+    let rewrite = req.method() == Method::POST && req.uri().path() == "/api/v1";
+    let response = next.run(req).await;
+    if rewrite {
+        api::replace_non_protobuf_v1_error(response).await
+    } else {
+        response
+    }
 }
 
 async fn service_worker() -> Response {

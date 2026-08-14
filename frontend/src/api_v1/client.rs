@@ -74,6 +74,59 @@ pub fn decode_response(bytes: &[u8]) -> Result<pb::ApiV1Response, ApiError> {
     })
 }
 
+fn is_protobuf_content_type(content_type: Option<&str>) -> bool {
+    content_type
+        .and_then(|value| value.split(';').next())
+        .map(str::trim)
+        .is_some_and(|value| {
+            value.eq_ignore_ascii_case("application/x-protobuf")
+                || value.eq_ignore_ascii_case("application/protobuf")
+        })
+}
+
+fn error_from_non_protobuf(status: u16, bytes: &[u8]) -> ApiError {
+    let text = String::from_utf8_lossy(bytes);
+    let text = text.trim();
+    let message = if status == 429 {
+        "Too many requests; retry shortly".to_string()
+    } else if text.starts_with('<') {
+        format!("HTTP {status} returned a web page instead of an API response")
+    } else if !text.is_empty() && text.len() <= 300 && !text.contains('\0') {
+        text.to_string()
+    } else if status == 0 {
+        "Invalid protobuf response".to_string()
+    } else {
+        format!("HTTP {status} response was not protobuf")
+    };
+    ApiError {
+        status,
+        message,
+        retryable: status == 429 || (500..600).contains(&status),
+        // 4xx bodies (including 429) were rejected before the handler ran.
+        mutation_outcome_indeterminate: (500..600).contains(&status),
+        request_id: String::new(),
+    }
+}
+
+pub fn decode_http_response(
+    status: u16,
+    content_type: Option<&str>,
+    bytes: &[u8],
+) -> Result<pb::ApiV1Response, ApiError> {
+    let declared_protobuf = is_protobuf_content_type(content_type);
+    if content_type.is_some() && !declared_protobuf {
+        return Err(error_from_non_protobuf(status, bytes));
+    }
+    match decode_response(bytes) {
+        Ok(decoded) => Ok(decoded),
+        Err(mut err) if declared_protobuf => {
+            err.status = status;
+            Err(err)
+        }
+        Err(_) => Err(error_from_non_protobuf(status, bytes)),
+    }
+}
+
 /// POST a built envelope and return the success `ApiResponse` body.
 pub async fn call_envelope(envelope: pb::ApiV1Request) -> ApiResult<pb::ApiResponse> {
     let body = encode_request(&envelope);
@@ -98,6 +151,7 @@ pub async fn call_envelope(envelope: pb::ApiV1Request) -> ApiResult<pb::ApiRespo
         })?;
 
     let status = response.status();
+    let content_type = response.headers().get("content-type");
     let bytes = response.binary().await.map_err(|err| ApiError {
         status,
         message: format!("Failed to read response body: {err}"),
@@ -106,7 +160,7 @@ pub async fn call_envelope(envelope: pb::ApiV1Request) -> ApiResult<pb::ApiRespo
         request_id: envelope.request_id.clone(),
     })?;
 
-    let decoded = decode_response(&bytes)?;
+    let decoded = decode_http_response(status, content_type.as_deref(), &bytes)?;
     match decoded.outcome {
         Some(api_v1_response::Outcome::Success(success)) => {
             if !(200..300).contains(&status) {
@@ -346,5 +400,46 @@ mod tests {
             "Mutation outcome could not be recorded; retry only with the same idempotency key",
             true,
         ));
+    }
+
+    #[test]
+    fn text_429_is_not_decoded_as_protobuf() {
+        let err = decode_http_response(429, Some("text/plain"), b"Too Many Requests")
+            .expect_err("plain 429 must not be parsed as protobuf");
+        assert_eq!(err.status, 429);
+        assert!(err.message.to_ascii_lowercase().contains("too many"));
+        assert!(err.retryable);
+        assert!(
+            !err.mutation_outcome_indeterminate,
+            "429 is rejected before the mutation runs"
+        );
+    }
+
+    #[test]
+    fn html_error_page_is_not_an_end_group_tag() {
+        let err = decode_http_response(
+            502,
+            Some("text/html"),
+            b"<!DOCTYPE html><html>bad gateway</html>",
+        )
+        .expect_err("HTML must not be parsed as protobuf");
+        assert_eq!(err.status, 502);
+        assert!(err.message.contains("web page"));
+        assert!(err.retryable);
+        assert!(err.mutation_outcome_indeterminate);
+        assert!(
+            !err.message.contains("end group"),
+            "got opaque protobuf error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn missing_content_type_still_tries_protobuf_then_falls_back() {
+        let err = decode_http_response(429, None, b"Too Many Requests")
+            .expect_err("text without content-type should not become end-group");
+        assert_eq!(err.status, 429);
+        assert!(err.message.to_ascii_lowercase().contains("too many"));
+        assert!(!err.mutation_outcome_indeterminate);
     }
 }

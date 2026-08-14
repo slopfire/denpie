@@ -3,6 +3,15 @@
 This log records consumer-visible changes to the versioned public API. Entries
 describe wire behavior rather than dashboard internals.
 
+## 2026-08-14 — Structured rate-limit errors
+
+- `POST /api/v1` 429s now return a protobuf `ApiV1Response.error` with
+  `RATE_LIMITED` instead of tower-governor's plain-text `"Too Many Requests"`
+  body. Browser clients were decoding that text as protobuf (`unexpected end
+  group tag`) and immediately retrying the mutation.
+- Authenticated image downloads no longer share the `POST /api/v1` burst of 50.
+  They use 50 requests/second with a burst of 200.
+
 ## 2026-08-09 — API v1 initial contract
 
 - Added `POST /api/v1` with `ApiV1Request`/`ApiV1Response` envelopes,
