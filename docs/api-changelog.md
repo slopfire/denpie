@@ -17,6 +17,11 @@ describe wire behavior rather than dashboard internals.
   exploration, daily-review continuation, and vision-model diagnostics.
 - Added typed `tips_v1` and `review_v1` operations. Legacy string-valued
   operations remain available.
+- Added `review_and_advance`, which atomically records a review and returns the
+  next eligible flow card under one durable idempotency key.
+- Added `sources` to `FlowCardInfo` (and a new `CardSource` message): each flow
+  card now carries the grounding documents/links assigned to its topic, so
+  clients can render card sources without extra per-card lookups.
 - Published a generated complete operation reference, field/error semantics,
   compatibility policy, schema packaging, and tested curl, Python, TypeScript,
   and Rust examples.

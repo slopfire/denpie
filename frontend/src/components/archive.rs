@@ -480,6 +480,7 @@ mod tests {
             repeat_count,
             pinned: false,
             pending_count: 0,
+            sources: Vec::new(),
             review_message: None,
         }
     }

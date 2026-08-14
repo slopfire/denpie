@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use crate::{
     AppState, context,
     db::repositories::{
-        daily_refresh, documents, image_pool, tipcards, token_usage, topics, user_settings, users,
+        daily_refresh, documents, tipcards, token_usage, topics, user_settings, users,
     },
     domain, image_store, llm,
     services::{
@@ -34,6 +34,74 @@ impl domain::scheduling::DailyWindowTopic for topics::TopicRecord {
 pub struct TipService;
 
 impl TipService {
+    pub async fn review_and_advance(
+        state: &AppState,
+        user_id: &str,
+        card_id: i64,
+        grade: u8,
+        action: &str,
+    ) -> ApiResult<crate::services::review::ReviewAdvanceResult> {
+        let topic = topics::find_for_card(&state.db, user_id, card_id)
+            .await
+            .map_err(|err| err.into_status_body())?
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "Card not found".to_string()))?;
+        let defaults = state
+            .settings
+            .get_settings()
+            .map_err(|err| err.into_status_body())?;
+        let settings = user_settings::get(&state.db, user_id, defaults)
+            .await
+            .map_err(|err| err.into_status_body())?;
+        let window_start = domain::scheduling::topic_daily_window_start(
+            &topic,
+            &settings.daily_time_zone,
+            &settings.daily_update_time,
+        );
+        let base_limit = domain::scheduling::topic_daily_card_count(&topic) as i64;
+        let extra = if topic.tipcard_type == "repeatable_tip" {
+            tipcards::extra_cards_in_window(
+                &state.db,
+                user_id,
+                topic.id,
+                &topic.tipcard_type,
+                window_start,
+            )
+            .await
+            .map_err(|err| err.into_status_body())? as i64
+        } else {
+            0
+        };
+        let mut result = state
+            .reviews
+            .apply_review_and_advance(
+                user_id,
+                card_id,
+                grade,
+                action,
+                crate::services::review::ReviewAdvancePolicy {
+                    window_start,
+                    daily_limit: base_limit.saturating_add(extra),
+                },
+            )
+            .await
+            .map_err(|err| err.into_status_body())?;
+
+        if result.tipcard_type == "repeatable_tip" && pending_needs_generation(result.pending_count)
+        {
+            if let Some(state) = state.self_arc.get() {
+                Self::spawn_pending_refill(
+                    state.clone(),
+                    user_id.to_string(),
+                    result.topic_id,
+                    result.topic_name.clone(),
+                    result.tipcard_type.clone(),
+                );
+                result.refill_scheduled = true;
+            }
+        }
+        Ok(result)
+    }
+
     pub async fn build_tips(
         state: &AppState,
         user_id: &str,
@@ -1148,8 +1216,8 @@ impl TipService {
 
     async fn serve_pending_card(
         ctx: &GenerationContext<'_>,
-        llm: &GenerationLlmConfig<'_>,
-        image_strategy: domain::grounding::ImageStrategy,
+        _llm: &GenerationLlmConfig<'_>,
+        _image_strategy: domain::grounding::ImageStrategy,
         replace_unseen: bool,
         responses: &mut Vec<TipCardJson>,
     ) -> ApiResult<bool> {
@@ -1182,27 +1250,12 @@ impl TipService {
                 || domain::tipcard::is_failed_generation_content(&card.compressed_content)
                 || domain::tipcard::is_failed_generation_content(&card.title);
             if !failed {
-                let image_data = Self::retrieve_card_image(
-                    ctx,
-                    llm,
-                    image_strategy,
-                    card.id,
-                    &card.title,
-                    &card.full_content,
-                    card.use_image,
-                    &card.image_query,
-                )
-                .await;
                 responses.push(tip_response_json(
                     card.id,
                     ctx.topic_name,
                     card.full_content,
                     card.compressed_content,
-                    if image_data.is_empty() {
-                        parse_image_data(&card.image_data)
-                    } else {
-                        image_data
-                    },
+                    parse_image_data(&card.image_data),
                     ctx.topic.tipcard_type.clone(),
                     card.pinned,
                 ));
@@ -1450,124 +1503,6 @@ impl TipService {
         .await
         .map(|ids| ids.len())
         .map_err(|err| err.into_status_body().1)
-    }
-
-    /// Retrieve and persist a single illustration for a freshly generated card.
-    /// Returns the data-URLs stored (empty on no-image or any failure).
-    #[allow(clippy::too_many_arguments)]
-    async fn retrieve_card_image(
-        ctx: &GenerationContext<'_>,
-        llm: &GenerationLlmConfig<'_>,
-        strategy: domain::grounding::ImageStrategy,
-        card_id: i64,
-        card_title: &str,
-        card_content: &str,
-        use_image: bool,
-        image_query: &str,
-    ) -> Vec<String> {
-        if !use_image
-            || image_query.trim().is_empty()
-            || matches!(strategy, domain::grounding::ImageStrategy::None)
-        {
-            return Vec::new();
-        }
-
-        let pool = match image_pool::list_pool_images(&ctx.state.db, ctx.user_id).await {
-            Ok(rows) => rows,
-            Err(err) => {
-                tracing::warn!(error = ?err, "failed to list pool images");
-                Vec::new()
-            }
-        };
-        let pool_meta: Vec<llm::PoolImageMeta> = pool
-            .iter()
-            .map(|row| llm::PoolImageMeta {
-                id: row.id,
-                name: row.name.clone(),
-                description: row.description.clone(),
-            })
-            .collect();
-        let image_sources =
-            domain::grounding::image_sources_from_setting(&ctx.settings.image_sources);
-
-        let (image_model, image_reasoning) =
-            if matches!(strategy, domain::grounding::ImageStrategy::Agentic) {
-                (llm.grounding_model, llm.grounding_reasoning)
-            } else {
-                (llm.model, llm.reasoning)
-            };
-
-        let retrieved = llm::retrieve_image(
-            strategy,
-            llm::ImageInput {
-                topic_name: ctx.topic_name,
-                card_title,
-                card_content,
-                image_query,
-                model: image_model,
-                api_key: llm.api_key,
-                api_base: llm.base_url,
-                reasoning: image_reasoning,
-                pool: &pool_meta,
-                sources: &image_sources,
-                search_api_key: &ctx.settings.search_api_key,
-                search_base_url: &ctx.settings.search_base_url,
-                search_provider: &ctx.settings.search_provider,
-            },
-        )
-        .await;
-
-        let Some(image) = retrieved else {
-            return Vec::new();
-        };
-
-        // Resolve the data-URL: pool strategy returns a pool_id whose bytes live on disk.
-        let data_url = match image.pool_id {
-            Some(pool_id) => match pool.iter().find(|row| row.id == pool_id) {
-                Some(row) => match Self::pool_image_data_url(ctx, row).await {
-                    Some(data_url) => data_url,
-                    None => return Vec::new(),
-                },
-                None => return Vec::new(),
-            },
-            None => image.data_url,
-        };
-
-        match image_store::replace_card_images(
-            &ctx.state.db,
-            &ctx.state.image_dir,
-            ctx.user_id,
-            card_id,
-            vec![data_url.clone()],
-        )
-        .await
-        {
-            Ok(()) => vec![data_url],
-            Err((_, message)) => {
-                tracing::warn!(message, "failed to store retrieved card image");
-                Vec::new()
-            }
-        }
-    }
-
-    /// Load a pool image's bytes from disk and encode to a base64 data-URL.
-    async fn pool_image_data_url(
-        ctx: &GenerationContext<'_>,
-        row: &image_pool::ImagePoolRecord,
-    ) -> Option<String> {
-        use base64::{Engine, engine::general_purpose::STANDARD};
-        let path = ctx.state.image_dir.join(&row.storage_path);
-        match tokio::fs::read(&path).await {
-            Ok(bytes) => Some(format!(
-                "data:{};base64,{}",
-                row.mime_type,
-                STANDARD.encode(&bytes)
-            )),
-            Err(err) => {
-                tracing::warn!(error = ?err, path = ?path, "failed to read pool image bytes");
-                None
-            }
-        }
     }
 
     pub async fn record_llm_token_usage(

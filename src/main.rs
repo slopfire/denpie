@@ -25,6 +25,7 @@ mod domain;
 mod error;
 mod http_client;
 mod image_compress;
+mod image_enrichment;
 mod image_store;
 mod llm;
 mod scheduling;
@@ -145,6 +146,7 @@ async fn main() {
     let _ = shared_state.self_arc.set(shared_state.clone());
     autoupdate::spawn(shared_state.settings_path.clone());
     daily_refresh::spawn(shared_state.clone());
+    image_enrichment::spawn(shared_state.clone());
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(webauthn_setup.session_secure)
         .with_same_site(tower_sessions::cookie::SameSite::Strict)

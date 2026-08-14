@@ -9,10 +9,11 @@ use crate::pb::{
     self, AddDocumentRequest, AddPoolImageRequest, AttachDocumentTopicRequest,
     ContinueDailyReviewRequest, CreateApiKeyRequest, DeleteByIdRequest, Empty, ExploreLinkRequest,
     ForceDailyRefreshRequest, GetByIdRequest, ListFlowCardsRequest, PinTipcardRequest,
-    ReviewActionValue, ReviewRequestV1, TipcardTypeValue, TipsRequestV1, UpdateSettingsRequest,
-    UpdateTopicRequest, UploadDocumentRequest, api_request, api_response,
+    ReviewActionValue, ReviewAndAdvanceRequest, TipcardTypeValue, TipsRequestV1,
+    UpdateSettingsRequest, UpdateTopicRequest, UploadDocumentRequest, api_request, api_response,
 };
 use base64::Engine;
+use serde::{Deserialize, Serialize};
 
 // ---- UI-facing result types (serde-free; built from protobuf) ----
 
@@ -21,6 +22,25 @@ pub struct FlowCardPage {
     pub cards: Vec<FlowCardSummary>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct CardSource {
+    pub document_id: i64,
+    pub source_type: String,
+    pub title: String,
+    pub url: Option<String>,
+}
+
+impl From<pb::CardSource> for CardSource {
+    fn from(source: pb::CardSource) -> Self {
+        Self {
+            document_id: source.document_id,
+            source_type: source.source_type,
+            title: source.title,
+            url: source.url,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -41,6 +61,7 @@ pub struct FlowCardSummary {
     pub image_count: i64,
     pub pending_count: u32,
     pub thumbnail_urls: Vec<String>,
+    pub sources: Vec<CardSource>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -60,6 +81,7 @@ pub struct FlowCardDetail {
     pub pinned: bool,
     pub image_urls: Vec<String>,
     pub pending_count: u32,
+    pub sources: Vec<CardSource>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -68,6 +90,14 @@ pub struct TipCreated {
     pub topic: String,
     pub tipcard_type: String,
     pub pinned: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReviewAndAdvanceOutcome {
+    pub next_card: Option<FlowCardSummary>,
+    pub daily_complete: bool,
+    pub pending_count: u32,
+    pub refill_scheduled: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -311,14 +341,14 @@ pub async fn tips_v1(
     }
 }
 
-pub async fn review_v1_with_key(
+pub async fn review_and_advance_with_key(
     card_id: i64,
     grade: Option<u8>,
     action: Option<String>,
     idempotency_key: String,
-) -> ApiResult<()> {
+) -> ApiResult<ReviewAndAdvanceOutcome> {
     let response = call_mutation_with_key(
-        api_request::Op::ReviewV1(ReviewRequestV1 {
+        api_request::Op::ReviewAndAdvance(ReviewAndAdvanceRequest {
             card_id,
             grade: grade.unwrap_or(0) as u32,
             action: review_action_value(action.as_deref()) as i32,
@@ -327,8 +357,13 @@ pub async fn review_v1_with_key(
     )
     .await?;
     match response.result {
-        Some(api_response::Result::Ok(_)) => Ok(()),
-        _ => unexpected("ok"),
+        Some(api_response::Result::ReviewAndAdvance(result)) => Ok(ReviewAndAdvanceOutcome {
+            next_card: result.next_card.map(map_flow_summary),
+            daily_complete: result.daily_complete,
+            pending_count: result.pending_count,
+            refill_scheduled: result.refill_scheduled,
+        }),
+        _ => unexpected("review_and_advance"),
     }
 }
 
@@ -589,6 +624,7 @@ pub async fn list_app_topics() -> ApiResult<Vec<AppTopicView>> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update_topic(
     id: i64,
     prompt_template: Option<String>,
@@ -890,6 +926,7 @@ fn map_flow_summary(card: pb::FlowCardInfo) -> FlowCardSummary {
         image_count,
         pending_count: card.pending_count as u32,
         thumbnail_urls,
+        sources: card.sources.into_iter().map(Into::into).collect(),
     }
 }
 
@@ -921,6 +958,7 @@ fn map_flow_detail(card: pb::FlowCardInfo) -> FlowCardDetail {
         pinned: card.pinned,
         image_urls,
         pending_count: card.pending_count as u32,
+        sources: card.sources.into_iter().map(Into::into).collect(),
     }
 }
 
@@ -975,6 +1013,7 @@ fn unexpected<T>(expected: &str) -> ApiResult<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pb::ReviewRequestV1;
 
     #[test]
     fn tipcard_type_mapping() {
@@ -1131,10 +1170,22 @@ mod tests {
                 byte_size: 10,
                 download_path: "/api/v1/tipcard-images/42".into(),
             }],
+            sources: vec![pb::CardSource {
+                document_id: 7,
+                source_type: "link".into(),
+                title: "Rust book".into(),
+                url: Some("https://doc.rust-lang.org/book".into()),
+            }],
         };
         let mapped = map_flow_summary(card);
         assert_eq!(mapped.image_count, 1);
         assert_eq!(mapped.pending_count, 3);
         assert_eq!(mapped.thumbnail_urls, vec!["/api/v1/tipcard-images/42"]);
+        assert_eq!(mapped.sources.len(), 1);
+        assert_eq!(mapped.sources[0].title, "Rust book");
+        assert_eq!(
+            mapped.sources[0].url.as_deref(),
+            Some("https://doc.rust-lang.org/book")
+        );
     }
 }

@@ -1,6 +1,8 @@
 use super::support::{
-    bootstrap_api_key, post_api, post_api_v1, post_api_v1_with_idempotency, spawn_test_server,
+    bootstrap_api_key, make_state, post_api, post_api_v1, post_api_v1_with_idempotency, setup_db,
+    spawn_test_server, unique_settings_path,
 };
+use crate::db::repositories::documents;
 use prost::Message;
 
 #[tokio::test]
@@ -1514,4 +1516,167 @@ async fn test_v1_session_review_acknowledge_and_grade_only() {
         }
         other => panic!("grade-only failed: {other:?}"),
     }
+}
+
+/// Flow cards carry the grounding sources assigned to their topic so the card
+/// metadata popup can list them without an extra lookup per card.
+#[tokio::test]
+async fn test_flow_card_sources_come_from_topic_documents() {
+    let db = setup_db().await;
+    let state = make_state(db.clone(), unique_settings_path());
+    let user = "sources_user";
+    sqlx::query(
+        "INSERT INTO users (id, username, role) VALUES ($1, 'sources', 'user')
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(user)
+    .execute(&db)
+    .await
+    .unwrap();
+    let topic_id: i64 = sqlx::query_scalar(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ($1, 'Rust sources', 'repeatable_tip') RETURNING id",
+    )
+    .bind(user)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let other_topic_id: i64 = sqlx::query_scalar(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ($1, 'Unrelated', 'repeatable_tip') RETURNING id",
+    )
+    .bind(user)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    documents::insert_document(
+        &db,
+        user,
+        &[topic_id],
+        "link",
+        "Rust book",
+        Some("https://doc.rust-lang.org/book"),
+        "borrow checker rules",
+    )
+    .await
+    .unwrap();
+    documents::insert_document(
+        &db,
+        user,
+        &[topic_id],
+        "document",
+        "Ownership notes",
+        None,
+        "ownership notes body",
+    )
+    .await
+    .unwrap();
+    // A source shared with another topic must appear on both, and only there.
+    documents::insert_document(
+        &db,
+        user,
+        &[topic_id, other_topic_id],
+        "link",
+        "Shared source",
+        Some("https://example.com/shared"),
+        "shared body",
+    )
+    .await
+    .unwrap();
+
+    let card_id: i64 = sqlx::query_scalar(
+        "INSERT INTO tipcards (user_id, topic_id, full_content, compressed_content)
+         VALUES ($1, $2, 'card body', 'card body') RETURNING id",
+    )
+    .bind(user)
+    .bind(topic_id)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    // Repeatable cards only enter the flow with an active review state.
+    sqlx::query(
+        "INSERT INTO review_states (card_id, algorithm_used, state_data, status, next_review_at)
+         VALUES ($1, 'sm2', '{}', 'active', NOW())",
+    )
+    .bind(card_id)
+    .execute(&db)
+    .await
+    .unwrap();
+
+    let page = crate::api::list_flow_cards(
+        &state,
+        user,
+        crate::api::pb::ListFlowCardsRequest {
+            page_size: 10,
+            page_token: String::new(),
+        },
+    )
+    .await
+    .unwrap();
+    let card = page
+        .cards
+        .iter()
+        .find(|card| card.id == card_id)
+        .expect("seeded card appears in flow");
+    let mut titles: Vec<&str> = card.sources.iter().map(|s| s.title.as_str()).collect();
+    titles.sort_unstable();
+    assert_eq!(
+        titles,
+        vec!["Ownership notes", "Rust book", "Shared source"]
+    );
+    assert!(
+        card.sources
+            .iter()
+            .all(|s| s.document_id > 0 && !s.source_type.is_empty())
+    );
+    assert_eq!(
+        card.sources
+            .iter()
+            .find(|s| s.title == "Rust book")
+            .unwrap()
+            .url
+            .as_deref(),
+        Some("https://doc.rust-lang.org/book")
+    );
+    assert!(
+        card.sources
+            .iter()
+            .find(|s| s.title == "Ownership notes")
+            .unwrap()
+            .url
+            .is_none()
+    );
+
+    let detail = crate::api::get_tipcard(&state, user, card_id)
+        .await
+        .unwrap();
+    let detail_card = detail.card.expect("tipcard detail present");
+    assert_eq!(detail_card.sources.len(), 3);
+
+    // A card on a topic without assigned sources gets an empty list.
+    let empty_topic_id: i64 = sqlx::query_scalar(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ($1, 'No sources', 'repeatable_tip') RETURNING id",
+    )
+    .bind(user)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let other_card_id: i64 = sqlx::query_scalar(
+        "INSERT INTO tipcards (user_id, topic_id, full_content, compressed_content)
+         VALUES ($1, $2, 'other body', 'other body') RETURNING id",
+    )
+    .bind(user)
+    .bind(empty_topic_id)
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    let other_detail = crate::api::get_tipcard(&state, user, other_card_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        other_detail.card.unwrap().sources,
+        Vec::<crate::api::pb::CardSource>::new(),
+        "unassigned topics return no sources"
+    );
 }

@@ -147,29 +147,29 @@ pub fn topic_editor(props: &TopicEditorProps) -> Html {
             }
             let links = source_links(&input);
             // (topic_ids, source_type, title, url, content)
-            let requests: Vec<(Vec<i64>, String, String, Option<String>, String)> =
-                if links.is_empty() {
-                    vec![(
-                        vec![topic_id],
-                        "document".to_string(),
-                        String::new(),
-                        None,
-                        input,
-                    )]
-                } else {
-                    links
-                        .into_iter()
-                        .map(|url| {
-                            (
-                                vec![topic_id],
-                                "link".to_string(),
-                                link_title(&url),
-                                Some(url),
-                                String::new(),
-                            )
-                        })
-                        .collect()
-                };
+            type DocumentRequest = (Vec<i64>, String, String, Option<String>, String);
+            let requests: Vec<DocumentRequest> = if links.is_empty() {
+                vec![(
+                    vec![topic_id],
+                    "document".to_string(),
+                    String::new(),
+                    None,
+                    input,
+                )]
+            } else {
+                links
+                    .into_iter()
+                    .map(|url| {
+                        (
+                            vec![topic_id],
+                            "link".to_string(),
+                            link_title(&url),
+                            Some(url),
+                            String::new(),
+                        )
+                    })
+                    .collect()
+            };
             let app_state = app_state.clone();
             let source_input = source_input.clone();
             let source_adding = source_adding.clone();

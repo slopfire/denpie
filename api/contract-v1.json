@@ -257,6 +257,14 @@
       "result_field": "ok",
       "scope": "reviews:write"
     },
+    "review_and_advance": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "ReviewAndAdvanceRequest",
+      "result": "ReviewAndAdvanceResponse",
+      "result_field": "review_and_advance",
+      "scope": "reviews:write"
+    },
     "review_v1": {
       "auth": "Bearer API key",
       "kind": "mutation",
@@ -341,6 +349,7 @@
       "ReviewActionValue": {
         "reserved": [],
         "values": {
+          "REVIEW_ACTION_VALUE_ACKNOWLEDGE": 6,
           "REVIEW_ACTION_VALUE_AGAIN": 1,
           "REVIEW_ACTION_VALUE_LEARNED": 2,
           "REVIEW_ACTION_VALUE_SKIP_KNOWN": 3,
@@ -812,6 +821,12 @@
             "oneof": "op",
             "type": "ReviewPayload"
           },
+          "review_and_advance": {
+            "cardinality": "singular",
+            "number": 43,
+            "oneof": "op",
+            "type": "ReviewAndAdvanceRequest"
+          },
           "review_v1": {
             "cardinality": "singular",
             "number": 41,
@@ -954,6 +969,12 @@
             "number": 14,
             "oneof": "result",
             "type": "PoolImages"
+          },
+          "review_and_advance": {
+            "cardinality": "singular",
+            "number": 24,
+            "oneof": "result",
+            "type": "ReviewAndAdvanceResponse"
           },
           "settings": {
             "cardinality": "singular",
@@ -1218,6 +1239,35 @@
           "client_name": {
             "cardinality": "singular",
             "number": 2,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "CardSource": {
+        "fields": {
+          "document_id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "source_type": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "title": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "url": {
+            "cardinality": "optional",
+            "number": 4,
             "oneof": null,
             "type": "string"
           }
@@ -1530,6 +1580,12 @@
             "oneof": null,
             "type": "uint32"
           },
+          "sources": {
+            "cardinality": "repeated",
+            "number": 16,
+            "oneof": null,
+            "type": "CardSource"
+          },
           "status": {
             "cardinality": "singular",
             "number": 10,
@@ -1773,6 +1829,64 @@
             "number": 1,
             "oneof": null,
             "type": "PoolImageInfo"
+          }
+        },
+        "reserved": []
+      },
+      "ReviewAndAdvanceRequest": {
+        "fields": {
+          "action": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "ReviewActionValue"
+          },
+          "card_id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "grade": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "uint32"
+          }
+        },
+        "reserved": []
+      },
+      "ReviewAndAdvanceResponse": {
+        "fields": {
+          "daily_complete": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "bool"
+          },
+          "next_card": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "FlowCardInfo"
+          },
+          "pending_count": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "uint32"
+          },
+          "refill_scheduled": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "bool"
+          },
+          "reviewed_card_id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
           }
         },
         "reserved": []

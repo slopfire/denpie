@@ -1,5 +1,5 @@
 use chrono::Utc;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::{
     domain::review::RepeatableState,
@@ -93,6 +93,35 @@ pub async fn set_pinned(pool: &PgPool, user_id: &str, id: i64, pinned: bool) -> 
         .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Tipcard not found".to_string()));
+    }
+    Ok(())
+}
+
+/// Move a repeatable topic slot's pin from the reviewed physical card to the
+/// promoted card. Both updates share the review transaction, so a concurrent
+/// flow refresh can never observe the slot temporarily unpinned or doubly pinned.
+pub async fn transfer_pinned_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+    reviewed_card_id: i64,
+    next_card_id: i64,
+    pinned: bool,
+) -> AppResult<()> {
+    let result = sqlx::query(
+        "UPDATE tipcards
+         SET pinned = CASE WHEN id = $1 THEN $2 ELSE 0 END
+         WHERE user_id = $3 AND id IN ($1, $4)",
+    )
+    .bind(next_card_id)
+    .bind(if pinned { 1 } else { 0 })
+    .bind(user_id)
+    .bind(reviewed_card_id)
+    .execute(&mut **tx)
+    .await?;
+    if result.rows_affected() != 2 {
+        return Err(AppError::NotFound(
+            "Repeatable card slot changed during review".to_string(),
+        ));
     }
     Ok(())
 }
@@ -251,6 +280,9 @@ async fn insert_generated_with_status(
         next_review_at,
     )
     .await?;
+    if card.use_image && !card.image_query.trim().is_empty() {
+        crate::db::repositories::image_jobs::enqueue_in_tx(tx, user_id, card_id).await?;
+    }
     Ok(card_id)
 }
 

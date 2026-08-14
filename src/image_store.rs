@@ -70,6 +70,43 @@ pub async fn replace_card_images(
     Ok(())
 }
 
+/// Store one already-prepared automatic image without decoding or compressing
+/// it a second time. File cleanup follows the same replace semantics as uploads.
+pub async fn replace_card_prepared_image(
+    pool: &PgPool,
+    image_dir: &Path,
+    user_id: &str,
+    card_id: i64,
+    prepared: crate::image_compress::PreparedImage,
+) -> StatusResult<()> {
+    fs::create_dir_all(image_dir)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let name = random_image_name(card_id, 0, &prepared.extension);
+    fs::write(image_dir.join(&name), &prepared.bytes)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let record = TipcardImageRecord {
+        id: 0,
+        position: 0,
+        storage_path: name.clone(),
+        mime_type: prepared.mime_type,
+        byte_size: prepared.bytes.len() as i64,
+    };
+    let old_images = match tipcards::replace_image_records(pool, user_id, card_id, &[record]).await
+    {
+        Ok(images) => images,
+        Err(err) => {
+            let _ = fs::remove_file(image_dir.join(&name)).await;
+            return Err(err.into_status_body());
+        }
+    };
+    for image in old_images {
+        let _ = fs::remove_file(image_dir.join(image.storage_path)).await;
+    }
+    Ok(())
+}
+
 /// Downloads an external image only after checking every resolved address and
 /// every redirect destination. Redirects are deliberately followed manually so
 /// the same checks apply after each hop.

@@ -71,6 +71,11 @@ pub async fn setup_db() -> PgPool {
 /// Write isolated test settings and spin up a real server on an ephemeral port.
 /// Returns (base_url, reqwest::Client with cookie jar).
 pub async fn spawn_test_server() -> (String, reqwest::Client) {
+    let (url, client, _) = spawn_test_server_with_state().await;
+    (url, client)
+}
+
+pub async fn spawn_test_server_with_state() -> (String, reqwest::Client, Arc<AppState>) {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("denpie=error")),
@@ -96,7 +101,7 @@ pub async fn spawn_test_server() -> (String, reqwest::Client) {
     let state = Arc::new(make_state(db, settings_path));
     let session_store = MemoryStore::default();
     let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
-    let app = build_app(state, session_layer);
+    let app = build_app(state.clone(), session_layer);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -134,7 +139,7 @@ pub async fn spawn_test_server() -> (String, reqwest::Client) {
         login.status()
     );
 
-    (base_url, client)
+    (base_url, client, state)
 }
 
 fn test_frontend_dist() -> PathBuf {

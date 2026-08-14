@@ -5,8 +5,8 @@ and checked against `ApiRequest.op` and `ApiResponse.result` in
 [`proto/denpie.proto`](../proto/denpie.proto). Do not edit it by hand; run
 `just api-reference` after changing the manifest or protobuf operation set.
 
-The API currently exposes **40 operations**: **15 reads** and
-**25 mutations**. Every mutation requires an idempotency key. See the
+The API currently exposes **41 operations**: **15 reads** and
+**26 mutations**. Every mutation requires an idempotency key. See the
 [API v1 guide](api-v1.md) for transport behavior and the
 [field semantics](api-v1-semantics.md) for representation details.
 
@@ -52,6 +52,7 @@ The API currently exposes **40 operations**: **15 reads** and
 | `tips_v1` | `TipsRequestV1` | `tips` (`TipsResponse`) | Bearer API key | `cards:write` | mutation | required; replayable | Retrieve or generate cards using repeated topics and typed card kinds. |
 | `review_v1` | `ReviewRequestV1` | `ok` (`Empty`) | Bearer API key | `reviews:write` | mutation | required; replayable | Submit a grade and typed review action for one card. |
 | `create_api_key_v1` | `CreateApiKeyV1Request` | `api_key_created` (`ApiKeyCreated`) | Bearer API key | `keys:manage` | one-time secret mutation | required; success is not replayable | Create a least-privilege scoped key with optional expiration. |
+| `review_and_advance` | `ReviewAndAdvanceRequest` | `review_and_advance` (`ReviewAndAdvanceResponse`) | Bearer API key | `reviews:write` | mutation | required; replayable | Atomically review one card, promote the next eligible repeatable card, and return the resulting flow slot. |
 
 ## Interpreting the table
 

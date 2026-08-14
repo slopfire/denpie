@@ -3,6 +3,7 @@ use tracing::warn;
 
 use crate::domain::image::{MAX_IMAGE_BYTES, MAX_IMAGE_EDGE_PX, TARGET_IMAGE_BYTES};
 
+#[derive(Debug)]
 pub struct PreparedImage {
     pub bytes: Vec<u8>,
     pub mime_type: String,

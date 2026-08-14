@@ -8,13 +8,31 @@ use crate::llm::transport::create_chat_completion;
 use super::{ImageInput, RetrievedImage};
 
 pub async fn retrieve(input: ImageInput<'_>) -> Option<RetrievedImage> {
-    if input.api_key.is_empty() || input.pool.is_empty() {
+    if input.pool.is_empty() {
         tracing::info!(
             topic = input.topic_name,
             card_title = input.card_title,
             has_api_key = !input.api_key.is_empty(),
             pool_images = input.pool.len(),
             "pool image strategy skipped because prerequisites are missing"
+        );
+        return None;
+    }
+    if input.pool.len() == 1 {
+        let chosen_id = input.pool[0].id;
+        tracing::info!(
+            topic = input.topic_name,
+            card_title = input.card_title,
+            pool_id = chosen_id,
+            "pool image strategy selected the only available image"
+        );
+        return Some(RetrievedImage::Pool(chosen_id));
+    }
+    if input.api_key.is_empty() {
+        tracing::info!(
+            topic = input.topic_name,
+            card_title = input.card_title,
+            "pool image strategy needs an API key to choose among multiple images"
         );
         return None;
     }
@@ -75,10 +93,7 @@ pub async fn retrieve(input: ImageInput<'_>) -> Option<RetrievedImage> {
             pool_id = chosen_id,
             "pool image strategy selected an image"
         );
-        Some(RetrievedImage {
-            data_url: String::new(),
-            pool_id: Some(chosen_id),
-        })
+        Some(RetrievedImage::Pool(chosen_id))
     } else {
         tracing::warn!(
             topic = input.topic_name,

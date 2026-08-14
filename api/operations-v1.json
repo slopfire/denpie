@@ -40,7 +40,8 @@
     "create_pool_image": "pool_image_created",
     "tips_v1": "tips",
     "review_v1": "ok",
-    "create_api_key_v1": "api_key_created"
+    "create_api_key_v1": "api_key_created",
+    "review_and_advance": "review_and_advance"
   },
   "operations": [
     {
@@ -402,6 +403,15 @@
       "scope": "keys:manage",
       "kind": "one-time secret mutation",
       "summary": "Create a least-privilege scoped key with optional expiration."
+    },
+    {
+      "operation": "review_and_advance",
+      "request": "ReviewAndAdvanceRequest",
+      "result": "ReviewAndAdvanceResponse",
+      "auth": "Bearer API key",
+      "scope": "reviews:write",
+      "kind": "mutation",
+      "summary": "Atomically review one card, promote the next eligible repeatable card, and return the resulting flow slot."
     }
   ]
 }

@@ -2,6 +2,7 @@ pub mod api_idempotency;
 pub mod api_keys;
 pub mod daily_refresh;
 pub mod documents;
+pub mod image_jobs;
 pub mod image_pool;
 pub mod passkeys;
 pub mod reviews;

@@ -191,6 +191,7 @@ mod tests {
             json_path: "file_url".to_string(),
             default_tags: "rating:general".to_string(),
             api_hosts: "danbooru.donmai.us".to_string(),
+            search_domains: String::new(),
             download_hosts: "cdn.donmai.us".to_string(),
             instructions: String::new(),
         }

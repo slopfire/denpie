@@ -6,8 +6,11 @@ use crate::error::{AppError, AppResult};
 #[derive(Clone, Debug)]
 pub struct ReviewStateRecord {
     pub state_data: String,
+    pub topic_id: i64,
+    pub topic_name: String,
     pub tipcard_type: String,
     pub repeats: u32,
+    pub pinned: bool,
 }
 
 pub struct QueueReviewUpdate<'a> {
@@ -26,18 +29,19 @@ pub async fn load_for_card_for_update(
     // Lock the topic before the review row. Queue reviews can update sibling
     // cards, and generation also locks the topic before inserting a batch; one
     // shared lock order prevents cross-card deadlocks and queue races.
-    let (topic_id, tipcard_type) = sqlx::query_as::<_, (i64, String)>(
-        "SELECT top.id, top.tipcard_type
+    let (topic_id, topic_name, tipcard_type, pinned) =
+        sqlx::query_as::<_, (i64, String, String, i64)>(
+            "SELECT top.id, top.name, top.tipcard_type, t.pinned
          FROM topics top
          JOIN tipcards t ON t.topic_id = top.id
          WHERE t.user_id = $1 AND t.id = $2
-         FOR UPDATE OF top",
-    )
-    .bind(user_id)
-    .bind(card_id)
-    .fetch_optional(&mut **tx)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Card not found in user reviews".to_string()))?;
+         FOR UPDATE OF top, t",
+        )
+        .bind(user_id)
+        .bind(card_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Card not found in user reviews".to_string()))?;
 
     let row = sqlx::query_as::<_, (String, i64)>(
         "SELECT r.state_data, r.repeats
@@ -55,8 +59,11 @@ pub async fn load_for_card_for_update(
 
     Ok(ReviewStateRecord {
         state_data: row.0,
+        topic_id,
+        topic_name,
         tipcard_type,
         repeats: row.1 as u32,
+        pinned: pinned != 0,
     })
 }
 
@@ -146,4 +153,46 @@ pub async fn update_review_schedule(
         ));
     }
     Ok(())
+}
+
+pub async fn reviewed_count_in_window(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+    topic_id: i64,
+    window_start: DateTime<Utc>,
+) -> AppResult<i64> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)
+         FROM review_states state
+         JOIN tipcards card ON card.id = state.card_id
+         WHERE card.user_id = $1
+           AND card.topic_id = $2
+           AND card.tipcard_type = 'repeatable_tip'
+           AND state.reviewed_at >= $3",
+    )
+    .bind(user_id)
+    .bind(topic_id)
+    .bind(window_start)
+    .fetch_one(&mut **tx)
+    .await?)
+}
+
+pub async fn pending_count_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+    topic_id: i64,
+    tipcard_type: &str,
+) -> AppResult<i64> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)
+         FROM review_states state
+         JOIN tipcards card ON card.id = state.card_id
+         WHERE card.user_id = $1 AND card.topic_id = $2
+           AND card.tipcard_type = $3 AND state.status = 'pending'",
+    )
+    .bind(user_id)
+    .bind(topic_id)
+    .bind(tipcard_type)
+    .fetch_one(&mut **tx)
+    .await?)
 }

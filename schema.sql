@@ -97,6 +97,19 @@ CREATE TABLE IF NOT EXISTS tipcard_images (
     UNIQUE(card_id, position)
 );
 
+CREATE TABLE IF NOT EXISTS card_image_jobs (
+    card_id BIGINT PRIMARY KEY REFERENCES tipcards(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts BIGINT NOT NULL DEFAULT 0,
+    available_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    lease_until TIMESTAMPTZ,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (status IN ('pending', 'processing', 'completed', 'failed'))
+);
+
 CREATE TABLE IF NOT EXISTS llm_token_usage (
     id BIGSERIAL PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -216,6 +229,8 @@ CREATE INDEX IF NOT EXISTS idx_tipcard_images_card_id ON tipcard_images(card_id)
 CREATE INDEX IF NOT EXISTS idx_tipcard_images_user_id ON tipcard_images(user_id);
 CREATE INDEX IF NOT EXISTS idx_tipcard_images_user_card_position
     ON tipcard_images(user_id, card_id, position, id);
+CREATE INDEX IF NOT EXISTS idx_card_image_jobs_ready
+    ON card_image_jobs(status, available_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_llm_token_usage_user_id ON llm_token_usage(user_id);
 CREATE INDEX IF NOT EXISTS idx_daily_refresh_runs_user_id ON daily_refresh_runs(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_documents_user_id ON user_documents(user_id);

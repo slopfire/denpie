@@ -13,7 +13,6 @@ use crate::domain::grounding::{ImageSource, ImageStrategy};
 use crate::image_compress::prepare_image_bytes;
 use crate::image_store::{self, IncomingImage};
 use crate::llm::transport::ReasoningConfig;
-use base64::{Engine, engine::general_purpose::STANDARD};
 
 /// Metadata for a pool image, shown to the model so it can pick the best match.
 #[derive(Clone, Debug)]
@@ -40,14 +39,11 @@ pub struct ImageInput<'a> {
     pub search_provider: &'a str,
 }
 
-/// A retrieved image, ready for `image_store::replace_card_images`.
-#[derive(Clone, Debug)]
-pub struct RetrievedImage {
-    /// base64 data-URL (`data:<mime>;base64,<...>`).
-    pub data_url: String,
-    /// Set only by the `pool` strategy: the chosen pool image id, so the service
-    /// can load its bytes from disk instead of re-fetching.
-    pub pool_id: Option<i64>,
+/// A retrieved image ready for one storage pass.
+#[derive(Debug)]
+pub enum RetrievedImage {
+    Prepared(crate::image_compress::PreparedImage),
+    Pool(i64),
 }
 
 /// Dispatch on the configured image strategy. The image extension point: a new
@@ -81,8 +77,7 @@ pub async fn retrieve_image(
             ?strategy,
             topic,
             card_title,
-            pool_id = image.pool_id,
-            data_url_len = image.data_url.len(),
+            ?image,
             "image strategy completed"
         ),
         None => tracing::info!(
@@ -109,13 +104,13 @@ pub(crate) fn host_allowed(url: &str, allowed_hosts: &[String]) -> bool {
     }
 }
 
-/// Download an image from an allowlisted URL, recompress it, and base64-encode it
-/// to a data-URL. The shared hardened downloader validates DNS and every redirect.
+/// Download and prepare an image once. A non-empty allowlist is enforced before
+/// the shared hardened downloader validates DNS and every redirect.
 pub(crate) async fn download_and_prepare(
     url: &str,
     allowed_hosts: &[String],
 ) -> Option<RetrievedImage> {
-    if !host_allowed(url, allowed_hosts) {
+    if !allowed_hosts.is_empty() && !host_allowed(url, allowed_hosts) {
         tracing::warn!(url, "image url host not in allowlist; skipping");
         return None;
     }
@@ -147,11 +142,7 @@ pub(crate) async fn download_and_prepare(
         "strategy-selected image downloaded and prepared"
     );
 
-    let encoded = STANDARD.encode(&prepared.bytes);
-    Some(RetrievedImage {
-        data_url: format!("data:{};base64,{}", prepared.mime_type, encoded),
-        pool_id: None,
-    })
+    Some(RetrievedImage::Prepared(prepared))
 }
 
 fn mime_and_extension(content_type: &str) -> Option<(&'static str, &'static str)> {

@@ -19,6 +19,17 @@ pub struct DocumentRecord {
     pub created_at: DateTime<Utc>,
 }
 
+/// A document's assignment to one topic, without the (potentially large)
+/// document body. Used to surface a card's grounding sources in card metadata.
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct DocumentTopicLink {
+    pub document_id: i64,
+    pub source_type: String,
+    pub title: String,
+    pub url: Option<String>,
+    pub topic_id: i64,
+}
+
 /// Insert a reusable document and its searchable chunks, then attach it to the
 /// explicitly supplied topics.
 pub async fn insert_document(
@@ -167,6 +178,25 @@ pub async fn get_document_by_id(
         content: row.get("content"),
         created_at: row.get("created_at"),
     }))
+}
+
+/// Every (document, topic) assignment for the user, ordered newest first.
+/// Content-free: only the fields needed to render a card source link.
+pub async fn list_document_topic_links(
+    pool: &PgPool,
+    user_id: &str,
+) -> AppResult<Vec<DocumentTopicLink>> {
+    let links = sqlx::query_as::<_, DocumentTopicLink>(
+        "SELECT d.id AS document_id, d.source_type, d.title, d.url, dt.topic_id
+         FROM user_documents d
+         JOIN document_topics dt ON dt.document_id = d.id
+         WHERE d.user_id = $1
+         ORDER BY d.created_at DESC, d.id DESC",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(links)
 }
 
 pub async fn delete_document(pool: &PgPool, user_id: &str, id: i64) -> AppResult<()> {

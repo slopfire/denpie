@@ -1741,11 +1741,18 @@
                 max-height: 18rem;
                 overflow: hidden;
             }
+            /* Compact cards cap height. Do not make every body a nested scrollport:
+               overflow only when JS marks .is-scrollable (content actually overflows).
+               Never use overscroll-behavior: contain here — it trapped page/main scroll
+               at card ends and when the body had nothing left to scroll. */
             .card-text.is-compact .card-text-body {
                 width: 100%;
                 max-height: 18rem;
-                overflow: auto;
-                overscroll-behavior: contain;
+                overflow: hidden;
+            }
+            .card-text.is-compact .card-text-body.is-scrollable {
+                overflow-y: auto;
+                overscroll-behavior: auto;
             }
             .flow-card-list .card-text.is-compact,
             .flow-card.is-fullscreen .card-text.is-compact {

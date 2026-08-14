@@ -3,9 +3,12 @@ use axum::http::StatusCode;
 use crate::{
     AppState,
     api::pb,
+    db::repositories::{documents as document_repo, topics as topic_repo},
     services::{documents::DocumentService, tipcards::TipcardService, tips::TipService},
     types::ContinueDailyReviewRequest,
 };
+
+use std::collections::HashMap;
 
 use super::types::ApiResult;
 
@@ -28,11 +31,13 @@ pub(crate) fn api_info() -> pb::ApiInfo {
             "daily_review_continuation".to_string(),
             "vision_diagnostics".to_string(),
             "authenticated_image_downloads".to_string(),
+            "atomic_review_advance".to_string(),
+            "durable_image_enrichment".to_string(),
         ],
     }
 }
 
-pub(crate) async fn list_flow_cards(
+pub async fn list_flow_cards(
     state: &AppState,
     user_id: &str,
     req: pb::ListFlowCardsRequest,
@@ -60,11 +65,24 @@ pub(crate) async fn list_flow_cards(
         String::new()
     };
 
+    let sources_by_topic = card_sources_by_topic_name(
+        &topic_repo::list_admin(&state.db, user_id)
+            .await
+            .map_err(|err| err.into_status_body())?,
+        &document_repo::list_document_topic_links(&state.db, user_id)
+            .await
+            .map_err(|err| err.into_status_body())?,
+    );
+
     let cards = rows
         .into_iter()
         .map(|row| {
             let card_images = images.get(&row.id).cloned().unwrap_or_default();
-            flow_card_to_pb(row, card_images)
+            let sources = sources_by_topic
+                .get(&row.topic_name)
+                .cloned()
+                .unwrap_or_default();
+            flow_card_to_pb(row, card_images, sources)
         })
         .collect();
 
@@ -75,14 +93,20 @@ pub(crate) async fn list_flow_cards(
     })
 }
 
-pub(crate) async fn get_tipcard(
-    state: &AppState,
-    user_id: &str,
-    id: i64,
-) -> ApiResult<pb::TipcardDetail> {
+pub async fn get_tipcard(state: &AppState, user_id: &str, id: i64) -> ApiResult<pb::TipcardDetail> {
     let (card, images) = TipcardService::tipcard_detail(state, user_id, id)
         .await
         .map_err(|err| err.into_status_body())?;
+    let sources = card_sources_by_topic_name(
+        &topic_repo::list_admin(&state.db, user_id)
+            .await
+            .map_err(|err| err.into_status_body())?,
+        &document_repo::list_document_topic_links(&state.db, user_id)
+            .await
+            .map_err(|err| err.into_status_body())?,
+    )
+    .remove(&card.topic_name)
+    .unwrap_or_default();
     Ok(pb::TipcardDetail {
         card: Some(pb::FlowCardInfo {
             id: card.id,
@@ -100,7 +124,35 @@ pub(crate) async fn get_tipcard(
             pinned: card.pinned,
             pending_count: 0,
             images: images.into_iter().map(image_to_pb).collect(),
+            sources,
         }),
+    })
+}
+
+pub(crate) async fn review_and_advance(
+    state: &AppState,
+    user_id: &str,
+    req: pb::ReviewAndAdvanceRequest,
+    grade: u8,
+    action: &str,
+) -> ApiResult<pb::ReviewAndAdvanceResponse> {
+    let result = TipService::review_and_advance(state, user_id, req.card_id, grade, action).await?;
+    let next_card = match result.next_card_id {
+        Some(id) => {
+            let mut card = get_tipcard(state, user_id, id).await?.card;
+            if let Some(card) = card.as_mut() {
+                card.pending_count = result.pending_count.max(0);
+            }
+            card
+        }
+        None => None,
+    };
+    Ok(pb::ReviewAndAdvanceResponse {
+        reviewed_card_id: req.card_id,
+        next_card,
+        daily_complete: result.daily_complete,
+        pending_count: result.pending_count.max(0) as u32,
+        refill_scheduled: result.refill_scheduled,
     })
 }
 
@@ -213,6 +265,7 @@ pub(crate) async fn test_vision_model(
 fn flow_card_to_pb(
     card: crate::db::repositories::tipcards::FlowCardRecord,
     images: Vec<crate::db::repositories::tipcards::TipcardImageRecord>,
+    sources: Vec<pb::CardSource>,
 ) -> pb::FlowCardInfo {
     pb::FlowCardInfo {
         id: card.id,
@@ -230,7 +283,37 @@ fn flow_card_to_pb(
         pinned: card.pinned,
         pending_count: card.pending_count,
         images: images.into_iter().map(image_to_pb).collect(),
+        sources,
     }
+}
+
+/// Map topic name → grounding sources (documents/links assigned to that topic).
+/// Topic names are unique per user (`UNIQUE(user_id, name)`), so they are a
+/// stable key between a card and its topic's assigned sources.
+fn card_sources_by_topic_name(
+    topics: &[topic_repo::TopicRecord],
+    links: &[document_repo::DocumentTopicLink],
+) -> HashMap<String, Vec<pb::CardSource>> {
+    let name_by_id: HashMap<i64, &str> = topics
+        .iter()
+        .map(|topic| (topic.id, topic.name.as_str()))
+        .collect();
+    let mut sources: HashMap<String, Vec<pb::CardSource>> = HashMap::new();
+    for link in links {
+        let Some(topic_name) = name_by_id.get(&link.topic_id) else {
+            continue;
+        };
+        sources
+            .entry((*topic_name).to_string())
+            .or_default()
+            .push(pb::CardSource {
+                document_id: link.document_id,
+                source_type: link.source_type.clone(),
+                title: link.title.clone(),
+                url: link.url.clone(),
+            });
+    }
+    sources
 }
 
 fn image_to_pb(
@@ -278,7 +361,96 @@ fn nonempty(value: String) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_page_token, parse_page_token};
+    use super::{card_sources_by_topic_name, encode_page_token, parse_page_token};
+    use crate::db::repositories::{documents::DocumentTopicLink, topics::TopicRecord};
+
+    fn topic(id: i64, name: &str) -> TopicRecord {
+        TopicRecord {
+            id,
+            name: name.to_string(),
+            tipcard_type: "repeatable_tip".to_string(),
+            prompt_template: None,
+            daily_card_count: None,
+            daily_time_zone: None,
+            daily_update_time: None,
+            compression_level: None,
+            icon_id: None,
+            color_hue: None,
+            grounding_strategy: None,
+            image_strategy: None,
+        }
+    }
+
+    fn link(
+        document_id: i64,
+        source_type: &str,
+        title: &str,
+        url: Option<&str>,
+        topic_id: i64,
+    ) -> DocumentTopicLink {
+        DocumentTopicLink {
+            document_id,
+            source_type: source_type.to_string(),
+            title: title.to_string(),
+            url: url.map(str::to_string),
+            topic_id,
+        }
+    }
+
+    #[test]
+    fn sources_group_by_topic_name() {
+        let topics = vec![topic(1, "Rust"), topic(2, "Go")];
+        let links = vec![
+            link(
+                10,
+                "link",
+                "Rust book",
+                Some("https://doc.rust-lang.org/book"),
+                1,
+            ),
+            link(11, "document", "Ownership notes", None, 1),
+            link(12, "link", "Go spec", Some("https://go.dev/ref/spec"), 2),
+        ];
+        let map = card_sources_by_topic_name(&topics, &links);
+
+        let rust = map.get("Rust").unwrap();
+        assert_eq!(rust.len(), 2);
+        assert!(rust.iter().any(|s| s.title == "Rust book"
+            && s.url.as_deref() == Some("https://doc.rust-lang.org/book")));
+        assert!(rust.iter().any(|s| s.title == "Ownership notes"
+            && s.source_type == "document"
+            && s.url.is_none()));
+        assert_eq!(map.get("Go").unwrap().len(), 1);
+        assert_eq!(map.get("Go").unwrap()[0].document_id, 12);
+    }
+
+    #[test]
+    fn links_without_known_topic_are_dropped() {
+        let topics = vec![topic(1, "Rust")];
+        let links = vec![
+            link(10, "link", "Assigned", Some("https://example.com/a"), 1),
+            // Stale assignment to a deleted topic.
+            link(11, "link", "Orphaned", Some("https://example.com/b"), 99),
+        ];
+        let map = card_sources_by_topic_name(&topics, &links);
+        assert_eq!(map.len(), 1);
+        assert_eq!(map["Rust"].len(), 1);
+        assert_eq!(map["Rust"][0].document_id, 10);
+    }
+
+    #[test]
+    fn shared_document_appears_for_every_assigned_topic() {
+        let topics = vec![topic(1, "Rust"), topic(2, "Borrowing")];
+        let links = vec![
+            link(7, "document", "Shared source", None, 1),
+            link(7, "document", "Shared source", None, 2),
+        ];
+        let map = card_sources_by_topic_name(&topics, &links);
+        assert_eq!(map["Rust"].len(), 1);
+        assert_eq!(map["Borrowing"].len(), 1);
+        assert_eq!(map["Rust"][0].document_id, 7);
+        assert_eq!(map["Rust"][0].document_id, map["Borrowing"][0].document_id);
+    }
 
     #[test]
     fn page_token_round_trip() {

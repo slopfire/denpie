@@ -93,6 +93,7 @@ message ApiRequest {
         TipsRequestV1 tips_v1 = 40;
         ReviewRequestV1 review_v1 = 41;
         CreateApiKeyV1Request create_api_key_v1 = 42;
+        ReviewAndAdvanceRequest review_and_advance = 43;
     }
 }
 
@@ -120,6 +121,7 @@ message ApiResponse {
         VisionModelTest vision_model_test = 21;
         DocumentDetail document_created = 22;
         PoolImageCreated pool_image_created = 23;
+        ReviewAndAdvanceResponse review_and_advance = 24;
     }
 }
 
@@ -444,6 +446,15 @@ message FlowCardInfo {
     bool pinned = 13;
     int64 pending_count = 14;
     repeated TipcardImageInfo images = 15;
+    repeated CardSource sources = 16;
+}
+
+// A grounding source (user document or link) assigned to the card's topic.
+message CardSource {
+    int64 document_id = 1;
+    string source_type = 2;  // "document" or "link"
+    string title = 3;
+    optional string url = 4;
 }
 
 message FlowCardPage {
@@ -547,6 +558,20 @@ message ReviewRequestV1 {
     int64 card_id = 1;
     uint32 grade = 2;
     ReviewActionValue action = 3;
+}
+
+message ReviewAndAdvanceRequest {
+    int64 card_id = 1;
+    uint32 grade = 2;
+    ReviewActionValue action = 3;
+}
+
+message ReviewAndAdvanceResponse {
+    int64 reviewed_card_id = 1;
+    FlowCardInfo next_card = 2;
+    bool daily_complete = 3;
+    uint32 pending_count = 4;
+    bool refill_scheduled = 5;
 }
 
 message CreateApiKeyV1Request {

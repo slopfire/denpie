@@ -43,7 +43,15 @@ pub async fn retrieve(input: ImageInput<'_>) -> Option<RetrievedImage> {
             allowed_hosts = download_hosts.len(),
             "isolated image search querying allowed domains"
         );
-        if let Some(image) = web_search::retrieve_with_domains(&input, &download_hosts).await {
+        let search_domains = source.search_domains();
+        if let Some(image) = web_search::retrieve_with_policy(
+            &input,
+            &search_domains,
+            &download_hosts,
+            &source.instructions,
+        )
+        .await
+        {
             return Some(image);
         }
     }

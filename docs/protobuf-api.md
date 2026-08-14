@@ -95,11 +95,25 @@ Repeatable cards use three learning actions:
 
 Generation receives recent titles and compact card content grouped by feedback. Unseen repeatable backlog cards older than the latest feedback are skipped, so stale generation cannot override the learner signal. The model infers a useful next concept; this is personalization around the existing SM-2 scheduler, not a separate scheduling algorithm.
 
-Generated topics behave as decks. Every grounding strategy, including factual generation, creates 5-12 cards in one batch and stores the entire batch as `pending`. A card request promotes and returns the oldest pending card immediately; an available card never waits for an LLM refill. This queue replacement, including an empty-queue refill directly after a review, bypasses `max_active_cards`, which limits newly created active cards rather than switching the reviewed card. For repeatable topics, `daily_card_count` is the number of distinct cards reviewed in that topic's daily window. Page loading promotes one pending card only while that daily limit has room, so pending-only decks survive reloads without bypassing the learner's limit. An empty queue is bootstrapped on demand, while refresh paths replenish queues observed at the low-water mark of three pending cards. Repeatable topics expose one stable browser card per topic: after a review, its grid slot switches to a loading skeleton until the active replacement arrives, without reflowing the layout or closing fullscreen. After the final daily card, the browser replaces it with a persisted completion card. `Continue` starts one more full set for that topic in the current daily window: it immediately shows the next card, then normal review actions advance through the remaining `daily_card_count - 1` cards before the completion card returns.
+Generated topics behave as decks. Every grounding strategy, including factual generation, creates 5-12 cards in one batch and stores the entire batch as `pending`. `review_and_advance` applies the review and promotes the oldest eligible pending card in the same topic-locked transaction, returning that card directly. The browser therefore updates one stable topic slot without chaining a review, a tips mutation, and a full feed reload. A delayed skeleton is only a slow-request fallback and remains in the reviewed slot's current Pins or Topic picks section. A pinned repeatable slot transfers its pin to the promoted physical card in the same transaction. This queue replacement bypasses `max_active_cards`, which limits newly created active cards rather than switching the reviewed card. For repeatable topics, `daily_card_count` is the number of distinct cards reviewed in that topic's daily window. An empty queue schedules a background refill, while refresh paths replenish queues observed at the low-water mark of three pending cards. After the final daily card, the browser replaces it with a persisted completion card. `Continue` starts one more full set for that topic in the current daily window.
 
 Generated card rows and their SM-2 review rows are committed atomically, and card creation verifies that the topic belongs to the same user and card type. Batch persistence locks the topic only for the final queue-depth check and inserts, after external generation has completed; concurrent generation requests may both reach the model, but only one low-water batch is stored. Review scheduling uses the same topic-first lock order and keeps the review row locked from state load through update so concurrent submissions cannot overwrite one another. Daily eligibility and pending-card promotion share one topic-locked transaction and one bulk eligibility query across topics.
 
 Reviewed placeholders are persisted in browser storage, so they survive a page reload until the real card becomes due again or is deleted.
+
+Automatic illustrations use durable `card_image_jobs`. Generated cards enqueue
+their image work in the same transaction as card creation. A lease-based worker
+resolves pool/API/web sources outside database transactions, retries failures,
+and marks completion only after the prepared bytes and `tipcard_images` metadata
+are stored. Promotion never waits for an external image provider. A worker that
+stops after attachment but before acknowledging the job detects the existing
+attachment on retry and completes without creating a duplicate.
+
+Restricted web-image sources keep search policy separate from download policy:
+`search_domains` constrains provider discovery, while `download_hosts` is the
+exact allowlist for returned image bytes. Older source JSON without
+`search_domains` uses `download_hosts` for both. Source search instructions are
+included in the provider query.
 
 
 Legacy `repeat`, `memorize`, and `dismiss` actions remain accepted as aliases for API clients already using them.

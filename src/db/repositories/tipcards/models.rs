@@ -22,7 +22,9 @@ pub struct ScheduledCardRecord {
     pub full_content: String,
     pub compressed_content: String,
     pub title: String,
+    #[allow(dead_code)]
     pub use_image: bool,
+    #[allow(dead_code)]
     pub image_query: String,
     pub pinned: bool,
     pub image_data: String,

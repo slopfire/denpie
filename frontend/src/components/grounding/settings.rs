@@ -287,6 +287,7 @@ pub fn grounding_settings() -> Html {
                     "json_path" => source.json_path = value,
                     "default_tags" => source.default_tags = value,
                     "api_hosts" => source.api_hosts = value,
+                    "search_domains" => source.search_domains = value,
                     "download_hosts" => source.download_hosts = value,
                     "instructions" => source.instructions = value,
                     _ => return,
@@ -394,6 +395,7 @@ pub fn grounding_settings() -> Html {
                 },
                 default_tags: String::new(),
                 api_hosts: String::new(),
+                search_domains: String::new(),
                 download_hosts: String::new(),
                 instructions: String::new(),
             });
@@ -750,6 +752,13 @@ pub fn grounding_settings() -> Html {
                                                     <label class="block card-kicker mb-2">{"API Hosts"}</label>
                                                     <input value={source.api_hosts.clone()} oninput={on_source_input(source_id.clone(), "api_hosts")} class="w-full rounded-md border px-3 py-2" placeholder="api.example.com" />
                                                 </div>
+                                            </div>
+                                        }
+                                        if source_kind == ImageSourceKind::WebSearch {
+                                            <div>
+                                                <label class="block card-kicker mb-2">{"Search Domains"}</label>
+                                                <input value={source.search_domains.clone()} oninput={on_source_input(source_id.clone(), "search_domains")} class="w-full rounded-md border px-3 py-2" placeholder="docs.example.com,example.com" />
+                                                <p class="mt-2 text-xs text-muted">{"Sites the search provider may search. If empty, image download hosts are used for compatibility."}</p>
                                             </div>
                                         }
                                         <div>

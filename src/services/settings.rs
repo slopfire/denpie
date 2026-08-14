@@ -107,6 +107,8 @@ impl SettingsService {
 
         let current = Self::user_settings_get(state, user_id).await?;
         let updated = current.apply_patch(patch);
-        Self::user_settings_upsert(state, user_id, &updated).await
+        Self::user_settings_upsert(state, user_id, &updated).await?;
+        crate::db::repositories::image_jobs::requeue_failed_for_user(&state.db, user_id).await?;
+        Ok(())
     }
 }

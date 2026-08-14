@@ -1,7 +1,29 @@
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
 
-use crate::{db::repositories::reviews, domain, error::AppResult, scheduling::SchedulingState};
+use crate::{
+    db::repositories::{reviews, tipcards},
+    domain,
+    error::AppResult,
+    scheduling::SchedulingState,
+};
+
+#[derive(Clone, Copy, Debug)]
+pub struct ReviewAdvancePolicy {
+    pub window_start: DateTime<Utc>,
+    pub daily_limit: i64,
+}
+
+#[derive(Clone, Debug)]
+pub struct ReviewAdvanceResult {
+    pub topic_id: i64,
+    pub topic_name: String,
+    pub tipcard_type: String,
+    pub next_card_id: Option<i64>,
+    pub pending_count: i64,
+    pub daily_complete: bool,
+    pub refill_scheduled: bool,
+}
 
 #[derive(Clone)]
 pub struct ReviewService {
@@ -20,8 +42,36 @@ impl ReviewService {
         grade: u8,
         action: &str,
     ) -> AppResult<()> {
+        self.apply_review_inner(user_id, card_id, grade, action, None)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn apply_review_and_advance(
+        &self,
+        user_id: &str,
+        card_id: i64,
+        grade: u8,
+        action: &str,
+        policy: ReviewAdvancePolicy,
+    ) -> AppResult<ReviewAdvanceResult> {
+        self.apply_review_inner(user_id, card_id, grade, action, Some(policy))
+            .await
+    }
+
+    async fn apply_review_inner(
+        &self,
+        user_id: &str,
+        card_id: i64,
+        grade: u8,
+        action: &str,
+        policy: Option<ReviewAdvancePolicy>,
+    ) -> AppResult<ReviewAdvanceResult> {
         let mut tx = self.pool.begin().await?;
         let row = reviews::load_for_card_for_update(&mut tx, user_id, card_id).await?;
+        let topic_id = row.topic_id;
+        let topic_name = row.topic_name.clone();
+        let tipcard_type = row.tipcard_type.clone();
 
         if domain::tipcard::is_queue_tipcard(&row.tipcard_type)
             || row.tipcard_type == "repeatable_tip"
@@ -117,8 +167,53 @@ impl ReviewService {
                 },
             )
             .await?;
+            let mut daily_complete = false;
+            let next_card_id = if row.tipcard_type == "repeatable_tip" {
+                if let Some(policy) = policy {
+                    let reviewed = reviews::reviewed_count_in_window(
+                        &mut tx,
+                        user_id,
+                        topic_id,
+                        policy.window_start,
+                    )
+                    .await?;
+                    daily_complete = reviewed >= policy.daily_limit.max(0);
+                    if !daily_complete {
+                        let next = tipcards::take_pending_card_in_tx(
+                            &mut tx,
+                            user_id,
+                            topic_id,
+                            &row.tipcard_type,
+                        )
+                        .await?;
+                        if let Some(card) = &next {
+                            tipcards::transfer_pinned_in_tx(
+                                &mut tx, user_id, card_id, card.id, row.pinned,
+                            )
+                            .await?;
+                        }
+                        next.map(|card| card.id)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            let pending_count =
+                reviews::pending_count_in_tx(&mut tx, user_id, topic_id, &row.tipcard_type).await?;
             tx.commit().await?;
-            return Ok(());
+            return Ok(ReviewAdvanceResult {
+                topic_id,
+                topic_name,
+                tipcard_type,
+                next_card_id,
+                pending_count,
+                daily_complete,
+                refill_scheduled: false,
+            });
         }
 
         let mut scheduling_state: SchedulingState = serde_json::from_str(&row.state_data)?;
@@ -134,6 +229,14 @@ impl ReviewService {
         )
         .await?;
         tx.commit().await?;
-        Ok(())
+        Ok(ReviewAdvanceResult {
+            topic_id,
+            topic_name,
+            tipcard_type,
+            next_card_id: None,
+            pending_count: 0,
+            daily_complete: false,
+            refill_scheduled: false,
+        })
     }
 }

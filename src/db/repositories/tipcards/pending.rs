@@ -1,5 +1,5 @@
 use chrono::Utc;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::error::AppResult;
 
@@ -126,7 +126,17 @@ pub async fn take_pending_card(
     tipcard_type: &str,
 ) -> AppResult<Option<ScheduledCardRecord>> {
     let mut tx = pool.begin().await?;
+    let card = take_pending_card_in_tx(&mut tx, user_id, topic_id, tipcard_type).await?;
+    tx.commit().await?;
+    Ok(card)
+}
 
+pub async fn take_pending_card_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+    topic_id: i64,
+    tipcard_type: &str,
+) -> AppResult<Option<ScheduledCardRecord>> {
     let row =
         sqlx::query_as::<_, (i64, String, String, String, i64, String, i64, String)>(&format!(
             "{select} JOIN review_states r ON t.id = r.card_id
@@ -150,11 +160,10 @@ pub async fn take_pending_card(
         .bind(user_id)
         .bind(topic_id)
         .bind(tipcard_type)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?;
 
     let Some(row) = row else {
-        tx.commit().await?;
         return Ok(None);
     };
 
@@ -163,10 +172,8 @@ pub async fn take_pending_card(
     )
     .bind(Utc::now())
     .bind(row.0)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
-
-    tx.commit().await?;
 
     Ok(Some(ScheduledCardRecord {
         id: row.0,

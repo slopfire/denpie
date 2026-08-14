@@ -1,5 +1,6 @@
 mod grounding;
 mod icons;
+mod image_enrichment;
 mod support;
 
 mod api_flow;

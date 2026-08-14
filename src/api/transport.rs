@@ -559,7 +559,8 @@ fn mutation_policy(op: &pb::api_request::Op) -> MutationPolicy {
         | pb::api_request::Op::UploadDocument(_)
         | pb::api_request::Op::CreatePoolImage(_)
         | pb::api_request::Op::TipsV1(_)
-        | pb::api_request::Op::ReviewV1(_) => MutationPolicy::Replayable,
+        | pb::api_request::Op::ReviewV1(_)
+        | pb::api_request::Op::ReviewAndAdvance(_) => MutationPolicy::Replayable,
     }
 }
 
@@ -1016,6 +1017,15 @@ async fn handle_authenticated_op(
             apply_review(state, &user.id, req.card_id, grade, action).await?;
             Ok(empty_response())
         }
+        pb::api_request::Op::ReviewAndAdvance(req) => {
+            let grade = validate_grade(req.grade)?;
+            let action = review_action_value(req.action)?;
+            Ok(pb::ApiResponse {
+                result: Some(pb::api_response::Result::ReviewAndAdvance(
+                    resources::review_and_advance(state, &user.id, req, grade, action).await?,
+                )),
+            })
+        }
         pb::api_request::Op::CreateApiKeyV1(req) => {
             let api_key = create_scoped_api_key(state, principal, req).await?;
             Ok(pb::ApiResponse {
@@ -1150,7 +1160,9 @@ fn required_scope(op: &pb::api_request::Op) -> &'static str {
         | pb::api_request::Op::SubmitCustomTipcard(_)
         | pb::api_request::Op::ForceDailyRefresh(_)
         | pb::api_request::Op::ContinueDailyReview(_) => "cards:write",
-        pb::api_request::Op::Review(_) | pb::api_request::Op::ReviewV1(_) => "reviews:write",
+        pb::api_request::Op::Review(_)
+        | pb::api_request::Op::ReviewV1(_)
+        | pb::api_request::Op::ReviewAndAdvance(_) => "reviews:write",
         pb::api_request::Op::GetTopics(_)
         | pb::api_request::Op::ListAdminTopics(_)
         | pb::api_request::Op::ListAppTopics(_) => "topics:read",
@@ -1226,6 +1238,7 @@ fn api_op_name(op: &pb::api_request::Op) -> &'static str {
         pb::api_request::Op::CreatePoolImage(_) => "create_pool_image",
         pb::api_request::Op::TipsV1(_) => "tips_v1",
         pb::api_request::Op::ReviewV1(_) => "review_v1",
+        pb::api_request::Op::ReviewAndAdvance(_) => "review_and_advance",
         pb::api_request::Op::CreateApiKeyV1(_) => "create_api_key_v1",
     }
 }

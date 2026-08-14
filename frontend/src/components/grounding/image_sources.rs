@@ -25,12 +25,14 @@ pub(crate) struct ImageSourceSettings {
     #[serde(default)]
     pub(crate) api_hosts: String,
     #[serde(default)]
+    pub(crate) search_domains: String,
+    #[serde(default)]
     pub(crate) download_hosts: String,
     #[serde(default)]
     pub(crate) instructions: String,
 }
 
-pub(crate) const DEFAULT_IMAGE_SOURCES: &str = r#"[{"id":"danbooru","name":"Danbooru","kind":"api","enabled":false,"endpoint":"https://danbooru.donmai.us/posts/random.json","query_parameter":"tags","json_path":"file_url","default_tags":"rating:general","api_hosts":"danbooru.donmai.us","download_hosts":"cdn.donmai.us","instructions":"Use concise Danbooru tags separated by spaces. Prefer tags that describe the card topic without naming UI text."},{"id":"safebooru","name":"Safebooru","kind":"api","enabled":false,"endpoint":"https://safebooru.org/index.php?page=dapi&s=post&q=index&json=1","query_parameter":"tags","json_path":"file_url","default_tags":"rating:safe","api_hosts":"safebooru.org","download_hosts":"safebooru.org","instructions":"Use concise booru tags separated by spaces."},{"id":"web-search","name":"Web Image Search","kind":"web_search","enabled":false,"endpoint":"","query_parameter":"","json_path":"","default_tags":"","api_hosts":"","download_hosts":"","instructions":"Prefer official project documentation and repositories. Return a direct image asset, never a webpage, logo, tracking pixel, or placeholder."}]"#;
+pub(crate) const DEFAULT_IMAGE_SOURCES: &str = r#"[{"id":"danbooru","name":"Danbooru","kind":"api","enabled":false,"endpoint":"https://danbooru.donmai.us/posts/random.json","query_parameter":"tags","json_path":"file_url","default_tags":"rating:general","api_hosts":"danbooru.donmai.us","search_domains":"","download_hosts":"cdn.donmai.us","instructions":"Use concise Danbooru tags separated by spaces. Prefer tags that describe the card topic without naming UI text."},{"id":"safebooru","name":"Safebooru","kind":"api","enabled":false,"endpoint":"https://safebooru.org/index.php?page=dapi&s=post&q=index&json=1","query_parameter":"tags","json_path":"file_url","default_tags":"rating:safe","api_hosts":"safebooru.org","search_domains":"","download_hosts":"safebooru.org","instructions":"Use concise booru tags separated by spaces."},{"id":"web-search","name":"Web Image Search","kind":"web_search","enabled":false,"endpoint":"","query_parameter":"","json_path":"","default_tags":"","api_hosts":"","search_domains":"","download_hosts":"","instructions":"Prefer official project documentation and repositories. Avoid logos, tracking pixels, placeholders, and decorative images."}]"#;
 
 pub(crate) fn parse_image_sources(value: &str) -> Vec<ImageSourceSettings> {
     serde_json::from_str(value)

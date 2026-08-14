@@ -174,6 +174,9 @@ ApiV1Request {
 
 - `tips_v1` uses repeated topic names and `TipcardTypeValue`.
 - `review_v1` uses `ReviewActionValue` and rejects grades outside 0-5.
+- `review_and_advance` applies SM-2 scheduling and promotes the next eligible
+  repeatable card in one replayable transaction. Its result directly contains
+  the replacement `FlowCardInfo`, or completion/refill state when no card is ready.
 - `list_flow_cards` uses a server-issued opaque `page_token`; `page_size`
   defaults to 48 and is clamped to 1-100.
 - `get_tipcard` returns title, visual metadata, content, state, and downloadable

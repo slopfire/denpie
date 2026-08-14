@@ -146,6 +146,26 @@ pub async fn find_by_id(pool: &PgPool, user_id: &str, id: i64) -> AppResult<Opti
     Ok(row.map(map_topic_row))
 }
 
+pub async fn find_for_card(
+    pool: &PgPool,
+    user_id: &str,
+    card_id: i64,
+) -> AppResult<Option<TopicRecord>> {
+    let query = "SELECT topics.id, topics.name, topics.tipcard_type, topics.prompt_template,
+                topics.daily_card_count, topics.daily_time_zone, topics.daily_update_time,
+                topics.compression_level, topics.icon_id, topics.color_hue,
+                topics.grounding_strategy, topics.image_strategy
+         FROM topics
+         JOIN tipcards card ON card.topic_id = topics.id AND card.user_id = topics.user_id
+         WHERE topics.user_id = $1 AND card.id = $2";
+    let row = sqlx::query_as::<_, TopicRow>(query)
+        .bind(user_id)
+        .bind(card_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(map_topic_row))
+}
+
 pub async fn find_by_name(
     pool: &PgPool,
     user_id: &str,

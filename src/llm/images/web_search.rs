@@ -1,11 +1,10 @@
 //! External-provider image search. Search result URLs are treated as untrusted;
 //! `image_store::download_remote_image` performs the SSRF and redirect checks.
 
-use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 
 use crate::domain::grounding::SearchProvider;
-use crate::image_store::{self, IncomingImage};
+use crate::image_store;
 
 use super::{ImageInput, RetrievedImage, download_and_prepare};
 
@@ -53,12 +52,14 @@ impl ImageResult {
 }
 
 pub async fn retrieve(input: ImageInput<'_>) -> Option<RetrievedImage> {
-    retrieve_with_domains(&input, &[]).await
+    retrieve_with_policy(&input, &[], &[], "").await
 }
 
-pub(super) async fn retrieve_with_domains(
+pub(super) async fn retrieve_with_policy(
     input: &ImageInput<'_>,
-    allowed_domains: &[String],
+    search_domains: &[String],
+    download_hosts: &[String],
+    instructions: &str,
 ) -> Option<RetrievedImage> {
     if input.search_api_key.trim().is_empty() || input.image_query.trim().is_empty() {
         return None;
@@ -70,12 +71,8 @@ pub(super) async fn retrieve_with_domains(
             format!("{}/v2/search", input.search_base_url.trim_end_matches('/'))
         }
     };
-    let body = search_request_body(
-        provider,
-        input.search_api_key,
-        input.image_query,
-        allowed_domains,
-    );
+    let query = provider_query(input.image_query, instructions);
+    let body = search_request_body(provider, input.search_api_key, &query, search_domains);
     let value = match provider {
         SearchProvider::Tavily => image_store::post_public_json(&endpoint, &body).await.ok()?,
         SearchProvider::Firecrawl => {
@@ -100,23 +97,19 @@ pub(super) async fn retrieve_with_domains(
             .collect(),
     };
     for url in urls {
-        if !allowed_domains.is_empty() {
-            if let Some(image) = download_and_prepare(&url, allowed_domains).await {
-                return Some(image);
-            }
-            continue;
-        }
-        let Ok(incoming) = image_store::download_remote_image(&url).await else {
-            continue;
-        };
-        if let Some(data_url) = incoming_data_url(incoming) {
-            return Some(RetrievedImage {
-                data_url,
-                pool_id: None,
-            });
+        if let Some(image) = download_and_prepare(&url, download_hosts).await {
+            return Some(image);
         }
     }
     None
+}
+
+fn provider_query(query: &str, instructions: &str) -> String {
+    if instructions.trim().is_empty() {
+        query.trim().to_string()
+    } else {
+        format!("{}. {}", query.trim(), instructions.trim())
+    }
 }
 
 fn search_request_body(
@@ -149,19 +142,9 @@ fn search_request_body(
     body
 }
 
-fn incoming_data_url(incoming: IncomingImage) -> Option<String> {
-    match incoming {
-        IncomingImage::Bytes { bytes, mime_type } => Some(format!(
-            "data:{mime_type};base64,{}",
-            STANDARD.encode(bytes)
-        )),
-        IncomingImage::DataUrl(_) => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{FirecrawlSearchResponse, SearchResponse, search_request_body};
+    use super::{FirecrawlSearchResponse, SearchResponse, provider_query, search_request_body};
     use crate::domain::grounding::SearchProvider;
 
     #[test]
@@ -212,5 +195,13 @@ mod tests {
             serde_json::from_str(r#"{"data":{"images":[{"imageUrl":"https://a.example/a.png"}]}}"#)
                 .unwrap();
         assert_eq!(response.data.images[0].image_url, "https://a.example/a.png");
+    }
+
+    #[test]
+    fn source_instructions_are_included_in_provider_query() {
+        assert_eq!(
+            provider_query("borrow checker diagram", "Avoid logos and placeholders."),
+            "borrow checker diagram. Avoid logos and placeholders."
+        );
     }
 }

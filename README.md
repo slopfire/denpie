@@ -132,9 +132,12 @@ Generated cards request an image only when the model marks a visual as materiall
 example a diagram, physical identification, UI screenshot, or comparison). The decision and
 specific query are stored with the card, including pending agentic-backlog cards; manual and
 custom cards do not trigger automatic retrieval. `web_search` posts the query to the configured
-provider and safely validates each returned image URL before storing it.
-Isolated Image Search passes each enabled source's allowed image domains using the selected
-provider's domain filter, then enforces that allowlist again before downloading a result.
+provider and safely validates each returned image URL before storing it. Generated cards enqueue
+durable image jobs: provider latency never blocks card promotion, failed jobs retry with leases,
+and storage completion is idempotent after worker restarts.
+Isolated Image Search uses `search_domains` for the provider's discovery filter and separately
+enforces `download_hosts` on returned image bytes. Existing source JSON without `search_domains`
+uses the download hosts for both. Per-source search instructions are included in the query.
 
 ### Card image append endpoint
 
@@ -254,6 +257,7 @@ settings.yaml   # local only — do not commit
 | `tipcards` | Content, title, pin state |
 | `review_states` | SM-2 state, learning feedback, active/pending deck status, repeats, next review |
 | `tipcard_images` | Attachment metadata |
+| `card_image_jobs` | Durable automatic-image enrichment leases and retry state |
 | `user_documents` / `document_topics` | Grounding sources + topic links |
 | `image_pool` | Local image pool entries |
 | `llm_token_usage` | Per-call token totals |

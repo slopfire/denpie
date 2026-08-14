@@ -232,10 +232,14 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     let leaving = use_state(|| None::<ReviewSway>);
     let grid_min_height = use_state(|| None::<f64>);
     let dragging = use_state(|| false);
+    // Nested scroll only when compact body content actually overflows max-height.
+    // Always-on overflow:auto + overscroll contain was trapping site/main scroll.
+    let body_scrollable = use_state(|| false);
     let card = &props.card;
     let id = card.id;
     let pinned = card.pinned;
     let root_ref = use_node_ref();
+    let body_ref = use_node_ref();
 
     let toggle_expand = {
         let expanded = expanded.clone();
@@ -328,6 +332,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
         let metadata_open = metadata_open.clone();
         let grid_min_height = grid_min_height.clone();
         let dragging = dragging.clone();
+        let body_scrollable = body_scrollable.clone();
         use_effect_with(id, move |_| {
             expanded.set(false);
             error_expanded.set(false);
@@ -338,6 +343,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
             metadata_open.set(false);
             grid_min_height.set(None);
             dragging.set(false);
+            body_scrollable.set(false);
             || ()
         });
     }
@@ -349,6 +355,78 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                 highlight_card_code_blocks(&element);
             }
             || ()
+        });
+    }
+    // Enable nested scroll on compact bodies only when content overflows the cap.
+    // Avoids creating a scrollport that steals wheel/touch from the page scroller.
+    {
+        let body_ref = body_ref.clone();
+        let body_scrollable = body_scrollable.clone();
+        let compact_body = !*expanded || !has_compact;
+        let needs_overflow_check =
+            compact_body && !props.list_mode && !props.fullscreen && !content_kind.is_error();
+        let overflow_key = (
+            id,
+            props.fullscreen,
+            props.list_mode,
+            *expanded,
+            has_compact,
+            content_kind.is_error(),
+            html_content.clone(),
+        );
+        use_effect_with(overflow_key, move |_| {
+            if !needs_overflow_check {
+                body_scrollable.set(false);
+                return Box::new(|| ()) as Box<dyn FnOnce()>;
+            }
+
+            let measure = {
+                let body_ref = body_ref.clone();
+                let body_scrollable = body_scrollable.clone();
+                std::rc::Rc::new(move || {
+                    let Some(element) = body_ref.cast::<HtmlElement>() else {
+                        return;
+                    };
+                    // Subpixel / scrollbar gutter: require a real overflow delta.
+                    let overflows =
+                        element.scroll_height() > element.client_height().saturating_add(1);
+                    if *body_scrollable != overflows {
+                        body_scrollable.set(overflows);
+                    }
+                }) as std::rc::Rc<dyn Fn()>
+            };
+
+            measure();
+
+            let observer = body_ref.cast::<web_sys::Element>().and_then(|element| {
+                let callback =
+                    Closure::<dyn FnMut(js_sys::Array, ResizeObserver)>::wrap(Box::new({
+                        let measure = measure.clone();
+                        move |_entries: js_sys::Array, _observer: ResizeObserver| {
+                            measure();
+                        }
+                    }));
+                ResizeObserver::new(callback.as_ref().unchecked_ref())
+                    .ok()
+                    .map(|observer| {
+                        observer.observe(&element);
+                        (observer, callback)
+                    })
+            });
+
+            // Re-measure after layout/fonts/images settle.
+            let delayed = {
+                let measure = measure.clone();
+                gloo_timers::callback::Timeout::new(50, move || measure())
+            };
+
+            Box::new(move || {
+                drop(delayed);
+                if let Some((observer, callback)) = observer {
+                    observer.disconnect();
+                    drop(callback);
+                }
+            }) as Box<dyn FnOnce()>
         });
     }
     {
@@ -640,6 +718,38 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                                     <dd class="font-medium text-right">{card.repeat_count}</dd>
                                     <dt class="text-muted">{"State"}</dt>
                                     <dd class="font-medium text-right">{if is_known { "Known" } else { "New" }}</dd>
+                                    if !card.sources.is_empty() {
+                                        <dt class="text-muted col-span-2 mt-1.5 border-t border-token pt-1.5">{"Sources"}</dt>
+                                        <dd class="col-span-2 min-w-0">
+                                            <ul class="max-h-40 space-y-1 overflow-y-auto">
+                                                {for card.sources.iter().map(|source| {
+                                                    let label = if source.title.trim().is_empty() {
+                                                        source.url.clone().unwrap_or_else(|| "Untitled source".to_string())
+                                                    } else {
+                                                        source.title.clone()
+                                                    };
+                                                    let link_url = source.url.clone();
+                                                    html! {
+                                                        <li class="flex items-start gap-1.5">
+                                                            <iconify-icon
+                                                                icon={if source.source_type == "link" { "radix-icons:link-2" } else { "radix-icons:file-text" }}
+                                                                class="radix-icon text-muted shrink-0 mt-0.5"
+                                                                aria-hidden="true"
+                                                            ></iconify-icon>
+                                                            {match link_url {
+                                                                Some(url) => html! {
+                                                                    <a href={url} target="_blank" rel="noopener noreferrer" class="min-w-0 break-words hover:text-primary hover:underline underline-offset-2">{label.clone()}</a>
+                                                                },
+                                                                None => html! {
+                                                                    <span class="min-w-0 break-words">{label}</span>
+                                                                },
+                                                            }}
+                                                        </li>
+                                                    }
+                                                })}
+                                            </ul>
+                                        </dd>
+                                    }
                                 </dl>
                             }
                         </div>
@@ -752,7 +862,14 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                     </div>
                 } else {
                     <div class={classes!(content_class, "card-text", if *expanded && has_compact { "is-expanded" } else { "is-compact" })}>
-                        <div class="card-text-body markdown-content">
+                        <div
+                            ref={body_ref}
+                            class={classes!(
+                                "card-text-body",
+                                "markdown-content",
+                                (*body_scrollable).then_some("is-scrollable"),
+                            )}
+                        >
                             { Html::from_html_unchecked(AttrValue::from(html_content)) }
                             if has_compact && !fullscreen {
                                 <ShadcnTooltip content={if *expanded { "Show compact text" } else { "Expand text" }}>

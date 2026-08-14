@@ -17,6 +17,8 @@ pub(crate) mod types;
 
 pub use images::{pool_image as api_pool_image, tipcard_image as api_tipcard_image};
 #[cfg(test)]
+pub use resources::{get_tipcard, list_flow_cards};
+#[cfg(test)]
 pub use reviews::apply_review;
 #[cfg(test)]
 pub use tipcards::{set_tipcard_images, set_tipcard_pinned};
