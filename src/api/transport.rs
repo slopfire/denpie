@@ -30,7 +30,7 @@ use super::{
     tipcards::{delete_tipcard_by_id, set_tipcard_pinned},
     tips::{build_tips, create_custom_tipcard, force_daily_refresh},
     topics::{delete_topic_by_id, update_topic_prompt},
-    types::{ForceDailyRefreshRequest, TipsJsonRequest},
+    types::{ForceDailyRefreshOutcome, ForceDailyRefreshRequest, TipsJsonRequest},
 };
 
 pub async fn unified_api(
@@ -882,6 +882,22 @@ async fn handle_authenticated_op(
                 result: Some(pb::api_response::Result::ForceDailyRefresh(
                     pb::ForceDailyRefreshResponse {
                         refreshed_cards: result.refreshed_cards,
+                        outcome: match result.outcome {
+                            ForceDailyRefreshOutcome::CardAvailable => {
+                                pb::ForceDailyRefreshOutcome::CardAvailable as i32
+                            }
+                            ForceDailyRefreshOutcome::QueueRefilled => {
+                                pb::ForceDailyRefreshOutcome::QueueRefilled as i32
+                            }
+                            ForceDailyRefreshOutcome::NoChange => {
+                                pb::ForceDailyRefreshOutcome::NoChange as i32
+                            }
+                            ForceDailyRefreshOutcome::ActiveLimitReached => {
+                                pb::ForceDailyRefreshOutcome::ActiveLimitReached as i32
+                            }
+                        },
+                        available_cards: result.available_cards,
+                        generated_cards: result.generated_cards,
                     },
                 )),
             })

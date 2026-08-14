@@ -53,18 +53,21 @@ async fn test_force_daily_refresh_respects_pending_low_water_mark() {
     )
     .await;
     assert_eq!(refresh_response.status(), reqwest::StatusCode::OK);
-    let refreshed_cards =
+    let refresh_result =
         match crate::api::pb::ApiResponse::decode(refresh_response.bytes().await.unwrap())
             .unwrap()
             .result
             .unwrap()
         {
-            crate::api::pb::api_response::Result::ForceDailyRefresh(result) => {
-                result.refreshed_cards
-            }
+            crate::api::pb::api_response::Result::ForceDailyRefresh(result) => result,
             other => panic!("unexpected response: {:?}", other),
         };
-    assert_eq!(refreshed_cards, 0);
+    assert_eq!(refresh_result.refreshed_cards, 0);
+    assert_eq!(refresh_result.available_cards, 0);
+    assert_eq!(
+        refresh_result.outcome,
+        crate::api::pb::ForceDailyRefreshOutcome::NoChange as i32
+    );
 
     let second_response = post_api(
         &url,
@@ -202,6 +205,12 @@ async fn explicit_repeatable_load_rotates_pending_card_at_active_limit() {
     .await
     .unwrap();
     assert_eq!(result.refreshed_cards, 1);
+    assert_eq!(result.available_cards, 1);
+    assert_eq!(result.generated_cards, 0);
+    assert_eq!(
+        result.outcome,
+        crate::types::ForceDailyRefreshOutcome::CardAvailable
+    );
 
     let current_status: String =
         sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = $1")
@@ -222,6 +231,175 @@ async fn explicit_repeatable_load_rotates_pending_card_at_active_limit() {
             .await
             .unwrap(),
         1
+    );
+}
+
+#[tokio::test]
+async fn explicit_repeatable_load_generates_and_promotes_when_queue_is_empty() {
+    let settings_path = unique_settings_path();
+    fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+        .await
+        .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ($1, 'empty loaded deck', 'repeatable_tip') RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    let result = crate::api::tips::force_daily_refresh(
+        &state,
+        TEST_USER_ID,
+        crate::api::ForceDailyRefreshRequest {
+            topics: "empty loaded deck".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result.refreshed_cards, 1);
+    assert_eq!(result.available_cards, 1);
+    assert!(result.generated_cards >= 5);
+    assert_eq!(
+        result.outcome,
+        crate::types::ForceDailyRefreshOutcome::CardAvailable
+    );
+    let active = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM review_states r
+         JOIN tipcards t ON t.id = r.card_id
+         WHERE t.topic_id = $1 AND r.status = 'active' AND r.next_review_at <= NOW()",
+    )
+    .bind(topic_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(active, 1);
+    let pending = crate::db::repositories::tipcards::count_pending(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+    )
+    .await
+    .unwrap();
+    assert_eq!(pending as u64, result.generated_cards - 1);
+}
+
+#[tokio::test]
+async fn explicit_load_reports_active_limit_when_no_topic_slot_exists() {
+    let settings_path = unique_settings_path();
+    fs::write(
+        &settings_path,
+        "admin_token: test_admin_token_xyz\nmax_active_cards: 1\n",
+    )
+    .await
+    .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+    let occupied_topic = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ($1, 'occupied', 'casual_tip') RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        occupied_topic,
+        "casual_tip",
+        "Occupied",
+        "occupied full",
+        "occupied compact",
+        false,
+        "",
+        "active",
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ($1, 'blocked deck', 'repeatable_tip')",
+    )
+    .bind(TEST_USER_ID)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let result = crate::api::tips::force_daily_refresh(
+        &state,
+        TEST_USER_ID,
+        crate::api::ForceDailyRefreshRequest {
+            topics: "blocked deck".into(),
+            tipcard_type: Some("repeatable_tip".into()),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result.refreshed_cards, 0);
+    assert_eq!(result.available_cards, 0);
+    assert_eq!(result.generated_cards, 0);
+    assert_eq!(
+        result.outcome,
+        crate::types::ForceDailyRefreshOutcome::ActiveLimitReached
+    );
+}
+
+#[tokio::test]
+async fn explicit_casual_load_reports_existing_pending_as_available_not_generated() {
+    let settings_path = unique_settings_path();
+    fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+        .await
+        .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ($1, 'casual queue', 'casual_tip') RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "casual_tip",
+        "Queued casual",
+        "queued full",
+        "queued compact",
+        false,
+        "",
+        "pending",
+    )
+    .await
+    .unwrap();
+
+    let result = crate::api::tips::force_daily_refresh(
+        &state,
+        TEST_USER_ID,
+        crate::api::ForceDailyRefreshRequest {
+            topics: "casual queue".into(),
+            tipcard_type: Some("casual_tip".into()),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result.refreshed_cards, 1);
+    assert_eq!(result.available_cards, 1);
+    assert_eq!(result.generated_cards, 0);
+    assert_eq!(
+        result.outcome,
+        crate::types::ForceDailyRefreshOutcome::CardAvailable
     );
 }
 
@@ -284,6 +462,10 @@ async fn test_daily_refresh_keeps_current_card_and_exclude_promotes_pending_card
     .await
     .unwrap();
     assert_eq!(forced.refreshed_cards, 0);
+    assert_eq!(
+        forced.outcome,
+        crate::types::ForceDailyRefreshOutcome::NoChange
+    );
 
     let after_force = crate::api::build_tips(&state, TEST_USER_ID, request.clone())
         .await

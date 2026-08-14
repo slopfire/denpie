@@ -229,7 +229,7 @@ pub(crate) async fn continue_daily_review(
     )
     .await?;
     Ok(pb::ContinueDailyReviewResponse {
-        available_cards: result.refreshed_cards,
+        available_cards: result.available_cards,
     })
 }
 

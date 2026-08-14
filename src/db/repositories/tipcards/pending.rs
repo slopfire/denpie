@@ -37,27 +37,6 @@ pub async fn stack_due_repeatable_cards(pool: &PgPool, user_id: &str) -> AppResu
     Ok(())
 }
 
-pub async fn park_unseen_active_topic_cards(
-    pool: &PgPool,
-    user_id: &str,
-    topic_id: i64,
-) -> AppResult<()> {
-    sqlx::query(
-        "UPDATE review_states
-         SET status = 'pending'
-         WHERE status = 'active' AND repeats = 0
-           AND card_id IN (
-               SELECT id FROM tipcards
-               WHERE user_id = $1 AND topic_id = $2 AND tipcard_type = 'repeatable_tip'
-           )",
-    )
-    .bind(user_id)
-    .bind(topic_id)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 pub(super) async fn promote_pending_for_empty_topics_in_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     user_id: &str,
@@ -240,6 +219,18 @@ pub async fn replace_unseen_with_pending_card(
     tipcard_type: &str,
 ) -> AppResult<Option<ScheduledCardRecord>> {
     let mut tx = pool.begin().await?;
+    let card =
+        replace_unseen_with_pending_card_in_tx(&mut tx, user_id, topic_id, tipcard_type).await?;
+    tx.commit().await?;
+    Ok(card)
+}
+
+pub(super) async fn replace_unseen_with_pending_card_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+    topic_id: i64,
+    tipcard_type: &str,
+) -> AppResult<Option<ScheduledCardRecord>> {
     let row =
         sqlx::query_as::<_, (i64, String, String, String, i64, String, i64, String)>(&format!(
             "{select} JOIN review_states r ON t.id = r.card_id
@@ -263,11 +254,10 @@ pub async fn replace_unseen_with_pending_card(
         .bind(user_id)
         .bind(topic_id)
         .bind(tipcard_type)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?;
 
     let Some(row) = row else {
-        tx.commit().await?;
         return Ok(None);
     };
 
@@ -284,7 +274,7 @@ pub async fn replace_unseen_with_pending_card(
         .bind(row.0)
         .bind(user_id)
         .bind(topic_id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     }
 
@@ -293,9 +283,8 @@ pub async fn replace_unseen_with_pending_card(
     )
     .bind(Utc::now())
     .bind(row.0)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
-    tx.commit().await?;
 
     Ok(Some(ScheduledCardRecord {
         id: row.0,
@@ -309,7 +298,11 @@ pub async fn replace_unseen_with_pending_card(
     }))
 }
 
-/// Count pending cards for a topic.
+/// Count pending cards that can still be served for a topic.
+///
+/// Negative repeatable feedback invalidates older queued cards. Keeping the
+/// same freshness predicate as pending selection prevents stale hidden rows
+/// from making a queue appear full and blocking a replacement generation.
 #[allow(dead_code)]
 pub async fn count_pending(
     pool: &PgPool,
@@ -321,7 +314,14 @@ pub async fn count_pending(
         "SELECT COUNT(*)
          FROM review_states r
          JOIN tipcards t ON t.id = r.card_id
-         WHERE t.user_id = $1 AND t.topic_id = $2 AND t.tipcard_type = $3 AND r.status = 'pending'",
+         WHERE t.user_id = $1 AND t.topic_id = $2 AND t.tipcard_type = $3 AND r.status = 'pending'
+           AND ($3 != 'repeatable_tip' OR t.created_at >= COALESCE((
+               SELECT MAX(r2.reviewed_at)
+               FROM review_states r2
+               JOIN tipcards t2 ON t2.id = r2.card_id
+               WHERE t2.user_id = $1 AND t2.topic_id = $2 AND t2.tipcard_type = $3
+                 AND r2.feedback IN ('known', 'not_interested', 'too_difficult')
+           ), TIMESTAMPTZ '-infinity'))",
     )
     .bind(user_id)
     .bind(topic_id)

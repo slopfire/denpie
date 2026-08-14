@@ -44,7 +44,20 @@ pub struct ContinueDailyReviewRequest {
     pub tipcard_type: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ForceDailyRefreshOutcome {
+    CardAvailable,
+    QueueRefilled,
+    NoChange,
+    ActiveLimitReached,
+}
+
 #[derive(Serialize)]
 pub struct ForceDailyRefreshResponse {
+    /// Legacy count of topics changed by this request.
     pub refreshed_cards: u64,
+    pub outcome: ForceDailyRefreshOutcome,
+    pub available_cards: u64,
+    pub generated_cards: u64,
 }

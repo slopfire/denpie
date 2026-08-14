@@ -329,6 +329,7 @@ pub fn grounding() -> Html {
 
     let on_load_topic = {
         let app_state = app_state.clone();
+        let i18n = i18n.clone();
         let loading_topic = loading_topic.clone();
         let navigator = navigator.clone();
         Callback::from(move |topic: AppTopicInfo| {
@@ -337,17 +338,29 @@ pub fn grounding() -> Html {
             }
             loading_topic.set(Some(topic.id));
             let app_state = app_state.clone();
+            let i18n = i18n.clone();
             let loading_topic = loading_topic.clone();
             let navigator = navigator.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 match api_v1::force_daily_refresh(topic.name, Some(topic.tipcard_type)).await {
-                    Ok(refreshed) if refreshed > 0 => {
-                        toast(&app_state, "New card loaded");
+                    Ok(result)
+                        if result.outcome == api_v1::DailyRefreshOutcome::CardAvailable
+                            && result.available_cards > 0 =>
+                    {
+                        toast(&app_state, i18n.t("toast.card_loaded"));
                         if let Some(nav) = navigator {
                             nav.push(&View::Flow);
                         }
                     }
-                    Ok(_) => toast(&app_state, "No new card available"),
+                    Ok(result) if result.outcome == api_v1::DailyRefreshOutcome::QueueRefilled => {
+                        toast(&app_state, i18n.t("toast.card_queue_refilled"));
+                    }
+                    Ok(result)
+                        if result.outcome == api_v1::DailyRefreshOutcome::ActiveLimitReached =>
+                    {
+                        toast(&app_state, i18n.t("toast.active_card_limit_reached"));
+                    }
+                    Ok(_) => toast(&app_state, i18n.t("toast.no_eligible_card")),
                     Err(err) => toast(&app_state, err.to_string()),
                 }
                 loading_topic.set(None);

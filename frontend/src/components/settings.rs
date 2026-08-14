@@ -1,6 +1,7 @@
 use crate::api::toast;
 use crate::api_v1;
 use crate::components::select::{SelectOption, ShadcnSelect};
+use crate::i18n::use_i18n;
 use crate::state::AppState;
 use gloo_net::http::Request;
 use gloo_storage::{LocalStorage, Storage};
@@ -483,6 +484,7 @@ fn save_settings_now(
 #[function_component(Settings)]
 pub fn settings() -> Html {
     let app_state = use_context::<UseReducerHandle<AppState>>().unwrap();
+    let i18n = use_i18n();
     let settings = use_state(|| None::<SettingsRes>);
     let last_saved = use_state(|| None::<SettingsRes>);
     let update_status = use_state(|| None::<AutoupdateStatus>);
@@ -666,20 +668,29 @@ pub fn settings() -> Html {
 
     let on_force_refresh = {
         let app_state = app_state.clone();
+        let i18n = i18n.clone();
         let force_refreshing = force_refreshing.clone();
         Callback::from(move |_| {
             if *force_refreshing {
                 return;
             }
             let app_state = app_state.clone();
+            let i18n = i18n.clone();
             let force_refreshing = force_refreshing.clone();
             force_refreshing.set(true);
             wasm_bindgen_futures::spawn_local(async move {
                 match api_v1::force_daily_refresh(String::new(), None).await {
-                    Ok(refreshed) => toast(
+                    Ok(result) if result.refreshed_topics > 0 => toast(
                         &app_state,
-                        format!("Force refresh loaded {refreshed} cards"),
+                        i18n.tf(
+                            "toast.force_refresh_summary",
+                            &[
+                                ("topics", result.refreshed_topics.to_string()),
+                                ("cards", result.generated_cards.to_string()),
+                            ],
+                        ),
                     ),
+                    Ok(_) => toast(&app_state, i18n.t("toast.force_refresh_no_change")),
                     Err(err) => toast(&app_state, err.to_string()),
                 }
                 force_refreshing.set(false);

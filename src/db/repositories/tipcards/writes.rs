@@ -175,8 +175,54 @@ pub async fn create_pending_batch_if_needed(
     low_water: i64,
     cards: &[GeneratedCardParams<'_>],
 ) -> AppResult<Vec<i64>> {
+    create_pending_batch(
+        pool,
+        user_id,
+        topic_id,
+        tipcard_type,
+        low_water,
+        cards,
+        false,
+    )
+    .await
+    .map(|(ids, _)| ids)
+}
+
+/// Persist a generated batch and promote its oldest eligible card in the same
+/// topic-locked transaction. This is used by explicit Load-card requests so a
+/// successful response always corresponds to a card that can be listed.
+pub async fn create_pending_batch_and_promote_if_needed(
+    pool: &PgPool,
+    user_id: &str,
+    topic_id: i64,
+    tipcard_type: &str,
+    low_water: i64,
+    cards: &[GeneratedCardParams<'_>],
+) -> AppResult<(Vec<i64>, Option<super::models::ScheduledCardRecord>)> {
+    create_pending_batch(
+        pool,
+        user_id,
+        topic_id,
+        tipcard_type,
+        low_water,
+        cards,
+        true,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn create_pending_batch(
+    pool: &PgPool,
+    user_id: &str,
+    topic_id: i64,
+    tipcard_type: &str,
+    low_water: i64,
+    cards: &[GeneratedCardParams<'_>],
+    promote: bool,
+) -> AppResult<(Vec<i64>, Option<super::models::ScheduledCardRecord>)> {
     if cards.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), None));
     }
 
     let mut tx = pool.begin().await?;
@@ -201,40 +247,55 @@ pub async fn create_pending_batch_if_needed(
          FROM review_states r
          JOIN tipcards t ON t.id = r.card_id
          WHERE t.user_id = $1 AND t.topic_id = $2 AND t.tipcard_type = $3
-           AND r.status = 'pending'",
+           AND r.status = 'pending'
+           AND ($3 != 'repeatable_tip' OR t.created_at >= COALESCE((
+               SELECT MAX(r2.reviewed_at)
+               FROM review_states r2
+               JOIN tipcards t2 ON t2.id = r2.card_id
+               WHERE t2.user_id = $1 AND t2.topic_id = $2 AND t2.tipcard_type = $3
+                 AND r2.feedback IN ('known', 'not_interested', 'too_difficult')
+           ), TIMESTAMPTZ '-infinity'))",
     )
     .bind(user_id)
     .bind(topic_id)
     .bind(tipcard_type)
     .fetch_one(&mut *tx)
     .await?;
-    if pending > low_water {
-        tx.commit().await?;
-        return Ok(Vec::new());
-    }
-
     let mut ids = Vec::with_capacity(cards.len());
-    for card in cards {
-        ids.push(
-            insert_generated_with_status(
-                &mut tx,
-                user_id,
-                topic_id,
-                tipcard_type,
-                GeneratedCardParams {
-                    title: card.title,
-                    full_content: card.full_content,
-                    compressed_content: card.compressed_content,
-                    use_image: card.use_image,
-                    image_query: card.image_query,
-                },
-                "pending",
+    if pending <= low_water {
+        for card in cards {
+            ids.push(
+                insert_generated_with_status(
+                    &mut tx,
+                    user_id,
+                    topic_id,
+                    tipcard_type,
+                    GeneratedCardParams {
+                        title: card.title,
+                        full_content: card.full_content,
+                        compressed_content: card.compressed_content,
+                        use_image: card.use_image,
+                        image_query: card.image_query,
+                    },
+                    "pending",
+                )
+                .await?,
             )
-            .await?,
-        );
+        }
     }
+    let promoted = if promote {
+        super::pending::replace_unseen_with_pending_card_in_tx(
+            &mut tx,
+            user_id,
+            topic_id,
+            tipcard_type,
+        )
+        .await?
+    } else {
+        None
+    };
     tx.commit().await?;
-    Ok(ids)
+    Ok((ids, promoted))
 }
 
 async fn insert_generated_with_status(

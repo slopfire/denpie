@@ -28,9 +28,8 @@ pub use models::{
 };
 #[allow(unused_imports)]
 pub use pending::{
-    count_pending, due_repeatable_slot_card_in_tx, park_unseen_active_topic_cards,
-    replace_unseen_with_pending_card, stack_due_repeatable_cards, take_pending_card,
-    take_pending_card_in_tx,
+    count_pending, due_repeatable_slot_card_in_tx, replace_unseen_with_pending_card,
+    stack_due_repeatable_cards, take_pending_card, take_pending_card_in_tx,
 };
 pub use queue::{
     active_card_count, count_reviewed_in_window, find_daily_topic_cards, find_due_topic_cards,
@@ -38,7 +37,8 @@ pub use queue::{
 };
 #[allow(unused_imports)]
 pub use writes::{
-    create_custom, create_generated_with_status, create_manual, create_pending_batch_if_needed,
+    create_custom, create_generated_with_status, create_manual,
+    create_pending_batch_and_promote_if_needed, create_pending_batch_if_needed,
     delete_failed_generation_cards, delete_with_review, set_pinned, transfer_pinned_in_tx,
 };
 

@@ -3,6 +3,15 @@
 This log records consumer-visible changes to the versioned public API. Entries
 describe wire behavior rather than dashboard internals.
 
+## 2026-08-14 — Explicit daily-refresh outcomes
+
+- `ForceDailyRefreshResponse` additively exposes `outcome`, `available_cards`,
+  and `generated_cards`; `refreshed_cards` remains the legacy count of topics
+  changed.
+- A targeted `force_daily_refresh` now promotes one eligible pending or newly
+  generated card in the same topic-locked transaction. Pending cards invalidated
+  by later negative feedback no longer block low-water generation.
+
 ## 2026-08-14 — Repeatable slot occupant
 
 - `review_and_advance` now returns the occupant of the reviewed topic slot:

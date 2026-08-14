@@ -11,8 +11,8 @@ use crate::{
         topics::TopicService,
     },
     types::{
-        ApiResult, ContinueDailyReviewRequest, ForceDailyRefreshRequest, ForceDailyRefreshResponse,
-        TipCardJson, TipsJsonRequest,
+        ApiResult, ContinueDailyReviewRequest, ForceDailyRefreshOutcome, ForceDailyRefreshRequest,
+        ForceDailyRefreshResponse, TipCardJson, TipsJsonRequest,
     },
 };
 
@@ -32,6 +32,41 @@ impl domain::scheduling::DailyWindowTopic for topics::TopicRecord {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TipService;
+
+#[derive(Clone, Copy, Debug, Default)]
+struct DailyRefreshProgress {
+    refreshed_topics: u64,
+    available_cards: u64,
+    generated_cards: u64,
+    active_limit_reached: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GeneratedCardDelivery {
+    QueueOnly,
+    Promote,
+    Atomic,
+}
+
+impl DailyRefreshProgress {
+    fn into_response(self) -> ForceDailyRefreshResponse {
+        let outcome = if self.available_cards > 0 {
+            ForceDailyRefreshOutcome::CardAvailable
+        } else if self.generated_cards > 0 {
+            ForceDailyRefreshOutcome::QueueRefilled
+        } else if self.active_limit_reached {
+            ForceDailyRefreshOutcome::ActiveLimitReached
+        } else {
+            ForceDailyRefreshOutcome::NoChange
+        };
+        ForceDailyRefreshResponse {
+            refreshed_cards: self.refreshed_topics,
+            outcome,
+            available_cards: self.available_cards,
+            generated_cards: self.generated_cards,
+        }
+    }
+}
 
 impl TipService {
     pub async fn review_and_advance(
@@ -250,7 +285,7 @@ impl TipService {
                         },
                         "pending",
                         count as usize,
-                        false,
+                        GeneratedCardDelivery::QueueOnly,
                         &mut responses,
                     )
                     .await
@@ -447,7 +482,7 @@ impl TipService {
                         },
                         "active",
                         cards_to_load,
-                        true,
+                        GeneratedCardDelivery::Promote,
                         &mut responses,
                     )
                     .await;
@@ -515,7 +550,7 @@ impl TipService {
                     },
                     "active",
                     1,
-                    true,
+                    GeneratedCardDelivery::Promote,
                     &mut responses,
                 )
                 .await
@@ -542,20 +577,19 @@ impl TipService {
         user_id: &str,
         req: ForceDailyRefreshRequest,
     ) -> ApiResult<ForceDailyRefreshResponse> {
-        let rotate_repeatable =
-            !req.topics.trim().is_empty() && req.tipcard_type.as_deref() == Some("repeatable_tip");
+        let load_immediately = !req.topics.trim().is_empty();
         let targets = Self::force_refresh_targets(state, user_id, req).await?;
-        let refreshed_cards =
-            Self::generate_fresh_daily_cards(state, user_id, &targets, rotate_repeatable).await?;
-        if refreshed_cards > 0 {
+        let progress =
+            Self::generate_fresh_daily_cards(state, user_id, &targets, load_immediately).await?;
+        if progress.refreshed_topics > 0 {
             Self::mark_targets_current_window(
                 state,
                 user_id,
-                &targets[..(refreshed_cards as usize).min(targets.len())],
+                &targets[..(progress.refreshed_topics as usize).min(targets.len())],
             )
             .await?;
         }
-        Ok(ForceDailyRefreshResponse { refreshed_cards })
+        Ok(progress.into_response())
     }
 
     /// Start one more full daily set for a repeatable topic in the current
@@ -595,9 +629,8 @@ impl TipService {
             ));
         }
 
-        let refreshed_cards =
-            Self::generate_fresh_daily_cards(state, user_id, &targets, true).await?;
-        if refreshed_cards == 0 {
+        let progress = Self::generate_fresh_daily_cards(state, user_id, &targets, true).await?;
+        if progress.available_cards == 0 {
             return Err((
                 StatusCode::CONFLICT,
                 "Could not prepare another card to continue this review".to_string(),
@@ -630,7 +663,7 @@ impl TipService {
         .map_err(|err| err.into_status_body())?;
         Self::mark_targets_current_window(state, user_id, &targets).await?;
 
-        Ok(ForceDailyRefreshResponse { refreshed_cards })
+        Ok(progress.into_response())
     }
 
     pub async fn refresh_due_daily_topics(state: &AppState) -> ApiResult<u64> {
@@ -695,7 +728,7 @@ impl TipService {
                         return Err(err);
                     }
                 };
-                refreshed_cards += refreshed;
+                refreshed_cards += refreshed.refreshed_topics;
             }
         }
 
@@ -777,10 +810,10 @@ impl TipService {
         state: &AppState,
         user_id: &str,
         targets: &[(topics::TopicRecord, String)],
-        rotate_repeatable: bool,
-    ) -> ApiResult<u64> {
+        load_immediately: bool,
+    ) -> ApiResult<DailyRefreshProgress> {
         if targets.is_empty() {
-            return Ok(0);
+            return Ok(DailyRefreshProgress::default());
         }
 
         let defaults = state
@@ -799,10 +832,26 @@ impl TipService {
             .map_err(|err| err.into_status_body())?;
         let mut active_room = active_card_room(state, user_id, settings.max_active_cards).await?;
         let mut responses = Vec::new();
-        let mut created_total = 0_u64;
+        let mut progress = DailyRefreshProgress::default();
 
         for (topic, topic_name) in targets {
-            if rotate_repeatable && topic.tipcard_type == "repeatable_tip" {
+            let has_repeatable_slot = if load_immediately && topic.tipcard_type == "repeatable_tip"
+            {
+                tipcards::has_active_topic_card(&state.db, user_id, topic.id)
+                    .await
+                    .map_err(|err| err.into_status_body())?
+            } else {
+                false
+            };
+            if load_immediately
+                && topic.tipcard_type == "repeatable_tip"
+                && !has_repeatable_slot
+                && matches!(active_room, Some(0))
+            {
+                progress.active_limit_reached = true;
+                break;
+            }
+            if load_immediately && topic.tipcard_type == "repeatable_tip" {
                 let image_strategy = domain::grounding::ImageStrategy::from_setting(
                     topic
                         .image_strategy
@@ -832,17 +881,16 @@ impl TipService {
                 )
                 .await?
                 {
-                    created_total += 1;
+                    progress.refreshed_topics += 1;
+                    progress.available_cards += 1;
+                    if !has_repeatable_slot {
+                        decrement_room(&mut active_room);
+                    }
                     continue;
                 }
             }
-            if topic.tipcard_type == "repeatable_tip" {
-                tipcards::park_unseen_active_topic_cards(&state.db, user_id, topic.id)
-                    .await
-                    .map_err(|err| err.into_status_body())?;
-            }
             let primary_status = if topic.tipcard_type == "repeatable_tip"
-                && !rotate_repeatable
+                && !load_immediately
                 && tipcards::has_active_topic_card(&state.db, user_id, topic.id)
                     .await
                     .map_err(|err| err.into_status_body())?
@@ -851,7 +899,13 @@ impl TipService {
             } else {
                 "active"
             };
-            if primary_status == "active" && matches!(active_room, Some(0)) {
+            let replaces_repeatable_slot =
+                load_immediately && topic.tipcard_type == "repeatable_tip" && has_repeatable_slot;
+            if primary_status == "active"
+                && !replaces_repeatable_slot
+                && matches!(active_room, Some(0))
+            {
+                progress.active_limit_reached = true;
                 break;
             }
             let batch = if topic.tipcard_type == "repeatable_tip" {
@@ -859,6 +913,7 @@ impl TipService {
             } else {
                 1
             };
+            let available_before = responses.len();
             let created = Self::generate_tipcard(
                 GenerationContext {
                     state,
@@ -879,17 +934,26 @@ impl TipService {
                 },
                 primary_status,
                 batch,
-                false,
+                if load_immediately {
+                    GeneratedCardDelivery::Atomic
+                } else {
+                    GeneratedCardDelivery::QueueOnly
+                },
                 &mut responses,
             )
             .await?;
-            created_total += u64::from(created > 0);
-            if primary_status == "active" {
+            let available = responses.len().saturating_sub(available_before) as u64;
+            if created > 0 || available > 0 {
+                progress.refreshed_topics += 1;
+            }
+            progress.available_cards += available;
+            progress.generated_cards += created as u64;
+            if primary_status == "active" && !replaces_repeatable_slot && available > 0 {
                 decrement_room(&mut active_room);
             }
         }
 
-        Ok(created_total)
+        Ok(progress)
     }
 
     pub async fn create_custom_tipcard(
@@ -1019,13 +1083,13 @@ pub(crate) struct GenerationContext<'a> {
 }
 
 impl TipService {
-    pub async fn generate_tipcard(
+    async fn generate_tipcard(
         ctx: GenerationContext<'_>,
         template: &str,
         llm: GenerationLlmConfig<'_>,
         primary_status: &str,
         batch_size: usize,
-        promote_pending: bool,
+        delivery: GeneratedCardDelivery,
         responses: &mut Vec<TipCardJson>,
     ) -> ApiResult<usize> {
         let grounding = domain::grounding::GroundingStrategy::from_setting(
@@ -1047,7 +1111,9 @@ impl TipService {
                 (llm.grounding_model, llm.grounding_reasoning)
             };
 
-        let should_promote = promote_pending && primary_status == "active";
+        let should_promote =
+            delivery != GeneratedCardDelivery::QueueOnly && primary_status == "active";
+        let atomic_delivery = delivery == GeneratedCardDelivery::Atomic;
         let pending_count = tipcards::count_pending(
             &ctx.state.db,
             ctx.user_id,
@@ -1061,9 +1127,12 @@ impl TipService {
         // already available. Refill in the background once the queue approaches
         // empty so later reviews find cards ready.
         if should_promote && pending_count > 0 {
-            if Self::serve_pending_card(&ctx, &llm, image_strategy, false, responses).await? {
+            let replace_unseen = atomic_delivery && ctx.topic.tipcard_type == "repeatable_tip";
+            if Self::serve_pending_card(&ctx, &llm, image_strategy, replace_unseen, responses)
+                .await?
+            {
                 Self::maybe_spawn_pending_refill(&ctx).await;
-                return Ok(batch_size.max(1));
+                return Ok(0);
             }
         }
         if !pending_needs_generation(pending_count) {
@@ -1176,14 +1245,17 @@ impl TipService {
         .map_err(|err| err.into_status_body())?;
         if !pending_needs_generation(current_pending) {
             if should_promote {
-                Self::serve_pending_card(&ctx, &llm, image_strategy, false, responses).await?;
+                let replace_unseen = atomic_delivery && ctx.topic.tipcard_type == "repeatable_tip";
+                Self::serve_pending_card(&ctx, &llm, image_strategy, replace_unseen, responses)
+                    .await?;
             }
             return Ok(0);
         }
 
         // Every grounding strategy writes its complete batch to pending first.
-        // The repository locks the topic and rechecks queue depth, preventing
-        // concurrent LLM requests from persisting duplicate batches.
+        // Explicit delivery promotes one card in that same topic-locked
+        // transaction, so a successful Load response cannot leave the entire
+        // fresh batch hidden in the queue.
         let cards = outcome
             .cards()
             .map(|card| tipcards::GeneratedCardParams {
@@ -1194,24 +1266,46 @@ impl TipService {
                 image_query: &card.image_query,
             })
             .collect::<Vec<_>>();
-        let created_count = tipcards::create_pending_batch_if_needed(
-            &ctx.state.db,
-            ctx.user_id,
-            ctx.topic.id,
-            &ctx.topic.tipcard_type,
-            REFILL_LOW_WATER,
-            &cards,
-        )
-        .await
-        .map_err(|err| err.into_status_body())?
-        .len();
-
-        if !should_promote {
-            return Ok(created_count);
+        if should_promote && atomic_delivery {
+            let (created_ids, promoted) = tipcards::create_pending_batch_and_promote_if_needed(
+                &ctx.state.db,
+                ctx.user_id,
+                ctx.topic.id,
+                &ctx.topic.tipcard_type,
+                REFILL_LOW_WATER,
+                &cards,
+            )
+            .await
+            .map_err(|err| err.into_status_body())?;
+            if let Some(card) = promoted {
+                responses.push(tip_response_json(
+                    card.id,
+                    ctx.topic_name,
+                    card.full_content,
+                    card.compressed_content,
+                    parse_image_data(&card.image_data),
+                    ctx.topic.tipcard_type.clone(),
+                    card.pinned,
+                ));
+            }
+            Ok(created_ids.len())
+        } else {
+            let created_count = tipcards::create_pending_batch_if_needed(
+                &ctx.state.db,
+                ctx.user_id,
+                ctx.topic.id,
+                &ctx.topic.tipcard_type,
+                REFILL_LOW_WATER,
+                &cards,
+            )
+            .await
+            .map_err(|err| err.into_status_body())?
+            .len();
+            if should_promote {
+                Self::serve_pending_card(&ctx, &llm, image_strategy, false, responses).await?;
+            }
+            Ok(created_count)
         }
-
-        Self::serve_pending_card(&ctx, &llm, image_strategy, false, responses).await?;
-        Ok(created_count)
     }
 
     async fn serve_pending_card(

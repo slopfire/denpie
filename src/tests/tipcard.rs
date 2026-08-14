@@ -252,6 +252,121 @@ async fn concurrent_generated_batches_persist_only_once() {
 }
 
 #[tokio::test]
+async fn stale_pending_cards_do_not_block_atomic_load_promotion() {
+    let settings_path = unique_settings_path();
+    fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+        .await
+        .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ($1, 'fresh load', 'repeatable_tip') RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+
+    let reviewed_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "Reviewed boundary",
+        "reviewed full",
+        "reviewed compact",
+        false,
+        "",
+        "active",
+    )
+    .await
+    .unwrap();
+    let mut stale_ids = Vec::new();
+    for index in 0..5 {
+        stale_ids.push(
+            crate::db::repositories::tipcards::create_generated_with_status(
+                &state.db,
+                TEST_USER_ID,
+                topic_id,
+                "repeatable_tip",
+                &format!("Stale {index}"),
+                "stale full",
+                "stale compact",
+                false,
+                "",
+                "pending",
+            )
+            .await
+            .unwrap(),
+        );
+    }
+    sqlx::query("UPDATE tipcards SET created_at = '2000-01-01' WHERE id = ANY($1)")
+        .bind(&stale_ids)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE review_states
+         SET feedback = 'known', reviewed_at = NOW(), next_review_at = NOW() + INTERVAL '1 day'
+         WHERE card_id = $1",
+    )
+    .bind(reviewed_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let eligible = crate::db::repositories::tipcards::count_pending(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+    )
+    .await
+    .unwrap();
+    assert_eq!(eligible, 0);
+
+    let cards = [crate::db::repositories::tipcards::GeneratedCardParams {
+        title: "Fresh replacement",
+        full_content: "fresh full",
+        compressed_content: "fresh compact",
+        use_image: false,
+        image_query: "",
+    }];
+    let (created, promoted) =
+        crate::db::repositories::tipcards::create_pending_batch_and_promote_if_needed(
+            &state.db,
+            TEST_USER_ID,
+            topic_id,
+            "repeatable_tip",
+            3,
+            &cards,
+        )
+        .await
+        .unwrap();
+    assert_eq!(created.len(), 1);
+    assert_eq!(promoted.as_ref().map(|card| card.id), Some(created[0]));
+
+    let promoted_status: String =
+        sqlx::query_scalar("SELECT status FROM review_states WHERE card_id = $1")
+            .bind(created[0])
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(promoted_status, "active");
+    let raw_pending = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM review_states r
+         JOIN tipcards t ON t.id = r.card_id
+         WHERE t.topic_id = $1 AND r.status = 'pending'",
+    )
+    .bind(topic_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert_eq!(raw_pending, 6);
+}
+
+#[tokio::test]
 async fn flow_cursor_uses_timestamp_keyset_without_repeating_cards() {
     let settings_path = unique_settings_path();
     fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")

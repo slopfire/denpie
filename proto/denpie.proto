@@ -319,8 +319,19 @@ message ForceDailyRefreshRequest {
     reserved 2; // was topic_class
 }
 
+enum ForceDailyRefreshOutcome {
+    FORCE_DAILY_REFRESH_OUTCOME_UNSPECIFIED = 0;
+    FORCE_DAILY_REFRESH_OUTCOME_CARD_AVAILABLE = 1;
+    FORCE_DAILY_REFRESH_OUTCOME_QUEUE_REFILLED = 2;
+    FORCE_DAILY_REFRESH_OUTCOME_NO_CHANGE = 3;
+    FORCE_DAILY_REFRESH_OUTCOME_ACTIVE_LIMIT_REACHED = 4;
+}
+
 message ForceDailyRefreshResponse {
-    uint64 refreshed_cards = 1;
+    uint64 refreshed_cards = 1; // legacy count of topics changed
+    ForceDailyRefreshOutcome outcome = 2;
+    uint64 available_cards = 3;
+    uint64 generated_cards = 4;
 }
 
 message AddDocumentRequest {

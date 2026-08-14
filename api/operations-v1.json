@@ -213,7 +213,7 @@
       "auth": "Bearer API key",
       "scope": "cards:write",
       "kind": "mutation",
-      "summary": "Refill selected generated-topic queues at their low-water mark."
+      "summary": "Load an available card for an explicitly selected topic or refill generated-topic queues at their eligible low-water mark."
     },
     {
       "operation": "add_document",

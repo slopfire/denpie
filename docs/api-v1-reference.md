@@ -30,7 +30,7 @@ The API currently exposes **41 operations**: **15 reads** and
 | `delete_topic` | `DeleteByIdRequest` | `ok` (`Empty`) | Bearer API key | `topics:write` | mutation | required; replayable | Delete a topic and its owned topic data. |
 | `pin_tipcard` | `PinTipcardRequest` | `ok` (`Empty`) | Bearer API key | `cards:write` | mutation | required; replayable | Set or clear a tipcard's pinned state. |
 | `submit_custom_tipcard` | `CustomTipcardRequest` | `tips` (`TipsResponse`) | Bearer API key | `cards:write` | mutation | required; replayable | Create an external custom card without review state. |
-| `force_daily_refresh` | `ForceDailyRefreshRequest` | `force_daily_refresh` (`ForceDailyRefreshResponse`) | Bearer API key | `cards:write` | mutation | required; replayable | Refill selected generated-topic queues at their low-water mark. |
+| `force_daily_refresh` | `ForceDailyRefreshRequest` | `force_daily_refresh` (`ForceDailyRefreshResponse`) | Bearer API key | `cards:write` | mutation | required; replayable | Load an available card for an explicitly selected topic or refill generated-topic queues at their eligible low-water mark. |
 | `add_document` | `AddDocumentRequest` | `ok` (`Empty`) | Bearer API key | `documents:write` | mutation | required; replayable | Legacy document creation without returning the new ID; prefer create_document. |
 | `list_documents` | `Empty` | `documents` (`Documents`) | Bearer API key | `documents:read` | read | not required | List grounding-source metadata. |
 | `delete_document` | `DeleteByIdRequest` | `ok` (`Empty`) | Bearer API key | `documents:write` | mutation | required; replayable | Delete a grounding source. |

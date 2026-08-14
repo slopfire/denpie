@@ -60,7 +60,7 @@ Put returned `sk_live_*` in `ApiRequest.auth` for every later call.
 | `get_settings` / `update_settings` | LLM + runtime config |
 | `create_api_key` / `list_api_keys` / `delete_api_key` | Key management |
 | `tips` | Due cards, current daily cards, or cards after window rollover; repeatable topics stop at their per-topic daily limit |
-| `force_daily_refresh` | Empty = all generated topics; set `topic`/`tipcard_type` to target. Then call `tips` |
+| `force_daily_refresh` | Empty topics refill all generated queues. An explicit topic atomically makes one eligible card available and reports a structured outcome; use `available_cards` instead of inferring availability from `refreshed_cards`. |
 | dashboard `POST /app/continue-daily-review` | Browser-only continuation for one repeatable topic: adds another full `daily_card_count` set to its current daily window and makes its next card available |
 | dashboard `POST /app/topics/suggest-icons` / `set-icon` | AI icon picker: `suggest-icons` returns 5 allowlisted icon ids for a topic (`{ id, excluded_icons? }` → `{ icons: [...] }`); exclusions apply only to that request. `set-icon` applies one (`{ id, icon_id }` → `{ icon_id }`) |
 | `review` | Grade or queue action on a card |

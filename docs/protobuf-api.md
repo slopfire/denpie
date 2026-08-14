@@ -39,7 +39,14 @@ ApiRequest {
 | `tips` | `tips` | Due cards, current daily cards, new cards after refresh, or `manual_tip` |
 | `review` | `ok` | Grade or queue action |
 | `get_settings` / `update_settings` | `settings` / `ok` | LLM, prompt, appearance, admin-only instance/autoupdate settings (`update` is partial) |
-| `force_daily_refresh` | `force_daily_refresh` | Refill selected generated-topic queues that are empty or have 1-2 pending cards; does not reschedule current cards |
+| `force_daily_refresh` | `force_daily_refresh` | For an explicit topic, atomically make an eligible card available; for an empty topic list, refill generated-topic queues at their eligible low-water mark |
+
+`ForceDailyRefreshResponse.outcome` distinguishes `CARD_AVAILABLE`,
+`QUEUE_REFILLED`, `NO_CHANGE`, and `ACTIVE_LIMIT_REACHED`. `available_cards`
+counts cards made immediately visible and `generated_cards` counts physical rows
+created. The legacy `refreshed_cards` field remains the number of topics changed.
+Pending repeatable cards invalidated by later negative feedback are excluded from
+both selection and low-water depth.
 
 ## Operations — inventory
 

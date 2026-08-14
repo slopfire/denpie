@@ -8,8 +8,8 @@ use super::client::{ApiError, ApiResult, call_mutation, call_mutation_with_key, 
 use crate::pb::{
     self, AddDocumentRequest, AddPoolImageRequest, AttachDocumentTopicRequest,
     ContinueDailyReviewRequest, CreateApiKeyRequest, DeleteByIdRequest, Empty, ExploreLinkRequest,
-    ForceDailyRefreshRequest, GetByIdRequest, ListFlowCardsRequest, PinTipcardRequest,
-    ReviewActionValue, ReviewAndAdvanceRequest, TipcardTypeValue, TipsRequestV1,
+    ForceDailyRefreshOutcome, ForceDailyRefreshRequest, GetByIdRequest, ListFlowCardsRequest,
+    PinTipcardRequest, ReviewActionValue, ReviewAndAdvanceRequest, TipcardTypeValue, TipsRequestV1,
     UpdateSettingsRequest, UpdateTopicRequest, UploadDocumentRequest, api_request, api_response,
 };
 use base64::Engine;
@@ -98,6 +98,22 @@ pub struct ReviewAndAdvanceOutcome {
     pub daily_complete: bool,
     pub pending_count: u32,
     pub refill_scheduled: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DailyRefreshOutcome {
+    CardAvailable,
+    QueueRefilled,
+    NoChange,
+    ActiveLimitReached,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DailyRefreshResult {
+    pub refreshed_topics: u64,
+    pub available_cards: u64,
+    pub generated_cards: u64,
+    pub outcome: DailyRefreshOutcome,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -430,7 +446,10 @@ pub async fn list_tipcards() -> ApiResult<Vec<InventoryCard>> {
     }
 }
 
-pub async fn force_daily_refresh(topics: String, tipcard_type: Option<String>) -> ApiResult<u64> {
+pub async fn force_daily_refresh(
+    topics: String,
+    tipcard_type: Option<String>,
+) -> ApiResult<DailyRefreshResult> {
     let response = call_mutation(api_request::Op::ForceDailyRefresh(
         ForceDailyRefreshRequest {
             topics,
@@ -439,7 +458,25 @@ pub async fn force_daily_refresh(topics: String, tipcard_type: Option<String>) -
     ))
     .await?;
     match response.result {
-        Some(api_response::Result::ForceDailyRefresh(r)) => Ok(r.refreshed_cards),
+        Some(api_response::Result::ForceDailyRefresh(r)) => {
+            let outcome = match ForceDailyRefreshOutcome::try_from(r.outcome).ok() {
+                Some(ForceDailyRefreshOutcome::CardAvailable) => DailyRefreshOutcome::CardAvailable,
+                Some(ForceDailyRefreshOutcome::QueueRefilled) => DailyRefreshOutcome::QueueRefilled,
+                Some(ForceDailyRefreshOutcome::ActiveLimitReached) => {
+                    DailyRefreshOutcome::ActiveLimitReached
+                }
+                Some(
+                    ForceDailyRefreshOutcome::NoChange | ForceDailyRefreshOutcome::Unspecified,
+                )
+                | None => DailyRefreshOutcome::NoChange,
+            };
+            Ok(DailyRefreshResult {
+                refreshed_topics: r.refreshed_cards,
+                available_cards: r.available_cards,
+                generated_cards: r.generated_cards,
+                outcome,
+            })
+        }
         _ => unexpected("force_daily_refresh"),
     }
 }

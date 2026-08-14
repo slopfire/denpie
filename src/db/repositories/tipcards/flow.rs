@@ -24,6 +24,15 @@ pub async fn list_flow_cards(
              AND pending_card.topic_id = t.topic_id
              AND pending_card.tipcard_type = 'repeatable_tip'
              AND pending_review.status = 'pending'
+             AND pending_card.created_at >= COALESCE((
+                 SELECT MAX(reviewed.reviewed_at)
+                 FROM review_states reviewed
+                 JOIN tipcards reviewed_card ON reviewed_card.id = reviewed.card_id
+                 WHERE reviewed_card.user_id = t.user_id
+                   AND reviewed_card.topic_id = t.topic_id
+                   AND reviewed_card.tipcard_type = 'repeatable_tip'
+                   AND reviewed.feedback IN ('known', 'not_interested', 'too_difficult')
+             ), TIMESTAMPTZ '-infinity')
        ) AS pending_count
 {} WHERE t.user_id = ",
         queries::BASE_CARD_SELECT,

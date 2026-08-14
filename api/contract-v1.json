@@ -346,6 +346,16 @@
           "API_ERROR_CODE_UNSUPPORTED_MEDIA_TYPE": 7
         }
       },
+      "ForceDailyRefreshOutcome": {
+        "reserved": [],
+        "values": {
+          "FORCE_DAILY_REFRESH_OUTCOME_ACTIVE_LIMIT_REACHED": 4,
+          "FORCE_DAILY_REFRESH_OUTCOME_CARD_AVAILABLE": 1,
+          "FORCE_DAILY_REFRESH_OUTCOME_NO_CHANGE": 3,
+          "FORCE_DAILY_REFRESH_OUTCOME_QUEUE_REFILLED": 2,
+          "FORCE_DAILY_REFRESH_OUTCOME_UNSPECIFIED": 0
+        }
+      },
       "ReviewActionValue": {
         "reserved": [],
         "values": {
@@ -1669,6 +1679,24 @@
       },
       "ForceDailyRefreshResponse": {
         "fields": {
+          "available_cards": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "uint64"
+          },
+          "generated_cards": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "uint64"
+          },
+          "outcome": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "ForceDailyRefreshOutcome"
+          },
           "refreshed_cards": {
             "cardinality": "singular",
             "number": 1,
