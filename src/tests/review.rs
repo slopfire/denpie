@@ -974,3 +974,77 @@ async fn test_casual_tipcards_can_dismiss_or_acknowledge_and_get_new_card() {
     assert_eq!(third_resp.tips.len(), 1);
     assert_ne!(third_resp.tips[0].id, second_id);
 }
+
+#[tokio::test]
+async fn review_and_advance_returns_a_due_sibling_when_pending_is_empty() {
+    let settings_path = unique_settings_path();
+    fs::write(&settings_path, "admin_token: test_admin_token_xyz\n")
+        .await
+        .unwrap();
+    let db = setup_db().await;
+    let state = make_state(db, settings_path);
+
+    let topic_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO topics (user_id, name, tipcard_type, daily_card_count)
+         VALUES ($1, 'sibling slot', 'repeatable_tip', 5) RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    let reviewed_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "First due",
+        "full",
+        "compact",
+        false,
+        "",
+        "active",
+    )
+    .await
+    .unwrap();
+    let sibling_id = crate::db::repositories::tipcards::create_generated_with_status(
+        &state.db,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "Second due",
+        "full",
+        "compact",
+        false,
+        "",
+        "active",
+    )
+    .await
+    .unwrap();
+    crate::db::repositories::tipcards::set_pinned(&state.db, TEST_USER_ID, reviewed_id, true)
+        .await
+        .unwrap();
+
+    let result = state
+        .reviews
+        .apply_review_and_advance(
+            TEST_USER_ID,
+            reviewed_id,
+            5,
+            "learned",
+            crate::services::review::ReviewAdvancePolicy {
+                window_start: chrono::Utc::now() - chrono::Duration::days(1),
+                daily_limit: 5,
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.next_card_id, Some(sibling_id));
+    assert!(!result.daily_complete);
+    let sibling_pinned: i64 = sqlx::query_scalar("SELECT pinned FROM tipcards WHERE id = $1")
+        .bind(sibling_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    assert_eq!(sibling_pinned, 1);
+}

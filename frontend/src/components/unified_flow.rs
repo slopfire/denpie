@@ -22,7 +22,9 @@ const TRANSMISSION_MAX_PICKS_PER_TOPIC: usize = 3;
 const REVIEWED_PLACEHOLDERS_KEY: &str = "denpie-reviewed-placeholders";
 const FLOW_GRID_COLUMNS_KEY: &str = "denpie-flow-grid-columns";
 const PINNED_CARD_ORDER_KEY: &str = "denpie-pinned-card-order";
-const REPLACEMENT_SKELETON_DELAY_MS: u32 = 180;
+const REPLACEMENT_SKELETON_DELAY_MS: u32 = 800;
+const REFILL_POLL_DELAY_MS: u32 = 2_000;
+const REFILL_POLL_ATTEMPTS: u8 = 4;
 
 #[derive(Deserialize, Serialize, Clone, PartialEq)]
 pub struct TipcardInfo {
@@ -71,10 +73,17 @@ enum RepeatableTransitionAction {
         request_id: u64,
         topic_name: String,
     },
-    Finish {
+    Commit {
         request_id: u64,
         topic_name: String,
     },
+}
+
+#[derive(Clone, PartialEq)]
+enum RepeatableSlotDecision {
+    Swap(TipcardInfo),
+    Complete(TipcardInfo),
+    AwaitRefill,
 }
 
 impl Reducible for RepeatableTransitions {
@@ -104,7 +113,7 @@ impl Reducible for RepeatableTransitions {
                     transition.show_skeleton = true;
                 }
             }
-            RepeatableTransitionAction::Finish {
+            RepeatableTransitionAction::Commit {
                 request_id,
                 topic_name,
             } => {
@@ -160,6 +169,193 @@ fn replace_placeholders_state(
 ) {
     *latest.borrow_mut() = next.clone();
     placeholders.set(next);
+}
+
+fn decide_repeatable_slot(
+    reviewed: &TipcardInfo,
+    next_card: Option<TipcardInfo>,
+    daily_complete: bool,
+    refill_scheduled: bool,
+    action_name: &str,
+) -> RepeatableSlotDecision {
+    if let Some(mut next_card) = next_card {
+        next_card.pinned = reviewed.pinned;
+        next_card.review_message = None;
+        return RepeatableSlotDecision::Swap(next_card);
+    }
+    if daily_complete || !refill_scheduled {
+        let mut placeholder = reviewed.clone();
+        placeholder.status = "reviewed".to_string();
+        placeholder.review_message = Some(review_placeholder_message(
+            action_name,
+            &reviewed.next_review_at,
+        ));
+        return RepeatableSlotDecision::Complete(placeholder);
+    }
+    RepeatableSlotDecision::AwaitRefill
+}
+
+fn apply_repeatable_slot_swap(
+    mut cards: Vec<TipcardInfo>,
+    mut placeholders: HashMap<i64, TipcardInfo>,
+    mut pinned_order: Vec<i64>,
+    reviewed_id: i64,
+    topic_name: &str,
+    reviewed_pinned: bool,
+    next_card: TipcardInfo,
+) -> (Vec<TipcardInfo>, HashMap<i64, TipcardInfo>, Vec<i64>) {
+    placeholders.retain(|_, card| card.topic_name != topic_name);
+    cards.retain(|card| {
+        card.id != reviewed_id && !(card.status == "reviewed" && card.topic_name == topic_name)
+    });
+    if reviewed_pinned {
+        if let Some(position) = pinned_order
+            .iter()
+            .position(|card_id| *card_id == reviewed_id)
+        {
+            pinned_order[position] = next_card.id;
+        } else if !pinned_order.contains(&next_card.id) {
+            pinned_order.push(next_card.id);
+        }
+    }
+    cards.push(next_card);
+    (cards, placeholders, pinned_order)
+}
+
+fn apply_repeatable_slot_complete(
+    mut cards: Vec<TipcardInfo>,
+    mut placeholders: HashMap<i64, TipcardInfo>,
+    reviewed_id: i64,
+    topic_name: &str,
+    placeholder: TipcardInfo,
+) -> (Vec<TipcardInfo>, HashMap<i64, TipcardInfo>) {
+    placeholders.retain(|_, card| card.topic_name != topic_name);
+    placeholders.insert(reviewed_id, placeholder.clone());
+    cards.retain(|card| !(card.status == "reviewed" && card.topic_name == topic_name));
+    if let Some(card) = cards.iter_mut().find(|card| card.id == reviewed_id) {
+        *card = placeholder;
+    } else {
+        cards.push(placeholder);
+    }
+    (cards, placeholders)
+}
+
+struct RepeatableRefillPoll {
+    request_id: u64,
+    topic_name: String,
+    reviewed_id: i64,
+    reviewed: TipcardInfo,
+    attempt: u8,
+    cards: UseStateHandle<Vec<TipcardInfo>>,
+    cards_latest: Rc<RefCell<Vec<TipcardInfo>>>,
+    reviewed_placeholders: UseStateHandle<HashMap<i64, TipcardInfo>>,
+    reviewed_placeholders_latest: Rc<RefCell<HashMap<i64, TipcardInfo>>>,
+    pinned_card_order: UseStateHandle<Vec<i64>>,
+    replacement_timers: Rc<RefCell<HashMap<u64, gloo_timers::callback::Timeout>>>,
+    repeatable_transitions: UseReducerHandle<RepeatableTransitions>,
+    reviewing_card_ids: UseStateHandle<HashSet<i64>>,
+    review_in_flight_ids: Rc<RefCell<HashSet<i64>>>,
+}
+
+fn finish_repeatable_slot(poll: &RepeatableRefillPoll) {
+    poll.replacement_timers
+        .borrow_mut()
+        .remove(&poll.request_id);
+    poll.repeatable_transitions
+        .dispatch(RepeatableTransitionAction::Commit {
+            request_id: poll.request_id,
+            topic_name: poll.topic_name.clone(),
+        });
+    poll.review_in_flight_ids
+        .borrow_mut()
+        .remove(&poll.reviewed_id);
+    let mut reviewing = (*poll.reviewing_card_ids).clone();
+    reviewing.remove(&poll.reviewed_id);
+    poll.reviewing_card_ids.set(reviewing);
+}
+
+fn schedule_repeatable_refill_poll(poll: RepeatableRefillPoll) {
+    gloo_timers::callback::Timeout::new(REFILL_POLL_DELAY_MS, move || {
+        wasm_bindgen_futures::spawn_local(async move {
+            run_repeatable_refill_poll(poll).await;
+        });
+    })
+    .forget();
+}
+
+async fn run_repeatable_refill_poll(mut poll: RepeatableRefillPoll) {
+    let still_current = poll
+        .repeatable_transitions
+        .by_topic
+        .get(&poll.topic_name)
+        .is_some_and(|transition| transition.request_id == poll.request_id);
+    if !still_current {
+        return;
+    }
+
+    let found = api_v1::list_flow_cards(PAGE_LIMIT as u32, None)
+        .await
+        .ok()
+        .and_then(|page| {
+            page.cards.into_iter().find(|card| {
+                card.tipcard_type == "repeatable_tip"
+                    && card.topic_name == poll.topic_name
+                    && card.status == "active"
+                    && card.id != poll.reviewed_id
+            })
+        });
+    if let Some(next_card) = found {
+        let mut next_card = TipcardInfo::from(next_card);
+        next_card.pinned = poll.reviewed.pinned;
+        let (next_cards, placeholders, order) = apply_repeatable_slot_swap(
+            poll.cards_latest.borrow().clone(),
+            poll.reviewed_placeholders_latest.borrow().clone(),
+            (*poll.pinned_card_order).clone(),
+            poll.reviewed_id,
+            &poll.topic_name,
+            poll.reviewed.pinned,
+            next_card,
+        );
+        if poll.reviewed.pinned {
+            let _ = LocalStorage::set(PINNED_CARD_ORDER_KEY, &order);
+            poll.pinned_card_order.set(order);
+        }
+        replace_placeholders_state(
+            &poll.reviewed_placeholders,
+            &poll.reviewed_placeholders_latest,
+            placeholders,
+        );
+        replace_cards_state(&poll.cards, &poll.cards_latest, next_cards);
+        finish_repeatable_slot(&poll);
+        return;
+    }
+
+    poll.attempt = poll.attempt.saturating_add(1);
+    if poll.attempt < REFILL_POLL_ATTEMPTS {
+        schedule_repeatable_refill_poll(poll);
+        return;
+    }
+
+    let mut placeholder = poll.reviewed.clone();
+    placeholder.status = "reviewed".to_string();
+    placeholder.review_message = Some(
+        "Review saved. A personalized next card is being prepared and will appear shortly."
+            .to_string(),
+    );
+    let (next_cards, placeholders) = apply_repeatable_slot_complete(
+        poll.cards_latest.borrow().clone(),
+        poll.reviewed_placeholders_latest.borrow().clone(),
+        poll.reviewed_id,
+        &poll.topic_name,
+        placeholder,
+    );
+    replace_placeholders_state(
+        &poll.reviewed_placeholders,
+        &poll.reviewed_placeholders_latest,
+        placeholders,
+    );
+    replace_cards_state(&poll.cards, &poll.cards_latest, next_cards);
+    finish_repeatable_slot(&poll);
 }
 
 impl From<api_v1::FlowCardSummary> for TipcardInfo {
@@ -664,88 +860,110 @@ pub fn unified_flow() -> Html {
                 };
                 wasm_bindgen_futures::spawn_local(async move {
                     let action_name = action.clone().unwrap_or_default();
+                    let finish_review = |queue_refresh: bool| {
+                        if let Some((request_id, topic_name)) = transition.clone() {
+                            replacement_timers.borrow_mut().remove(&request_id);
+                            repeatable_transitions.dispatch(RepeatableTransitionAction::Commit {
+                                request_id,
+                                topic_name,
+                            });
+                        }
+                        review_in_flight_ids.borrow_mut().remove(&id);
+                        let mut reviewing = (*reviewing_card_ids).clone();
+                        reviewing.remove(&id);
+                        reviewing_card_ids.set(reviewing);
+                        if queue_refresh {
+                            refresh_queued.set(true);
+                        }
+                    };
+                    let apply_swap = |next_card: TipcardInfo| {
+                        let (next_cards, placeholders, order) = apply_repeatable_slot_swap(
+                            cards_latest.borrow().clone(),
+                            reviewed_placeholders_latest.borrow().clone(),
+                            (*pinned_card_order).clone(),
+                            id,
+                            &reviewed_card.topic_name,
+                            reviewed_card.pinned,
+                            next_card,
+                        );
+                        if reviewed_card.pinned {
+                            let _ = LocalStorage::set(PINNED_CARD_ORDER_KEY, &order);
+                            pinned_card_order.set(order);
+                        }
+                        replace_placeholders_state(
+                            &reviewed_placeholders,
+                            &reviewed_placeholders_latest,
+                            placeholders,
+                        );
+                        replace_cards_state(&cards, &cards_latest, next_cards);
+                    };
+                    let apply_complete = |placeholder: TipcardInfo| {
+                        let (next_cards, placeholders) = apply_repeatable_slot_complete(
+                            cards_latest.borrow().clone(),
+                            reviewed_placeholders_latest.borrow().clone(),
+                            id,
+                            &reviewed_card.topic_name,
+                            placeholder,
+                        );
+                        replace_placeholders_state(
+                            &reviewed_placeholders,
+                            &reviewed_placeholders_latest,
+                            placeholders,
+                        );
+                        replace_cards_state(&cards, &cards_latest, next_cards);
+                    };
                     match api_v1::review_and_advance_with_key(id, grade, action, idempotency_key)
                         .await
                     {
                         Ok(outcome) => {
                             review_idempotency_keys.borrow_mut().remove(&id);
-                            let mut placeholder = reviewed_card.clone();
-                            if placeholder.tipcard_type == "repeatable_tip" {
-                                if let Some(next_card) = outcome.next_card {
-                                    let mut next_card = TipcardInfo::from(next_card);
-                                    // A repeatable card represents one topic slot. Keep that
-                                    // slot in Pins while its physical queue card changes.
-                                    next_card.pinned = placeholder.pinned;
-                                    let mut placeholders =
-                                        reviewed_placeholders_latest.borrow().clone();
-                                    placeholders.retain(|_, card| {
-                                        card.topic_name != placeholder.topic_name
-                                    });
-                                    replace_placeholders_state(
-                                        &reviewed_placeholders,
-                                        &reviewed_placeholders_latest,
-                                        placeholders,
-                                    );
-                                    let mut next = cards_latest.borrow().clone();
-                                    next.retain(|card| {
-                                        card.id != id
-                                            && !(card.status == "reviewed"
-                                                && card.topic_name == placeholder.topic_name)
-                                    });
-                                    if placeholder.pinned {
-                                        let mut order = (*pinned_card_order).clone();
-                                        if let Some(position) =
-                                            order.iter().position(|card_id| *card_id == id)
-                                        {
-                                            order[position] = next_card.id;
-                                        } else if !order.contains(&next_card.id) {
-                                            order.push(next_card.id);
+                            if reviewed_card.tipcard_type == "repeatable_tip" {
+                                let decision = decide_repeatable_slot(
+                                    &reviewed_card,
+                                    outcome.next_card.map(TipcardInfo::from),
+                                    outcome.daily_complete,
+                                    outcome.refill_scheduled,
+                                    &action_name,
+                                );
+                                match decision {
+                                    RepeatableSlotDecision::Swap(next_card) => {
+                                        apply_swap(next_card);
+                                        finish_review(false);
+                                    }
+                                    RepeatableSlotDecision::Complete(placeholder) => {
+                                        if !outcome.daily_complete && !outcome.refill_scheduled {
+                                            toast(
+                                                &app_state,
+                                                "Review saved, but the next card is unavailable",
+                                            );
                                         }
-                                        let _ = LocalStorage::set(PINNED_CARD_ORDER_KEY, &order);
-                                        pinned_card_order.set(order);
+                                        apply_complete(placeholder);
+                                        finish_review(false);
                                     }
-                                    next.push(next_card);
-                                    replace_cards_state(&cards, &cards_latest, next);
-                                } else {
-                                    placeholder.status = "reviewed".to_string();
-                                    placeholder.review_message = Some(
-                                        if outcome.refill_scheduled && !outcome.daily_complete {
-                                            "Review saved. A personalized next card is being prepared and will appear shortly.".to_string()
+                                    RepeatableSlotDecision::AwaitRefill => {
+                                        if let Some((request_id, topic_name)) = transition.clone() {
+                                            schedule_repeatable_refill_poll(RepeatableRefillPoll {
+                                                request_id,
+                                                topic_name,
+                                                reviewed_id: id,
+                                                reviewed: reviewed_card.clone(),
+                                                attempt: 0,
+                                                cards: cards.clone(),
+                                                cards_latest: cards_latest.clone(),
+                                                reviewed_placeholders: reviewed_placeholders
+                                                    .clone(),
+                                                reviewed_placeholders_latest:
+                                                    reviewed_placeholders_latest.clone(),
+                                                pinned_card_order: pinned_card_order.clone(),
+                                                replacement_timers: replacement_timers.clone(),
+                                                repeatable_transitions: repeatable_transitions
+                                                    .clone(),
+                                                reviewing_card_ids: reviewing_card_ids.clone(),
+                                                review_in_flight_ids: review_in_flight_ids.clone(),
+                                            });
                                         } else {
-                                            review_placeholder_message(
-                                                &action_name,
-                                                &placeholder.next_review_at,
-                                            )
-                                        },
-                                    );
-                                    let mut placeholders =
-                                        reviewed_placeholders_latest.borrow().clone();
-                                    placeholders.retain(|_, card| {
-                                        card.topic_name != placeholder.topic_name
-                                    });
-                                    placeholders.insert(id, placeholder.clone());
-                                    replace_placeholders_state(
-                                        &reviewed_placeholders,
-                                        &reviewed_placeholders_latest,
-                                        placeholders,
-                                    );
-
-                                    let mut next = cards_latest.borrow().clone();
-                                    next.retain(|card| {
-                                        !(card.status == "reviewed"
-                                            && card.topic_name == placeholder.topic_name)
-                                    });
-                                    if let Some(card) = next.iter_mut().find(|card| card.id == id) {
-                                        *card = placeholder.clone();
-                                    } else {
-                                        next.push(placeholder.clone());
-                                    }
-                                    replace_cards_state(&cards, &cards_latest, next);
-                                    if !outcome.daily_complete && !outcome.refill_scheduled {
-                                        toast(
-                                            &app_state,
-                                            "Review saved, but the next card is unavailable",
-                                        );
+                                            finish_review(true);
+                                        }
                                     }
                                 }
                             } else {
@@ -756,6 +974,7 @@ pub fn unified_flow() -> Html {
                                     .cloned()
                                     .collect();
                                 replace_cards_state(&cards, &cards_latest, next);
+                                finish_review(true);
                             }
                         }
                         Err(err) => {
@@ -763,20 +982,9 @@ pub fn unified_flow() -> Html {
                                 review_idempotency_keys.borrow_mut().remove(&id);
                             }
                             toast(&app_state, err.to_string());
+                            finish_review(true);
                         }
                     }
-                    if let Some((request_id, topic_name)) = transition {
-                        replacement_timers.borrow_mut().remove(&request_id);
-                        repeatable_transitions.dispatch(RepeatableTransitionAction::Finish {
-                            request_id,
-                            topic_name,
-                        });
-                    }
-                    review_in_flight_ids.borrow_mut().remove(&id);
-                    let mut reviewing = (*reviewing_card_ids).clone();
-                    reviewing.remove(&id);
-                    reviewing_card_ids.set(reviewing);
-                    refresh_queued.set(true);
                 });
             },
         )
@@ -1116,6 +1324,17 @@ pub fn unified_flow() -> Html {
         let card = card.clone();
         let id = card.id;
         let card_key = flow_card_key(&card);
+        let slot_pending = card.tipcard_type == "repeatable_tip"
+            && repeatable_transitions
+                .by_topic
+                .get(&card.topic_name)
+                .is_some_and(|transition| transition.card.id == id);
+        let replacement_pending = slot_pending
+            && *fullscreen_card_key != Some(card_key.clone())
+            && repeatable_transitions
+                .by_topic
+                .get(&card.topic_name)
+                .is_some_and(|transition| transition.show_skeleton);
         html! {
             <FlowCard
                 key={card_key.clone()}
@@ -1134,33 +1353,13 @@ pub fn unified_flow() -> Html {
                 fullscreen={*fullscreen_card_key == Some(card_key.clone())}
                 detail_loaded={detail_loaded.get(&id).copied().unwrap_or(false)}
                 enable_drag={enable_drag}
-                review_pending={review_in_flight_ids.borrow().contains(&id)}
+                review_pending={review_in_flight_ids.borrow().contains(&id) || slot_pending}
+                replacement_pending={replacement_pending}
             />
         }
     };
-    let render_flow_entry = |card: &TipcardInfo, enable_drag: bool| {
-        let card_key = flow_card_key(card);
-        let fullscreen = *fullscreen_card_key == Some(card_key);
-        let show_skeleton = card.tipcard_type == "repeatable_tip"
-            && !fullscreen
-            && repeatable_transitions
-                .by_topic
-                .get(&card.topic_name)
-                .is_some_and(|transition| {
-                    transition.card.id == card.id && transition.show_skeleton
-                });
-        if show_skeleton {
-            html! {
-                <FlowCardSkeleton
-                    key={format!("replacement-skeleton:{}", card.topic_name)}
-                    list_mode={list_mode}
-                    label="Loading next card"
-                />
-            }
-        } else {
-            render_flow_card(card, enable_drag)
-        }
-    };
+    let render_flow_entry =
+        |card: &TipcardInfo, enable_drag: bool| render_flow_card(card, enable_drag);
     let grid_classes = if list_mode {
         "grid grid-cols-1 gap-3 items-start w-full max-w-4xl mx-auto"
     } else {
@@ -1668,6 +1867,7 @@ fn set_fullscreen_body_class(fullscreen: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     fn card(id: i64, topic_name: &str) -> TipcardInfo {
         TipcardInfo {
@@ -1723,7 +1923,7 @@ mod tests {
                 request_id: 7,
                 card: Box::new(reviewed),
             });
-        let transitions = transitions.reduce(RepeatableTransitionAction::Finish {
+        let transitions = transitions.reduce(RepeatableTransitionAction::Commit {
             request_id: 7,
             topic_name: "English Grammar".to_string(),
         });
@@ -1733,6 +1933,56 @@ mod tests {
         });
 
         assert!(transitions.by_topic.is_empty());
+    }
+
+    #[test]
+    fn next_card_commits_without_a_review_placeholder() {
+        let reviewed = repeatable_card(1, "English Grammar", true);
+        let mut next = repeatable_card(2, "English Grammar", false);
+        next.review_message = Some("stale".to_string());
+
+        let decision = decide_repeatable_slot(&reviewed, Some(next), false, false, "learned");
+        let RepeatableSlotDecision::Swap(occupant) = decision else {
+            panic!("expected a swap");
+        };
+        assert_eq!(occupant.id, 2);
+        assert!(occupant.pinned);
+        assert!(occupant.review_message.is_none());
+
+        let (cards, placeholders, order) = apply_repeatable_slot_swap(
+            vec![reviewed.clone()],
+            HashMap::from([(1, reviewed.clone())]),
+            vec![1],
+            1,
+            "English Grammar",
+            true,
+            occupant,
+        );
+        assert_eq!(
+            cards.iter().map(|card| card.id).collect::<Vec<_>>(),
+            vec![2]
+        );
+        assert!(placeholders.is_empty());
+        assert_eq!(order, vec![2]);
+        assert!(cards[0].review_message.is_none());
+    }
+
+    #[test]
+    fn refill_waits_instead_of_flashing_a_placeholder() {
+        let reviewed = repeatable_card(1, "English Grammar", false);
+        let decision = decide_repeatable_slot(&reviewed, None, false, true, "learned");
+        assert!(matches!(decision, RepeatableSlotDecision::AwaitRefill));
+    }
+
+    #[test]
+    fn daily_complete_is_the_only_immediate_placeholder() {
+        let reviewed = repeatable_card(1, "English Grammar", false);
+        let decision = decide_repeatable_slot(&reviewed, None, true, false, "learned");
+        let RepeatableSlotDecision::Complete(placeholder) = decision else {
+            panic!("expected a completion placeholder");
+        };
+        assert_eq!(placeholder.status, "reviewed");
+        assert!(placeholder.review_message.is_some());
     }
 
     #[test]

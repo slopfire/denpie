@@ -411,7 +411,7 @@
       "auth": "Bearer API key",
       "scope": "reviews:write",
       "kind": "mutation",
-      "summary": "Atomically review one card, promote the next eligible repeatable card, and return the resulting flow slot."
+      "summary": "Atomically review one card and return the next occupant of that repeatable topic slot (promoted pending card or already-due sibling)."
     }
   ]
 }

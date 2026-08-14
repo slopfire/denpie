@@ -3,6 +3,14 @@
 This log records consumer-visible changes to the versioned public API. Entries
 describe wire behavior rather than dashboard internals.
 
+## 2026-08-14 — Repeatable slot occupant
+
+- `review_and_advance` now returns the occupant of the reviewed topic slot:
+  a newly promoted pending card when one exists, otherwise an already-due
+  active sibling in the same topic. The browser commits that card into the
+  existing slot without a full feed reload. A completion placeholder is only
+  written when the daily set is finished or no refill is coming.
+
 ## 2026-08-14 — Structured rate-limit errors
 
 - `POST /api/v1` 429s now return a protobuf `ApiV1Response.error` with

@@ -187,6 +187,49 @@ pub async fn take_pending_card_in_tx(
     }))
 }
 
+/// Next already-due active repeatable card for the topic slot, excluding the
+/// card that was just reviewed. Same occupancy order as `list_flow_cards`.
+pub async fn due_repeatable_slot_card_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: &str,
+    topic_id: i64,
+    exclude_card_id: i64,
+) -> AppResult<Option<ScheduledCardRecord>> {
+    let row =
+        sqlx::query_as::<_, (i64, String, String, String, i64, String, i64, String)>(&format!(
+            "{select} JOIN review_states r ON t.id = r.card_id
+         WHERE t.user_id = $1
+           AND t.topic_id = $2
+           AND t.tipcard_type = 'repeatable_tip'
+           AND r.status = 'active'
+           AND t.id != $3
+           AND (t.pinned = 1 OR r.next_review_at <= $4)
+         ORDER BY t.pinned DESC,
+                  CASE WHEN COALESCE(r.repeats, 0) > 0 THEN 0 ELSE 1 END ASC,
+                  r.next_review_at ASC, t.created_at ASC, t.id ASC
+         LIMIT 1
+         FOR UPDATE OF r",
+            select = queries::SCHEDULED_SELECT
+        ))
+        .bind(user_id)
+        .bind(topic_id)
+        .bind(exclude_card_id)
+        .bind(Utc::now())
+        .fetch_optional(&mut **tx)
+        .await?;
+
+    Ok(row.map(|row| ScheduledCardRecord {
+        id: row.0,
+        full_content: row.1,
+        compressed_content: row.2,
+        title: row.3,
+        use_image: row.4 != 0,
+        image_query: row.5,
+        pinned: row.6 != 0,
+        image_data: row.7,
+    }))
+}
+
 /// Replace an unseen active repeatable card with the oldest card that was
 /// already pending. The candidate is selected before the active card is parked,
 /// so a forced topic load cannot immediately select the same card again.

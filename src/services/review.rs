@@ -179,16 +179,24 @@ impl ReviewService {
                     .await?;
                     daily_complete = reviewed >= policy.daily_limit.max(0);
                     if !daily_complete {
-                        let next = tipcards::take_pending_card_in_tx(
+                        let mut next = tipcards::take_pending_card_in_tx(
                             &mut tx,
                             user_id,
                             topic_id,
                             &row.tipcard_type,
                         )
                         .await?;
-                        if let Some(card) = &next {
+                        if next.is_none() {
+                            next = tipcards::due_repeatable_slot_card_in_tx(
+                                &mut tx, user_id, topic_id, card_id,
+                            )
+                            .await?;
+                        }
+                        if let Some(card) = &next
+                            && row.pinned
+                        {
                             tipcards::transfer_pinned_in_tx(
-                                &mut tx, user_id, card_id, card.id, row.pinned,
+                                &mut tx, user_id, card_id, card.id, true,
                             )
                             .await?;
                         }

@@ -28,8 +28,9 @@ pub use models::{
 };
 #[allow(unused_imports)]
 pub use pending::{
-    count_pending, park_unseen_active_topic_cards, replace_unseen_with_pending_card,
-    stack_due_repeatable_cards, take_pending_card, take_pending_card_in_tx,
+    count_pending, due_repeatable_slot_card_in_tx, park_unseen_active_topic_cards,
+    replace_unseen_with_pending_card, stack_due_repeatable_cards, take_pending_card,
+    take_pending_card_in_tx,
 };
 pub use queue::{
     active_card_count, count_reviewed_in_window, find_daily_topic_cards, find_due_topic_cards,

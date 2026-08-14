@@ -52,7 +52,7 @@ The API currently exposes **41 operations**: **15 reads** and
 | `tips_v1` | `TipsRequestV1` | `tips` (`TipsResponse`) | Bearer API key | `cards:write` | mutation | required; replayable | Retrieve or generate cards using repeated topics and typed card kinds. |
 | `review_v1` | `ReviewRequestV1` | `ok` (`Empty`) | Bearer API key | `reviews:write` | mutation | required; replayable | Submit a grade and typed review action for one card. |
 | `create_api_key_v1` | `CreateApiKeyV1Request` | `api_key_created` (`ApiKeyCreated`) | Bearer API key | `keys:manage` | one-time secret mutation | required; success is not replayable | Create a least-privilege scoped key with optional expiration. |
-| `review_and_advance` | `ReviewAndAdvanceRequest` | `review_and_advance` (`ReviewAndAdvanceResponse`) | Bearer API key | `reviews:write` | mutation | required; replayable | Atomically review one card, promote the next eligible repeatable card, and return the resulting flow slot. |
+| `review_and_advance` | `ReviewAndAdvanceRequest` | `review_and_advance` (`ReviewAndAdvanceResponse`) | Bearer API key | `reviews:write` | mutation | required; replayable | Atomically review one card and return the next occupant of that repeatable topic slot (promoted pending card or already-due sibling). |
 
 ## Interpreting the table
 

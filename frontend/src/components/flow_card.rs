@@ -140,6 +140,8 @@ pub struct FlowCardProps {
     pub enable_measure: bool,
     #[prop_or_default]
     pub review_pending: bool,
+    #[prop_or_default]
+    pub replacement_pending: bool,
 }
 
 fn highlight_card_code_blocks(root: &web_sys::Element) {
@@ -291,8 +293,9 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
         let root_ref = root_ref.clone();
         let grid_min_height = grid_min_height.clone();
         let review_pending = props.review_pending;
+        let replacement_pending = props.replacement_pending;
         Callback::from(move |(grade, action, sway)| {
-            if review_pending || leaving.is_some() {
+            if review_pending || leaving.is_some() || replacement_pending {
                 return;
             }
             if lock_grid_height {
@@ -317,7 +320,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
     };
     {
         let leaving = leaving.clone();
-        use_effect_with((id, card.status.clone(), props.review_pending), move |_| {
+        use_effect_with((id, card.status.clone()), move |_| {
             leaving.set(None);
             || ()
         });
@@ -639,6 +642,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
             )}
             data-card-id={id.to_string()}
             style={card_style}
+            aria-busy={props.replacement_pending.to_string()}
             ondragover={drag_enabled.then_some(ondragover)}
             ondrop={drag_enabled.then_some(ondrop)}
         >
@@ -1264,6 +1268,26 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                 })}
                 on_error={props.on_upload_error.clone()}
             />
+            if props.replacement_pending && !fullscreen {
+                <div
+                    class="flow-card-replacement-overlay"
+                    aria-hidden="true"
+                >
+                    <div class="flex justify-between items-start gap-3 border-b border-token pb-3 mb-4">
+                        <div class="flex items-center gap-2 min-w-0 flex-1">
+                            <div class="skeleton-block shrink-0" style="width: 22px; height: 22px; border-radius: 6px"></div>
+                            <div class="skeleton-block" style="height: 14px; width: 40%"></div>
+                        </div>
+                        <div class="skeleton-block shrink-0" style="height: 18px; width: 56px"></div>
+                    </div>
+                    <div class="skeleton-block mb-3" style="height: 18px; width: 70%"></div>
+                    <div class="flex-1 space-y-2">
+                        <div class="skeleton-block" style="height: 12px; width: 100%"></div>
+                        <div class="skeleton-block" style="height: 12px; width: 92%"></div>
+                        <div class="skeleton-block" style="height: 12px; width: 78%"></div>
+                    </div>
+                </div>
+            }
         </article>
     }
 }
