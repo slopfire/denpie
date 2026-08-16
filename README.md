@@ -130,7 +130,10 @@ or a compatible self-hosted deployment.
 Local Image Pool uploads accept PNG, JPEG, WebP, and GIF images up to 10 MB decoded. Denpie
 recompresses larger uploads before sending them to the configured vision model for automatic
 naming, description, and tags. An empty Vision Model setting inherits the default LLM model;
-annotation failures retain the user-entered fallback name.
+annotation failures retain the user-entered fallback name. The Settings vision test and
+annotation requests disable reasoning and leave a 1024-token completion budget so thinking
+models (for example MiniMax-M3) do not spend a tiny `max_tokens` cap on hidden thinking and
+return empty content.
 
 Generated cards request an image only when the model marks a visual as materially useful (for
 example a diagram, physical identification, UI screenshot, or comparison). The decision and

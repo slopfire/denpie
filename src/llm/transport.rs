@@ -287,18 +287,24 @@ pub async fn create_chat_completion_json(
 /// OpenAI-compatible chat completions format with `image_url` content. Returns
 /// the model's text response. Uses a direct JSON payload (not async-openai's
 /// typed builder) because the typed builder's image support is cumbersome.
+///
+/// Always sends OpenRouter's `reasoning.effort` so thinking models (MiniMax-M3,
+/// Gemini thinking, etc.) do not spend `max_tokens` on hidden reasoning and
+/// return `content=null` with `finish_reason=length`.
 pub async fn create_vision_completion(
     model: &str,
     prompt: &str,
     image_data_url: &str,
     api_key: &str,
     api_base: &str,
+    reasoning: &ReasoningConfig,
     max_tokens: Option<u32>,
 ) -> LlmResponse {
     tracing::info!(
         model,
         prompt_len = prompt.len(),
         image_len = image_data_url.len(),
+        reasoning_effort = %reasoning.effort,
         ?max_tokens,
         "LLM vision completion request"
     );
@@ -308,21 +314,7 @@ pub async fn create_vision_completion(
     let client = Client::with_config(config);
     let base_url = client.config().api_base();
 
-    let body = json!({
-        "model": model,
-        "messages": [{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": image_data_url}}
-            ]
-        }]
-    });
-
-    let mut body = body;
-    if let Some(limit) = max_tokens {
-        body["max_tokens"] = json!(limit);
-    }
+    let body = build_vision_body(model, prompt, image_data_url, reasoning, max_tokens);
 
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
@@ -604,6 +596,33 @@ fn build_chat_body(
     body
 }
 
+fn build_vision_body(
+    model: &str,
+    prompt: &str,
+    image_data_url: &str,
+    reasoning: &ReasoningConfig,
+    max_tokens: Option<u32>,
+) -> Value {
+    let effort = normalize_reasoning_effort(&reasoning.effort);
+    let mut body = json!({
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": image_data_url}}
+            ]
+        }],
+        "reasoning": {
+            "effort": effort
+        }
+    });
+    if let Some(limit) = max_tokens {
+        body["max_tokens"] = json!(limit);
+    }
+    body
+}
+
 /// Extract URL citations from the raw chat-completion response. OpenRouter returns
 /// them under `choices[0].message.annotations[].url_citation.url`; these may not
 /// deserialize cleanly into the typed struct, so read them from the `Value` first.
@@ -672,7 +691,7 @@ fn map_response_with_detail(
         } else {
             tracing::warn!(detail = %empty_detail, "LLM response carried no message content");
         }
-        return LlmResponse::error("LLM Error: model returned empty content".to_string());
+        return LlmResponse::error(empty_content_error(empty_detail));
     };
     if content.trim().is_empty() {
         tracing::warn!("LLM response content was empty");
@@ -696,6 +715,16 @@ fn map_response_with_detail(
     }
 }
 
+fn empty_content_error(empty_detail: &str) -> String {
+    if empty_detail.contains("finish_reason=length") {
+        "LLM Error: model hit the completion token limit before producing content".to_string()
+    } else if empty_detail.is_empty() {
+        "LLM Error: model returned empty content".to_string()
+    } else {
+        format!("LLM Error: model returned empty content ({empty_detail})")
+    }
+}
+
 fn normalize_reasoning_effort(effort: &str) -> &'static str {
     match effort.trim().to_ascii_lowercase().as_str() {
         "xhigh" => "xhigh",
@@ -712,8 +741,9 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        ReasoningConfig, build_chat_body, describe_empty_content, extract_message_content,
-        format_http_error, map_response_with_detail, parse_llm_json_body, response_body_snippet,
+        ReasoningConfig, build_chat_body, build_vision_body, describe_empty_content,
+        empty_content_error, extract_message_content, format_http_error, map_response_with_detail,
+        parse_llm_json_body, response_body_snippet,
     };
 
     #[test]
@@ -752,6 +782,52 @@ mod tests {
         assert!(err.contains("status=200"));
         assert!(err.contains("text/html; charset=utf-8"));
         assert!(err.contains("<html>nope</html>"));
+    }
+
+    #[test]
+    fn build_vision_body_sends_reasoning_effort_and_max_tokens() {
+        let body = build_vision_body(
+            "minimax/minimax-m3",
+            "what color?",
+            "data:image/png;base64,abc",
+            &ReasoningConfig::new("none"),
+            Some(1024),
+        );
+
+        assert_eq!(body["model"], "minimax/minimax-m3");
+        assert_eq!(body["reasoning"]["effort"], "none");
+        assert_eq!(body["max_tokens"], 1024);
+        assert_eq!(body["messages"][0]["content"][0]["type"], "text");
+        assert_eq!(body["messages"][0]["content"][1]["type"], "image_url");
+    }
+
+    #[test]
+    fn empty_content_error_explains_length_truncation() {
+        assert_eq!(
+            empty_content_error("finish_reason=length content=null message_keys=content,reasoning"),
+            "LLM Error: model hit the completion token limit before producing content"
+        );
+        assert_eq!(
+            empty_content_error(""),
+            "LLM Error: model returned empty content"
+        );
+        assert!(
+            empty_content_error("finish_reason=stop content=null message_keys=content")
+                .contains("finish_reason=stop")
+        );
+    }
+
+    #[test]
+    fn extract_message_content_ignores_reasoning_when_content_is_null() {
+        let value = json!({
+            "choices": [{
+                "message": {
+                    "content": null,
+                    "reasoning": "the pixel is red"
+                }
+            }]
+        });
+        assert_eq!(extract_message_content(&value), None);
     }
 
     #[test]

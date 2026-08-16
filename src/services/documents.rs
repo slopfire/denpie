@@ -46,6 +46,10 @@ const TITLE_SOURCE_CHAR_CAP: usize = 4_000;
 const TITLE_MAX_CHARS: usize = 100;
 const TITLE_COMPLETION_TOKEN_CAP: u32 = 32;
 const EXPLORE_LINK_CAP: usize = 100;
+/// Reasoning models (MiniMax-M3, Gemini thinking) spend this budget on
+/// hidden thinking first. The vision probe asks for one word, so disable
+/// reasoning and keep enough headroom if the provider ignores `effort=none`.
+const VISION_TEST_MAX_TOKENS: u32 = 1024;
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct ExploredLink {
@@ -375,11 +379,12 @@ impl DocumentService {
             &data_url,
             &settings.llm_api_key,
             &settings.llm_base_url,
-            Some(16),
+            &ReasoningConfig::new("none"),
+            Some(VISION_TEST_MAX_TOKENS),
         )
         .await;
 
-        if response.content.is_empty() || response.content.starts_with("LLM Error") {
+        if response.is_error {
             return Ok(VisionModelTestResult {
                 ok: false,
                 model: model.to_string(),

@@ -15,7 +15,7 @@ Dashboard vision diagnostics:
 
 | Call | Purpose |
 |---|---|
-| `POST /admin/settings/test-vision` | Cheap vision connectivity check (1×1 PNG, no pool write) |
+| `POST /admin/settings/test-vision` | Cheap vision connectivity check (1×1 PNG, no pool write). Sends `reasoning.effort=none` and a 1024-token cap so thinking models such as MiniMax-M3 still return message content. |
 | `POST /app/image-pool` response | `{ annotated, fallback_reason, model, name, … }` |
 
 ```

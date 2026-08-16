@@ -3,7 +3,11 @@
 //! uploads an image so the pool is searchable and sortable without manual entry.
 use serde::Deserialize;
 
-use crate::llm::transport::create_vision_completion;
+use crate::llm::transport::{ReasoningConfig, create_vision_completion};
+
+/// Reasoning models spend `max_tokens` on thinking first. Annotation asks for
+/// a small JSON object, so disable thinking and leave room for the payload.
+const ANNOTATION_MAX_TOKENS: u32 = 1024;
 
 /// The annotation the vision model returns for an image.
 #[derive(Clone, Debug, Default)]
@@ -34,10 +38,18 @@ pub async fn annotate_image(
         - \"tags\": an array of 1-5 single-word lowercase tags that capture the subject, style, or mood\n\n\
         Example: {\"name\":\"red-sunset-over-mountains\",\"description\":\"A vibrant red sunset behind a mountain range.\",\"tags\":[\"sunset\",\"mountains\",\"nature\",\"landscape\"]}";
 
-    let response =
-        create_vision_completion(model, prompt, image_data_url, api_key, api_base, Some(256)).await;
+    let response = create_vision_completion(
+        model,
+        prompt,
+        image_data_url,
+        api_key,
+        api_base,
+        &ReasoningConfig::new("none"),
+        Some(ANNOTATION_MAX_TOKENS),
+    )
+    .await;
 
-    if response.content.is_empty() || response.content.starts_with("LLM Error") {
+    if response.is_error {
         tracing::warn!(
             content = %response.content,
             "Vision annotation failed, falling back"
