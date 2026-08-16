@@ -29,11 +29,10 @@ pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, Str
     }
 
     let n = input.daily_card_count.clamp(MIN_CARDS, MAX_CARDS);
-    let avoid = render_avoid_list(input.existing_titles);
 
     let (research_prompt, web_search) = if input.search.provider_native() {
         (
-            build_prompt(input.rendered_prompt, input.topic_name, n, &avoid, None),
+            build_prompt(input.rendered_prompt, input.topic_name, n, None),
             true,
         )
     } else {
@@ -45,13 +44,7 @@ pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, Str
         );
         let sources = render_hits(&hits);
         (
-            build_prompt(
-                input.rendered_prompt,
-                input.topic_name,
-                n,
-                &avoid,
-                Some(&sources),
-            ),
+            build_prompt(input.rendered_prompt, input.topic_name, n, Some(&sources)),
             false,
         )
     };
@@ -186,13 +179,7 @@ pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, Str
     Ok(outcome)
 }
 
-fn build_prompt(
-    rendered_prompt: &str,
-    topic: &str,
-    n: i64,
-    avoid: &str,
-    sources: Option<&str>,
-) -> String {
+fn build_prompt(rendered_prompt: &str, topic: &str, n: i64, sources: Option<&str>) -> String {
     let sources_block = match sources {
         Some(sources) if !sources.is_empty() => {
             format!("\n\nWeb sources to ground your facts:\n{sources}\n")
@@ -200,26 +187,12 @@ fn build_prompt(
         _ => String::new(),
     };
     format!(
-        "Apply this learner-specific generation brief to every card:\n{rendered_prompt}\n\n\
-         Research the topic \"{topic}\" and write {n} genuinely useful, distinct daily tip cards.\n\
-         Each card must be practical, specific, accurate, and worth saving.\n\
-         {avoid}{sources_block}\n\
+        "{rendered_prompt}\n\n\
+         Write {n} distinct cards about \"{topic}\". Do not repeat titles already listed above.\n\
+         {sources_block}\n\
          {format}",
         format = ARRAY_FORMAT_INSTRUCTIONS,
     )
-}
-
-fn render_avoid_list(existing_titles: &[String]) -> String {
-    if existing_titles.is_empty() {
-        return String::new();
-    }
-    let list = existing_titles
-        .iter()
-        .enumerate()
-        .map(|(idx, title)| format!("{}. {}", idx + 1, title))
-        .collect::<Vec<_>>()
-        .join("\n");
-    format!("Do NOT duplicate these existing card titles or ideas:\n{list}\n")
 }
 
 #[cfg(test)]
@@ -229,15 +202,15 @@ mod tests {
     #[test]
     fn batch_prompt_keeps_learner_feedback() {
         let prompt = build_prompt(
-            "Known: basic kana. Too difficult: literary kanji.",
+            "Already covered — do not duplicate.\n1. Basic kana [known]",
             "Japanese",
             3,
-            "",
             None,
         );
 
-        assert!(prompt.contains("Known: basic kana"));
-        assert!(prompt.contains("Too difficult: literary kanji"));
-        assert!(prompt.contains("write 3"));
+        assert!(prompt.contains("Basic kana [known]"));
+        assert!(prompt.contains("Write 3 distinct cards about \"Japanese\""));
+        assert!(!prompt.contains("Do NOT duplicate these existing card titles"));
+        assert_eq!(prompt.matches("Basic kana").count(), 1);
     }
 }

@@ -77,6 +77,7 @@ impl SettingsService {
         is_admin: bool,
         patch: SettingsPatch,
     ) -> AppResult<()> {
+        let requeue_image_jobs = patch.image_strategy.is_some();
         let updates_instance_defaults = patch.color_scheme.is_some()
             || patch.transparency.is_some()
             || patch.blur_intensity.is_some()
@@ -108,7 +109,10 @@ impl SettingsService {
         let current = Self::user_settings_get(state, user_id).await?;
         let updated = current.apply_patch(patch);
         Self::user_settings_upsert(state, user_id, &updated).await?;
-        crate::db::repositories::image_jobs::requeue_failed_for_user(&state.db, user_id).await?;
+        if requeue_image_jobs {
+            crate::db::repositories::image_jobs::requeue_failed_for_user(&state.db, user_id)
+                .await?;
+        }
         Ok(())
     }
 }

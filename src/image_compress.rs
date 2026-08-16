@@ -3,11 +3,21 @@ use tracing::warn;
 
 use crate::domain::image::{MAX_IMAGE_BYTES, MAX_IMAGE_EDGE_PX, TARGET_IMAGE_BYTES};
 
-#[derive(Debug)]
 pub struct PreparedImage {
     pub bytes: Vec<u8>,
     pub mime_type: String,
     pub extension: String,
+}
+
+impl std::fmt::Debug for PreparedImage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PreparedImage")
+            .field("byte_len", &self.bytes.len())
+            .field("mime_type", &self.mime_type)
+            .field("extension", &self.extension)
+            .finish()
+    }
 }
 
 pub fn prepare_image_bytes(
@@ -78,5 +88,22 @@ mod tests {
         let bytes = STANDARD.decode("iVBORw0KGgo=").unwrap();
         let prepared = prepare_image_bytes(bytes.clone(), "image/png", "png").unwrap();
         assert_eq!(prepared.bytes, bytes);
+    }
+
+    #[test]
+    fn prepared_image_debug_omits_payload_bytes() {
+        let prepared = PreparedImage {
+            bytes: vec![82, 73, 70, 70],
+            mime_type: "image/webp".to_string(),
+            extension: "webp".to_string(),
+        };
+
+        let debug = format!("{prepared:?}");
+
+        assert_eq!(
+            debug,
+            "PreparedImage { byte_len: 4, mime_type: \"image/webp\", extension: \"webp\" }"
+        );
+        assert!(!debug.contains("82"));
     }
 }

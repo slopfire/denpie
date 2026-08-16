@@ -94,12 +94,12 @@ pub enum ImageStrategy {
     None,
     /// Select from a user-uploaded image library.
     Pool,
-    /// Execute an LLM-specified declarative fetch recipe against an image API.
-    Programmatic,
-    /// Search the web for a directly hot-linkable image.
-    Agentic,
-    /// Search the configured external web provider for image results.
-    WebSearch,
+    /// Fetch Bing Images search HTML and download a source image from its metadata.
+    BingHtml,
+    /// Render Bing Images with an optional local Playwright sidecar.
+    BingPlaywright,
+    /// Search the web with DDGS and resolve page Open Graph images.
+    DdgsTextOg,
 }
 
 impl ImageStrategy {
@@ -107,9 +107,13 @@ impl ImageStrategy {
         match value.trim() {
             "none" => Self::None,
             "pool" => Self::Pool,
-            "programmatic" => Self::Programmatic,
-            "agentic" => Self::Agentic,
-            "web_search" => Self::WebSearch,
+            "bing_html" => Self::BingHtml,
+            "bing_playwright" => Self::BingPlaywright,
+            "ddgs_text_og" => Self::DdgsTextOg,
+            // The removed remote strategies did not work without external API
+            // configuration. Keep stored user/topic values useful by migrating
+            // them at the parsing boundary to the keyless default.
+            "programmatic" | "agentic" | "web_search" => Self::BingHtml,
             _ => Self::None,
         }
     }
@@ -118,85 +122,16 @@ impl ImageStrategy {
         match self {
             Self::None => "none",
             Self::Pool => "pool",
-            Self::Programmatic => "programmatic",
-            Self::Agentic => "agentic",
-            Self::WebSearch => "web_search",
+            Self::BingHtml => "bing_html",
+            Self::BingPlaywright => "bing_playwright",
+            Self::DdgsTextOg => "ddgs_text_og",
         }
     }
 }
 
-pub const DEFAULT_IMAGE_SOURCES_SETTING: &str = r#"[{"id":"danbooru","name":"Danbooru","kind":"api","enabled":false,"endpoint":"https://danbooru.donmai.us/posts/random.json","query_parameter":"tags","json_path":"file_url","default_tags":"rating:general","api_hosts":"danbooru.donmai.us","search_domains":"","download_hosts":"cdn.donmai.us","instructions":"Use concise Danbooru tags separated by spaces. Prefer tags that describe the card topic without naming UI text."},{"id":"safebooru","name":"Safebooru","kind":"api","enabled":false,"endpoint":"https://safebooru.org/index.php?page=dapi&s=post&q=index&json=1","query_parameter":"tags","json_path":"file_url","default_tags":"rating:safe","api_hosts":"safebooru.org","search_domains":"","download_hosts":"safebooru.org","instructions":"Use concise booru tags separated by spaces."},{"id":"web-search","name":"Web Image Search","kind":"web_search","enabled":false,"endpoint":"","query_parameter":"","json_path":"","default_tags":"","api_hosts":"","search_domains":"","download_hosts":"","instructions":"Prefer official project documentation and repositories. Avoid logos, tracking pixels, placeholders, and decorative images."}]"#;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ImageSourceKind {
-    Api,
-    WebSearch,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-pub struct ImageSource {
-    pub id: String,
-    pub name: String,
-    pub kind: ImageSourceKind,
-    pub enabled: bool,
-    #[serde(default)]
-    pub endpoint: String,
-    #[serde(default)]
-    pub query_parameter: String,
-    #[serde(default)]
-    pub json_path: String,
-    #[serde(default)]
-    pub default_tags: String,
-    #[serde(default)]
-    pub api_hosts: String,
-    #[serde(default)]
-    pub search_domains: String,
-    #[serde(default)]
-    pub download_hosts: String,
-    #[serde(default)]
-    pub instructions: String,
-}
-
-impl ImageSource {
-    pub fn api_hosts(&self) -> Vec<String> {
-        split_hosts(&self.api_hosts)
-    }
-
-    pub fn download_hosts(&self) -> Vec<String> {
-        split_hosts(&self.download_hosts)
-    }
-
-    pub fn search_domains(&self) -> Vec<String> {
-        let configured = split_hosts(&self.search_domains);
-        if configured.is_empty() {
-            self.download_hosts()
-        } else {
-            configured
-        }
-    }
-}
-
-pub fn image_sources_from_setting(value: &str) -> Vec<ImageSource> {
-    serde_json::from_str(value)
-        .ok()
-        .filter(|sources: &Vec<ImageSource>| !sources.is_empty())
-        .unwrap_or_else(default_image_sources)
-}
-
-pub fn default_image_sources() -> Vec<ImageSource> {
-    serde_json::from_str(DEFAULT_IMAGE_SOURCES_SETTING)
-        .expect("built-in image source settings are valid")
-}
-
-fn split_hosts(value: &str) -> Vec<String> {
-    value
-        .split(',')
-        .map(str::trim)
-        .filter(|host| !host.is_empty())
-        .map(str::to_string)
-        .collect()
-}
+/// Unused leftover wire field. Strategies no longer read per-source JSON;
+/// keep a valid empty array so older API clients still round-trip.
+pub const DEFAULT_IMAGE_SOURCES_SETTING: &str = "[]";
 
 #[cfg(test)]
 mod tests {
@@ -247,11 +182,18 @@ mod tests {
         for strategy in [
             ImageStrategy::None,
             ImageStrategy::Pool,
-            ImageStrategy::Programmatic,
-            ImageStrategy::Agentic,
-            ImageStrategy::WebSearch,
+            ImageStrategy::BingHtml,
+            ImageStrategy::BingPlaywright,
+            ImageStrategy::DdgsTextOg,
         ] {
             assert_eq!(ImageStrategy::from_setting(strategy.as_str()), strategy);
+        }
+    }
+
+    #[test]
+    fn removed_remote_strategies_migrate_to_bing_html() {
+        for legacy in ["programmatic", "agentic", "web_search"] {
+            assert_eq!(ImageStrategy::from_setting(legacy), ImageStrategy::BingHtml);
         }
     }
 
@@ -262,18 +204,9 @@ mod tests {
     }
 
     #[test]
-    fn default_image_sources_are_valid_and_disabled() {
-        let sources = default_image_sources();
-        assert_eq!(sources.len(), 3);
-        assert!(sources.iter().all(|source| !source.enabled));
-        assert_eq!(sources[0].download_hosts(), ["cdn.donmai.us"]);
-    }
-
-    #[test]
-    fn invalid_image_sources_fall_back_to_defaults() {
-        assert_eq!(
-            image_sources_from_setting("not json"),
-            default_image_sources()
-        );
+    fn legacy_image_source_default_remains_valid_json_for_wire_compatibility() {
+        let sources: serde_json::Value =
+            serde_json::from_str(DEFAULT_IMAGE_SOURCES_SETTING).unwrap();
+        assert_eq!(sources.as_array().map(Vec::len), Some(0));
     }
 }

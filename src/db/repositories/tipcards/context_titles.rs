@@ -13,7 +13,6 @@ pub async fn list_context_titles(
 ) -> AppResult<Vec<CardContextTitleRecord>> {
     let rows = sqlx::query_as::<_, CardContextTitleRecord>(
         "SELECT COALESCE(NULLIF(t.title, ''), t.compressed_content) AS title,
-                t.compressed_content AS content,
                 COALESCE(r.status, 'active') AS status,
                 COALESCE(NULLIF(r.feedback, ''), CASE WHEN r.status = 'dismissed' THEN 'not_interested' ELSE '' END) AS feedback
          FROM tipcards t

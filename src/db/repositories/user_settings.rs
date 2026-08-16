@@ -61,7 +61,11 @@ pub async fn get(pool: &PgPool, user_id: &str, defaults: Settings) -> AppResult<
             daily_update_time: row.daily_update_time,
             max_active_cards: row.max_active_cards.max(0) as u64,
             grounding_strategy: row.grounding_strategy,
-            image_strategy: row.image_strategy,
+            image_strategy: crate::domain::grounding::ImageStrategy::from_setting(
+                &row.image_strategy,
+            )
+            .as_str()
+            .to_string(),
             search_provider: row.search_provider,
             scrape_provider: row.scrape_provider,
             search_api_key: row.search_api_key,

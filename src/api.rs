@@ -15,6 +15,8 @@ pub(crate) mod topics;
 mod transport;
 pub(crate) mod types;
 
+#[cfg(test)]
+pub(crate) use admin::list_tipcards_pb;
 pub use images::{pool_image as api_pool_image, tipcard_image as api_tipcard_image};
 #[cfg(test)]
 pub use resources::{get_tipcard, list_flow_cards};

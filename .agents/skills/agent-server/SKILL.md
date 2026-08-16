@@ -61,6 +61,24 @@ cargo run
 - Stop if the user already sees the change or waives the check
 - No over-verification unless asked
 
+### Stateful fixtures
+
+- With `DENPIE_DATA_DIR=.agent-data`, stored tip-card images live in
+  **`.agent-data/tipcard-images/`**, not `.agent-data/images/`.
+- Seed only the minimum row/file needed for the behavior under test, using the
+  isolated `denpie_agent` schema. Remove only fixtures created by the check.
+- Before debugging the browser, verify the exact API/resource boundary. For an
+  image, request `/api/v1/tipcard-images/<id>` and confirm a successful response
+  with the expected image content type.
+- For a visible data-flow bug, prove the sequence once: persisted fixture → API
+  response → DOM element (and screenshot when placement matters).
+- A SPA navigation timeout can be a false negative. Inspect the current URL and
+  DOM before retrying navigation or changing selectors.
+
+`just ui-check` builds the release frontend and then stops its oneshot server.
+For a follow-up DOM check, start `just agent-server --keep-data` and reuse that
+build rather than invoking another frontend build.
+
 ## API surface (agents)
 
 - Stable client API: `POST /api` (protobuf) — see `docs/agent-server-guide.md` and `docs/protobuf-api.md`

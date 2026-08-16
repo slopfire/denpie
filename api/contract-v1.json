@@ -1303,11 +1303,23 @@
       },
       "ContinueDailyReviewResponse": {
         "fields": {
+          "active_card_id": {
+            "cardinality": "optional",
+            "number": 2,
+            "oneof": null,
+            "type": "int64"
+          },
           "available_cards": {
             "cardinality": "singular",
             "number": 1,
             "oneof": null,
             "type": "uint64"
+          },
+          "pending_count": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "uint32"
           }
         },
         "reserved": []
@@ -2270,6 +2282,12 @@
             "number": 1,
             "oneof": null,
             "type": "int64"
+          },
+          "images": {
+            "cardinality": "repeated",
+            "number": 15,
+            "oneof": null,
+            "type": "TipcardImageInfo"
           },
           "next_review_at": {
             "cardinality": "singular",

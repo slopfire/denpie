@@ -3,6 +3,26 @@
 This log records consumer-visible changes to the versioned public API. Entries
 describe wire behavior rather than dashboard internals.
 
+## 2026-08-16 — Stable Continue slot identity
+
+- `ContinueDailyReviewResponse.active_card_id` additively identifies the exact
+  repeatable card prepared for the requested topic, while `pending_count`
+  carries its remaining queue depth. Clients can replace the existing topic
+  slot directly instead of reloading and re-sorting the flow.
+
+## 2026-08-15 — Pending-card image inventory
+
+- `TipcardInfo.images` additively exposes stored image metadata and authenticated
+  download paths for every inventory state, including `pending`. Inventory clients
+  can preview those images without promoting or reviewing the card.
+
+## 2026-08-15 — Correct rate-limit replenishment intervals
+
+- Fixed the `POST /api/v1` and authenticated image limiters to replenish at
+  their documented 10 requests/second and 50 requests/second rates. The
+  `tower-governor` builder value is a per-token interval, so the previous
+  configuration replenished only once every 10 and 50 seconds respectively.
+
 ## 2026-08-14 — Explicit daily-refresh outcomes
 
 - `ForceDailyRefreshResponse` additively exposes `outcome`, `available_cards`,

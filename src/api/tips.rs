@@ -32,7 +32,7 @@ pub async fn continue_daily_review(
     state: &AppState,
     user_id: &str,
     req: ContinueDailyReviewRequest,
-) -> ApiResult<ForceDailyRefreshResponse> {
+) -> ApiResult<crate::services::tips::ContinueDailyReviewResult> {
     TipService::continue_daily_review(state, user_id, req).await
 }
 

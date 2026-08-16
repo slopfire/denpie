@@ -52,6 +52,21 @@ Full detail: `docs/feature-integration.md`. Use CodeGraph first if the area is u
    `just api-check`. Breaking v1 changes require a new major API; see
    `docs/api-development-rules.md`.
 
+### Additive field on an existing protobuf result
+
+1. Trace the exact producer and consumer boundary and prove which existing
+   result drops the needed state. Do not add a parallel endpoint when an
+   additive field expresses the same contract.
+2. Use the next never-used field number in `proto/denpie.proto`; do not recycle
+   removed numbers.
+3. Populate it in the backend mapper and decode it in every current frontend
+   mapper that consumes the result.
+4. Add a backend transport/integration assertion and a focused frontend mapping
+   test. Keep test-only exports `pub(crate)`.
+5. Update API semantics, protobuf docs, and changelog.
+6. Run `just api-contract-update`, inspect the ledger diff for only the intended
+   additive field, then run `just api-check`.
+
 ### New dashboard endpoint
 
 1. Route in `src/app.rs`

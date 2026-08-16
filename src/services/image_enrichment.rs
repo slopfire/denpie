@@ -93,20 +93,12 @@ async fn enrich_claimed_card(
             description: row.description.clone(),
         })
         .collect::<Vec<_>>();
-    let sources = domain::grounding::image_sources_from_setting(&settings.image_sources);
-    let (model, reasoning) = if matches!(strategy, domain::grounding::ImageStrategy::Agentic) {
-        (
-            settings.grounding_model(),
-            llm::ReasoningConfig::new(settings.grounding_reasoning_effort()),
-        )
-    } else {
-        (
-            settings.llm_model.as_str(),
-            llm::ReasoningConfig::new(settings.llm_reasoning_effort.clone()),
-        )
-    };
+    let model = settings.llm_model.as_str();
+    let reasoning = llm::ReasoningConfig::new(settings.llm_reasoning_effort.clone());
 
-    let retrieved = llm::retrieve_image(
+    // Strategies return None for a miss (empty search, consent wall, no pool
+    // match). That is a completed card without an image, not a retryable error.
+    let Some(retrieved) = llm::retrieve_image(
         strategy,
         llm::ImageInput {
             topic_name: &card.topic_name,
@@ -118,14 +110,17 @@ async fn enrich_claimed_card(
             api_base: &settings.llm_base_url,
             reasoning: &reasoning,
             pool: &pool_meta,
-            sources: &sources,
-            search_api_key: &settings.search_api_key,
-            search_base_url: &settings.search_base_url,
-            search_provider: &settings.search_provider,
         },
     )
     .await
-    .ok_or_else(|| "image strategy returned no usable image".to_string())?;
+    else {
+        tracing::info!(
+            card_id = claim.card_id,
+            topic = card.topic_name,
+            "image strategy returned no usable image"
+        );
+        return Ok(false);
+    };
 
     let prepared = match retrieved {
         llm::RetrievedImage::Prepared(prepared) => prepared,
@@ -151,6 +146,7 @@ async fn enrich_claimed_card(
         card_id = claim.card_id,
         topic_id = card.topic_id,
         topic = card.topic_name,
+        card_status = card.review_status,
         "card image enrichment attached an image"
     );
     Ok(true)

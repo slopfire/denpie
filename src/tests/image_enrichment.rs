@@ -90,6 +90,22 @@ async fn durable_image_job_attaches_once_and_recovers_after_a_lease_retry() {
             .unwrap();
     assert_eq!(completed, "completed");
 
+    let inventory = crate::api::list_tipcards_pb(&state, TEST_USER_ID)
+        .await
+        .unwrap();
+    let pending = inventory
+        .cards
+        .iter()
+        .find(|card| card.id == card_id)
+        .expect("pending card must remain available in inventory");
+    assert_eq!(pending.status, "pending");
+    assert_eq!(pending.images.len(), 1);
+    assert_eq!(pending.images[0].id, attached[0].id);
+    assert_eq!(
+        pending.images[0].download_path,
+        format!("/api/v1/tipcard-images/{}", attached[0].id)
+    );
+
     sqlx::query(
         "UPDATE card_image_jobs
          SET status = 'processing', lease_until = CURRENT_TIMESTAMP - INTERVAL '1 second'
@@ -323,4 +339,144 @@ async fn review_and_advance_returns_and_replays_the_promoted_card() {
     )
     .await;
     assert_eq!(forbidden.status(), reqwest::StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn missing_image_completes_without_retry_and_can_be_requeued() {
+    let pool = setup_db().await;
+    let state = Arc::new(make_state(pool.clone(), unique_settings_path()));
+    tokio::fs::create_dir_all(&state.image_dir).await.unwrap();
+
+    let topic_id: i64 = sqlx::query_scalar(
+        "INSERT INTO topics (user_id, name, tipcard_type, image_strategy)
+         VALUES ($1, 'empty pool', 'repeatable_tip', 'pool') RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let card_id = tipcards::create_generated_with_status(
+        &pool,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "Needs a picture",
+        "Full content",
+        "Compact content",
+        true,
+        "diagram that is not in the pool",
+        "pending",
+    )
+    .await
+    .unwrap();
+
+    assert!(crate::image_enrichment::run_once(&state).await);
+    let attached = tipcards::list_images(&pool, TEST_USER_ID, card_id)
+        .await
+        .unwrap();
+    assert!(attached.is_empty());
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM card_image_jobs WHERE card_id = $1")
+            .bind(card_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "completed");
+
+    let requeued =
+        crate::db::repositories::image_jobs::requeue_failed_for_user(&pool, TEST_USER_ID)
+            .await
+            .unwrap();
+    assert_eq!(requeued, 1);
+    let pending: String =
+        sqlx::query_scalar("SELECT status FROM card_image_jobs WHERE card_id = $1")
+            .bind(card_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(pending, "pending");
+
+    let mut tx = pool.begin().await.unwrap();
+    crate::db::repositories::image_jobs::enqueue_in_tx(&mut tx, TEST_USER_ID, card_id)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let after_enqueue: (String, i64) =
+        sqlx::query_as("SELECT status, attempts FROM card_image_jobs WHERE card_id = $1")
+            .bind(card_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(after_enqueue, ("pending".to_string(), 0));
+}
+
+#[tokio::test]
+async fn enqueue_does_not_replace_an_already_attached_image() {
+    let pool = setup_db().await;
+    let state = Arc::new(make_state(pool.clone(), unique_settings_path()));
+    tokio::fs::create_dir_all(&state.image_dir).await.unwrap();
+
+    let topic_id: i64 = sqlx::query_scalar(
+        "INSERT INTO topics (user_id, name, tipcard_type, image_strategy)
+         VALUES ($1, 'keep image', 'repeatable_tip', 'pool') RETURNING id",
+    )
+    .bind(TEST_USER_ID)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let pool_path = "keep-pool-source.png";
+    let pool_bytes = STANDARD.decode(ONE_PIXEL_PNG).unwrap();
+    tokio::fs::write(state.image_dir.join(pool_path), &pool_bytes)
+        .await
+        .unwrap();
+    image_pool::insert_pool_image(
+        &pool,
+        TEST_USER_ID,
+        pool_path,
+        "image/png",
+        pool_bytes.len() as i64,
+        "Only image",
+        Some("Keep this attachment"),
+        "[]",
+    )
+    .await
+    .unwrap();
+    let card_id = tipcards::create_generated_with_status(
+        &pool,
+        TEST_USER_ID,
+        topic_id,
+        "repeatable_tip",
+        "Illustrated card",
+        "Full illustrated content",
+        "Compact illustrated content",
+        true,
+        "one pixel learning diagram",
+        "pending",
+    )
+    .await
+    .unwrap();
+    assert!(crate::image_enrichment::run_once(&state).await);
+    let attached = tipcards::list_images(&pool, TEST_USER_ID, card_id)
+        .await
+        .unwrap();
+    assert_eq!(attached.len(), 1);
+    let attached_id = attached[0].id;
+
+    let requeued =
+        crate::db::repositories::image_jobs::requeue_failed_for_user(&pool, TEST_USER_ID)
+            .await
+            .unwrap();
+    assert_eq!(requeued, 0);
+
+    let mut tx = pool.begin().await.unwrap();
+    crate::db::repositories::image_jobs::enqueue_in_tx(&mut tx, TEST_USER_ID, card_id)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert!(crate::image_enrichment::run_once(&state).await);
+    let still_attached = tipcards::list_images(&pool, TEST_USER_ID, card_id)
+        .await
+        .unwrap();
+    assert_eq!(still_attached.len(), 1);
+    assert_eq!(still_attached[0].id, attached_id);
 }

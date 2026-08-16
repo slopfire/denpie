@@ -48,6 +48,12 @@ created. The legacy `refreshed_cards` field remains the number of topics changed
 Pending repeatable cards invalidated by later negative feedback are excluded from
 both selection and low-water depth.
 
+`continue_daily_review` returns `available_cards` and the optional
+`active_card_id` prepared for its single repeatable topic. `pending_count` is
+the eligible unseen queue depth behind that card. When the ID is present, fetch
+that card directly with `get_tipcard` and replace the existing topic slot; a
+full flow reload is not required.
+
 ## Operations — inventory
 
 | Operation | Result | Purpose |
@@ -110,17 +116,20 @@ Reviewed placeholders are persisted in browser storage, so they survive a page r
 
 Automatic illustrations use durable `card_image_jobs`. Generated cards enqueue
 their image work in the same transaction as card creation. A lease-based worker
-resolves pool/API/web sources outside database transactions, retries failures,
-and marks completion only after the prepared bytes and `tipcard_images` metadata
-are stored. Promotion never waits for an external image provider. A worker that
-stops after attachment but before acknowledging the job detects the existing
+resolves pool/Bing/DDGS sources outside database transactions, retries transport
+failures, and treats a strategy miss (`retrieve_image` returning `None`) as
+completed without an image rather than a failed retry. Changing `image_strategy`
+requeues failed jobs and completed jobs that never attached an image. A worker
+that stops after attachment but before acknowledging the job detects the existing
 attachment on retry and completes without creating a duplicate.
 
-Restricted web-image sources keep search policy separate from download policy:
-`search_domains` constrains provider discovery, while `download_hosts` is the
-exact allowlist for returned image bytes. Older source JSON without
-`search_domains` uses `download_hosts` for both. Source search instructions are
-included in the provider query.
+Remote image strategies are `bing_html`, `bing_playwright`, and `ddgs_text_og`.
+All three are keyless and pass discovered URLs through the same DNS-pinned,
+redirect-validating, size-capped image downloader. Playwright and DDGS use
+optional local subprocesses; their helpers return URLs and never download bytes.
+Legacy `programmatic`, `agentic`, and `web_search` setting values resolve to
+`bing_html`. The unused `image_sources` settings field remains on the wire for
+compatibility and is stored as `[]`.
 
 
 Legacy `repeat`, `memorize`, and `dismiss` actions remain accepted as aliases for API clients already using them.
@@ -152,7 +161,7 @@ Topic override: `update_topic.compression_level` (empty = inherit). Fenced code 
 
 | Setting | Role |
 |---|---|
-| `Settings.grounding_model` | Model for non-factual grounding + agentic web image search |
+| `Settings.grounding_model` | Model for non-factual grounding |
 | `Settings.grounding_reasoning_effort` | Reasoning override for that model |
 
 Empty → inherit `model` / `reasoning_effort`. Both are optional partial fields on `update_settings`.

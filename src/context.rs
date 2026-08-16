@@ -1,9 +1,18 @@
+use std::collections::HashSet;
+
 use axum::http::StatusCode;
 
 use crate::{AppState, db::repositories::tipcards};
 
+/// Newest rows loaded from the topic. Labeled titles in this window are kept
+/// even when they fall outside the recent unlabeled cap.
 const MAX_CONTEXT_TITLES: usize = 80;
-const MAX_CONTEXT_CONTENT_CHARS: usize = 240;
+const MAX_CONTEXT_TITLE_CHARS: usize = 100;
+/// How many recent titles without a review label are sent. Labeled titles
+/// (`known` / `hard` / `skip`) from the fetch window are always included.
+const MAX_RECENT_UNLABELED: usize = 24;
+
+const CONTEXT_LEGEND: &str = "Already covered — do not duplicate. [known]=slightly more advanced; [hard]=easier prerequisite; [skip]=avoid similar:";
 
 #[derive(Debug, Default)]
 pub struct CardContext {
@@ -28,44 +37,70 @@ impl CardContext {
     }
 
     pub fn render_all(&self) -> String {
-        let mut sections = if self.existing_titles.is_empty() {
-            Vec::new()
-        } else {
-            vec![format!(
-                "Existing cards (never duplicate these):\n{}",
-                render_titles(&self.existing_titles)
-            )]
-        };
-        let feedback = self.render_feedback();
-        if !feedback.is_empty() {
-            sections.push(feedback);
+        let lines = self.labeled_title_lines();
+        if lines.is_empty() {
+            return String::new();
         }
-        sections.join("\n\n")
+        format!("{CONTEXT_LEGEND}\n{}", render_titles(&lines))
     }
 
-    fn render_feedback(&self) -> String {
-        [
-            (
-                "Known or learned (choose a nearby concept that is slightly more advanced)",
-                &self.known_items,
-            ),
-            (
-                "Too difficult or requested again (choose an easier prerequisite or simpler example)",
-                &self.difficult_items,
-            ),
-            (
-                "Not interested (avoid similar subject matter, framing, and examples)",
-                &self.uninterested_items,
-            ),
-        ]
-        .into_iter()
-        .filter(|(_, items)| !items.is_empty())
-        .map(|(heading, items)| format!("{heading}:\n{}", render_titles(items)))
-        .collect::<Vec<_>>()
-        .join("\n\n")
+    fn labeled_title_lines(&self) -> Vec<String> {
+        let known: HashSet<&str> = self.known_items.iter().map(String::as_str).collect();
+        let hard: HashSet<&str> = self.difficult_items.iter().map(String::as_str).collect();
+        let skip: HashSet<&str> = self
+            .uninterested_items
+            .iter()
+            .chain(self.dismissed_titles.iter())
+            .map(String::as_str)
+            .collect();
+        let label_of = |title: &str| -> Option<&'static str> {
+            if skip.contains(title) {
+                Some("skip")
+            } else if hard.contains(title) {
+                Some("hard")
+            } else if known.contains(title) {
+                Some("known")
+            } else {
+                None
+            }
+        };
+        let format_line = |title: &str| match label_of(title) {
+            Some(label) => format!("{title} [{label}]"),
+            None => title.to_string(),
+        };
+
+        let mut seen = HashSet::new();
+        let mut lines = Vec::new();
+        let mut unlabeled_kept = 0;
+        for title in &self.existing_titles {
+            let labeled = label_of(title).is_some();
+            if !labeled {
+                if unlabeled_kept >= MAX_RECENT_UNLABELED {
+                    continue;
+                }
+                unlabeled_kept += 1;
+            }
+            if seen.insert(title.as_str()) {
+                lines.push(format_line(title));
+            }
+        }
+        for title in self
+            .dismissed_titles
+            .iter()
+            .chain(self.known_items.iter())
+            .chain(self.difficult_items.iter())
+            .chain(self.uninterested_items.iter())
+        {
+            if seen.insert(title.as_str()) {
+                lines.push(format_line(title));
+            }
+        }
+        lines
     }
 }
 
+/// Recent titles and review labels for this topic. Card bodies stay out of
+/// the generation prompt so a large backlog does not dominate the token budget.
 pub async fn load_card_context(
     state: &AppState,
     user_id: &str,
@@ -87,27 +122,7 @@ pub async fn load_card_context(
         if row.feedback == "superseded" {
             continue;
         }
-        let title = compact_text(&row.title, 100);
-        if title.is_empty() {
-            continue;
-        }
-        let content = compact_text(&row.content, MAX_CONTEXT_CONTENT_CHARS);
-        let item = if content.is_empty() || content == title {
-            title.clone()
-        } else {
-            format!("{title}: {content}")
-        };
-        if row.status == "dismissed" {
-            context.dismissed_titles.push(title);
-        } else {
-            context.existing_titles.push(item.clone());
-        }
-        match row.feedback.as_str() {
-            "learned" | "known" => context.known_items.push(item),
-            "again" | "too_difficult" => context.difficult_items.push(item),
-            "not_interested" => context.uninterested_items.push(item),
-            _ => {}
-        }
+        ingest_title(&mut context, &row.title, &row.status, &row.feedback);
     }
 
     Ok(context)
@@ -117,7 +132,6 @@ pub fn render_generation_prompt(topic: &str, template: &str, context: &CardConte
     let all_context = context.render_all();
     let existing_context = context.render_existing();
     let dismissed_context = context.render_dismissed();
-    let feedback_context = context.render_feedback();
 
     let mut prompt = template
         .replace("{topic}", topic)
@@ -125,21 +139,33 @@ pub fn render_generation_prompt(topic: &str, template: &str, context: &CardConte
         .replace("{existing_cards}", &existing_context)
         .replace("{dismissed_cards}", &dismissed_context);
 
-    if !template.contains("{context}") && !feedback_context.is_empty() {
-        prompt.push_str(
-            "\n\nPersonalize the next learning card from this feedback. Infer the learner's current level, but do not claim certainty or merely paraphrase a previous card. Follow each section's direction:\n",
-        );
-        prompt.push_str(&all_context);
-    } else if !template.contains("{context}")
-        && !template.contains("{existing_cards}")
-        && !template.contains("{dismissed_cards}")
-        && !all_context.is_empty()
-    {
-        prompt.push_str("\n\nDo not duplicate these existing cards or ideas:\n");
+    let template_has_context_slot = template.contains("{context}")
+        || template.contains("{existing_cards}")
+        || template.contains("{dismissed_cards}");
+    if !template_has_context_slot && !all_context.is_empty() {
+        prompt.push_str("\n\n");
         prompt.push_str(&all_context);
     }
 
     prompt
+}
+
+fn ingest_title(context: &mut CardContext, title: &str, status: &str, feedback: &str) {
+    let title = compact_text(title, MAX_CONTEXT_TITLE_CHARS);
+    if title.is_empty() {
+        return;
+    }
+    if status == "dismissed" {
+        context.dismissed_titles.push(title.clone());
+    } else {
+        context.existing_titles.push(title.clone());
+    }
+    match feedback {
+        "learned" | "known" => context.known_items.push(title),
+        "again" | "too_difficult" => context.difficult_items.push(title),
+        "not_interested" => context.uninterested_items.push(title),
+        _ => {}
+    }
 }
 
 fn render_titles(titles: &[String]) -> String {
@@ -194,7 +220,7 @@ mod tests {
                 "Unreviewed slices card".to_string(),
             ],
             dismissed_titles: Vec::new(),
-            known_items: vec!["Iterator adaptors: map transforms each item".to_string()],
+            known_items: vec!["Iterator adaptors".to_string()],
             difficult_items: Vec::new(),
             uninterested_items: Vec::new(),
         };
@@ -203,8 +229,9 @@ mod tests {
 
         assert!(prompt.contains("Give a tip about Rust."));
         assert!(prompt.contains("slightly more advanced"));
-        assert!(prompt.contains("Iterator adaptors"));
+        assert!(prompt.contains("Iterator adaptors [known]"));
         assert!(prompt.contains("Unreviewed slices card"));
+        assert_eq!(prompt.matches("Iterator adaptors").count(), 1);
     }
 
     #[test]
@@ -212,15 +239,80 @@ mod tests {
         let context = CardContext {
             existing_titles: Vec::new(),
             dismissed_titles: vec!["Ownership".to_string(), "Macros".to_string()],
-            known_items: vec!["Ownership: values have one owner".to_string()],
-            difficult_items: vec!["Lifetimes: references must remain valid".to_string()],
-            uninterested_items: vec!["Macros: token trees".to_string()],
+            known_items: vec!["Ownership".to_string()],
+            difficult_items: vec!["Lifetimes".to_string()],
+            uninterested_items: vec!["Macros".to_string()],
         };
 
         let prompt = render_generation_prompt("Rust", "Teach {topic}.", &context);
 
         assert!(prompt.contains("slightly more advanced"));
         assert!(prompt.contains("easier prerequisite"));
-        assert!(prompt.contains("avoid similar subject matter"));
+        assert!(prompt.contains("avoid similar"));
+        assert!(prompt.contains("Ownership [skip]"));
+        assert!(prompt.contains("Lifetimes [hard]"));
+        assert!(prompt.contains("Macros [skip]"));
+        assert!(!prompt.contains("values have one owner"));
+    }
+
+    #[test]
+    fn context_stores_titles_not_card_bodies() {
+        let mut context = CardContext::default();
+        ingest_title(&mut context, "Subject-verb agreement", "active", "learned");
+
+        assert_eq!(
+            context.existing_titles,
+            vec!["Subject-verb agreement".to_string()]
+        );
+        assert_eq!(
+            context.known_items,
+            vec!["Subject-verb agreement".to_string()]
+        );
+
+        let prompt =
+            render_generation_prompt("English grammar", "Write a tip about {topic}.", &context);
+        assert!(prompt.contains("Subject-verb agreement [known]"));
+        assert_eq!(prompt.matches("Subject-verb agreement").count(), 1);
+        assert!(!prompt.contains("The verb must agree"));
+    }
+
+    #[test]
+    fn unlabeled_titles_are_capped_but_labeled_titles_are_kept() {
+        let mut existing_titles = (0..40)
+            .map(|index| format!("Recent {index}"))
+            .collect::<Vec<_>>();
+        existing_titles.push("Old known topic".to_string());
+        let context = CardContext {
+            existing_titles,
+            dismissed_titles: Vec::new(),
+            known_items: vec!["Old known topic".to_string()],
+            difficult_items: Vec::new(),
+            uninterested_items: Vec::new(),
+        };
+
+        let prompt = render_generation_prompt("T", "Tip about {topic}.", &context);
+        assert!(prompt.contains("Recent 0"));
+        assert!(prompt.contains("Recent 23"));
+        assert!(!prompt.contains("Recent 24"));
+        assert!(prompt.contains("Old known topic [known]"));
+    }
+
+    #[test]
+    fn custom_placeholders_are_not_appended_again() {
+        let context = CardContext {
+            existing_titles: vec!["Borrow checker basics".to_string()],
+            dismissed_titles: Vec::new(),
+            known_items: vec!["Borrow checker basics".to_string()],
+            difficult_items: Vec::new(),
+            uninterested_items: Vec::new(),
+        };
+        let prompt = render_generation_prompt(
+            "Rust",
+            "Topic {topic}\nExisting:\n{existing_cards}",
+            &context,
+        );
+        assert!(prompt.contains("1. Borrow checker basics"));
+        assert!(!prompt.contains("[known]"));
+        assert_eq!(prompt.matches("Borrow checker basics").count(), 1);
     }
 }

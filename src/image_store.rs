@@ -17,6 +17,9 @@ use crate::db::repositories::tipcards::{self, TipcardImageRecord};
 
 type StatusResult<T> = Result<T, (StatusCode, String)>;
 
+const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+const MAX_REMOTE_HTML_BYTES: usize = 2 * 1024 * 1024;
+
 pub enum IncomingImage {
     DataUrl(String),
     Bytes { bytes: Vec<u8>, mime_type: String },
@@ -118,12 +121,19 @@ pub async fn download_remote_image(value: &str) -> StatusResult<IncomingImage> {
         validate_url_shape(&url)?;
         let addresses = resolve_public_target(&url).await?;
         let client = client_pinned_to_target(&url, &addresses)?;
-        let mut response = client.get(url.clone()).send().await.map_err(|_| {
-            (
-                StatusCode::BAD_REQUEST,
-                "Unable to download image URL".to_string(),
-            )
-        })?;
+        let referer = url.origin().ascii_serialization();
+        let mut response = client
+            .get(url.clone())
+            .header(reqwest::header::USER_AGENT, BROWSER_USER_AGENT)
+            .header(reqwest::header::REFERER, referer)
+            .send()
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Unable to download image URL".to_string(),
+                )
+            })?;
         if response.status().is_redirection() {
             let location = response
                 .headers()
@@ -189,11 +199,89 @@ pub async fn download_remote_image(value: &str) -> StatusResult<IncomingImage> {
 
 const MAX_REMOTE_JSON_BYTES: usize = 2 * 1024 * 1024;
 
-/// Fetch JSON from a public HTTP(S) endpoint with DNS pinning and no redirects.
-/// This is used for user-configurable search and image API endpoints, where a
-/// normal client would permit SSRF through private DNS answers or redirects.
-pub async fn get_public_json(value: &str) -> StatusResult<serde_json::Value> {
-    request_public_json(value, None, None).await
+/// Fetch public HTML with the same DNS pinning and redirect validation used by
+/// remote images. The browser headers are required by image-search and many
+/// Open Graph pages; the decompressed response is capped before conversion.
+pub async fn get_public_html(value: &str) -> StatusResult<String> {
+    const MAX_REDIRECTS: usize = 5;
+    let mut url = checked_remote_url(value)?;
+
+    for _ in 0..=MAX_REDIRECTS {
+        validate_url_shape(&url)?;
+        let addresses = resolve_public_target(&url).await?;
+        let client = client_pinned_to_target(&url, &addresses)?;
+        let mut response = client
+            .get(url.clone())
+            .header(reqwest::header::USER_AGENT, BROWSER_USER_AGENT)
+            .header(
+                reqwest::header::ACCEPT,
+                "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5",
+            )
+            .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+            .send()
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Unable to reach remote HTML endpoint".to_string(),
+                )
+            })?;
+        if response.status().is_redirection() {
+            let location = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(|| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        "HTML redirect location is invalid".to_string(),
+                    )
+                })?;
+            url = url.join(location).map_err(|_| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "HTML redirect location is invalid".to_string(),
+                )
+            })?;
+            continue;
+        }
+        if !response.status().is_success() {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Remote HTML endpoint returned an error".to_string(),
+            ));
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length as usize > MAX_REMOTE_HTML_BYTES)
+        {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Remote HTML response is too large".to_string(),
+            ));
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                "Unable to read remote HTML response".to_string(),
+            )
+        })? {
+            if bytes.len().saturating_add(chunk.len()) > MAX_REMOTE_HTML_BYTES {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "Remote HTML response is too large".to_string(),
+                ));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        return Ok(String::from_utf8_lossy(&bytes).into_owned());
+    }
+
+    Err((
+        StatusCode::BAD_REQUEST,
+        "Remote HTML endpoint redirected too many times".to_string(),
+    ))
 }
 
 /// POST JSON to a public HTTP(S) endpoint with the same SSRF protections as

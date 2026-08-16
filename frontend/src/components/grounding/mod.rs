@@ -1,7 +1,6 @@
-//! Grounding view: topics, documents, image pool, and image sources.
+//! Grounding view: topics, documents, image pool, and retrieval settings.
 mod documents;
 mod image_pool;
-mod image_sources;
 mod page;
 mod settings;
 mod topics;

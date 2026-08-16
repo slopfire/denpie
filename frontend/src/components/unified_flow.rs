@@ -1,7 +1,7 @@
 use crate::api::toast;
 use crate::api_v1;
 use crate::app::View;
-use crate::components::flow_card::{FlowCard, FlowCardSkeleton};
+use crate::components::flow_card::FlowCard;
 use crate::i18n::use_i18n;
 use crate::image_compress::{collect_files, compress_files_to_data_urls};
 use crate::state::AppState;
@@ -416,7 +416,7 @@ impl From<api_v1::InventoryCard> for TipcardInfo {
             title: card.title,
             full_content: card.full_content,
             compressed_content: card.compressed_content,
-            image_data: Vec::new(),
+            image_data: card.image_urls,
             created_at: card.created_at,
             tipcard_type: card.tipcard_type,
             status: card.status,
@@ -486,7 +486,7 @@ pub fn unified_flow() -> Html {
     let load_generation = use_mut_ref(|| 0_u64);
     let refresh_queued = use_state(|| false);
     let detail_in_flight_ids = use_mut_ref(HashSet::<i64>::new);
-    let pending_count = use_state(|| 0usize);
+    let add_in_flight = use_state(|| false);
     let reviewing_card_ids = use_state(HashSet::<i64>::new);
     let review_in_flight_ids = use_mut_ref(HashSet::<i64>::new);
     let review_idempotency_keys = use_mut_ref(HashMap::<i64, String>::new);
@@ -720,11 +720,17 @@ pub fn unified_flow() -> Html {
         let manual_content = manual_content.clone();
         let manual_images = manual_images.clone();
         let load_cards = load_cards.clone();
-        let pending_count = pending_count.clone();
+        let add_in_flight = add_in_flight.clone();
+        let cards = cards.clone();
+        let cards_latest = cards_latest.clone();
+        let reviewed_placeholders = reviewed_placeholders.clone();
+        let reviewed_placeholders_latest = reviewed_placeholders_latest.clone();
+        let pinned_card_order = pinned_card_order.clone();
+        let detail_loaded = detail_loaded.clone();
 
         Callback::from(move |e: SubmitEvent| {
             e.prevent_default();
-            if *pending_count > 0 {
+            if *add_in_flight {
                 return;
             }
             let app_state = app_state.clone();
@@ -733,18 +739,14 @@ pub fn unified_flow() -> Html {
             let content = (*manual_content).clone();
             let images = (*manual_images).clone();
             let load_cards = load_cards.clone();
-            let pending_count = pending_count.clone();
-
-            let n_skeletons = if ttype == "manual_tip" {
-                1
-            } else {
-                topics
-                    .split(',')
-                    .filter(|topic| !topic.trim().is_empty())
-                    .count()
-                    .max(1)
-            };
-            pending_count.set(n_skeletons);
+            let add_in_flight = add_in_flight.clone();
+            let cards = cards.clone();
+            let cards_latest = cards_latest.clone();
+            let reviewed_placeholders = reviewed_placeholders.clone();
+            let reviewed_placeholders_latest = reviewed_placeholders_latest.clone();
+            let pinned_card_order = pinned_card_order.clone();
+            let detail_loaded = detail_loaded.clone();
+            add_in_flight.set(true);
 
             wasm_bindgen_futures::spawn_local(async move {
                 let topic_list = topics_csv_to_list(&topics);
@@ -766,15 +768,71 @@ pub fn unified_flow() -> Html {
                 )
                 .await
                 {
-                    Ok(_) => {
+                    Ok(created) => {
                         toast(&app_state, "Cards added");
                         LocalStorage::delete("denpie_prefill_topic");
                         LocalStorage::delete("denpie_prefill_type");
-                        load_cards.emit(true);
+                        let mut next_cards = cards_latest.borrow().clone();
+                        let mut placeholders = reviewed_placeholders_latest.borrow().clone();
+                        let mut order = (*pinned_card_order).clone();
+                        let mut loaded = (*detail_loaded).clone();
+                        // Repeatable creation can deepen an existing topic queue.
+                        // Reconcile in the background for authoritative stack depth,
+                        // after resolving visible card IDs into their final slots.
+                        let mut needs_reconcile = created.is_empty() || ttype == "repeatable_tip";
+                        for created_card in created {
+                            match api_v1::get_tipcard(created_card.id).await {
+                                Ok(detail) => {
+                                    let mut card = TipcardInfo::from(detail);
+                                    if card.tipcard_type == "repeatable_tip"
+                                        && let Some(previous) = next_cards
+                                            .iter()
+                                            .find(|candidate| {
+                                                candidate.tipcard_type == "repeatable_tip"
+                                                    && candidate.topic_name == card.topic_name
+                                            })
+                                            .cloned()
+                                    {
+                                        card.pinned = previous.pinned;
+                                        (next_cards, placeholders, order) =
+                                            apply_repeatable_slot_swap(
+                                                next_cards,
+                                                placeholders,
+                                                order,
+                                                previous.id,
+                                                &previous.topic_name,
+                                                previous.pinned,
+                                                card.clone(),
+                                            );
+                                    } else if let Some(existing) = next_cards
+                                        .iter_mut()
+                                        .find(|existing| existing.id == card.id)
+                                    {
+                                        *existing = card.clone();
+                                    } else {
+                                        next_cards.push(card.clone());
+                                    }
+                                    loaded.insert(card.id, true);
+                                }
+                                Err(_) => needs_reconcile = true,
+                            }
+                        }
+                        let _ = LocalStorage::set(PINNED_CARD_ORDER_KEY, &order);
+                        pinned_card_order.set(order);
+                        replace_placeholders_state(
+                            &reviewed_placeholders,
+                            &reviewed_placeholders_latest,
+                            placeholders,
+                        );
+                        detail_loaded.set(loaded);
+                        replace_cards_state(&cards, &cards_latest, next_cards);
+                        if needs_reconcile {
+                            load_cards.emit(true);
+                        }
                     }
                     Err(err) => toast(&app_state, err.to_string()),
                 }
-                pending_count.set(0);
+                add_in_flight.set(false);
             });
         })
     };
@@ -992,22 +1050,123 @@ pub fn unified_flow() -> Html {
 
     let on_continue_cb = {
         let app_state = app_state.clone();
-        let load_cards = load_cards.clone();
-        let pending_count = pending_count.clone();
-        Callback::from(move |(topic, tipcard_type): (String, String)| {
+        let cards = cards.clone();
+        let cards_latest = cards_latest.clone();
+        let reviewed_placeholders = reviewed_placeholders.clone();
+        let reviewed_placeholders_latest = reviewed_placeholders_latest.clone();
+        let detail_loaded = detail_loaded.clone();
+        let load_generation = load_generation.clone();
+        let refresh_queued = refresh_queued.clone();
+        let reviewing_card_ids = reviewing_card_ids.clone();
+        let review_in_flight_ids = review_in_flight_ids.clone();
+        let review_request_sequence = review_request_sequence.clone();
+        let replacement_timers = replacement_timers.clone();
+        let repeatable_transitions = repeatable_transitions.clone();
+        let pinned_card_order = pinned_card_order.clone();
+        Callback::from(move |(id, topic, tipcard_type): (i64, String, String)| {
+            if !review_in_flight_ids.borrow_mut().insert(id) {
+                return;
+            }
+            let Some(slot_card) = cards_latest
+                .borrow()
+                .iter()
+                .find(|card| card.id == id)
+                .cloned()
+            else {
+                review_in_flight_ids.borrow_mut().remove(&id);
+                return;
+            };
+            *load_generation.borrow_mut() += 1;
+            let mut reviewing = (*reviewing_card_ids).clone();
+            reviewing.insert(id);
+            reviewing_card_ids.set(reviewing);
+            let request_id = {
+                let mut sequence = review_request_sequence.borrow_mut();
+                *sequence += 1;
+                *sequence
+            };
+            repeatable_transitions.dispatch(RepeatableTransitionAction::Start {
+                request_id,
+                card: Box::new(slot_card.clone()),
+            });
+            let transitions = repeatable_transitions.clone();
+            let timer_topic = topic.clone();
+            let timer =
+                gloo_timers::callback::Timeout::new(REPLACEMENT_SKELETON_DELAY_MS, move || {
+                    transitions.dispatch(RepeatableTransitionAction::ShowSkeleton {
+                        request_id,
+                        topic_name: timer_topic,
+                    });
+                });
+            replacement_timers.borrow_mut().insert(request_id, timer);
+
             let app_state = app_state.clone();
-            let load_cards = load_cards.clone();
-            let pending_count = pending_count.clone();
-            pending_count.set(1);
+            let cards = cards.clone();
+            let cards_latest = cards_latest.clone();
+            let reviewed_placeholders = reviewed_placeholders.clone();
+            let reviewed_placeholders_latest = reviewed_placeholders_latest.clone();
+            let detail_loaded = detail_loaded.clone();
+            let refresh_queued = refresh_queued.clone();
+            let reviewing_card_ids = reviewing_card_ids.clone();
+            let review_in_flight_ids = review_in_flight_ids.clone();
+            let replacement_timers = replacement_timers.clone();
+            let repeatable_transitions = repeatable_transitions.clone();
+            let pinned_card_order = pinned_card_order.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                match api_v1::continue_daily_review(vec![topic], Some(tipcard_type)).await {
-                    Ok(_) => {
-                        toast(&app_state, "Continuing today's review");
-                        load_cards.emit(true);
+                let finish = |queue_refresh: bool| {
+                    replacement_timers.borrow_mut().remove(&request_id);
+                    repeatable_transitions.dispatch(RepeatableTransitionAction::Commit {
+                        request_id,
+                        topic_name: topic.clone(),
+                    });
+                    review_in_flight_ids.borrow_mut().remove(&id);
+                    let mut reviewing = (*reviewing_card_ids).clone();
+                    reviewing.remove(&id);
+                    reviewing_card_ids.set(reviewing);
+                    if queue_refresh {
+                        refresh_queued.set(true);
                     }
-                    Err(err) => toast(&app_state, err.to_string()),
+                };
+                match api_v1::continue_daily_review(vec![topic.clone()], Some(tipcard_type)).await {
+                    Ok(outcome) => match api_v1::get_tipcard(outcome.active_card_id).await {
+                        Ok(detail) => {
+                            let mut next_card = TipcardInfo::from(detail);
+                            next_card.pinned = slot_card.pinned;
+                            next_card.pending_count = outcome.pending_count;
+                            let (next_cards, placeholders, order) = apply_repeatable_slot_swap(
+                                cards_latest.borrow().clone(),
+                                reviewed_placeholders_latest.borrow().clone(),
+                                (*pinned_card_order).clone(),
+                                id,
+                                &slot_card.topic_name,
+                                slot_card.pinned,
+                                next_card.clone(),
+                            );
+                            let _ = LocalStorage::set(PINNED_CARD_ORDER_KEY, &order);
+                            pinned_card_order.set(order);
+                            replace_placeholders_state(
+                                &reviewed_placeholders,
+                                &reviewed_placeholders_latest,
+                                placeholders,
+                            );
+                            let mut loaded = (*detail_loaded).clone();
+                            loaded.insert(next_card.id, true);
+                            detail_loaded.set(loaded);
+                            replace_cards_state(&cards, &cards_latest, next_cards);
+                            toast(&app_state, "Continuing today's review");
+                            finish(false);
+                        }
+                        Err(err) => {
+                            toast(&app_state, err.to_string());
+                            finish(true);
+                        }
+                    },
+                    Err(err) => {
+                        let reconcile = err.mutation_outcome_indeterminate;
+                        toast(&app_state, err.to_string());
+                        finish(reconcile);
+                    }
                 }
-                pending_count.set(0);
             });
         })
     };
@@ -1412,11 +1571,11 @@ pub fn unified_flow() -> Html {
                     <button
                         id="tips-submit-btn"
                         type="submit"
-                        class={classes!("rounded-md", "bg-primary-solid", "px-4", "py-2", "font-medium", "flex", "items-center", "justify-center", "gap-2", (*pending_count > 0).then_some("opacity-60 cursor-not-allowed"))}
-                        disabled={*pending_count > 0}
+                        class={classes!("rounded-md", "bg-primary-solid", "px-4", "py-2", "font-medium", "flex", "items-center", "justify-center", "gap-2", (*add_in_flight).then_some("opacity-60 cursor-not-allowed"))}
+                        disabled={*add_in_flight}
                     >
-                        <iconify-icon icon={if *pending_count > 0 { "radix-icons:update" } else if *tip_type == "manual_tip" { "material-symbols:accessible-forward" } else { "radix-icons:magic-wand" }} class={classes!("radix-icon", (*pending_count > 0).then_some("animate-spin"))} aria-hidden="true"></iconify-icon>
-                        <span>{ if *pending_count > 0 { "Adding..." } else { "Add" } }</span>
+                        <iconify-icon icon={if *add_in_flight { "radix-icons:update" } else if *tip_type == "manual_tip" { "material-symbols:accessible-forward" } else { "radix-icons:magic-wand" }} class={classes!("radix-icon", (*add_in_flight).then_some("animate-spin"))} aria-hidden="true"></iconify-icon>
+                        <span>{ if *add_in_flight { "Adding..." } else { "Add" } }</span>
                     </button>
                     if *tip_type == "manual_tip" {
                         <textarea
@@ -1586,15 +1745,6 @@ pub fn unified_flow() -> Html {
                 class={grid_classes}
                 aria-labelledby="flow-picks-heading"
             >
-                {
-                    for (0..*pending_count).map(|i| html! {
-                        <FlowCardSkeleton
-                            key={format!("skeleton-{i}")}
-                            list_mode={list_mode}
-                            label="Generating card"
-                        />
-                    })
-                }
                 {for transmission_picks.iter().map(|card| render_flow_entry(card, false))}
             </div>
 

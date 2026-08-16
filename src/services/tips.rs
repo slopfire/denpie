@@ -33,12 +33,19 @@ impl domain::scheduling::DailyWindowTopic for topics::TopicRecord {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TipService;
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct DailyRefreshProgress {
     refreshed_topics: u64,
     available_cards: u64,
     generated_cards: u64,
     active_limit_reached: bool,
+    available_card_ids: Vec<i64>,
+}
+
+pub struct ContinueDailyReviewResult {
+    pub response: ForceDailyRefreshResponse,
+    pub active_card_id: i64,
+    pub pending_count: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -599,7 +606,7 @@ impl TipService {
         state: &AppState,
         user_id: &str,
         req: ContinueDailyReviewRequest,
-    ) -> ApiResult<ForceDailyRefreshResponse> {
+    ) -> ApiResult<ContinueDailyReviewResult> {
         let topic_names = req
             .topics
             .split(',')
@@ -662,8 +669,27 @@ impl TipService {
         .await
         .map_err(|err| err.into_status_body())?;
         Self::mark_targets_current_window(state, user_id, &targets).await?;
+        let pending_count =
+            tipcards::count_pending(&state.db, user_id, topic.id, &topic.tipcard_type)
+                .await
+                .map_err(|err| err.into_status_body())?
+                .max(0) as u32;
 
-        Ok(progress.into_response())
+        let active_card_id = progress
+            .available_card_ids
+            .first()
+            .copied()
+            .ok_or_else(|| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Continue prepared a card without returning its identity".to_string(),
+                )
+            })?;
+        Ok(ContinueDailyReviewResult {
+            response: progress.into_response(),
+            active_card_id,
+            pending_count,
+        })
     }
 
     pub async fn refresh_due_daily_topics(state: &AppState) -> ApiResult<u64> {
@@ -953,6 +979,7 @@ impl TipService {
             }
         }
 
+        progress.available_card_ids = responses.iter().map(|card| card.id).collect();
         Ok(progress)
     }
 

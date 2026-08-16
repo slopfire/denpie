@@ -8,12 +8,27 @@ Procedures live in **`.agents/skills/`** so Grok, Claude, Cursor, and other agen
 
 | Skill | When |
 |---|---|
-| [`codegraph`](.agents/skills/codegraph/SKILL.md) | Understand / locate code — **before** grep/read loops |
 | [`dev-loop`](.agents/skills/dev-loop/SKILL.md) | `just check` / test / ci / how much to verify |
 | [`agent-server`](.agents/skills/agent-server/SKILL.md) | Run server, ports, UI checks, test login |
 | [`add-feature`](.agents/skills/add-feature/SKILL.md) | New feature, layer placement, integration checklists |
 
 Invariants below stay here. Do not duplicate long procedures in this file.
+
+<!-- CODEGRAPH_START -->
+## CodeGraph
+
+In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the repo root), reach for it BEFORE grep/find or reading files when you need to understand or locate code:
+
+- **MCP tool** (when available): `codegraph_explore` answers most code questions in one call — the relevant symbols' verbatim source plus the call paths between them, including dynamic-dispatch hops grep can't follow. Name a file or symbol in the query to read its current line-numbered source. If it's listed but deferred, load it by name via tool search.
+- **Shell** (always works): `codegraph explore "<symbol names or question>"` prints the same output.
+
+CodeGraph lists `git ls-files`. Unstaged deletions still appear as ENOENT in
+`.codegraph/errors.log` until they are staged; run `codegraph index` after
+staging those deletes. Treat blast-radius caller lists as hints — same-named
+symbols and tests in other files are often missed.
+
+If there is no `.codegraph/` directory, skip CodeGraph entirely — indexing is the user's decision.
+<!-- CODEGRAPH_END -->
 
 ## Invariants
 
@@ -22,8 +37,7 @@ Invariants below stay here. Do not duplicate long procedures in this file.
 3. **Scheduling:** SM-2 only. `FSRS` is a legacy alias — do not claim real FSRS.
 4. **SQL:** bound parameters only in repositories.
 5. **Docs:** change code → update docs/examples in the same change.
-6. **CodeGraph:** if `.codegraph/` exists, use it before search/read thrash. See `codegraph`.
-7. **API v1:** additive-only wire contract; every operation must declare its result,
+6. **API v1:** additive-only wire contract; every operation must declare its result,
    scope, mutation/idempotency policy, docs, and tests. Run `just api-check`; see
    `docs/api-development-rules.md`.
 

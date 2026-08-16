@@ -19,6 +19,7 @@ pub struct ImageJobCard {
     pub use_image: bool,
     pub image_query: String,
     pub image_strategy: Option<String>,
+    pub review_status: String,
 }
 
 pub async fn enqueue_in_tx(
@@ -31,14 +32,35 @@ pub async fn enqueue_in_tx(
          VALUES ($1, $2)
          ON CONFLICT (card_id) DO UPDATE
          SET status = CASE
-                 WHEN card_image_jobs.status = 'completed' THEN card_image_jobs.status
+                 WHEN card_image_jobs.status = 'processing'
+                      AND card_image_jobs.lease_until > CURRENT_TIMESTAMP
+                 THEN card_image_jobs.status
                  ELSE 'pending'
              END,
+             attempts = CASE
+                 WHEN card_image_jobs.status = 'processing'
+                      AND card_image_jobs.lease_until > CURRENT_TIMESTAMP
+                 THEN card_image_jobs.attempts
+                 ELSE 0
+             END,
              available_at = CASE
-                 WHEN card_image_jobs.status = 'completed' THEN card_image_jobs.available_at
+                 WHEN card_image_jobs.status = 'processing'
+                      AND card_image_jobs.lease_until > CURRENT_TIMESTAMP
+                 THEN card_image_jobs.available_at
                  ELSE CURRENT_TIMESTAMP
              END,
-             lease_until = NULL,
+             lease_until = CASE
+                 WHEN card_image_jobs.status = 'processing'
+                      AND card_image_jobs.lease_until > CURRENT_TIMESTAMP
+                 THEN card_image_jobs.lease_until
+                 ELSE NULL
+             END,
+             last_error = CASE
+                 WHEN card_image_jobs.status = 'processing'
+                      AND card_image_jobs.lease_until > CURRENT_TIMESTAMP
+                 THEN card_image_jobs.last_error
+                 ELSE ''
+             END,
              updated_at = CURRENT_TIMESTAMP",
     )
     .bind(card_id)
@@ -79,11 +101,13 @@ pub async fn load_card(pool: &PgPool, card_id: i64, user_id: &str) -> AppResult<
                 topic.name AS topic_name,
                 COALESCE(card.title, '') AS title,
                 card.full_content,
-                card.use_image != 0 AS use_image,
+                card.use_image != 0 AS use_image, -- BIGINT 0/1, not boolean
                 card.image_query,
-                topic.image_strategy
+                topic.image_strategy,
+                COALESCE(review.status, 'active') AS review_status
          FROM tipcards card
          JOIN topics topic ON topic.id = card.topic_id AND topic.user_id = card.user_id
+         LEFT JOIN review_states review ON review.card_id = card.id
          WHERE card.id = $1 AND card.user_id = $2",
     )
     .bind(card_id)
@@ -136,12 +160,27 @@ pub async fn mark_retry_or_failed(
     Ok(())
 }
 
+/// Re-run failed jobs and completed jobs that never attached an image.
+/// Cards that already have attachments stay completed; the worker would
+/// skip them anyway, but leaving them out avoids a no-op claim burst.
 pub async fn requeue_failed_for_user(pool: &PgPool, user_id: &str) -> AppResult<u64> {
     let result = sqlx::query(
         "UPDATE card_image_jobs
          SET status = 'pending', attempts = 0, available_at = CURRENT_TIMESTAMP,
              lease_until = NULL, last_error = '', updated_at = CURRENT_TIMESTAMP
-         WHERE user_id = $1 AND status = 'failed'",
+         WHERE user_id = $1
+           AND (
+               status = 'failed'
+               OR (
+                   status = 'completed'
+                   AND NOT EXISTS (
+                       SELECT 1
+                       FROM tipcard_images img
+                       WHERE img.card_id = card_image_jobs.card_id
+                         AND img.user_id = $1
+                   )
+               )
+           )",
     )
     .bind(user_id)
     .execute(pool)

@@ -228,9 +228,17 @@ pub(crate) async fn continue_daily_review(
         },
     )
     .await?;
-    Ok(pb::ContinueDailyReviewResponse {
-        available_cards: result.available_cards,
-    })
+    Ok(continue_daily_review_to_pb(result))
+}
+
+fn continue_daily_review_to_pb(
+    result: crate::services::tips::ContinueDailyReviewResult,
+) -> pb::ContinueDailyReviewResponse {
+    pb::ContinueDailyReviewResponse {
+        available_cards: result.response.available_cards,
+        active_card_id: Some(result.active_card_id),
+        pending_count: result.pending_count,
+    }
 }
 
 pub(crate) async fn explore_link(url: &str) -> ApiResult<pb::ExploredLinks> {
@@ -361,8 +369,30 @@ fn nonempty(value: String) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{card_sources_by_topic_name, encode_page_token, parse_page_token};
+    use super::{
+        card_sources_by_topic_name, continue_daily_review_to_pb, encode_page_token,
+        parse_page_token,
+    };
     use crate::db::repositories::{documents::DocumentTopicLink, topics::TopicRecord};
+    use crate::services::tips::ContinueDailyReviewResult;
+    use crate::types::{ForceDailyRefreshOutcome, ForceDailyRefreshResponse};
+
+    #[test]
+    fn continue_daily_review_maps_the_active_slot_card_id() {
+        let mapped = continue_daily_review_to_pb(ContinueDailyReviewResult {
+            response: ForceDailyRefreshResponse {
+                refreshed_cards: 1,
+                outcome: ForceDailyRefreshOutcome::CardAvailable,
+                available_cards: 1,
+                generated_cards: 5,
+            },
+            active_card_id: 42,
+            pending_count: 4,
+        });
+        assert_eq!(mapped.available_cards, 1);
+        assert_eq!(mapped.active_card_id, Some(42));
+        assert_eq!(mapped.pending_count, 4);
+    }
 
     fn topic(id: i64, name: &str) -> TopicRecord {
         TopicRecord {

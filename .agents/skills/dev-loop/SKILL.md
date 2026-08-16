@@ -18,6 +18,22 @@ just         # list tasks
 
 Prefer `just` recipes over raw cargo when they exist.
 
+## Tight edit loop
+
+1. Check `git status --short` and preserve unrelated worktree changes.
+2. Read the exact current hunk before patching. If a patch misses, re-read only
+   that hunk and retry with a smaller patch instead of replaying a stale
+   multi-file patch.
+3. Prove the smallest relevant contract first: focused unit/integration test for
+   data behavior, or one runtime DOM check for visible behavior.
+4. Re-run only the failed focused command while iterating. Run one final gate
+   after the focused checks pass.
+
+Keep test helpers crate-local (`pub(crate)`) unless they are intentionally part
+of the public library API. `cargo check` does not exercise every `#[cfg(test)]`
+path, so compile at least one focused test before the final gate when changing
+test-only exports.
+
 ## Verification tiers
 
 Use the **smallest** gate that covers the edit. Do not re-run the full suite after every incremental change.
@@ -64,6 +80,8 @@ Detail: `agent-server` skill.
 | User already confirmed UI | Stop; do not over-verify |
 
 Skip full frontend rebuild for routine agent loops unless the change is frontend-only or you are running `just ci` / `just ui-check`.
+If `just ui-check` already produced the release frontend, reuse it for the
+runtime DOM proof instead of rebuilding it again.
 
 ## Stack reminder
 
@@ -74,6 +92,5 @@ Skip full frontend rebuild for routine agent loops unless the change is frontend
 
 ## Related skills
 
-- **codegraph** — find code before editing
 - **add-feature** — where new code goes
 - **agent-server** — ports and UI verification

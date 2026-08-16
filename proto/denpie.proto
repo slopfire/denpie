@@ -168,7 +168,7 @@ message Settings {
     string image_strategy = 21;
     string search_api_key = 22;
     string search_base_url = 23;
-    string image_sources = 24;
+    string image_sources = 24; // unused leftover; stored as JSON array, default []
     string grounding_model = 25;
     string grounding_reasoning_effort = 26;
     string search_provider = 27;
@@ -201,7 +201,7 @@ message UpdateSettingsRequest {
     optional string image_strategy = 20;
     optional string search_api_key = 21;
     optional string search_base_url = 22;
-    optional string image_sources = 23;
+    optional string image_sources = 23; // unused leftover; ignored by strategies
     optional string grounding_model = 24;
     optional string grounding_reasoning_effort = 25;
     optional string search_provider = 26;
@@ -257,6 +257,8 @@ message TipcardInfo {
     string title = 12;
     string topic_icon = 13;
     string topic_color = 14;
+    // Stored attachments for active, completed, and pending inventory cards.
+    repeated TipcardImageInfo images = 15;
 }
 
 message Tipcards {
@@ -495,6 +497,10 @@ message ContinueDailyReviewRequest {
 
 message ContinueDailyReviewResponse {
     uint64 available_cards = 1;
+    // Exact active card prepared for the requested repeatable-topic slot.
+    optional int64 active_card_id = 2;
+    // Eligible unseen cards remaining behind the active topic card.
+    uint32 pending_count = 3;
 }
 
 message ExploreLinkRequest {

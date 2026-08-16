@@ -100,6 +100,13 @@ pub struct ReviewAndAdvanceOutcome {
     pub refill_scheduled: bool,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ContinueDailyReviewOutcome {
+    pub available_cards: u64,
+    pub active_card_id: i64,
+    pub pending_count: u32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DailyRefreshOutcome {
     CardAvailable,
@@ -267,6 +274,7 @@ pub struct InventoryCard {
     pub next_review_at: String,
     pub repeat_count: u32,
     pub pinned: bool,
+    pub image_urls: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -386,7 +394,7 @@ pub async fn review_and_advance_with_key(
 pub async fn continue_daily_review(
     topics: Vec<String>,
     tipcard_type: Option<String>,
-) -> ApiResult<u64> {
+) -> ApiResult<ContinueDailyReviewOutcome> {
     let response = call_mutation(api_request::Op::ContinueDailyReview(
         ContinueDailyReviewRequest {
             topics,
@@ -395,9 +403,31 @@ pub async fn continue_daily_review(
     ))
     .await?;
     match response.result {
-        Some(api_response::Result::ContinueDailyReview(r)) => Ok(r.available_cards),
+        Some(api_response::Result::ContinueDailyReview(result)) => {
+            map_continue_daily_review(result)
+        }
         _ => unexpected("continue_daily_review"),
     }
+}
+
+fn map_continue_daily_review(
+    result: pb::ContinueDailyReviewResponse,
+) -> ApiResult<ContinueDailyReviewOutcome> {
+    let active_card_id = result
+        .active_card_id
+        .filter(|id| *id > 0)
+        .ok_or_else(|| ApiError {
+            status: 200,
+            message: "Continue response missing active card identity".into(),
+            retryable: false,
+            mutation_outcome_indeterminate: false,
+            request_id: String::new(),
+        })?;
+    Ok(ContinueDailyReviewOutcome {
+        available_cards: result.available_cards,
+        active_card_id,
+        pending_count: result.pending_count,
+    })
 }
 
 pub async fn pin_tipcard(id: i64, pinned: bool) -> ApiResult<()> {
@@ -423,25 +453,9 @@ pub async fn delete_tipcard(id: i64) -> ApiResult<()> {
 pub async fn list_tipcards() -> ApiResult<Vec<InventoryCard>> {
     let response = call_read(api_request::Op::ListTipcards(Empty {})).await?;
     match response.result {
-        Some(api_response::Result::Tipcards(list)) => Ok(list
-            .cards
-            .into_iter()
-            .map(|c| InventoryCard {
-                id: c.id,
-                topic_name: c.topic_name,
-                topic_icon: c.topic_icon,
-                topic_color: c.topic_color,
-                title: c.title,
-                full_content: c.full_content,
-                compressed_content: c.compressed_content,
-                created_at: c.created_at,
-                tipcard_type: c.tipcard_type,
-                status: c.status,
-                next_review_at: c.next_review_at,
-                repeat_count: c.repeat_count,
-                pinned: c.pinned,
-            })
-            .collect()),
+        Some(api_response::Result::Tipcards(list)) => {
+            Ok(list.cards.into_iter().map(map_inventory_card).collect())
+        }
         _ => unexpected("tipcards"),
     }
 }
@@ -967,6 +981,36 @@ fn map_flow_summary(card: pb::FlowCardInfo) -> FlowCardSummary {
     }
 }
 
+fn map_inventory_card(card: pb::TipcardInfo) -> InventoryCard {
+    let image_urls = card
+        .images
+        .iter()
+        .map(|image| {
+            if image.download_path.is_empty() {
+                tipcard_image_url(image.id)
+            } else {
+                image.download_path.clone()
+            }
+        })
+        .collect();
+    InventoryCard {
+        id: card.id,
+        topic_name: card.topic_name,
+        topic_icon: card.topic_icon,
+        topic_color: card.topic_color,
+        title: card.title,
+        full_content: card.full_content,
+        compressed_content: card.compressed_content,
+        created_at: card.created_at,
+        tipcard_type: card.tipcard_type,
+        status: card.status,
+        next_review_at: card.next_review_at,
+        repeat_count: card.repeat_count,
+        pinned: card.pinned,
+        image_urls,
+    }
+}
+
 fn map_flow_detail(card: pb::FlowCardInfo) -> FlowCardDetail {
     let image_urls = card
         .images
@@ -1224,5 +1268,57 @@ mod tests {
             mapped.sources[0].url.as_deref(),
             Some("https://doc.rust-lang.org/book")
         );
+    }
+
+    #[test]
+    fn continue_daily_review_requires_the_active_slot_card_id() {
+        let mapped = map_continue_daily_review(pb::ContinueDailyReviewResponse {
+            available_cards: 1,
+            active_card_id: Some(42),
+            pending_count: 4,
+        })
+        .unwrap();
+        assert_eq!(mapped.available_cards, 1);
+        assert_eq!(mapped.active_card_id, 42);
+        assert_eq!(mapped.pending_count, 4);
+
+        let missing = map_continue_daily_review(pb::ContinueDailyReviewResponse {
+            available_cards: 1,
+            active_card_id: None,
+            pending_count: 0,
+        })
+        .unwrap_err();
+        assert!(missing.message.contains("active card identity"));
+    }
+
+    #[test]
+    fn map_inventory_card_keeps_pending_image_urls() {
+        let card = pb::TipcardInfo {
+            id: 323,
+            topic_name: "System Design".into(),
+            full_content: "full".into(),
+            compressed_content: "compact".into(),
+            created_at: "now".into(),
+            tipcard_type: "casual_tip".into(),
+            status: "pending".into(),
+            next_review_at: String::new(),
+            repeat_count: 0,
+            pinned: false,
+            title: "Keep High-Level Designs to 6-10 Components".into(),
+            topic_icon: "icon".into(),
+            topic_color: "#fff".into(),
+            images: vec![pb::TipcardImageInfo {
+                id: 42,
+                position: 0,
+                mime_type: "image/webp".into(),
+                byte_size: 73_812,
+                download_path: "/api/v1/tipcard-images/42".into(),
+            }],
+        };
+
+        let mapped = map_inventory_card(card);
+
+        assert_eq!(mapped.status, "pending");
+        assert_eq!(mapped.image_urls, vec!["/api/v1/tipcard-images/42"]);
     }
 }

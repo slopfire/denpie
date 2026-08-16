@@ -187,6 +187,10 @@ ApiV1Request {
   path.
 - `get_document`, `explore_link`, `continue_daily_review`, and
   `test_vision_model` close the previous browser-only gaps.
+- `continue_daily_review` returns `active_card_id` for the exact repeatable card
+  prepared for its single topic plus its `pending_count`, allowing clients to
+  preserve the existing visual slot and queue depth while fetching replacement
+  detail.
 
 Treat page tokens as opaque and pass `next_page_token` back unchanged while
 `has_more` is true.

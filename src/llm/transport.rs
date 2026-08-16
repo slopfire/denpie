@@ -117,6 +117,127 @@ fn format_http_error(status: reqwest::StatusCode, body: &str) -> String {
     format!("{headline}\nRaw response: {raw}")
 }
 
+/// Join an error and its `source` chain. reqwest 0.13's `Display` is only the
+/// kind (`error decoding response body`) and drops the timeout / parse cause.
+fn error_chain(err: &dyn std::error::Error) -> String {
+    let mut parts = Vec::new();
+    let mut current = Some(err);
+    while let Some(inner) = current {
+        let text = inner.to_string();
+        if parts.last().is_none_or(|last| last != &text) {
+            parts.push(text);
+        }
+        current = inner.source();
+    }
+    parts.join(": ")
+}
+
+/// Bounded body for logs: keep the head and tail so a truncated JSON object
+/// still shows how it started and where it broke.
+fn response_body_snippet(body: &str) -> String {
+    const MAX: usize = 1500;
+    const HEAD: usize = 700;
+    const TAIL: usize = 700;
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return "(empty)".to_string();
+    }
+    let count = trimmed.chars().count();
+    if count <= MAX {
+        return trimmed.to_string();
+    }
+    let head: String = trimmed.chars().take(HEAD).collect();
+    let tail: String = trimmed
+        .chars()
+        .rev()
+        .take(TAIL)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    format!("{head}…<truncated {count} chars>…{tail}")
+}
+
+fn format_reqwest_error(context: &str, err: &reqwest::Error) -> ChatTransportError {
+    let chain = error_chain(err);
+    if err.is_timeout() {
+        ChatTransportError {
+            message: format!("LLM Error: {context} timed out: {chain}"),
+            retryable: false,
+        }
+    } else {
+        ChatTransportError {
+            message: format!("LLM Error: {context}: {chain}"),
+            retryable: true,
+        }
+    }
+}
+
+fn parse_llm_json_body(
+    status: reqwest::StatusCode,
+    content_type: Option<&str>,
+    body: &str,
+) -> Result<Value, String> {
+    match serde_json::from_str::<Value>(body) {
+        Ok(value) => Ok(value),
+        Err(err) => {
+            let snippet = response_body_snippet(body);
+            let content_type = content_type.filter(|value| !value.is_empty());
+            tracing::warn!(
+                status = status.as_u16(),
+                content_type,
+                body_len = body.len(),
+                error = %err,
+                body = %snippet,
+                "LLM response body was not valid JSON"
+            );
+            Err(format!(
+                "LLM Error: invalid response JSON: {err} (status={}, content_type={}, body_len={}, body={snippet})",
+                status.as_u16(),
+                content_type.unwrap_or("missing"),
+                body.len(),
+            ))
+        }
+    }
+}
+
+fn describe_empty_content(value: &Value) -> String {
+    let choice = value
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first());
+    let message = choice.and_then(|choice| choice.get("message"));
+    let finish_reason = choice
+        .and_then(|choice| choice.get("finish_reason"))
+        .and_then(Value::as_str)
+        .unwrap_or("missing");
+    let content_kind = match message.and_then(|message| message.get("content")) {
+        None => "missing",
+        Some(Value::Null) => "null",
+        Some(Value::String(text)) if text.trim().is_empty() => "empty_string",
+        Some(Value::String(_)) => "string",
+        Some(Value::Array(_)) => "array",
+        Some(_) => "other",
+    };
+    let message_keys = message
+        .and_then(Value::as_object)
+        .map(|object| object.keys().cloned().collect::<Vec<_>>().join(","))
+        .unwrap_or_default();
+    format!("finish_reason={finish_reason} content={content_kind} message_keys={message_keys}")
+}
+
+#[derive(Debug)]
+struct ChatTransportError {
+    message: String,
+    retryable: bool,
+}
+
+impl std::fmt::Display for ChatTransportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ReasoningConfig {
     pub effort: String,
@@ -204,29 +325,27 @@ pub async fn create_vision_completion(
     }
 
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-    let http = http_client::shared();
 
-    match http.post(url).bearer_auth(api_key).json(&body).send().await {
-        Ok(res) => {
-            if !res.status().is_success() {
-                let status = res.status();
-                let error_body = res.text().await.unwrap_or_default();
-                return LlmResponse::error(format_http_error(status, &error_body));
-            }
-
-            match res.json::<Value>().await {
-                Ok(value) => {
-                    let citations = extract_citations(&value);
-                    let raw_content = extract_message_content(&value);
-                    match serde_json::from_value::<CreateChatCompletionResponse>(value) {
-                        Ok(response) => map_response(response, citations, raw_content),
-                        Err(e) => LlmResponse::error(format!("LLM Error: {}", e)),
-                    }
+    match send_chat_request(&url, api_key, &body).await {
+        Ok((status, value)) if status.is_success() => {
+            let citations = extract_citations(&value);
+            let raw_content = extract_message_content(&value);
+            let empty_detail = describe_empty_content(&value);
+            match serde_json::from_value::<CreateChatCompletionResponse>(value) {
+                Ok(response) => {
+                    map_response_with_detail(response, citations, raw_content, &empty_detail)
                 }
-                Err(e) => LlmResponse::error(format!("LLM Error: {}", e)),
+                Err(e) => LlmResponse::error(format!("LLM Error: {e}")),
             }
         }
-        Err(e) => LlmResponse::error(format!("LLM Error: {}", e)),
+        Ok((status, value)) => {
+            let error_body = value
+                .get("__error_body")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            LlmResponse::error(format_http_error(status, error_body))
+        }
+        Err(err) => LlmResponse::error(err.message),
     }
 }
 
@@ -274,9 +393,15 @@ pub async fn create_chat_completion_grounded(
             Ok((status, value)) if status.is_success() => {
                 let citations = extract_citations(&value);
                 let raw_content = extract_message_content(&value);
+                let empty_detail = describe_empty_content(&value);
                 match serde_json::from_value::<CreateChatCompletionResponse>(value) {
                     Ok(response) => {
-                        let llm_response = map_response(response, citations, raw_content);
+                        let llm_response = map_response_with_detail(
+                            response,
+                            citations,
+                            raw_content,
+                            &empty_detail,
+                        );
                         tracing::info!(
                             model,
                             attempt,
@@ -351,7 +476,7 @@ pub async fn create_chat_completion_grounded(
             }
             Err(err) => {
                 let duration_ms = started.elapsed().as_millis() as u64;
-                if attempt < MAX_LLM_ATTEMPTS {
+                if err.retryable && attempt < MAX_LLM_ATTEMPTS {
                     tracing::warn!(
                         model,
                         attempt,
@@ -373,7 +498,7 @@ pub async fn create_chat_completion_grounded(
                     error = %err,
                     "LLM chat completion request failed"
                 );
-                return LlmResponse::error(err);
+                return LlmResponse::error(err.message);
             }
         }
     }
@@ -385,30 +510,54 @@ const RETRY_BACKOFF_MS: [u64; 2] = [1000, 2000];
 
 /// One raw chat-completion HTTP round trip. Success returns the parsed response
 /// JSON; non-2xx returns the status plus a small `__error_body` marker value;
-/// network failures return `Err`.
+/// network / parse failures return `Err` with a retry policy.
 async fn send_chat_request(
     url: &str,
     api_key: &str,
     body: &Value,
-) -> Result<(reqwest::StatusCode, Value), String> {
-    let http = http_client::shared();
+) -> Result<(reqwest::StatusCode, Value), ChatTransportError> {
+    let http = http_client::llm();
     let response = http
         .post(url)
         .bearer_auth(api_key)
         .json(body)
         .send()
         .await
-        .map_err(|err| format!("LLM Error: request failed: {err}"))?;
+        .map_err(|err| format_reqwest_error("request failed", &err))?;
     let status = response.status();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let content_length = response.content_length();
+    let body = response.text().await.map_err(|err| {
+        tracing::warn!(
+            status = status.as_u16(),
+            content_type = content_type.as_deref(),
+            ?content_length,
+            error = %error_chain(&err),
+            timed_out = err.is_timeout(),
+            "LLM response body read failed"
+        );
+        format_reqwest_error("failed to read response body", &err)
+    })?;
     if !status.is_success() {
-        let error_body = response.text().await.unwrap_or_default();
-        return Ok((status, json!({ "__error_body": error_body })));
+        return Ok((status, json!({ "__error_body": body })));
     }
-    let value = response
-        .json::<Value>()
-        .await
-        .map_err(|err| format!("LLM Error: invalid response JSON: {err}"))?;
-    Ok((status, value))
+    tracing::debug!(
+        status = status.as_u16(),
+        content_type = content_type.as_deref(),
+        body_len = body.len(),
+        body = %response_body_snippet(&body),
+        "LLM chat completion raw response"
+    );
+    parse_llm_json_body(status, content_type.as_deref(), &body)
+        .map_err(|message| ChatTransportError {
+            message,
+            retryable: true,
+        })
+        .map(|value| (status, value))
 }
 
 fn build_chat_body(
@@ -505,10 +654,11 @@ fn extract_message_content(value: &Value) -> Option<String> {
     })
 }
 
-fn map_response(
+fn map_response_with_detail(
     response: CreateChatCompletionResponse,
     citations: Vec<String>,
     raw_content: Option<String>,
+    empty_detail: &str,
 ) -> LlmResponse {
     let Some(content) = response
         .choices
@@ -517,7 +667,11 @@ fn map_response(
         .and_then(|choice| choice.message.content)
         .or(raw_content)
     else {
-        tracing::warn!("LLM response carried no message content");
+        if empty_detail.is_empty() {
+            tracing::warn!("LLM response carried no message content");
+        } else {
+            tracing::warn!(detail = %empty_detail, "LLM response carried no message content");
+        }
         return LlmResponse::error("LLM Error: model returned empty content".to_string());
     };
     if content.trim().is_empty() {
@@ -558,7 +712,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        ReasoningConfig, build_chat_body, extract_message_content, format_http_error, map_response,
+        ReasoningConfig, build_chat_body, describe_empty_content, extract_message_content,
+        format_http_error, map_response_with_detail, parse_llm_json_body, response_body_snippet,
     };
 
     #[test]
@@ -568,6 +723,53 @@ mod tests {
         });
 
         assert_eq!(extract_message_content(&value).as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn response_body_snippet_keeps_head_and_tail() {
+        let body = format!("{}MIDDLE{}", "A".repeat(800), "Z".repeat(800));
+        let snippet = response_body_snippet(&body);
+        assert!(snippet.starts_with('A'));
+        assert!(snippet.ends_with('Z'));
+        assert!(snippet.contains("truncated"));
+        assert!(snippet.contains("1606 chars"));
+    }
+
+    #[test]
+    fn response_body_snippet_marks_empty_body() {
+        assert_eq!(response_body_snippet("   "), "(empty)");
+    }
+
+    #[test]
+    fn parse_llm_json_body_includes_status_and_snippet() {
+        let err = parse_llm_json_body(
+            reqwest::StatusCode::OK,
+            Some("text/html; charset=utf-8"),
+            "<html>nope</html>",
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid response JSON"));
+        assert!(err.contains("status=200"));
+        assert!(err.contains("text/html; charset=utf-8"));
+        assert!(err.contains("<html>nope</html>"));
+    }
+
+    #[test]
+    fn describe_empty_content_reports_null_content_and_keys() {
+        let value = json!({
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "reasoning": "thinking"
+                }
+            }]
+        });
+        let detail = describe_empty_content(&value);
+        assert!(detail.contains("finish_reason=stop"));
+        assert!(detail.contains("content=null"));
+        assert!(detail.contains("reasoning"));
     }
 
     #[test]
@@ -714,7 +916,7 @@ mod tests {
             usage: None,
             service_tier: None,
         };
-        let result = map_response(response, Vec::new(), None);
+        let result = map_response_with_detail(response, Vec::new(), None, "");
         assert!(result.is_error);
         assert!(!result.content.contains("Failed parsing text"));
     }
@@ -745,7 +947,7 @@ mod tests {
             usage: None,
             service_tier: None,
         };
-        let result = map_response(response, Vec::new(), None);
+        let result = map_response_with_detail(response, Vec::new(), None, "");
         assert!(result.is_error);
     }
 
@@ -782,7 +984,7 @@ mod tests {
             }),
         };
 
-        let result = map_response(response, Vec::new(), None);
+        let result = map_response_with_detail(response, Vec::new(), None, "");
 
         assert_eq!(result.content, "tip content");
         assert_eq!(result.usage.prompt_tokens, 10);
@@ -817,7 +1019,7 @@ mod tests {
             usage: None,
         };
 
-        let result = map_response(response, Vec::new(), None);
+        let result = map_response_with_detail(response, Vec::new(), None, "");
 
         assert!(result.is_error);
         assert_eq!(result.content, "LLM Error: model returned empty content");

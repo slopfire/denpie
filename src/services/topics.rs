@@ -214,7 +214,15 @@ impl TopicService {
                 daily_update_time: row.daily_update_time.unwrap_or_default(),
                 compression_level: row.compression_level.unwrap_or_default(),
                 grounding_strategy: row.grounding_strategy.unwrap_or_default(),
-                image_strategy: row.image_strategy.unwrap_or_default(),
+                image_strategy: row
+                    .image_strategy
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|value| {
+                        crate::domain::grounding::ImageStrategy::from_setting(&value)
+                            .as_str()
+                            .to_string()
+                    })
+                    .unwrap_or_default(),
             })
             .collect())
     }

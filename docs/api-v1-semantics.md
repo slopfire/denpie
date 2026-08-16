@@ -23,6 +23,10 @@ rules that are easy to miss when reading field declarations alone.
   IDs through an IEEE-754 `number` once they exceed `Number.MAX_SAFE_INTEGER`.
 - Counts are non-negative. `ListFlowCardsRequest.page_size` defaults to 48 and
   is clamped to 1-100.
+- `ContinueDailyReviewResponse.active_card_id`, when present, is the exact card
+  made active for the requested repeatable topic. Clients should use it as the
+  replacement identity for their existing topic slot. Its `pending_count` is
+  the eligible unseen queue depth remaining behind that active card.
 - `ReviewRequestV1.grade` accepts 0-5. Typed enum zero values are unspecified
   and rejected where the operation requires a concrete value.
 
@@ -57,6 +61,9 @@ modify, persist indefinitely, or use a token with a different user.
   four manual card images; the full request body limit is 56 MiB.
 - `download_path` fields are same-server relative paths. Send the same Bearer
   credential when fetching them and do not treat them as permanent public URLs.
+- `TipcardInfo.images` contains stored attachments for every inventory state,
+  including `pending`. This lets Archive-style clients preview upcoming cards
+  without promoting them into the active review flow.
 
 ## Strings and enums
 

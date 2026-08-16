@@ -18,23 +18,6 @@ enum PickerTab {
     Suggest,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct PoolImageInfo {
-    id: i64,
-    name: String,
-    description: Option<String>,
-    tags: Vec<String>,
-}
-
-fn from_pool_image_row(img: api_v1::PoolImageRow) -> PoolImageInfo {
-    PoolImageInfo {
-        id: img.id,
-        name: img.name,
-        description: img.description,
-        tags: img.tags,
-    }
-}
-
 #[derive(Serialize)]
 struct AppendImagesReq {
     card_id: i64,
@@ -54,7 +37,7 @@ pub struct CardImagePickerProps {
     pub on_error: Callback<String>,
 }
 
-fn context_score(image: &PoolImageInfo, terms: &[String]) -> usize {
+fn context_score(image: &api_v1::PoolImageRow, terms: &[String]) -> usize {
     let searchable = format!(
         "{} {} {}",
         image.name,
@@ -75,7 +58,7 @@ pub fn card_image_picker(props: &CardImagePickerProps) -> Html {
     let selected_pool = use_state(HashSet::<i64>::new);
     let url = use_state(String::new);
     let search = use_state(String::new);
-    let pool_images = use_state(Vec::<PoolImageInfo>::new);
+    let pool_images = use_state(Vec::<api_v1::PoolImageRow>::new);
     let pool_loading = use_state(|| false);
     let processing_upload = use_state(|| false);
     let saving = use_state(|| false);
@@ -114,9 +97,7 @@ pub fn card_image_picker(props: &CardImagePickerProps) -> Html {
                         return;
                     }
                     match result {
-                        Ok(images) => {
-                            pool_images.set(images.into_iter().map(from_pool_image_row).collect())
-                        }
+                        Ok(images) => pool_images.set(images),
                         Err(error) => on_error.emit(error.to_string()),
                     }
                     pool_loading.set(false);

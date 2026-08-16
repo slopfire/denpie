@@ -115,7 +115,7 @@ pub struct FlowCardProps {
     pub card: TipcardInfo,
     pub on_review: Callback<(i64, Option<u8>, Option<String>)>,
     #[prop_or_default]
-    pub on_continue: Callback<(String, String)>,
+    pub on_continue: Callback<(i64, String, String)>,
     pub on_toggle_pin: Callback<(i64, bool)>,
     pub on_delete: Callback<i64>,
     #[prop_or_default]
@@ -900,7 +900,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                                     onclick={Callback::from({
                                         let topic_name = card.topic_name.clone();
                                         let tipcard_type = card.tipcard_type.clone();
-                                        move |_| on_continue.emit((topic_name.clone(), tipcard_type.clone()))
+                                        move |_| on_continue.emit((id, topic_name.clone(), tipcard_type.clone()))
                                     })}
                                 >
                                     <iconify-icon icon="radix-icons:arrow-right" class="radix-icon" aria-hidden="true"></iconify-icon>
@@ -1288,49 +1288,6 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                     </div>
                 </div>
             }
-        </article>
-    }
-}
-
-#[derive(Properties, PartialEq)]
-pub struct FlowCardSkeletonProps {
-    pub list_mode: bool,
-    pub label: AttrValue,
-}
-
-#[function_component(FlowCardSkeleton)]
-pub fn flow_card_skeleton(props: &FlowCardSkeletonProps) -> Html {
-    let article_classes = if props.list_mode {
-        "flow-card flow-card-list surface border relative overflow-hidden flex flex-col lg:flex-row"
-    } else {
-        "flow-card surface border relative overflow-hidden min-h-[240px] flex flex-col"
-    };
-
-    html! {
-        <article class={article_classes} aria-busy="true" aria-label={props.label.clone()}>
-            <div class="p-4 flex flex-col flex-1">
-                <div class="flex justify-between items-start gap-3 border-b border-token pb-3 mb-4">
-                    <div class="flex items-center gap-2 min-w-0 flex-1">
-                        <div class="skeleton-block shrink-0" style="width: 22px; height: 22px; border-radius: 6px"></div>
-                        <div class="skeleton-block" style="height: 14px; width: 40%"></div>
-                    </div>
-                    <div class="skeleton-block shrink-0" style="height: 18px; width: 56px"></div>
-                </div>
-
-                <div class="skeleton-block mb-3" style="height: 18px; width: 70%"></div>
-                <div class="flex-1 space-y-2">
-                    <div class="skeleton-block" style="height: 12px; width: 100%"></div>
-                    <div class="skeleton-block" style="height: 12px; width: 92%"></div>
-                    <div class="skeleton-block" style="height: 12px; width: 78%"></div>
-                </div>
-
-                <div class="mt-5 pt-4 border-t border-token flex items-center gap-2">
-                    <div class="skeleton-block flex-1" style="height: 40px"></div>
-                    <div class="skeleton-block flex-1" style="height: 40px"></div>
-                    <div class="skeleton-block flex-1" style="height: 40px"></div>
-                    <div class="skeleton-block shrink-0" style="height: 40px; width: 40px"></div>
-                </div>
-            </div>
         </article>
     }
 }

@@ -9,7 +9,7 @@ use axum::{
     routing::{delete, get, patch, post},
 };
 use sqlx::PgPool;
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::compression::CompressionLayer;
 use tower_http::services::ServeDir;
@@ -18,6 +18,16 @@ use tower_sessions::SessionManagerLayer;
 use webauthn_rs::Webauthn;
 
 use crate::{api, auth, dashboard, services};
+
+const AUTH_REQUESTS_PER_SECOND: u64 = 2;
+const API_REQUESTS_PER_SECOND: u64 = 10;
+const IMAGE_REQUESTS_PER_SECOND: u64 = 50;
+
+const fn replenish_interval(requests_per_second: u64) -> Duration {
+    // tower-governor 0.4 configures the interval for one replenished token,
+    // despite the builder method being named `per_second`.
+    Duration::from_nanos(1_000_000_000 / requests_per_second)
+}
 
 pub struct AppState {
     pub db: PgPool,
@@ -47,14 +57,14 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
 
     let governor_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_second(2)
+            .period(replenish_interval(AUTH_REQUESTS_PER_SECOND))
             .burst_size(10)
             .finish()
             .unwrap(),
     );
     let api_governor_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_second(10)
+            .period(replenish_interval(API_REQUESTS_PER_SECOND))
             .burst_size(50)
             .finish()
             .unwrap(),
@@ -64,7 +74,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
     // used to return plain text the WASM client decoded as protobuf.
     let image_governor_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_second(50)
+            .period(replenish_interval(IMAGE_REQUESTS_PER_SECOND))
             .burst_size(200)
             .finish()
             .unwrap(),
@@ -493,5 +503,21 @@ mod cache_tests {
             Some(&HeaderValue::from_static("\"tipcard-image-2-20\"")),
             "\"tipcard-image-1-20\""
         ));
+    }
+
+    #[test]
+    fn request_rates_convert_to_token_replenishment_intervals() {
+        assert_eq!(
+            replenish_interval(AUTH_REQUESTS_PER_SECOND),
+            Duration::from_millis(500)
+        );
+        assert_eq!(
+            replenish_interval(API_REQUESTS_PER_SECOND),
+            Duration::from_millis(100)
+        );
+        assert_eq!(
+            replenish_interval(IMAGE_REQUESTS_PER_SECOND),
+            Duration::from_millis(20)
+        );
     }
 }

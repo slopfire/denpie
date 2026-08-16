@@ -8,16 +8,15 @@ use crate::llm::{
 };
 
 pub const DEFAULT_PROMPT_TEMPLATE: &str = "\
-Write one genuinely useful daily tip about {topic}.
+Write useful daily tip cards about {topic}.
 
-Make it practical, specific, and worth saving. Do not write a tiny fun fact.
-Include:
+Each card should be practical, specific, and worth saving:
 - the core idea in plain language
 - why it matters
 - one concrete example, command, checklist, or mini workflow
 - one caveat or common mistake when useful
 
-Aim for 180-260 words. Markdown is allowed. Avoid filler, hype, and invented facts.";
+Keep each card focused. Markdown is allowed. Avoid filler, hype, and invented facts.";
 
 const MIN_COMPRESS_CHARS: usize = 420;
 const MIN_COMPRESS_WORDS: usize = 70;
@@ -29,7 +28,7 @@ Return your response as a single JSON object with exactly these keys:
 - \"content\": the full tip in markdown, practical and specific.
 - \"compressed\": a compact, mobile-friendly version of the same tip in markdown.
 - \"use_image\": true only when a visual materially improves understanding or retention (a diagram, spatial/physical identification, meaningful UI screenshot, or comparison).
-- \"image_query\": a short, specific image-search query when \"use_image\" is true; otherwise an empty string.
+- \"image_query\": a short, specific image-search query when \"use_image\" is true; otherwise an empty string. Include the topic or product category when a name could be ambiguous.
 
 Rules:
 - Output ONLY valid JSON. Do not wrap it in markdown code fences.
@@ -45,7 +44,7 @@ The value of \"cards\" must be a JSON array of card objects, each with exactly t
 - \"content\": the full tip in markdown, practical and specific.
 - \"compressed\": a compact, mobile-friendly version of the same tip in markdown.
 - \"use_image\": true only when a visual materially improves understanding or retention (a diagram, spatial/physical identification, meaningful UI screenshot, or comparison).
-- \"image_query\": a short, specific image-search query when \"use_image\" is true; otherwise an empty string.
+- \"image_query\": a short, specific image-search query when \"use_image\" is true; otherwise an empty string. Include the topic or product category when a name could be ambiguous.
 
 Rules:
 - Output ONLY the valid JSON object. Do not wrap it in markdown code fences.
@@ -596,10 +595,18 @@ fn fallback_title(full_content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ParsedGeneratedCard, extract_json_object, fallback_title, normalize_image_decision,
-        parse_card_array, parse_generated_card_response, should_keep_full_card,
-        strip_markdown_fences,
+        DEFAULT_PROMPT_TEMPLATE, ParsedGeneratedCard, extract_json_object, fallback_title,
+        normalize_image_decision, parse_card_array, parse_generated_card_response,
+        should_keep_full_card, strip_markdown_fences,
     };
+
+    #[test]
+    fn default_template_is_batch_agnostic() {
+        assert!(DEFAULT_PROMPT_TEMPLATE.contains("{topic}"));
+        assert!(DEFAULT_PROMPT_TEMPLATE.contains("tip cards"));
+        assert!(!DEFAULT_PROMPT_TEMPLATE.contains("Write one"));
+        assert!(!DEFAULT_PROMPT_TEMPLATE.contains("180-260"));
+    }
 
     #[test]
     fn fallback_title_uses_first_non_empty_line_without_heading_marker() {

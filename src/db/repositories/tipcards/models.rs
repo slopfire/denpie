@@ -89,7 +89,6 @@ pub struct TipcardFilter {
 #[derive(Clone, Debug, sqlx::FromRow)]
 pub struct CardContextTitleRecord {
     pub title: String,
-    pub content: String,
     pub status: String,
     pub feedback: String,
 }

@@ -1512,7 +1512,7 @@ async fn repeatable_cards_stop_at_the_topic_daily_limit_until_continued() {
         "a page refresh must not bypass the daily limit"
     );
 
-    crate::api::tips::continue_daily_review(
+    let continue_result = crate::api::tips::continue_daily_review(
         &state,
         TEST_USER_ID,
         crate::api::ContinueDailyReviewRequest {
@@ -1522,6 +1522,14 @@ async fn repeatable_cards_stop_at_the_topic_daily_limit_until_continued() {
     )
     .await
     .unwrap();
+    assert_eq!(
+        continue_result.active_card_id, third_id,
+        "Continue must identify the exact card promoted into the topic slot"
+    );
+    assert!(
+        continue_result.pending_count > 0,
+        "Continue must return the queue depth rendered behind the active slot"
+    );
     let continued =
         crate::services::tipcards::TipcardService::list_flow_cards(&state, TEST_USER_ID, None, 48)
             .await

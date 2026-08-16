@@ -37,24 +37,43 @@ pub(crate) async fn list_tipcards_pb(state: &AppState, user_id: &str) -> ApiResu
     let rows = tipcards::list_admin(&state.db, user_id)
         .await
         .map_err(|err| err.into_status_body())?;
+    let card_ids = rows.iter().map(|row| row.id).collect::<Vec<_>>();
+    let images_by_card = tipcards::list_images_for_cards(&state.db, user_id, &card_ids)
+        .await
+        .map_err(|err| err.into_status_body())?;
 
     Ok(pb::Tipcards {
         cards: rows
             .into_iter()
-            .map(|row| pb::TipcardInfo {
-                id: row.id,
-                topic_name: row.topic_name,
-                full_content: row.full_content,
-                compressed_content: row.compressed_content,
-                created_at: row.created_at,
-                tipcard_type: row.tipcard_type,
-                status: row.status,
-                next_review_at: row.next_review_at,
-                repeat_count: row.repeats,
-                pinned: row.pinned,
-                title: row.title,
-                topic_icon: row.topic_icon,
-                topic_color: row.topic_color,
+            .map(|row| {
+                let images = images_by_card
+                    .get(&row.id)
+                    .into_iter()
+                    .flatten()
+                    .map(|image| pb::TipcardImageInfo {
+                        id: image.id,
+                        position: image.position,
+                        mime_type: image.mime_type.clone(),
+                        byte_size: image.byte_size,
+                        download_path: format!("/api/v1/tipcard-images/{}", image.id),
+                    })
+                    .collect();
+                pb::TipcardInfo {
+                    id: row.id,
+                    topic_name: row.topic_name,
+                    full_content: row.full_content,
+                    compressed_content: row.compressed_content,
+                    created_at: row.created_at,
+                    tipcard_type: row.tipcard_type,
+                    status: row.status,
+                    next_review_at: row.next_review_at,
+                    repeat_count: row.repeats,
+                    pinned: row.pinned,
+                    title: row.title,
+                    topic_icon: row.topic_icon,
+                    topic_color: row.topic_color,
+                    images,
+                }
             })
             .collect(),
     })

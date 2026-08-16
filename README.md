@@ -74,7 +74,7 @@ just ci               # verify + release frontend build
 RUST_LOG=denpie=debug just backend
 ```
 
-Grounding/image strategies log stage progress at `info`. LLM transport detail is at `debug`.
+Grounding/image strategies log stage progress at `info`. LLM transport detail is at `debug`. Chat/vision calls use a dedicated 300s HTTP client (the shared client stays at 60s). Parse or body-read failures log the error source chain plus a bounded head+tail body snippet at `warn`; success bodies are not logged at `info`.
 
 ## Docs map
 
@@ -109,13 +109,17 @@ Grounding/image strategies log stage progress at `info`. LLM transport detail is
 | Page | Owns |
 |---|---|
 | **Settings** | Default LLM, endpoints, credentials, prompt, reasoning/compression, appearance, schedule, `max_active_cards` |
-| **Grounding** | Grounding-agent model/reasoning, fact grounding, Tavily or Firecrawl, link scraper, image sources |
+| **Grounding** | Grounding-agent model/reasoning, fact grounding, Tavily or Firecrawl, link scraper, image retrieval |
 
 Empty grounding-agent fields inherit default LLM settings.
 
-**Image modes:** No Images · Local Image Pool · Tag-based Image APIs · Isolated Image Search · Web Image Search.
+Generated-card prompts include a single compact list of existing **titles**: up to 24 recent unlabeled titles, plus any `known` / `hard` / `skip` titles from the last 80 cards. Each title appears once, with an inline review label when there is feedback. Card bodies are not sent. The default prompt template is batch-agnostic (`Write useful daily tip cards about {topic}`) so agentic/RAG wrappers do not stack a second “write one 180–260 word tip” brief.
 
-The web provider can be Tavily (the default) or Firecrawl for factual web search and image search.
+**Image modes:** No Images · Local Image Pool · Bing Images (HTML) · Bing Images (Playwright) · DDGS + Open Graph.
+
+The Tavily/Firecrawl web provider is used for factual grounding. Automatic image retrieval is
+keyless: Bing HTML is the direct built-in path. The explicit Playwright option uses the repository's
+local Node/Chromium installation; DDGS + Open Graph uses `python3` with the optional `ddgs` package.
 
 **Link scraping** is separate. The main option is **Scrapling** (local CLI): when installed it
 converts linked pages to clean, AI-targeted Markdown. Alternatives: Firecrawl cloud scrape
@@ -131,13 +135,20 @@ annotation failures retain the user-entered fallback name.
 Generated cards request an image only when the model marks a visual as materially useful (for
 example a diagram, physical identification, UI screenshot, or comparison). The decision and
 specific query are stored with the card, including pending agentic-backlog cards; manual and
-custom cards do not trigger automatic retrieval. `web_search` posts the query to the configured
-provider and safely validates each returned image URL before storing it. Generated cards enqueue
+custom cards do not trigger automatic retrieval. The three remote modes discover source URLs
+through Bing HTML, rendered Bing HTML, or DDGS text results and page Open Graph metadata. Every
+candidate is downloaded through the shared DNS-pinned, redirect-validating image path. Generated cards enqueue
 durable image jobs: provider latency never blocks card promotion, failed jobs retry with leases,
 and storage completion is idempotent after worker restarts.
-Isolated Image Search uses `search_domains` for the provider's discovery filter and separately
-enforces `download_hosts` on returned image bytes. Existing source JSON without `search_domains`
-uses the download hosts for both. Per-source search instructions are included in the query.
+
+Legacy stored values `programmatic`, `agentic`, and `web_search` resolve to `bing_html`. Disable the
+optional process modes with `DENPIE_DISABLE_BING_PLAYWRIGHT=1` or `DENPIE_DISABLE_DDGS=1`; override
+their executables with `DENPIE_PLAYWRIGHT_BIN` and `DENPIE_DDGS_BIN`.
+
+Image enrichment runs for active and pending generated cards. Pending cards and their attached-image
+previews are available in Archive without entering the active review flow; the image also appears on
+the review card after promotion. Attachment logs include card status and only image metadata, never
+the image byte payload.
 
 ### Card image append endpoint
 
@@ -281,7 +292,7 @@ Integration tests use real servers on ephemeral ports, isolated PostgreSQL schem
 | Web | Axum |
 | DB | PostgreSQL + SQLx |
 | Runtime | Tokio |
-| LLM | `async-openai` + shared `reqwest` |
+| LLM | `async-openai` + dedicated 300s `reqwest` client |
 | Wire format | Protobuf (`prost`) |
 | Frontend | Yew/WASM + Tailwind v4 (shadcn token-port) |
 | Public API | `POST /api` |

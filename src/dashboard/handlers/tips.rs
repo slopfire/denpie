@@ -83,5 +83,5 @@ pub async fn continue_daily_review(
     let user = current_user(&state, &session).await?;
     TipService::continue_daily_review(&state, &user.id, req)
         .await
-        .map(Json)
+        .map(|result| Json(result.response))
 }

@@ -447,11 +447,11 @@ pub fn topic_editor(props: &TopicEditorProps) -> Html {
                             })}
                             options={vec![
                                 SelectOption { value: "".into(), label: "Inherit from settings".into() },
-                                SelectOption { value: "none".into(), label: "None".into() },
-                                SelectOption { value: "pool".into(), label: "Local Image Pool".into() },
-                                SelectOption { value: "programmatic".into(), label: "Tag-based Image APIs".into() },
-                                SelectOption { value: "web_search".into(), label: "Web Image Search".into() },
-                                SelectOption { value: "agentic".into(), label: "Isolated Image Search".into() },
+                                SelectOption { value: "none".into(), label: i18n.t("grounding.image_strategy.none") },
+                                SelectOption { value: "pool".into(), label: i18n.t("grounding.image_strategy.pool") },
+                                SelectOption { value: "bing_html".into(), label: i18n.t("grounding.image_strategy.bing_html") },
+                                SelectOption { value: "bing_playwright".into(), label: i18n.t("grounding.image_strategy.bing_playwright") },
+                                SelectOption { value: "ddgs_text_og".into(), label: i18n.t("grounding.image_strategy.ddgs_text_og") },
                             ]}
                         />
                     </div>
