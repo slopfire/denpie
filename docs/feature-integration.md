@@ -12,6 +12,16 @@ Agent procedure (same content, checklist form): [`.agents/skills/add-feature`](.
 | 4 | `src/api/`, `src/dashboard/`, `src/auth.rs` | Thin handlers. Transport → service call. |
 | 5 | `src/types.rs` | Shared request/response shapes. |
 
+## Lab home
+
+| What | Path | Rule |
+|---|---|---|
+| Lab code | `src/lab/` | Opt-in research benches only; no server routes, no DB, no CI wiring |
+| Lab data | `lab/cases/` | Checked-in case packs such as the image gold set |
+| Lab entry | `just lab` | Opt-in runner; never called from `just test` / `just verify` / `just ci` |
+| Lab contract | `just lab-check` | Deterministic offline CLI, fixture, comparison, and lab-UI checks |
+| Card UI lab | `frontend/src/components/card_lab.rs` | `lab-ui` feature mounts the production `FlowCard` on agent port `:3027`; no server writes |
+
 ## New protobuf operation
 
 1. Add request/response messages in `proto/denpie.proto`

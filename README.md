@@ -63,12 +63,24 @@ just api-check        # additive v1 wire/operation/result contract
 just test-one <filter>  # targeted tests
 just verify           # one full gate: fmt + clippy + tests
 just docs-check       # generated API reference + four executable client examples
+just lab list         # opt-in research benches (not CI)
+just lab run images --dry-run  # print the image bake-off plan (no network)
+just lab run cards --dry-run   # print repeatable-card fixture states (no network)
+just lab compare <old.json> <new.json>  # compare image or prompt scorecards
+just lab-check        # deterministic offline lab contract
+just lab-cards-ui     # production FlowCard fixtures on isolated :3027
 just agent-server     # isolated :3027 runtime, test login, smoke
 just playwright-install # install local Playwright + Chromium (once per clone)
 just playwright       # headless Chromium UI smoke against isolated :3027
 just ui-check         # frontend release build + agent oneshot smoke
 just ci               # verify + release frontend build
 ```
+
+`just lab` is the opt-in research runner (see `docs/lab.md`). It is not part of
+`just test`, `just verify`, or `just ci`; live `just lab run images` and
+`just lab run prompts` use the network. `run cards` builds its gallery
+locally. `just lab-cards-ui` mounts the checked-in states in the real Yew
+`FlowCard`; its actions are local simulations and cannot mutate server images.
 
 ```bash
 RUST_LOG=denpie=debug just backend
@@ -89,6 +101,7 @@ Grounding/image strategies log stage progress at `info`. LLM transport detail is
 | `POST /api` compatibility reference | [`docs/protobuf-api.md`](docs/protobuf-api.md) |
 | Agent ops cheat sheet | [`docs/agent-server-guide.md`](docs/agent-server-guide.md) |
 | Where new code goes | [`docs/feature-integration.md`](docs/feature-integration.md) |
+| Opt-in research lab | [`docs/lab.md`](docs/lab.md) |
 
 ## Config
 

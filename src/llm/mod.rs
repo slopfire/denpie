@@ -7,7 +7,7 @@ pub mod images;
 pub mod markdown;
 pub mod transport;
 
-pub use cards::{DEFAULT_COMPRESSION_LEVEL, DEFAULT_PROMPT_TEMPLATE};
+pub use cards::{DEFAULT_COMPRESSION_LEVEL, DEFAULT_PROMPT_TEMPLATE, generate_card};
 pub use compression::CompressionLevel;
 pub use grounding::{DocChunk, GroundingInput, SearchConfig, ground_and_generate};
 pub use icons::{pick_topic_icon, suggest_topic_icons};

@@ -46,7 +46,7 @@ mkdir -p "$PROJECT_DIR/static"
 echo "=== starting server ==="
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
     -c "DROP SCHEMA IF EXISTS $BENCH_SCHEMA CASCADE"
-cargo run &
+cargo run --bin denpie &
 SERVER_PID=$!
 
 echo "Waiting for server startup..."

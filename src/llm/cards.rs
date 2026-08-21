@@ -80,6 +80,28 @@ struct ParsedCardBatch {
     cards: Vec<ParsedGeneratedCard>,
 }
 
+/// Assemble the production one-shot prompt: rendered topic brief, JSON shape
+/// instructions, compression target, and a final no-markdown reminder.
+pub(crate) fn assemble_one_shot_prompt(
+    rendered_prompt: &str,
+    compression_level: CompressionLevel,
+) -> String {
+    format!(
+        "{rendered_prompt}\n\n{ONE_SHOT_FORMAT_INSTRUCTIONS}\n\n\
+         Compression target for the \"compressed\" field: {}.\n\n\
+         Output ONLY valid JSON. Do not wrap in markdown code fences.",
+        compression_level.oneshot_target()
+    )
+}
+
+/// Assemble the production batch prompt used by grounding. The wording must
+/// stay identical to the original inline batch prompt.
+pub(crate) fn assemble_array_prompt(rendered_prompt: &str, count: usize) -> String {
+    format!(
+        "{rendered_prompt}\n\nWrite {count} distinct, non-overlapping cards for this load.\n\n{ARRAY_FORMAT_INSTRUCTIONS}"
+    )
+}
+
 /// How many times a single-card generation retries a request whose response was
 /// an error or not parseable as the requested JSON shape.
 const ONE_SHOT_MAX_ATTEMPTS: usize = 2;
@@ -109,12 +131,7 @@ pub async fn generate_card(
         });
     }
 
-    let prompt = format!(
-        "{rendered_prompt}\n\n{ONE_SHOT_FORMAT_INSTRUCTIONS}\n\n\
-         Compression target for the \"compressed\" field: {}.\n\n\
-         Output ONLY valid JSON. Do not wrap in markdown code fences.",
-        compression_level.oneshot_target()
-    );
+    let prompt = assemble_one_shot_prompt(rendered_prompt, compression_level);
 
     let mut last_error = String::new();
     for attempt in 1..=ONE_SHOT_MAX_ATTEMPTS {
@@ -594,11 +611,33 @@ fn fallback_title(full_content: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::llm::CompressionLevel;
+
     use super::{
-        DEFAULT_PROMPT_TEMPLATE, ParsedGeneratedCard, extract_json_object, fallback_title,
-        normalize_image_decision, parse_card_array, parse_generated_card_response,
+        ARRAY_FORMAT_INSTRUCTIONS, DEFAULT_PROMPT_TEMPLATE, ONE_SHOT_FORMAT_INSTRUCTIONS,
+        ParsedGeneratedCard, assemble_array_prompt, assemble_one_shot_prompt, extract_json_object,
+        fallback_title, normalize_image_decision, parse_card_array, parse_generated_card_response,
         should_keep_full_card, strip_markdown_fences,
     };
+
+    #[test]
+    fn assemble_one_shot_prompt_contains_format_instructions_and_strong_target() {
+        let prompt = assemble_one_shot_prompt("Teach Rust.", CompressionLevel::Strong);
+
+        assert!(prompt.contains(ONE_SHOT_FORMAT_INSTRUCTIONS));
+        assert!(prompt.contains(CompressionLevel::Strong.oneshot_target()));
+        assert!(prompt.starts_with("Teach Rust.\n\n"));
+        assert!(prompt.contains("Output ONLY valid JSON"));
+    }
+
+    #[test]
+    fn assemble_array_prompt_contains_count_and_array_instructions() {
+        let prompt = assemble_array_prompt("Teach Rust.", 5);
+
+        assert!(prompt.starts_with("Teach Rust.\n\n"));
+        assert!(prompt.contains("Write 5 distinct, non-overlapping cards for this load."));
+        assert!(prompt.contains(ARRAY_FORMAT_INSTRUCTIONS));
+    }
 
     #[test]
     fn default_template_is_batch_agnostic() {

@@ -1,0 +1,42 @@
+[
+  {
+    "id": 270,
+    "topic_name": "English Grammar",
+    "card_title": "Prepositions of movement",
+    "card_content": "Prepositions like from, to, into, and toward describe movement direction.",
+    "image_query": "diagram prepositions of movement from to into toward",
+    "expected": "movement diagram (from/to/into/toward); watermarked Adobe stock is a miss"
+  },
+  {
+    "id": 286,
+    "topic_name": "English Grammar",
+    "card_title": "Prepositions of place",
+    "card_content": "Use in, on, and at for containers, surfaces, and points in space.",
+    "image_query": "diagram of in on at prepositions of place",
+    "expected": "place in/on/at; time-preposition charts are a miss"
+  },
+  {
+    "id": 290,
+    "topic_name": "English Grammar",
+    "card_title": "Adjective order",
+    "card_content": "Order adjectives by opinion, size, age, shape, color, origin, material, and purpose.",
+    "image_query": "diagram of adjective order before nouns English grammar",
+    "expected": "OSASCOMP / adjective-order chart"
+  },
+  {
+    "id": 45,
+    "topic_name": "Rust",
+    "card_title": "Clippy pedantic lints",
+    "card_content": "Clippy's pedantic lints flag style nits and show code-level diagnostics.",
+    "image_query": "rust clippy pedantic lints screenshot",
+    "expected": "Clippy lint UI"
+  },
+  {
+    "id": 8,
+    "topic_name": "Helix Editor",
+    "card_title": "Helix modal editor",
+    "card_content": "Helix is a keyboard-first modal text editor with normal and insert modes.",
+    "image_query": "helix editor modal text editor screenshot",
+    "expected": "Helix text editor, not Line 6 guitar / GitHub OG card"
+  }
+]

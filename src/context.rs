@@ -24,6 +24,22 @@ pub struct CardContext {
 }
 
 impl CardContext {
+    pub(crate) fn from_parts(
+        existing_titles: Vec<String>,
+        dismissed_titles: Vec<String>,
+        known_items: Vec<String>,
+        difficult_items: Vec<String>,
+        uninterested_items: Vec<String>,
+    ) -> Self {
+        Self {
+            existing_titles,
+            dismissed_titles,
+            known_items,
+            difficult_items,
+            uninterested_items,
+        }
+    }
+
     pub fn render_existing(&self) -> String {
         render_titles(&self.existing_titles)
     }

@@ -20,13 +20,26 @@ db-reset:
   docker compose -f compose.dev.yaml up -d --wait postgres
 
 backend:
-  DENPIE_SKIP_FRONTEND_BUILD=1 cargo run
+  DENPIE_SKIP_FRONTEND_BUILD=1 cargo run --bin denpie
 
 frontend:
   cd frontend && env -u NO_COLOR trunk watch
 
 dev:
   sh scripts/dev.sh
+
+# Opt-in research runner. Never part of just test / verify / ci.
+# libcaesium alone is optimized in the shared dev profile so lab builds reuse it.
+lab *args:
+  DENPIE_SKIP_FRONTEND_BUILD=1 cargo run --bin denpie-lab -- {{args}}
+
+# Render checked-in card fixtures with the production Yew FlowCard on :3027.
+lab-cards-ui:
+  cd frontend && env -u NO_COLOR trunk serve --features lab-ui --port 3027
+
+# Deterministic offline proof for the lab CLI, fixtures, comparisons, and lab UI build.
+lab-check:
+  sh scripts/check-lab.sh
 
 # --- verification tiers -------------------------------------------------------
 

@@ -1,6 +1,8 @@
-# AI Agent Instructions (Denpie)
-
-Daily tip cards. SM-2 scheduling. Do not claim real FSRS until the code has real FSRS.
+Denpie is a tool specialized on creating a flow of tips based on topic.
+The problem it should decide is to deliver intel on user choosen problem information dense, but most importantly
+it should make the user to actually learn the thing.
+The main goal of the app is to make User better at something.
+Second, important goal for this app is to be flexible, adaptable to be used by different tools and situations.
 
 ## Skills (multi-agent)
 
@@ -17,17 +19,21 @@ Invariants below stay here. Do not duplicate long procedures in this file.
 <!-- CODEGRAPH_START -->
 ## CodeGraph
 
-In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the repo root), reach for it BEFORE grep/find or reading files when you need to understand or locate code:
+When `.codegraph/` exists, use CodeGraph for targeted cross-file tracing after
+you know at least one relevant file or exact symbol. Keep the query narrow and
+limit returned source, for example:
 
-- **MCP tool** (when available): `codegraph_explore` answers most code questions in one call — the relevant symbols' verbatim source plus the call paths between them, including dynamic-dispatch hops grep can't follow. Name a file or symbol in the query to read its current line-numbered source. If it's listed but deferred, load it by name via tool search.
-- **Shell** (always works): `codegraph explore "<symbol names or question>"` prints the same output.
+```bash
+codegraph explore --max-files 4 "<file> <exact symbol> callers"
+```
 
-CodeGraph lists `git ls-files`. Unstaged deletions still appear as ENOENT in
-`.codegraph/errors.log` until they are staged; run `codegraph index` after
-staging those deletes. Treat blast-radius caller lists as hints — same-named
-symbols and tests in other files are often missed.
+Use `rg` to locate exact text, routes, tests, and references. Treat CodeGraph
+callers, blast radius, dynamic dispatch, and test coverage as leads, then verify
+them against current source. If one refined query still returns unrelated or
+truncated results, continue with `rg` and direct reads.
 
-If there is no `.codegraph/` directory, skip CodeGraph entirely — indexing is the user's decision.
+Check availability with `codegraph status`. A missing index ends the CodeGraph
+branch; indexing remains the user's decision.
 <!-- CODEGRAPH_END -->
 
 ## Invariants
@@ -53,6 +59,9 @@ just verify         # one full gate at end of a task
 just agent-server   # isolated :3027 runtime + test login + smoke
 just ui-check       # frontend release build + agent oneshot smoke
 just ci             # full gate including frontend release build
+just lab list       # opt-in research runner; see docs/lab.md
+just lab-check      # deterministic offline lab contract
+just lab-cards-ui   # real FlowCard fixture page on :3027
 ```
 
 Detail: `dev-loop` skill. Feature paths: `docs/feature-integration.md`. API for agents: `docs/agent-server-guide.md`.

@@ -178,10 +178,18 @@ pub(crate) async fn download_and_prepare(url: &str) -> Option<RetrievedImage> {
         return None;
     };
     let (_, extension) = mime_and_extension(&mime_type)?;
-    let prepared = match prepare_image_bytes(bytes, &mime_type, extension) {
-        Ok(prepared) => prepared,
-        Err(err) => {
+    let prepared = match tokio::task::spawn_blocking(move || {
+        prepare_image_bytes(bytes, &mime_type, extension)
+    })
+    .await
+    {
+        Ok(Ok(prepared)) => prepared,
+        Ok(Err(err)) => {
             tracing::warn!(%err, "image recompression failed");
+            return None;
+        }
+        Err(err) => {
+            tracing::warn!(%err, "image recompression task failed");
             return None;
         }
     };

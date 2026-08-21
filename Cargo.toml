@@ -3,6 +3,7 @@ name = "denpie"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.95.0"
+default-run = "denpie"
 license = "MIT"
 
 [dependencies]
@@ -56,6 +57,11 @@ codegen-units = 1
 lto = true
 opt-level = "z"
 panic = "abort"
+
+# Keep live image-lab compression usable without creating a separate copy of
+# every dependency under target/lab.
+[profile.dev.package.libcaesium]
+opt-level = 3
 
 [profile.release.package.frontend]
 opt-level = "z"

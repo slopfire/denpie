@@ -18,6 +18,11 @@ just         # list tasks
 
 Prefer `just` recipes over raw cargo when they exist.
 
+`just lab` is the opt-in research runner. It must never be added to
+`just test`, `just verify`, or `just ci`; live lab image runs use the network.
+Use `just lab-check` for the deterministic offline lab contract and
+`just lab-cards-ui` for the production `FlowCard` fixture page on `:3027`.
+
 ## Tight edit loop
 
 1. Check `git status --short` and preserve unrelated worktree changes.
@@ -46,6 +51,7 @@ Use the **smallest** gate that covers the edit. Do not re-run the full suite aft
 | `just test` | Full workspace tests (no frontend rebuild) | After a cluster of logic edits |
 | `just verify` | fmt check + clippy + full tests | **Once** at end of a task / before commit |
 | `just ui-check` | Release frontend build + isolated `:3027` oneshot smoke | Visible UI change |
+| `just lab-check` | Offline lab CLI, fixture, comparison, and lab-UI checks | Lab runner changes |
 | `just ci` | `verify` + release frontend build | PR / “fully done” |
 
 ```bash

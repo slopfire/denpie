@@ -121,6 +121,8 @@ pub struct FlowCardProps {
     #[prop_or_default]
     pub on_reorder: Callback<(i64, i64)>,
     pub on_update_images: Callback<(i64, Vec<String>)>,
+    #[prop_or(true)]
+    pub allow_image_mutation: bool,
     #[prop_or_default]
     pub on_upload_error: Callback<String>,
     #[prop_or_default]
@@ -1164,39 +1166,41 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                         </ShadcnButton>
                         if *more_open {
                             <div role="menu" aria-label="Card actions" class="shadcn-dropdown-menu">
-                                <button
-                                    type="button"
-                                    role="menuitem"
-                                    class="shadcn-dropdown-item"
-                                    onclick={Callback::from({
-                                        let image_picker_open = image_picker_open.clone();
-                                        let more_open = more_open.clone();
-                                        move |_| {
-                                            more_open.set(false);
-                                            image_picker_open.set(true);
-                                        }
-                                    })}
-                                >
-                                    <iconify-icon icon="radix-icons:image" class="radix-icon" aria-hidden="true"></iconify-icon>
-                                    <span>{"Attach images"}</span>
-                                </button>
-                                if !card.image_data.is_empty() {
+                                if props.allow_image_mutation {
                                     <button
                                         type="button"
                                         role="menuitem"
                                         class="shadcn-dropdown-item"
                                         onclick={Callback::from({
-                                            let on_update_images = props.on_update_images.clone();
+                                            let image_picker_open = image_picker_open.clone();
                                             let more_open = more_open.clone();
                                             move |_| {
                                                 more_open.set(false);
-                                                on_update_images.emit((id, Vec::new()));
+                                                image_picker_open.set(true);
                                             }
                                         })}
                                     >
-                                        <iconify-icon icon="radix-icons:eye-closed" class="radix-icon" aria-hidden="true"></iconify-icon>
-                                        <span>{"Clear images"}</span>
+                                        <iconify-icon icon="radix-icons:image" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                        <span>{"Attach images"}</span>
                                     </button>
+                                    if !card.image_data.is_empty() {
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            class="shadcn-dropdown-item"
+                                            onclick={Callback::from({
+                                                let on_update_images = props.on_update_images.clone();
+                                                let more_open = more_open.clone();
+                                                move |_| {
+                                                    more_open.set(false);
+                                                    on_update_images.emit((id, Vec::new()));
+                                                }
+                                            })}
+                                        >
+                                            <iconify-icon icon="radix-icons:eye-closed" class="radix-icon" aria-hidden="true"></iconify-icon>
+                                            <span>{"Clear images"}</span>
+                                        </button>
+                                    }
                                 }
                                 <button
                                     type="button"
@@ -1248,7 +1252,7 @@ pub fn flow_card(props: &FlowCardProps) -> Html {
                 />
             }
             <CardImagePicker
-                open={*image_picker_open}
+                open={props.allow_image_mutation && *image_picker_open}
                 card_id={id}
                 existing_count={card.image_data.len()}
                 context={format!("{} {}", card.topic_name, card.title)}

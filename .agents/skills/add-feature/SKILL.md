@@ -31,10 +31,11 @@ Full detail: `docs/feature-integration.md`. Use CodeGraph first if the area is u
 | LLM | `src/llm/` |
 | Scheduling | `src/scheduling/` — SM-2 only (`FSRS` = legacy alias; do not claim real FSRS) |
 | Tests | `src/tests/` |
-| Router / entry | `src/app.rs` / `src/main.rs` |
+| Router / entry | `src/app.rs` / `src/lib.rs` / `src/main.rs` |
 | Settings | `src/config/` |
 | Daily worker | `src/daily_refresh.rs` |
 | Images | `src/image_compress.rs`, `src/image_store.rs` |
+| Lab | `src/lab/`, `lab/cases/`, `just lab` — opt-in research, not CI |
 | Proto | `proto/denpie.proto` |
 
 ## Checklists

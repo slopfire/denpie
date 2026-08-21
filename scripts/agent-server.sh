@@ -144,7 +144,7 @@ else
       DENPIE_IMAGE_DIR="$AGENT_DATA/tipcard-images" \
       DENPIE_FRONTEND_DIST="$ROOT/frontend/dist" \
       DENPIE_SKIP_FRONTEND_BUILD=1 \
-      cargo run >"$LOG_FILE" 2>&1 &
+      cargo run --bin denpie >"$LOG_FILE" 2>&1 &
     echo $! >"$PID_FILE"
 
     # Wait for listen

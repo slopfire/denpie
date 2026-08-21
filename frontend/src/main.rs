@@ -4,6 +4,7 @@
     clippy::let_unit_value,
     clippy::trim_split_whitespace
 )]
+#![cfg_attr(feature = "lab-ui", allow(dead_code))]
 
 mod account_switch;
 mod api;

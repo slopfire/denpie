@@ -1,0 +1,93 @@
+[
+  {
+    "id": "active",
+    "topic_name": "English Grammar",
+    "title": "Prepositions of movement",
+    "full_content": "Prepositions like from, to, into, and toward describe movement direction. Compare “walk into the room” with “walk to the room”.",
+    "compressed_content": "Use from, to, into, and toward to describe movement direction.",
+    "tipcard_type": "repeatable_tip",
+    "status": "active",
+    "pinned": false,
+    "pending_count": 0,
+    "review_message": null,
+    "notes": "Baseline repeatable card in the active review slot with no queued cards."
+  },
+  {
+    "id": "pinned",
+    "topic_name": "English Grammar",
+    "title": "Prepositions of place",
+    "full_content": "Use in for containers, on for surfaces, and at for points. “In the box”, “on the table”, and “at the door” each mark a different spatial relationship.",
+    "compressed_content": "Use in for containers, on for surfaces, and at for points.",
+    "tipcard_type": "repeatable_tip",
+    "status": "active",
+    "pinned": true,
+    "pending_count": 0,
+    "review_message": null,
+    "notes": "Pinned repeatable card. The pin badge is always visible even while the card is active."
+  },
+  {
+    "id": "reviewed-hold",
+    "topic_name": "English Grammar",
+    "title": "Adjective order",
+    "full_content": "Order adjectives by opinion, size, age, shape, color, origin, material, and purpose, as in “a lovely little old round green French silver whittling knife”.",
+    "compressed_content": "Opinion, size, age, shape, color, origin, material, purpose.",
+    "tipcard_type": "repeatable_tip",
+    "status": "reviewed",
+    "pinned": false,
+    "pending_count": 0,
+    "review_message": "Review saved",
+    "notes": "Reviewed card holding the repeatable topic slot while the next occupant is prepared."
+  },
+  {
+    "id": "await-refill",
+    "topic_name": "English Grammar",
+    "title": "Conditionals with unless",
+    "full_content": "Unless means “if not”. “Unless it rains, we will walk” means the walk happens only when it does not rain.",
+    "compressed_content": "Unless means “if not”.",
+    "tipcard_type": "repeatable_tip",
+    "status": "reviewed",
+    "pinned": false,
+    "pending_count": 0,
+    "review_message": null,
+    "notes": "Reviewed card with an empty queue and no hold message; the flow polls for a refill."
+  },
+  {
+    "id": "daily-complete",
+    "topic_name": "English Grammar",
+    "title": "Daily review complete",
+    "full_content": "Daily review complete for English Grammar.",
+    "compressed_content": "Daily review complete",
+    "tipcard_type": "repeatable_tip",
+    "status": "reviewed",
+    "pinned": false,
+    "pending_count": 0,
+    "review_message": "You have finished today's cards for this topic. Continue to start another full set.",
+    "notes": "Persisted completion placeholder shown after the final daily card."
+  },
+  {
+    "id": "stacked",
+    "topic_name": "English Grammar",
+    "title": "Phrasal verbs with get",
+    "full_content": "Get up, get over, and get through change meaning as a unit. “Get over a cold” means recover from it.",
+    "compressed_content": "Get up, get over, and get through change meaning as a unit.",
+    "tipcard_type": "repeatable_tip",
+    "status": "active",
+    "pinned": false,
+    "pending_count": 3,
+    "review_message": null,
+    "notes": "Active card with a three-card pending queue, rendered as three stack layers behind the front card."
+  },
+  {
+    "id": "llm-error",
+    "topic_name": "Rust",
+    "title": "Generation failed",
+    "full_content": "LLM Error: model request failed with status 401",
+    "compressed_content": "The model request failed. Expand the full error for details.",
+    "tipcard_type": "repeatable_tip",
+    "status": "active",
+    "pinned": false,
+    "pending_count": 0,
+    "review_message": null,
+    "notes": "FlowCard detects full_content starting with `LLM Error:` and renders the error panel instead of card text."
+  }
+]

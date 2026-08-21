@@ -1,0 +1,50 @@
+[
+  {
+    "id": "grammar-existing-known",
+    "topic": "English Grammar",
+    "compression": "strong",
+    "mode": "one_shot",
+    "existing_titles": [
+      "Prepositions of movement",
+      "Prepositions of place"
+    ],
+    "known_items": [
+      "Prepositions of movement"
+    ],
+    "expected": "One new English Grammar tip that avoids prepositions of movement and place; compressed field targets 40-70 words; use_image only when a diagram materially improves understanding."
+  },
+  {
+    "id": "rust-empty",
+    "topic": "Rust",
+    "compression": "strong",
+    "mode": "one_shot",
+    "expected": "One focused Rust tip from an empty context; default template; strong compression; use_image only for a meaningful screenshot or diagram."
+  },
+  {
+    "id": "helix-empty",
+    "topic": "Helix Editor",
+    "mode": "one_shot",
+    "expected": "One focused Helix Editor tip from an empty context; compression defaults to strong; use_image only for a meaningful UI screenshot."
+  },
+  {
+    "id": "grammar-array-five",
+    "topic": "English Grammar",
+    "mode": "array",
+    "batch_count": 5,
+    "existing_titles": [
+      "Adjective order"
+    ],
+    "expected": "Array prompt asks for five distinct non-overlapping English Grammar cards and avoids duplicating Adjective order; live run records assembled_only because array generation is not wired."
+  },
+  {
+    "id": "custom-existing-slot",
+    "topic": "Rust",
+    "template": "You are a spaced-repetition coach for {topic}.\nAvoid duplicating any of these existing cards:\n{existing_cards}",
+    "compression": "strong",
+    "mode": "one_shot",
+    "existing_titles": [
+      "Clippy pedantic lints"
+    ],
+    "expected": "Custom template substitutes {topic} with Rust and {existing_cards} with Clippy pedantic lints, then appends the one-shot JSON shape instructions."
+  }
+]

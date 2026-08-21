@@ -208,12 +208,7 @@ pub(crate) async fn build_batch(
 }
 
 pub(crate) fn batch_prompt(input: &GroundingInput<'_>) -> String {
-    format!(
-        "{base}\n\nWrite {count} distinct, non-overlapping cards for this load.\n\n{format}",
-        base = input.rendered_prompt,
-        count = batch_size(input),
-        format = crate::llm::cards::ARRAY_FORMAT_INSTRUCTIONS,
-    )
+    crate::llm::cards::assemble_array_prompt(input.rendered_prompt, batch_size(input))
 }
 
 /// Dispatch to the configured grounding strategy. This `match` is the single

@@ -18,7 +18,11 @@ impl Default for Sm2State {
     }
 }
 
-pub fn calculate_next_review(state: &mut Sm2State, grade: u8) -> DateTime<Utc> {
+pub fn calculate_next_review_at(
+    state: &mut Sm2State,
+    grade: u8,
+    now: DateTime<Utc>,
+) -> DateTime<Utc> {
     if grade >= 3 {
         if state.repetitions == 0 {
             state.interval = 1;
@@ -38,13 +42,33 @@ pub fn calculate_next_review(state: &mut Sm2State, grade: u8) -> DateTime<Utc> {
         state.ease_factor = 1.3;
     }
 
-    Utc::now() + chrono::Duration::days(state.interval as i64)
+    now + chrono::Duration::days(state.interval as i64)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::scheduling::{Algorithm, SchedulingState};
+
+    fn calculate_next_review(state: &mut Sm2State, grade: u8) -> DateTime<Utc> {
+        calculate_next_review_at(state, grade, Utc::now())
+    }
+
+    #[test]
+    fn test_sm2_frozen_now_yields_now_plus_interval_days() {
+        let now = DateTime::parse_from_rfc3339("2025-01-01T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut state = Sm2State::default();
+
+        let next = calculate_next_review_at(&mut state, 4, now);
+        assert_eq!(state.interval, 1);
+        assert_eq!(next, now + chrono::Duration::days(1));
+
+        let next = calculate_next_review_at(&mut state, 4, now);
+        assert_eq!(state.interval, 6);
+        assert_eq!(next, now + chrono::Duration::days(6));
+    }
 
     #[test]
     fn test_sm2_first_review_pass() {

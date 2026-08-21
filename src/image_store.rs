@@ -493,15 +493,20 @@ async fn resolve_public_target(url: &Url) -> StatusResult<Vec<SocketAddr>> {
     let addresses: Vec<SocketAddr> = if let Ok(ip) = host.parse() {
         vec![SocketAddr::new(ip, port)]
     } else {
-        tokio::net::lookup_host((host, port))
-            .await
-            .map_err(|_| {
-                (
+        match tokio::time::timeout(
+            Duration::from_secs(10),
+            tokio::net::lookup_host((host, port)),
+        )
+        .await
+        {
+            Ok(Ok(addresses)) => addresses.collect(),
+            Ok(Err(_)) | Err(_) => {
+                return Err((
                     StatusCode::BAD_REQUEST,
                     "Image URL host could not be resolved".to_string(),
-                )
-            })?
-            .collect()
+                ));
+            }
+        }
     };
     if addresses.is_empty()
         || addresses

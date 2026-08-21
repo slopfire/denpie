@@ -4,6 +4,8 @@ pub mod api_keys;
 pub mod archive;
 pub mod button;
 pub mod card_image_picker;
+#[cfg(feature = "lab-ui")]
+pub mod card_lab;
 pub mod flow_card;
 pub mod grounding;
 pub mod image_lightbox;

@@ -38,10 +38,22 @@ pub enum View {
 
 #[function_component(App)]
 pub fn app() -> Html {
-    html! {
-        <BrowserRouter>
-            <AppRoot />
-        </BrowserRouter>
+    #[cfg(feature = "lab-ui")]
+    {
+        return html! {
+            <ContextProvider<I18n> context={I18n::default()}>
+                <crate::components::card_lab::CardLab />
+            </ContextProvider<I18n>>
+        };
+    }
+
+    #[cfg(not(feature = "lab-ui"))]
+    {
+        html! {
+            <BrowserRouter>
+                <AppRoot />
+            </BrowserRouter>
+        }
     }
 }
 

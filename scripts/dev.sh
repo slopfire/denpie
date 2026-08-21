@@ -11,7 +11,7 @@ cleanup() {
 
 trap cleanup INT TERM EXIT
 
-DENPIE_SKIP_FRONTEND_BUILD=1 cargo run &
+DENPIE_SKIP_FRONTEND_BUILD=1 cargo run --bin denpie &
 pids="$pids $!"
 
 (cd frontend && env -u NO_COLOR trunk watch) &

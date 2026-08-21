@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.95.0"
 
+[features]
+default = []
+lab-ui = []
+
 [dependencies]
 futures-channel = "0.3"
 yew = { version = "0.21.0", features = ["csr"] }

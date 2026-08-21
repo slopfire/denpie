@@ -34,7 +34,15 @@ impl Default for SchedulingState {
 }
 
 pub fn calculate_next_review(state: &mut SchedulingState, grade: u8) -> DateTime<Utc> {
+    calculate_next_review_at(state, grade, Utc::now())
+}
+
+pub fn calculate_next_review_at(
+    state: &mut SchedulingState,
+    grade: u8,
+    now: DateTime<Utc>,
+) -> DateTime<Utc> {
     match state.algorithm {
-        Algorithm::SM2 => algorithms::sm2::calculate_next_review(&mut state.data, grade),
+        Algorithm::SM2 => algorithms::sm2::calculate_next_review_at(&mut state.data, grade, now),
     }
 }
