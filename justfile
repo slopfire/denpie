@@ -1,7 +1,7 @@
 set dotenv-load := true
 set shell := ["sh", "-cu"]
 
-# Enter a Nix shell with the pinned Rust toolchain, Trunk, protoc, and build deps.
+# Enter a Nix shell with the pinned Rust toolchain, bun, protoc, and build deps.
 shell:
   nix-shell
 
@@ -23,19 +23,24 @@ backend:
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo run --bin denpie
 
 frontend:
-  cd frontend && env -u NO_COLOR trunk watch
+  cd frontend-astro && bun run dev
 
+# Backend on :3017 + Astro/Vite on :4321 (API/session routes proxied to Axum).
 dev:
   sh scripts/dev.sh
+
+# Alias kept for docs that still say `just dev-astro`.
+dev-astro: dev
 
 # Opt-in research runner. Never part of just test / verify / ci.
 # libcaesium alone is optimized in the shared dev profile so lab builds reuse it.
 lab *args:
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo run --bin denpie-lab -- {{args}}
 
-# Render checked-in card fixtures with the production Yew FlowCard on :3027.
+# Render checked-in card fixtures with the production FlowCard on :3027.
 lab-cards-ui:
-  cd frontend && env -u NO_COLOR trunk serve --features lab-ui --port 3027
+  sh scripts/build-frontend.sh
+  cd frontend-astro && bun run preview -- --host 127.0.0.1 --port 3027
 
 # Deterministic offline proof for the lab CLI, fixtures, comparisons, and lab UI build.
 lab-check:
@@ -93,17 +98,61 @@ verify: api-check
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo clippy --workspace --all-targets -- -D warnings
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo test --workspace
 
-frontend-build:
-  cd frontend && env -u NO_COLOR trunk build --release
+# --- Astro frontend (frontend-astro/), see docs/frontend-astro.md ---
+
+# Install Astro frontend dependencies.
+frontend-astro-install:
+  cd frontend-astro && bun install --frozen-lockfile
+
+# Strict TypeScript check for the Astro frontend.
+frontend-astro-typecheck:
+  cd frontend-astro && bun run typecheck
+
+# Static release build of the Astro frontend into frontend-astro/dist/.
+frontend-astro-build:
+  sh scripts/build-frontend.sh
+
+frontend-build: frontend-astro-build
+
+# Rebuild the offline topic-icon subset from config/topic_icons.json.
+frontend-astro-topic-icons:
+  cd frontend-astro && bun run generate:topic-icons
+
+# Fail when the checked-in offline topic-icon subset has drifted.
+frontend-astro-topic-icons-check:
+  cd frontend-astro && bun run check:topic-icons
+
+# Fail when visible Astro UI copy bypasses the translation catalog.
+frontend-astro-i18n-check:
+  cd frontend-astro && bun run check:i18n
+
+# Focused Bun tests for the Astro frontend (offline, no server).
+frontend-astro-test: frontend-astro-topic-icons-check frontend-astro-i18n-check
+  cd frontend-astro && bun test
+
+# Regenerate frontend-astro protobuf TypeScript from the canonical
+# proto/denpie.proto (system protoc + project-local protoc-gen-es).
+frontend-astro-protogen:
+  cd frontend-astro && bun run generate:proto
+
+# Fail if the checked-in generated output differs from a fresh regeneration.
+frontend-astro-proto-check:
+  sh scripts/check-proto-gen.sh
+
+# Build the Astro frontend, then serve it through the isolated :3027 agent server
+# (oneshot smoke).
+frontend-astro-runtime:
+  sh scripts/build-frontend.sh
+  sh scripts/agent-server.sh --oneshot --keep-data
 
 # Frontend release build + isolated agent-server oneshot smoke on :3027.
-ui-check:
-  cd frontend && env -u NO_COLOR trunk build --release
-  sh scripts/agent-server.sh --oneshot --keep-data
+ui-check: frontend-astro-runtime
 
 # Browser UI verification through the isolated :3027 agent server.
 playwright:
-  bun run test:ui
+  bunx playwright test --config tests/e2e-astro/playwright.config.mjs
+
+playwright-astro: playwright
 
 # Install the repo-local Playwright runner and its Chromium binary.
 playwright-install:
@@ -116,7 +165,11 @@ ci: api-check
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo clippy --workspace --all-targets -- -D warnings
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo test --workspace
   sh scripts/check-api-docs.sh
-  cd frontend && env -u NO_COLOR trunk build --release
+  cd frontend-astro && bun install --frozen-lockfile
+  cd frontend-astro && bun run check:topic-icons
+  cd frontend-astro && bun run check:i18n
+  cd frontend-astro && bun test
+  sh scripts/build-frontend.sh
 
 # --- agent runtime ------------------------------------------------------------
 
@@ -129,4 +182,4 @@ bench:
   sh benches/run_bench.sh
 
 clean-dev:
-  rm -rf frontend/dist frontend/.trunk frontend/.dev-build-stamp .agent-data test-results playwright-report blob-report
+  rm -rf frontend-astro/dist frontend-astro/.astro frontend-astro/.dev-build-stamp .agent-data test-results playwright-report blob-report

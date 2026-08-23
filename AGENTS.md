@@ -40,7 +40,7 @@ branch; indexing remains the user's decision.
 
 1. **Ports:** never touch **`:3017`** (user). Agents use **`:3027`** only. See `agent-server`.
 2. **Layers:** domain (pure) → services → repositories → thin `api` / `dashboard`. See `add-feature`.
-3. **Scheduling:** SM-2 only. `FSRS` is a legacy alias — do not claim real FSRS.
+3. **Scheduling:** SM-2 only. `FSRS` is a legacy alias. Do not claim real FSRS.
 4. **SQL:** bound parameters only in repositories.
 5. **Docs:** change code → update docs/examples in the same change.
 6. **API v1:** additive-only wire contract; every operation must declare its result,
@@ -57,18 +57,19 @@ just api-check      # v1 wire/operation/result/docs contract
 just test-one <f>   # targeted tests
 just verify         # one full gate at end of a task
 just agent-server   # isolated :3027 runtime + test login + smoke
-just ui-check       # frontend release build + agent oneshot smoke
-just ci             # full gate including frontend release build
+just ui-check       # Astro build + agent oneshot smoke
+just frontend-astro-test  # Astro catalog + Bun tests
+just ci             # full gate including Astro release build
 just lab list       # opt-in research runner; see docs/lab.md
 just lab-check      # deterministic offline lab contract
-just lab-cards-ui   # real FlowCard fixture page on :3027
+just lab-cards-ui   # Astro FlowCard fixture page on :3027
 ```
 
-Detail: `dev-loop` skill. Feature paths: `docs/feature-integration.md`. API for agents: `docs/agent-server-guide.md`.
+Detail: `dev-loop` skill. Feature paths: `docs/feature-integration.md`. Astro UI: `docs/frontend-astro.md`. API for agents: `docs/agent-server-guide.md`.
 
 ## Stack
 
 - Rust 2024, Axum, PostgreSQL via SQLx, Tokio
 - LLM: `async-openai` against OpenAI-compatible endpoints
 - Transport: protobuf (`prost`), `POST /api`
-- Frontend: Yew/WebAssembly + Tailwind
+- Frontend: Astro + React islands in `frontend-astro/`

@@ -16,16 +16,7 @@ need_cmd cargo
 need_cmd rustup
 need_cmd protoc
 need_cmd docker
-
-if ! command -v trunk >/dev/null 2>&1; then
-  printf 'missing: trunk (install with: cargo install trunk --locked)\n' >&2
-  missing=1
-fi
-
-if ! rustup target list --installed | grep -qx 'wasm32-unknown-unknown'; then
-  printf 'missing: wasm32-unknown-unknown target (install with: rustup target add wasm32-unknown-unknown)\n' >&2
-  missing=1
-fi
+need_cmd bun
 
 if ! command -v just >/dev/null 2>&1; then
   printf 'optional: just (install for one-command workflows)\n' >&2
@@ -48,8 +39,7 @@ if [ "$missing" -ne 0 ]; then
 
 Install the required tools, then rerun this script.
 Typical setup:
-  rustup target add wasm32-unknown-unknown
-  cargo install trunk --locked
+  curl -fsSL https://bun.sh/install | bash
   sudo pacman -S protobuf docker docker-compose just
 EOF
   exit 1

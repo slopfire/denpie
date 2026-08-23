@@ -185,10 +185,16 @@ need_command rustup
 need_command install
 need_command systemctl
 need_command timeout
-if ! command -v trunk >/dev/null 2>&1; then
-    run_step preparing "Installing Trunk" "$BUILD_TIMEOUT_SECS" cargo install trunk --locked
+export PATH="$HOME/.bun/bin:/usr/local/bin:$PATH"
+if ! command -v bun >/dev/null 2>&1; then
+    run_step preparing "Installing bun" "$NETWORK_TIMEOUT_SECS" sh -c "curl -fsSL https://bun.sh/install | bash"
+    export PATH="$HOME/.bun/bin:$PATH"
 fi
-run_step preparing "Ensuring wasm32 Rust target" "$NETWORK_TIMEOUT_SECS" rustup target add wasm32-unknown-unknown
+if ! command -v bun >/dev/null 2>&1; then
+    write_status failed "bun is required to build the frontend"
+    log "bun is required to build the frontend"
+    exit 1
+fi
 
 remote_url="https://github.com/$repo.git"
 current_step="checking GitHub branch $repo:$branch"
@@ -226,7 +232,7 @@ log "updating $APP_NAME from ${last_seen} to ${latest_sha}"
 sync_source_repo
 (
     cd "$SOURCE_DIR"
-    run_step compiling "Building frontend release assets" "$BUILD_TIMEOUT_SECS" sh -c "cd frontend && trunk build --release"
+    run_step compiling "Building frontend release assets" "$BUILD_TIMEOUT_SECS" sh scripts/build-frontend.sh
     run_step compiling "Building server release binary" "$BUILD_TIMEOUT_SECS" cargo build --release --package "$APP_NAME"
 )
 
@@ -235,7 +241,7 @@ run_step installing "Installing binary, frontend, and static assets" "$INSTALL_T
     install -m 0755 "$SOURCE_DIR/target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
     rm -rf "$SHARE_DIR/frontend/dist"
     install -d -m 0755 "$SHARE_DIR/frontend/dist"
-    cp -R "$SOURCE_DIR/frontend/dist/." "$SHARE_DIR/frontend/dist/"
+    cp -R "$SOURCE_DIR/frontend-astro/dist/." "$SHARE_DIR/frontend/dist/"
     chmod -R a+rX "$SHARE_DIR/frontend/dist"
     rm -rf "$SHARE_DIR/static"
     install -d -m 0755 "$SHARE_DIR/static"

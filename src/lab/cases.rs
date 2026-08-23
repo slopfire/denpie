@@ -5,6 +5,8 @@
 
 use std::collections::HashSet;
 
+use crate::domain::tipcard;
+
 use serde::{Deserialize, Serialize};
 
 pub(crate) const DEFAULT_GOLD_CASES_PATH: &str = "lab/cases/images/gold.json";
@@ -147,6 +149,8 @@ pub(crate) struct CardFixture {
     pub(crate) pinned: bool,
     pub(crate) pending_count: u32,
     #[serde(default)]
+    pub(crate) images: Vec<String>,
+    #[serde(default)]
     pub(crate) review_message: Option<String>,
     pub(crate) notes: String,
 }
@@ -202,6 +206,14 @@ pub(crate) fn load_card_cases(path: &str) -> Result<Vec<CardFixture>, String> {
             return Err(format!(
                 "card case pack `{path}` case `{}` has unknown status `{}` (expected active or reviewed)",
                 case.id, case.status
+            ));
+        }
+        if case.images.len() > tipcard::MAX_CARD_IMAGES {
+            return Err(format!(
+                "card case pack `{path}` case `{}` has {} images (production cards hold at most {})",
+                case.id,
+                case.images.len(),
+                tipcard::MAX_CARD_IMAGES
             ));
         }
         if case.notes.trim().is_empty() {
@@ -308,6 +320,13 @@ mod tests {
             assert!(!case.full_content.is_empty());
             assert!(!case.notes.is_empty());
             assert!(matches!(case.status.as_str(), "active" | "reviewed"));
+            for data_url in &case.images {
+                assert!(
+                    data_url.starts_with("data:image/"),
+                    "card case `{}` images must be inline data URLs",
+                    case.id
+                );
+            }
         }
 
         let llm_error = cases
@@ -318,6 +337,24 @@ mod tests {
             llm_error.full_content.starts_with("LLM Error:"),
             "llm-error full_content must start with `LLM Error:`"
         );
+    }
+
+    #[test]
+    fn card_pack_exercises_the_production_image_cap() {
+        let cases = load_card_cases(DEFAULT_CARD_CASES_PATH).expect("card gold pack must load");
+
+        let stacked = cases
+            .iter()
+            .find(|case| case.id == "stacked")
+            .expect("stacked fixture must exist");
+        assert_eq!(
+            stacked.images.len(),
+            tipcard::MAX_CARD_IMAGES,
+            "the stacked fixture must exercise the production image cap"
+        );
+
+        let single_image = cases.iter().filter(|case| case.images.len() == 1).count();
+        assert!(single_image >= 1, "a single-image fixture must exist");
     }
 
     #[test]
@@ -429,6 +466,26 @@ mod tests {
             load_card_cases(&path)
                 .unwrap_err()
                 .contains("duplicate case id")
+        );
+    }
+
+    #[test]
+    fn over_limit_image_counts_are_rejected() {
+        let path = std::env::temp_dir().join(format!(
+            "denpie-lab-card-cases-{}-{}.json",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let images = r#"["data:image/png;base64,AAAA","data:image/png;base64,BBBB","data:image/png;base64,CCCC","data:image/png;base64,DDDD","data:image/png;base64,EEEE"]"#;
+        let fixture = format!(
+            r#"[{{"id":"too-many-images","topic_name":"Topic","title":"Title","full_content":"Content","compressed_content":"Content","tipcard_type":"repeatable_tip","status":"active","pinned":false,"pending_count":0,"images":{images},"notes":"Notes"}}]"#
+        );
+        std::fs::write(&path, fixture).expect("write fixture");
+        let path = path.display().to_string();
+        assert!(
+            load_card_cases(&path)
+                .unwrap_err()
+                .contains("production cards hold at most")
         );
     }
 }

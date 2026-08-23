@@ -29,8 +29,7 @@ async fn test_root_page_serves_html() {
     assert_eq!(response.status(), reqwest::StatusCode::OK);
     let body = response.text().await.unwrap();
     assert!(body.contains("Denpie"));
-    assert!(body.contains("modulepreload"));
-    assert!(body.contains(".wasm"));
+    assert!(body.contains("/_astro/"));
 }
 
 #[tokio::test]

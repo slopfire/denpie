@@ -6,7 +6,10 @@
 just db-up                    # PostgreSQL prerequisite
 just agent-server            # isolated data, bind :3027 only, test login, smoke
 just agent-server --oneshot  # start → smoke → stop
-just ui-check                # frontend release build + oneshot smoke
+just ui-check                # Astro build + oneshot smoke
+just frontend-astro-runtime  # alias of ui-check
+just playwright              # Astro Playwright on :3027
+just agent-server --frontend-dist frontend-astro/dist  # serve a pre-built Astro dist
 ```
 
 Test login after bootstrap: `test` / `23452345`. Never bind or touch `:3017`.
@@ -72,6 +75,7 @@ Put returned `sk_live_*` in `ApiRequest.auth` for every later call.
 | `submit_custom_tipcard` | External `custom_tip` — no review row |
 | `get_topics` / `list_app_topics` | Topic metadata |
 | `list_tipcards` / `delete_tipcard` / `pin_tipcard` | Card inventory + pin |
+| `append_tipcard_images` / `replace_tipcard_images` | Card image append, replace, and clear |
 | `delete_topic` | Topic + cards + reviews + images + refresh runs |
 | `get_summary` | Counts |
 | `add_document` / `list_documents` / `delete_document` | Grounding sources |

@@ -1,8 +1,8 @@
-# Feature Integration Guide
+# Feature integration
 
 Match the work to a layer. Put the code there.
 
-Agent procedure (same content, checklist form): [`.agents/skills/add-feature`](../.agents/skills/add-feature/SKILL.md).
+Agent procedure: [`.agents/skills/add-feature`](../.agents/skills/add-feature/SKILL.md). Browser UI: [`frontend-astro.md`](frontend-astro.md).
 
 | Step | Path | Rule |
 |---|---|---|
@@ -12,7 +12,7 @@ Agent procedure (same content, checklist form): [`.agents/skills/add-feature`](.
 | 4 | `src/api/`, `src/dashboard/`, `src/auth.rs` | Thin handlers. Transport → service call. |
 | 5 | `src/types.rs` | Shared request/response shapes. |
 
-## Lab home
+## Other homes
 
 | What | Path | Rule |
 |---|---|---|
@@ -20,7 +20,8 @@ Agent procedure (same content, checklist form): [`.agents/skills/add-feature`](.
 | Lab data | `lab/cases/` | Checked-in case packs such as the image gold set |
 | Lab entry | `just lab` | Opt-in runner; never called from `just test` / `just verify` / `just ci` |
 | Lab contract | `just lab-check` | Deterministic offline CLI, fixture, comparison, and lab-UI checks |
-| Card UI lab | `frontend/src/components/card_lab.rs` | `lab-ui` feature mounts the production `FlowCard` on agent port `:3027`; no server writes |
+| Card UI lab | `frontend-astro/src/pages/lab-cards.astro` | `/lab-cards` mounts production cards on fixtures; no server writes. |
+| Browser UI | `frontend-astro/` | Static Astro + React islands. Detail: [`frontend-astro.md`](frontend-astro.md). |
 
 ## New protobuf operation
 
@@ -39,37 +40,11 @@ Agent procedure (same content, checklist form): [`.agents/skills/add-feature`](.
 
 ## New frontend strings
 
-1. Copy in `frontend/src/i18n/en.json` → `use_i18n().t("group.key")`
-2. Placeholders → `use_i18n().tf("group.key", &[("name", value)])`
-3. Group by surface: `nav.*`, `auth.*`, `toast.*`, `confirm.*`, `api_keys.*`
-4. Frontend-authored toasts/confirms: translated strings. Backend error bodies may show as-is.
-5. Error toasts stay visible until the user dismisses them; success and info toasts dismiss automatically.
-6. Do **not** translate protocol/storage IDs (`tipcard_type`, review actions, roles, routes, localStorage keys, MIME types, API enums). Map to labels at the UI edge.
+Shared catalog: `frontend-astro/src/i18n/en.json`. Steps: [`frontend-astro.md`](frontend-astro.md#add-a-string).
 
-## New Yew UI component
+## New Astro UI
 
-Frontend is **Yew/WASM**, not React. No `shadcn` CLI. This repo is a **shadcn token-port**: same CSS variables + conventions, Yew + Tailwind v4.
-
-### Tokens
-
-1. `frontend/index.html` — shadcn CSS vars per theme in `[data-theme="..."]` blocks
-2. `@theme inline` maps vars → Tailwind utilities (`bg-primary`, `text-foreground`, …)
-3. Components use **semantic** classes only — never raw colors or manual `dark:` overrides
-
-### Add a primitive
-
-1. Create `frontend/src/components/<name>.rs` as `Shadcn<Name>` (see `button.rs`, `select.rs`, `tooltip.rs`)
-2. Variants/sizes as enums → semantic utility classes
-3. Props: `class: Classes` for layout, `children: Children` for content
-4. Register in `frontend/src/components/mod.rs`
-5. Missing token? Add the CSS variable to **every** `[data-theme]` block and to `@theme inline` — not a one-off color
-
-### New token
-
-Color not covered by `primary` / `secondary` / `muted` / `accent` / `destructive` / `border` / `input` / `ring` / `card` / `popover` / `foreground` / `background`?
-
-1. Add `--<name>` (and `--<name>-foreground` if needed) to every `[data-theme="..."]` block in `frontend/index.html`
-2. Add it to `@theme inline` so Tailwind emits `bg-<name>` / `text-<name>`
+Put browser UI in `frontend-astro/`. Steps and completion criteria: [`frontend-astro.md`](frontend-astro.md).
 
 ## New database field
 

@@ -58,6 +58,21 @@ async fn test_update_me_invalid_avatar() {
 }
 
 #[tokio::test]
+async fn test_update_me_can_clear_avatar() {
+    let (url, client) = spawn_test_server().await;
+
+    let update = client
+        .patch(format!("{url}/auth/me"))
+        .json(&serde_json::json!({ "avatar_data": "" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(update.status(), reqwest::StatusCode::OK);
+    let user: serde_json::Value = update.json().await.unwrap();
+    assert_eq!(user["avatar_data"], "");
+}
+
+#[tokio::test]
 async fn test_unified_api_with_invalid_key() {
     let (url, client) = spawn_test_server().await;
     let res = post_api(

@@ -4,11 +4,11 @@ pkgs.mkShell {
   name = "denpie-dev";
 
   nativeBuildInputs = with pkgs; [
-    # Rust toolchain manager; rust-toolchain.toml pins the channel/targets/components.
+    # Rust toolchain manager; rust-toolchain.toml pins the channel/components.
     rustup
 
-    # Frontend build tool for the Yew/WASM dashboard.
-    trunk
+    # Astro frontend package manager and runtime.
+    bun
 
     # Protocol Buffers compiler used by prost-build.
     protobuf
@@ -53,9 +53,8 @@ pkgs.mkShell {
   shellHook = ''
     echo "Entering Denpie development shell..."
 
-    # Make sure the Rust toolchain, wasm32 target, and components from
-    # rust-toolchain.toml are installed. This is a no-op when everything
-    # is already present.
+    # Make sure the Rust toolchain and components from rust-toolchain.toml
+    # are installed. This is a no-op when everything is already present.
     rustup show
 
     # Point build scripts to the libclang we provided.
@@ -69,7 +68,7 @@ pkgs.mkShell {
 
     echo "Rust: $(rustc --version)"
     echo "Cargo: $(cargo --version)"
-    echo "Trunk: $(trunk --version)"
+    echo "Bun: $(bun --version)"
     echo "Run 'just' to see available development tasks."
   '';
 }

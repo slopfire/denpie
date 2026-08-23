@@ -36,7 +36,7 @@ Environment overrides:
   NETWORK_TIMEOUT_SECS autoupdater network step timeout (default: 120)
   BUILD_TIMEOUT_SECS   autoupdater build step timeout (default: 1800)
   INSTALL_TIMEOUT_SECS autoupdater install step timeout (default: 300)
-  SKIP_BUILD=1    install existing target/release/denpie and frontend/dist
+  SKIP_BUILD=1    install existing target/release/denpie and frontend-astro/dist
   RUSTUP_INIT_URL rustup installer URL (default: https://sh.rustup.rs)
 EOF
 }
@@ -93,15 +93,11 @@ build_release() {
         return
     fi
     install_rust_toolchain
-    if ! command_exists rustup; then
-        echo "rustup is required to install the wasm32 frontend target; install rustup or use SKIP_BUILD=1 with prebuilt frontend/dist" >&2
+    if ! command_exists bun; then
+        echo "bun is required to build the frontend; install bun or use SKIP_BUILD=1 with prebuilt frontend-astro/dist" >&2
         exit 1
     fi
-    rustup target add wasm32-unknown-unknown
-    if ! command_exists trunk; then
-        cargo install trunk --locked
-    fi
-    (cd frontend && trunk build --release)
+    sh scripts/build-frontend.sh
     cargo build --release --package "$APP_NAME"
 }
 
@@ -110,8 +106,8 @@ verify_release_artifacts() {
         echo "missing target/release/$APP_NAME; run without SKIP_BUILD=1 or build the server first" >&2
         exit 1
     fi
-    if [ ! -f frontend/dist/index.html ]; then
-        echo "missing frontend/dist/index.html; run without SKIP_BUILD=1 or build the frontend with trunk first" >&2
+    if [ ! -f frontend-astro/dist/index.html ]; then
+        echo "missing frontend-astro/dist/index.html; run without SKIP_BUILD=1 or build the frontend first" >&2
         exit 1
     fi
 }
@@ -246,7 +242,7 @@ install_app() {
     run_as_root install -m 0755 "target/release/$APP_NAME" "$BIN_DIR/$APP_NAME"
     run_as_root rm -rf "$SHARE_DIR/frontend/dist"
     run_as_root install -d -m 0755 "$SHARE_DIR/frontend/dist"
-    run_as_root cp -R frontend/dist/. "$SHARE_DIR/frontend/dist/"
+    run_as_root cp -R frontend-astro/dist/. "$SHARE_DIR/frontend/dist/"
     run_as_root chmod -R a+rX "$SHARE_DIR/frontend/dist"
     run_as_root rm -rf "$SHARE_DIR/static"
     run_as_root install -d -m 0755 "$SHARE_DIR/static"

@@ -79,7 +79,7 @@ pub async fn update_me(
     let auth_user = current_user(&state, &session).await?;
 
     if let Some(avatar) = &req.avatar_data {
-        if !avatar.starts_with("data:image/") {
+        if !avatar.is_empty() && !avatar.starts_with("data:image/") {
             return Err((
                 StatusCode::BAD_REQUEST,
                 "Avatar must be an image data URI".to_string(),

@@ -40,6 +40,8 @@ assert_contains "$check_dir/prompts.txt" '5 cases (0 LLM calls)'
 
 lab run cards --dry-run >"$check_dir/cards.txt"
 assert_contains "$check_dir/cards.txt" '7 fixtures (0 gallery artifacts)'
+assert_contains "$check_dir/cards.txt" 'images: 4'
+assert_contains "$check_dir/cards.txt" '[active] topic: English Grammar status: active pinned: false pending_count: 0 images: 1'
 
 printf '%s\n' 'lab-check: unsafe fixture IDs are rejected'
 printf '%s\n' '[{"id":"../escape","topic":"Rust","mode":"one_shot","expected":"reject unsafe id"}]' \
@@ -63,10 +65,17 @@ lab compare "$check_dir/baseline.json" "$check_dir/candidate.json" \
 assert_contains "$check_dir/compare.txt" 'outcome changes: 1'
 assert_contains "$check_dir/compare.txt" 'elapsed_ms: 20 -> 12 (-8)'
 
-printf '%s\n' 'lab-check: focused Rust and Yew contracts'
+printf '%s\n' 'lab-check: focused Rust and Astro contracts'
 DENPIE_SKIP_FRONTEND_BUILD=1 cargo test --quiet --workspace 'lab::'
-DENPIE_SKIP_FRONTEND_BUILD=1 cargo test --quiet -p frontend --features lab-ui \
-    checked_in_fixtures_map_to_production_cards
-DENPIE_SKIP_FRONTEND_BUILD=1 cargo check --quiet -p frontend --features lab-ui
+
+sh "$repo_root/scripts/build-frontend.sh" >/dev/null
+for fixture_id in active pinned reviewed-hold await-refill daily-complete \
+    stacked llm-error; do
+    if ! grep -q "lab-fixture-$fixture_id" \
+        frontend-astro/dist/lab-cards/index.html; then
+        printf '%s\n' "Astro lab page is missing fixture $fixture_id" >&2
+        exit 1
+    fi
+done
 
 printf '%s\n' 'lab-check: passed'

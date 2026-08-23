@@ -4,7 +4,8 @@ description: >
   Run and verify Denpie for agent work: agent port :3027, never touch user port :3017,
   test login, UI DOM checks, server lifecycle. Use when starting the server, UI checks,
   browser verification, API smoke tests, or anything that binds/reuses Denpie ports.
-  Triggers: agent server, :3027, :3017, UI check, test login, cargo run, localhost.
+  Triggers: agent server, :3027, :3017, UI check, test login, cargo run,
+  localhost, --frontend-dist, playwright-astro.
 ---
 
 # Agent server (Denpie)
@@ -23,7 +24,10 @@ just agent-server            # isolated data dir, bind :3027, test login, smoke,
 just agent-server --oneshot  # same but exit after smoke (used by just ui-check)
 just agent-server --stop     # stop a server started by the recipe
 just agent-server --smoke    # smoke only against an already-running :3027
-just ui-check                # trunk release build + oneshot agent-server
+just ui-check                # Astro build + oneshot agent-server
+just frontend-astro-runtime  # alias of ui-check
+just playwright              # Astro Playwright on :3027
+just agent-server --frontend-dist frontend-astro/dist  # serve a pre-built Astro dist
 ```
 
 The recipe:
@@ -57,7 +61,7 @@ cargo run
 - Target: **`http://localhost:3027` only**
 - Assert **concrete DOM IDs and placement**
 - Skip brittle a11y names and `waitForUrl` for SPA routes
-- Simple visible UI change → `just quick` + targeted DOM check
+- Visible UI: `just frontend-astro-test`, then DOM proof on `:3027`
 - Stop if the user already sees the change or waives the check
 - No over-verification unless asked
 
@@ -75,13 +79,16 @@ cargo run
 - A SPA navigation timeout can be a false negative. Inspect the current URL and
   DOM before retrying navigation or changing selectors.
 
-`just ui-check` builds the release frontend and then stops its oneshot server.
-For a follow-up DOM check, start `just agent-server --keep-data` and reuse that
-build rather than invoking another frontend build.
+`just ui-check` builds `frontend-astro/dist` and then stops its oneshot server.
+For a follow-up DOM check, start `just agent-server --keep-data` and reuse
+that build rather than invoking another frontend build.
+
+The default dist is `frontend-astro/dist` and is auto-built when `index.html`
+is missing. Custom `--frontend-dist` is never auto-built.
 
 ## API surface (agents)
 
-- Stable client API: `POST /api` (protobuf) — see `docs/agent-server-guide.md` and `docs/protobuf-api.md`
+- Stable client API: `POST /api` (protobuf). See `docs/agent-server-guide.md` and `docs/protobuf-api.md`.
 - Browser dashboard: session auth on `/`, `/auth/*`, `/admin/*`, `/app/*`
 
 ## Startup shape

@@ -48,7 +48,7 @@ pub(crate) fn dry_run_plan(cases_path: &str, cases: &[CardFixture]) -> String {
         format!("bench: cards\nmode: dry-run (no run artifacts)\ncases: {cases_path}\nplan:\n");
     for case in cases {
         plan.push_str(&format!(
-            "  [{id}] topic: {topic} status: {status} pinned: {pinned} pending_count: {pending} review_message: {review_message}\n",
+            "  [{id}] topic: {topic} status: {status} pinned: {pinned} pending_count: {pending} images: {images} review_message: {review_message}\n",
             id = case.id,
             topic = case.topic_name,
             status = case.status,
@@ -59,6 +59,7 @@ pub(crate) fn dry_run_plan(cases_path: &str, cases: &[CardFixture]) -> String {
             } else {
                 "unset"
             },
+            images = case.images.len(),
         ));
     }
     plan.push_str(&format!("{} fixtures (0 gallery artifacts)\n", cases.len()));
@@ -95,20 +96,23 @@ pub(crate) fn gallery_html(cases: &[CardFixture]) -> String {
          .badge-review{border-color:color-mix(in srgb,var(--reviewed) 45%,transparent);color:var(--reviewed)}\n\
          .badge-error{border-color:color-mix(in srgb,var(--error) 45%,transparent);color:var(--error)}\n\
          .badge-stack{background:#eef3fa;border-color:#c6d5ea}\n\
+         .fixture-images{display:flex;flex-wrap:wrap;gap:10px}\n\
+         .fixture-images img{width:96px;height:96px;object-fit:cover;border-radius:8px;border:1px solid var(--line);image-rendering:pixelated}\n\
+         .images-badge{border-color:color-mix(in srgb,var(--accent) 45%,transparent);color:var(--accent)}\n\
          .review-message{border-left:3px solid var(--reviewed);background:#edf8f2;border-radius:8px;padding:10px 12px;white-space:pre-wrap;overflow-wrap:anywhere}\n\
          .content-grid{display:grid;gap:10px}\n\
          .content-panel{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff}\n\
          .content-panel h3{margin:0 0 6px;font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}\n\
          .card-text{white-space:pre-wrap;overflow-wrap:anywhere;margin:0}\n\
          .notes{color:var(--muted);font-size:13px;margin:0;border-top:1px dashed var(--line);padding-top:10px;white-space:pre-wrap;overflow-wrap:anywhere}\n\
-         @media (prefers-color-scheme:dark){:root{--bg:#181611;--surface:#24211a;--ink:#ede7d8;--muted:#aaa08c;--line:#3d382c;--accent:#8db5e8;--pinned:#e0b04f;--reviewed:#62c99a;--pending:#ee8a5e;--error:#f0857f}.badge,.content-panel{background:#2a261e}.badge-stack{background:#263040;border-color:#3d5573}.review-message{background:#1e352b}}\n\
+         @media (prefers-color-scheme:dark){:root{--bg:#181611;--surface:#24211a;--ink:#ede7d8;--muted:#aaa08c;--line:#3d382c;--accent:#8db5e8;--pinned:#e0b04f;--reviewed:#62c99a;--pending:#ee8a5e;--error:#f0857f}.badge,.content-panel{background:#2a261e}.badge-stack{background:#263040;border-color:#3d5573}.review-message{background:#1e352b}.fixture-images img{border-color:#3d382c}}\n\
          </style>\n\
          </head>\n\
          <body>\n\
          <div class=\"wrap\">\n\
          <header>\n\
          <h1>Repeatable-card fixture catalog</h1>\n\
-         <p>Checked-in data states for the repeatable flow card. Use <code>just lab-cards-ui</code> to render these fixtures with the production Yew component.</p>\n\
+         <p>Checked-in data states for the repeatable flow card. Use <code>just lab-cards-ui</code> to render these fixtures with the production card UI.</p>\n\
          </header>\n\
          <main class=\"gallery\">\n",
     );
@@ -164,6 +168,10 @@ fn gallery_section(case: &CardFixture) -> String {
     badges.push_str(&format!(
         "<span class=\"badge badge-stack\">stack layers: {stack_layers}</span>\n"
     ));
+    badges.push_str(&format!(
+        "<span class=\"badge images-badge\">images: {}</span>\n",
+        case.images.len()
+    ));
 
     let mut section = format!(
         "<section class=\"fixture\" data-fixture-id=\"{id}\" data-stack-layers=\"{stack_layers}\">\n\
@@ -181,6 +189,25 @@ fn gallery_section(case: &CardFixture) -> String {
         section.push_str(&format!(
             "<div class=\"review-message\" data-review-message=\"true\">{message}</div>\n"
         ));
+    }
+    if !case.images.is_empty() {
+        section.push_str("<div class=\"fixture-images\" data-image-count=\"");
+        section.push_str(&case.images.len().to_string());
+        section.push_str("\">\n");
+        for (index, data_url) in case.images.iter().enumerate() {
+            let alt = format!(
+                "{} — attached image {} of {}",
+                case.title,
+                index + 1,
+                case.images.len()
+            );
+            section.push_str(&format!(
+                "<img src=\"{}\" alt=\"{}\" loading=\"lazy\">\n",
+                escape_html(data_url),
+                escape_html(&alt)
+            ));
+        }
+        section.push_str("</div>\n");
     }
 
     section.push_str(&format!(
@@ -325,8 +352,9 @@ mod tests {
             status: "active".to_string(),
             pinned: false,
             pending_count: 4,
-            review_message: Some("<em>saved</em>".to_string()),
+            images: vec!["data:image/png;base64,AAAA".to_string()],
             notes: "script <script> must not execute".to_string(),
+            review_message: Some("<em>saved</em>".to_string()),
         };
 
         let html = gallery_html(&[fixture]);
@@ -336,6 +364,18 @@ mod tests {
         assert!(!html.contains("<b>Topic</b>"), "gallery HTML: {html}");
         assert!(!html.contains("<em>saved</em>"), "gallery HTML: {html}");
         assert!(html.contains("stack layers: 3"), "gallery HTML: {html}");
+        assert!(
+            html.contains("images: 1"),
+            "gallery must report the image count badge: {html}"
+        );
+        assert!(
+            html.contains(r#"src="data:image/png;base64,AAAA""#),
+            "gallery must embed the fixture data URL: {html}"
+        );
+        assert!(
+            html.contains("data-image-count=\"1\""),
+            "gallery must mark the image strip: {html}"
+        );
     }
 
     #[test]

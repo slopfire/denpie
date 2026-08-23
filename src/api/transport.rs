@@ -27,7 +27,9 @@ use super::{
     response::{empty_response, protobuf_response, protobuf_response_with_status, tip_to_pb},
     reviews::apply_review,
     settings::{current_settings, update_settings_file},
-    tipcards::{delete_tipcard_by_id, set_tipcard_pinned},
+    tipcards::{
+        append_tipcard_images, delete_tipcard_by_id, set_tipcard_images, set_tipcard_pinned,
+    },
     tips::{build_tips, create_custom_tipcard, force_daily_refresh},
     topics::{delete_topic_by_id, update_topic_prompt},
     types::{ForceDailyRefreshOutcome, ForceDailyRefreshRequest, TipsJsonRequest},
@@ -546,6 +548,8 @@ fn mutation_policy(op: &pb::api_request::Op) -> MutationPolicy {
         | pb::api_request::Op::DeleteApiKey(_)
         | pb::api_request::Op::DeleteTipcard(_)
         | pb::api_request::Op::PinTipcard(_)
+        | pb::api_request::Op::AppendTipcardImages(_)
+        | pb::api_request::Op::ReplaceTipcardImages(_)
         | pb::api_request::Op::UpdateTopic(_)
         | pb::api_request::Op::DeleteTopic(_)
         | pb::api_request::Op::AddDocument(_)
@@ -969,6 +973,22 @@ async fn handle_authenticated_op(
             set_tipcard_pinned(state, &user.id, req.id, req.pinned).await?;
             Ok(empty_response())
         }
+        pb::api_request::Op::AppendTipcardImages(req) => {
+            append_tipcard_images(
+                state,
+                &user.id,
+                req.card_id,
+                req.image_data,
+                req.pool_image_ids,
+                req.urls,
+            )
+            .await?;
+            Ok(empty_response())
+        }
+        pb::api_request::Op::ReplaceTipcardImages(req) => {
+            set_tipcard_images(state, &user.id, req.card_id, req.image_data).await?;
+            Ok(empty_response())
+        }
         pb::api_request::Op::DeleteTopic(req) => {
             delete_topic_by_id(state, &user.id, req.id).await?;
             Ok(empty_response())
@@ -1238,7 +1258,10 @@ fn required_scope(op: &pb::api_request::Op) -> &'static str {
         | pb::api_request::Op::ListTipcards(_)
         | pb::api_request::Op::ListFlowCards(_)
         | pb::api_request::Op::GetTipcard(_) => "cards:read",
-        pb::api_request::Op::DeleteTipcard(_) | pb::api_request::Op::PinTipcard(_) => "cards:write",
+        pb::api_request::Op::DeleteTipcard(_)
+        | pb::api_request::Op::PinTipcard(_)
+        | pb::api_request::Op::AppendTipcardImages(_)
+        | pb::api_request::Op::ReplaceTipcardImages(_) => "cards:write",
         pb::api_request::Op::UpdateTopic(_) | pb::api_request::Op::DeleteTopic(_) => "topics:write",
         pb::api_request::Op::GetSettings(_) => "settings:read",
         pb::api_request::Op::UpdateSettings(_) => "settings:write",
@@ -1282,6 +1305,8 @@ fn api_op_name(op: &pb::api_request::Op) -> &'static str {
         pb::api_request::Op::ListTipcards(_) => "list_tipcards",
         pb::api_request::Op::DeleteTipcard(_) => "delete_tipcard",
         pb::api_request::Op::PinTipcard(_) => "pin_tipcard",
+        pb::api_request::Op::AppendTipcardImages(_) => "append_tipcard_images",
+        pb::api_request::Op::ReplaceTipcardImages(_) => "replace_tipcard_images",
         pb::api_request::Op::DeleteTopic(_) => "delete_topic",
         pb::api_request::Op::GetSummary(_) => "get_summary",
         pb::api_request::Op::ListAppTopics(_) => "list_app_topics",

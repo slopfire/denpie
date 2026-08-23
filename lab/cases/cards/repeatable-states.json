@@ -3,6 +3,9 @@
     "id": "active",
     "topic_name": "English Grammar",
     "title": "Prepositions of movement",
+    "images": [
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mOwz9+KFTEMLQkAkEZYwRhBVQsAAAAASUVORK5CYII="
+    ],
     "full_content": "Prepositions like from, to, into, and toward describe movement direction. Compare “walk into the room” with “walk to the room”.",
     "compressed_content": "Use from, to, into, and toward to describe movement direction.",
     "tipcard_type": "repeatable_tip",
@@ -72,6 +75,12 @@
     "compressed_content": "Get up, get over, and get through change meaning as a unit.",
     "tipcard_type": "repeatable_tip",
     "status": "active",
+    "images": [
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mN4sMEfK2IYWhIA7rp3wZnXEAkAAAAASUVORK5CYII=",
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mOQqg/FihiGlgQAMWE7gW3JvaAAAAAASUVORK5CYII=",
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mOoitqHFTEMLQkANBFkgRDq4fYAAAAASUVORK5CYII=",
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mOwz9+KFTEMLQkAkEZYwRhBVQsAAAAASUVORK5CYII="
+    ],
     "pinned": false,
     "pending_count": 3,
     "review_message": null,
@@ -85,8 +94,11 @@
     "compressed_content": "The model request failed. Expand the full error for details.",
     "tipcard_type": "repeatable_tip",
     "status": "active",
-    "pinned": false,
+    "images": [
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mOoitqHFTEMLQkANBFkgRDq4fYAAAAASUVORK5CYII="
+    ],
     "pending_count": 0,
+    "pinned": false,
     "review_message": null,
     "notes": "FlowCard detects full_content starting with `LLM Error:` and renders the error panel instead of card text."
   }

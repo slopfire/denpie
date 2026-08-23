@@ -1,0 +1,50 @@
+---
+import "../styles/global.css";
+import { AppShell, type AppView } from "@/islands/AppShell";
+
+interface Props {
+    title: string;
+    view: AppView;
+}
+
+const { title, view } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en" data-theme="shadcn">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width" />
+        <title>{title}</title>
+        <script is:inline>
+            try {
+                const appearance = JSON.parse(
+                    localStorage.getItem("denpie-appearance") ?? "null",
+                );
+                if (appearance && typeof appearance === "object") {
+                    if (typeof appearance.theme === "string")
+                        document.documentElement.dataset.theme =
+                            appearance.theme;
+                    if (typeof appearance.transparency === "string")
+                        document.documentElement.dataset.transparency =
+                            appearance.transparency;
+                    if (typeof appearance.blur === "string")
+                        document.documentElement.dataset.blurIntensity =
+                            appearance.blur;
+                }
+            } catch {}
+        </script>
+        <script is:inline>
+            if ("serviceWorker" in navigator) {
+                window.addEventListener("load", () => {
+                    navigator.serviceWorker
+                        .register("/service-worker.js")
+                        .catch(() => undefined);
+                });
+            }
+        </script>
+    </head>
+    <body>
+        <AppShell client:load view={view} />
+    </body>
+</html>

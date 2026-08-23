@@ -26,6 +26,11 @@ Usage: scripts/agent-server.sh [options]
   --smoke       Reuse running server if up; only run smoke checks
   --oneshot     Start, smoke, then stop and exit (for just ui-check)
   --stop        Stop a server started by this script (via pid file)
+  --frontend-dist DIR
+                Serve an alternative built frontend directory (must contain
+                index.html; relative paths resolve against the repo root).
+                Default: frontend-astro/dist (auto-built if missing). A custom
+                dist is never auto-built.
   -h, --help    Show this help
 
 Binds only 127.0.0.1:3027. Never touches :3017.
@@ -33,16 +38,46 @@ Test login after bootstrap: username=test password=23452345
 EOF
 }
 
-for arg in "$@"; do
+FRONTEND_DIST="$ROOT/frontend-astro/dist"
+
+while [ "$#" -gt 0 ]; do
+  arg="$1"
+  shift
   case "$arg" in
     --keep-data) KEEP_DATA=1 ;;
     --smoke) SMOKE_ONLY=1 ;;
     --oneshot) ONESHOT=1 ;;
     --stop) STOP_ONLY=1 ;;
+    --frontend-dist)
+      if [ "$#" -eq 0 ]; then
+        echo "--frontend-dist requires a value" >&2; usage >&2; exit 2
+      fi
+      FRONTEND_DIST_ARG="$1"; shift
+      if [ -z "$FRONTEND_DIST_ARG" ]; then
+        echo "--frontend-dist requires a non-empty value" >&2; usage >&2; exit 2
+      fi ;;
+    --frontend-dist=*)
+      FRONTEND_DIST_ARG="${arg#--frontend-dist=}"
+      if [ -z "$FRONTEND_DIST_ARG" ]; then
+        echo "--frontend-dist requires a non-empty value" >&2; usage >&2; exit 2
+      fi ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $arg" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+# Resolve the selected frontend dist against the repo root; never auto-build it.
+if [ -n "${FRONTEND_DIST_ARG:-}" ]; then
+  case "$FRONTEND_DIST_ARG" in
+    /*) FRONTEND_DIST="$FRONTEND_DIST_ARG" ;;
+    *) FRONTEND_DIST="$ROOT/$FRONTEND_DIST_ARG" ;;
+  esac
+fi
+CUSTOM_FRONTEND_DIST=0
+if [ "$FRONTEND_DIST" != "$ROOT/frontend-astro/dist" ]; then
+  CUSTOM_FRONTEND_DIST=1
+fi
+
 
 port_in_use() {
   if command -v ss >/dev/null 2>&1; then
@@ -125,10 +160,16 @@ else
       printf 'admin_token: agent_admin_token\n' >"$AGENT_DATA/settings.yaml"
     fi
 
-    # Ensure frontend dist exists (skip rebuild if present).
-    if [ ! -f frontend/dist/index.html ]; then
-      echo "building frontend (trunk) for agent server..."
-      (cd frontend && env -u NO_COLOR trunk build)
+    # Ensure frontend dist exists. The default Astro dist is auto-built when
+    # missing; a custom --frontend-dist must already be built and fails clearly.
+    if [ ! -f "$FRONTEND_DIST/index.html" ]; then
+      if [ "$CUSTOM_FRONTEND_DIST" -eq 1 ]; then
+        echo "error: --frontend-dist '$FRONTEND_DIST' has no index.html" >&2
+        echo "build the frontend first (e.g. just frontend-astro-build)" >&2
+        exit 1
+      fi
+      echo "building frontend (astro) for agent server..."
+      sh "$ROOT/scripts/build-frontend.sh"
     fi
 
     echo "starting denpie on ${AGENT_BIND} with data dir ${AGENT_DATA}"
@@ -142,7 +183,7 @@ else
       DENPIE_RP_ID=localhost \
       DENPIE_DATA_DIR="$AGENT_DATA" \
       DENPIE_IMAGE_DIR="$AGENT_DATA/tipcard-images" \
-      DENPIE_FRONTEND_DIST="$ROOT/frontend/dist" \
+      DENPIE_FRONTEND_DIST="$FRONTEND_DIST" \
       DENPIE_SKIP_FRONTEND_BUILD=1 \
       cargo run --bin denpie >"$LOG_FILE" 2>&1 &
     echo $! >"$PID_FILE"
@@ -240,19 +281,15 @@ Agent server ready
   URL:      ${AGENT_ORIGIN}
   Bind:     ${AGENT_BIND}
   Data:     ${AGENT_DATA}
+  Frontend: ${FRONTEND_DIST}
   Log:      ${LOG_FILE}
   Login:    username=test  password=23452345
 
 Recipes:
   just agent-server          # start + smoke (blocks until Ctrl-C)
   just agent-server --stop   # stop server we started
-  just ui-check              # frontend build + one-shot smoke
-
+  just ui-check              # Astro build + one-shot smoke
 EOF
-
-if [ "$SMOKE_ONLY" -eq 1 ]; then
-  exit 0
-fi
 
 if [ "$ONESHOT" -eq 1 ]; then
   echo "oneshot complete; stopping agent server"

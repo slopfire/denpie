@@ -21,7 +21,6 @@ pub async fn set_tipcard_pinned(
         .map_err(|err| err.into_status_body())
 }
 
-#[cfg(test)]
 pub async fn set_tipcard_images(
     state: &AppState,
     user_id: &str,
@@ -29,4 +28,15 @@ pub async fn set_tipcard_images(
     image_data: Vec<String>,
 ) -> ApiResult<()> {
     TipcardService::set_images(state, user_id, id, image_data).await
+}
+
+pub async fn append_tipcard_images(
+    state: &AppState,
+    user_id: &str,
+    card_id: i64,
+    image_data: Vec<String>,
+    pool_image_ids: Vec<i64>,
+    urls: Vec<String>,
+) -> ApiResult<()> {
+    TipcardService::append_images(state, user_id, card_id, image_data, pool_image_ids, urls).await
 }

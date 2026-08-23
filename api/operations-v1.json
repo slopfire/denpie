@@ -41,7 +41,9 @@
     "tips_v1": "tips",
     "review_v1": "ok",
     "create_api_key_v1": "api_key_created",
-    "review_and_advance": "review_and_advance"
+    "review_and_advance": "review_and_advance",
+    "append_tipcard_images": "ok",
+    "replace_tipcard_images": "ok"
   },
   "operations": [
     {
@@ -412,6 +414,24 @@
       "scope": "reviews:write",
       "kind": "mutation",
       "summary": "Atomically review one card and return the next occupant of that repeatable topic slot (promoted pending card or already-due sibling)."
+    },
+    {
+      "operation": "append_tipcard_images",
+      "request": "AppendTipcardImagesRequest",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "cards:write",
+      "kind": "mutation",
+      "summary": "Append validated uploads, owned pool images, or safe remote images to an owned tipcard."
+    },
+    {
+      "operation": "replace_tipcard_images",
+      "request": "ReplaceTipcardImagesRequest",
+      "result": "Empty",
+      "auth": "Bearer API key",
+      "scope": "cards:write",
+      "kind": "mutation",
+      "summary": "Replace an owned tipcard's images with validated uploads; an empty list clears them."
     }
   ]
 }

@@ -3,13 +3,15 @@ name: add-feature
 description: >
   Place new Denpie work in the correct layer and follow integration checklists for
   protobuf, dashboard, frontend, DB, and jobs. Use when adding a feature, endpoint,
-  domain rule, repository, migration, UI component, or scheduled job. Triggers:
-  new feature, add endpoint, new proto, migration, Yew component, where does this go.
+  domain rule, repository, migration, Astro island, shadcn, or scheduled job.
+  Triggers: new feature, add endpoint, new proto, migration, Astro island,
+  shadcn, where does this go.
 ---
 
 # Add feature (Denpie)
 
-Full detail: `docs/feature-integration.md`. Use CodeGraph first if the area is unfamiliar.
+Full detail: `docs/feature-integration.md`. Browser UI: `docs/frontend-astro.md`.
+Use CodeGraph first if the area is unfamiliar.
 
 ## Pick a layer
 
@@ -29,14 +31,15 @@ Full detail: `docs/feature-integration.md`. Use CodeGraph first if the area is u
 | What | Path |
 |---|---|
 | LLM | `src/llm/` |
-| Scheduling | `src/scheduling/` — SM-2 only (`FSRS` = legacy alias; do not claim real FSRS) |
+| Scheduling | `src/scheduling/` SM-2 only (`FSRS` is a legacy alias) |
 | Tests | `src/tests/` |
 | Router / entry | `src/app.rs` / `src/lib.rs` / `src/main.rs` |
 | Settings | `src/config/` |
 | Daily worker | `src/daily_refresh.rs` |
 | Images | `src/image_compress.rs`, `src/image_store.rs` |
-| Lab | `src/lab/`, `lab/cases/`, `just lab` — opt-in research, not CI |
+| Lab | `src/lab/`, `lab/cases/`, `just lab`. Opt-in research, not CI |
 | Proto | `proto/denpie.proto` |
+| Browser UI | `frontend-astro/`. Static Astro + React islands. |
 
 ## Checklists
 
@@ -77,19 +80,23 @@ Full detail: `docs/feature-integration.md`. Use CodeGraph first if the area is u
 
 ### New frontend strings
 
-1. Copy in `frontend/src/i18n/en.json` → `use_i18n().t("group.key")`
-2. Placeholders → `use_i18n().tf("group.key", &[("name", value)])`
-3. Group by surface: `nav.*`, `auth.*`, `toast.*`, `confirm.*`, …
-4. Do **not** translate protocol/storage IDs; map to labels at the UI edge
+Shared catalog: `frontend-astro/src/i18n/en.json`.
 
-### New Yew UI component
+1. Add the key under the surface group (`nav.*`, `auth.*`, `toast.*`, `confirm.*`, …)
+2. Astro: `t("group.key")` or `tf("group.key", { name: value })` from `@/lib/i18n`
+3. Map protocol/storage IDs at the UI edge. Unknown values stay visible as the raw ID.
+4. `just frontend-astro-i18n-check` must stay clean
 
-Frontend is **Yew/WASM** + Tailwind v4, **shadcn token-port** (not React, no shadcn CLI).
+### New Astro UI
 
-1. `frontend/src/components/<name>.rs` as `Shadcn<Name>` (see `button.rs`, `select.rs`)
-2. Semantic utility classes only — no raw colors / one-off `dark:`
-3. Register in `frontend/src/components/mod.rs`
-4. New tokens: every `[data-theme]` block in `frontend/index.html` + `@theme inline`
+1. Route in `frontend-astro/src/pages/`. Shell mapping in `src/islands/AppShell.tsx`. Screen in `src/components/pages/` or `src/components/flow/`.
+2. Transitions in `src/lib/` as pure functions. Requests start from effects or event handlers.
+3. Registry primitives: from `frontend-astro/`, `bunx --bun shadcn@latest add <name>`. Keep `shadcn diff` clean.
+4. Semantic Tailwind only. New tokens: every `[data-theme]` block in `src/styles/global.css`.
+5. Generated wire types in `src/generated/denpie_pb.ts`. Flow helpers in `src/lib/api-v1/ops.ts`; other routes in `route-ops.ts`. Card IDs stay `bigint`.
+6. `just frontend-astro-test`. Visible UI: `just ui-check` then `just playwright` on `:3027`.
+
+Detail: `docs/frontend-astro.md`.
 
 ### New database field
 

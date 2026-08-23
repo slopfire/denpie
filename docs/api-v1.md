@@ -182,6 +182,9 @@ ApiV1Request {
   defaults to 48 and is clamped to 1-100.
 - `get_tipcard` returns title, visual metadata, content, state, and downloadable
   image metadata.
+- `append_tipcard_images` adds validated uploads, owned pool images, or safe
+  remote images without exceeding the four-image limit. `replace_tipcard_images`
+  replaces the upload list; send an empty list to clear the card's images.
 - `create_document` and `upload_document` return the created document and ID.
 - `create_pool_image` returns the ID, annotation diagnostics, tags, and download
   path.

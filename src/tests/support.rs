@@ -154,11 +154,10 @@ fn test_frontend_dist() -> PathBuf {
 <html>
   <head>
     <title>Denpie</title>
-    <link rel="modulepreload" href="/frontend-test.js">
+    <link rel="stylesheet" href="/_astro/index.css">
   </head>
   <body>
-    <script type="module" src="/frontend-test.js"></script>
-    <link rel="preload" href="/frontend-test_bg.wasm" as="fetch" type="application/wasm">
+    <script type="module" src="/_astro/AppShell.js"></script>
   </body>
 </html>
 "#,

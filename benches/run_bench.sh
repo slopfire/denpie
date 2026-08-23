@@ -35,7 +35,7 @@ EOF
 export DENPIE_DATA_DIR="$BENCH_DIR"
 export DENPIE_BIND_ADDR="127.0.0.1:$BENCH_PORT"
 export DENPIE_SKIP_FRONTEND_BUILD=1
-export DENPIE_FRONTEND_DIST="$PROJECT_DIR/frontend/dist"
+export DENPIE_FRONTEND_DIST="$PROJECT_DIR/frontend-astro/dist"
 export DENPIE_STATIC_DIR="$PROJECT_DIR/static"
 export DATABASE_URL
 export DENPIE_DB_SCHEMA="$BENCH_SCHEMA"
@@ -308,8 +308,9 @@ bench_body() {
 # 1. Static root (no auth)
 bench "01_static_root" GET "/"
 
-# 2. WASM file (static, no auth)
-bench "02_static_wasm" GET "/static/frontend-cfdafaa14e5d912a_bg.wasm"
+# 2. Hashed Astro asset (static, no auth)
+STATIC_ASSET="$(grep -oE '/_astro/[^" ]+' "$PROJECT_DIR/frontend-astro/dist/index.html" 2>/dev/null | head -1 || true)"
+bench "02_static_asset" GET "${STATIC_ASSET:-/service-worker.js}"
 
 # 3-9. Session endpoints
 bench_session "03_app_summary"    GET "/app/summary"
@@ -349,7 +350,7 @@ echo "=========================================="
     echo "| # | Endpoint | Method | Path |"
     echo "|---|----------|--------|------|"
     echo "| 01 | Static root (no auth) | GET | / |"
-    echo "| 02 | Static WASM (no auth) | GET | /static/*.wasm |"
+    echo "| 02 | Static hashed asset (no auth) | GET | /_astro/* |"
     echo "| 03 | App summary (auth) | GET | /app/summary |"
     echo "| 04 | App topics (auth) | GET | /app/topics |"
     echo "| 05 | Admin settings (auth) | GET | /admin/settings |"
@@ -370,7 +371,7 @@ echo "=========================================="
 
     declare -A BENCH_NAMES
     BENCH_NAMES[01_static_root]="Static root"
-    BENCH_NAMES[02_static_wasm]="Static WASM"
+    BENCH_NAMES[02_static_asset]="Static hashed asset"
     BENCH_NAMES[03_app_summary]="App summary"
     BENCH_NAMES[04_app_topics]="App topics"
     BENCH_NAMES[05_admin_settings]="Admin settings"

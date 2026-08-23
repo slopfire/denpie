@@ -3,8 +3,9 @@
 `denpie-lab` is the **opt-in research runner** for Denpie. It shares production
 library code (`src/lab/` lives inside the same crate as the server) so a
 researcher can exercise the real image-retrieval path, inspect repeatable
-card UI states in the production Yew component, record mechanical results,
-compare runs, and leave visual judgement to a human.
+card UI states in the production `FlowCard`, record mechanical results,
+compare runs, and leave visual judgement to a human. The fixture page is
+`just lab-cards-ui` (`/lab-cards` on `:3027`).
 
 The lab is **not CI**. Live image and prompt benches make network requests and
 are inherently slow/flaky, so `just test`, `just verify`, and `just ci` never
@@ -71,28 +72,35 @@ just lab-cards-ui                       # real FlowCard fixtures on :3027
 `lab/cases/cards/repeatable-states.json` is the repeatable-card fixture pack.
 It is a JSON array with exactly seven fixtures: `active`, `pinned`,
 `reviewed-hold`, `await-refill`, `daily-complete`, `stacked`, and
-`llm-error`. Each fixture stores `id`, `topic_name`, `title`, `full_content`,
-`compressed_content`, `tipcard_type` (`repeatable_tip`), `status` (`active`
-or `reviewed`), `pinned`, `pending_count`, optional `review_message`, and
-`notes`.
+`llm-error`. Each fixture stores `id`, `topic_name`, `title`,
+`full_content`, `compressed_content`, `tipcard_type` (`repeatable_tip`),
+`status` (`active` or `reviewed`), `pinned`, `pending_count`, an optional
+`images` array of inline data URLs (at most four entries, matching the
+production per-card image cap; the loader rejects larger counts), optional
+`review_message`, and `notes`. The checked-in pack exercises one image
+(`active`), the four-image maximum (`stacked`), a single error-state image
+(`llm-error`), and zero images elsewhere.
 
 `run cards --dry-run` loads the pack and prints each fixture id, topic,
-status, pinned flag, pending count, and whether `review_message` is set.
-It writes nothing under `lab/runs/`.
+status, pinned flag, pending count, image count, and whether
+`review_message` is set. It writes nothing under `lab/runs/`.
 
 ## Production card UI lab
 
-`just lab-cards-ui` builds the frontend with the opt-in `lab-ui` feature and
-serves it on the agent-only port `:3027`. The feature replaces the normal app
-root with the checked-in fixtures wrapped in the real production `FlowCard`.
-It supports expand, fullscreen, pin, delete, and local review/Continue
-interactions. Image attach/clear controls are disabled, so the lab cannot
-write server image state.
+`just lab-cards-ui` builds the Astro frontend and serves `/lab-cards` on the
+agent-only port `:3027`. The page replaces the auth-gated app shell with the
+checked-in fixtures wrapped in the production card (`src/lib/lab-card-view.ts`
++ `components/content/LabGallery.tsx`). It supports expand, fullscreen, pin,
+delete, and local review/Continue interactions, including multi-image grids,
+the shared lightbox, error panels, review holds, and repeatable stack layers.
+Image attach/clear controls are disabled, so the lab cannot write server
+image state. The JSON pack is inlined at build time by vite `define`; there
+is no server call and no duplicate data file. It is not part of `ci` /
+`ui-check`.
 
 Review and Continue are deliberately local simulations. They prove the
-component states and event wiring, not `UnifiedFlow` replacement/refill or API
+component states and event wiring, not flow replacement/refill or API
 persistence; those remain production integration concerns and test targets.
-Normal frontend builds do not include the card-lab module.
 
 ## Static card catalog output
 
@@ -107,8 +115,9 @@ lab/runs/<utc-timestamp>-cards/
 `gallery.html` is a lightweight catalog, not production rendering. It has
 inline CSS only, no network assets, and no JS framework.
 It contains one section per fixture with topic and title, badges for status,
-pinned, pending count, and review message, a stack-layer count
-(`pending_count.min(3)` for `repeatable_tip`), and the compact and full text.
+pinned, pending count, image count, and review message, a stack-layer count
+(`pending_count.min(3)` for `repeatable_tip`), thumbnails for any fixture
+images, and the compact and full text.
 All fixture text is HTML-escaped before it is embedded.
 
 The runs directory is gitignored (`lab/runs/`).
@@ -218,6 +227,5 @@ evidence and leaves the decision to the researcher.
 
 `just lab-check` is the rerunnable proof for lab development. It exercises
 offline plans, strategy deduplication, unsafe-ID rejection, scorecard
-comparison, the focused Rust lab tests, the checked-in card fixture mapping,
-and a `lab-ui` frontend check. It never runs live network benches and never
-writes under `lab/runs/`.
+comparison, the focused Rust lab tests, and the Astro `/lab-cards` fixture
+page. It never runs live network benches and never writes under `lab/runs/`.

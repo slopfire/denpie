@@ -8,10 +8,10 @@ Daily tip cards with SM-2 review. Rust/Axum backend. Any OpenAI-compatible LLM.
 just shell       # or nix-shell  (~30s first time)
 just setup       # verify toolchain
 just db-up       # start local PostgreSQL
-just dev         # backend + frontend watchers
+just dev         # backend + Astro watchers. Open http://localhost:4321/
 ```
 
-No Nix? Need Rust 1.95.0, `wasm32-unknown-unknown`, Trunk, `protoc`, and Docker Compose (or PostgreSQL 19 beta 2 + `psql`). Pin is in `rust-toolchain.toml`.
+No Nix? Need Rust 1.95.0, `protoc`, bun, and Docker Compose (or PostgreSQL 19 beta 2 + `psql`). Pin is in `rust-toolchain.toml`.
 
 ### First boot (~2 min)
 
@@ -72,15 +72,17 @@ just lab-cards-ui     # production FlowCard fixtures on isolated :3027
 just agent-server     # isolated :3027 runtime, test login, smoke
 just playwright-install # install local Playwright + Chromium (once per clone)
 just playwright       # headless Chromium UI smoke against isolated :3027
-just ui-check         # frontend release build + agent oneshot smoke
-just ci               # verify + release frontend build
+just frontend-astro-test  # Astro catalog + Bun tests
+just ui-check         # Astro build + agent oneshot smoke
+just ci               # verify + Astro tests and release build
 ```
 
 `just lab` is the opt-in research runner (see `docs/lab.md`). It is not part of
 `just test`, `just verify`, or `just ci`; live `just lab run images` and
 `just lab run prompts` use the network. `run cards` builds its gallery
-locally. `just lab-cards-ui` mounts the checked-in states in the real Yew
-`FlowCard`; its actions are local simulations and cannot mutate server images.
+locally. `just lab-cards-ui` mounts the checked-in states in the production
+`FlowCard` at `/lab-cards` on `:3027`. Its actions are local simulations and
+cannot mutate server images. New UI work: [`docs/frontend-astro.md`](docs/frontend-astro.md).
 
 ```bash
 RUST_LOG=denpie=debug just backend
@@ -101,6 +103,7 @@ Grounding/image strategies log stage progress at `info`. LLM transport detail is
 | `POST /api` compatibility reference | [`docs/protobuf-api.md`](docs/protobuf-api.md) |
 | Agent ops cheat sheet | [`docs/agent-server-guide.md`](docs/agent-server-guide.md) |
 | Where new code goes | [`docs/feature-integration.md`](docs/feature-integration.md) |
+| Browser UI | [`docs/frontend-astro.md`](docs/frontend-astro.md) |
 | Opt-in research lab | [`docs/lab.md`](docs/lab.md) |
 
 ## Config
@@ -200,7 +203,7 @@ Topic cards link to their queued pending cards and reviewed SM-2 scheduled cards
 | `DENPIE_RP_EXTRA_ORIGINS` | none |
 | `DENPIE_PROD` | off (on for `https`) |
 | `DENPIE_DATA_DIR` | current directory |
-| `DENPIE_FRONTEND_DIST` | `./frontend/dist` |
+| `DENPIE_FRONTEND_DIST` | `./frontend-astro/dist` |
 | `DENPIE_STATIC_DIR` | `./static` |
 | `DENPIE_IMAGE_DIR` | `$DENPIE_DATA_DIR/tipcard-images` |
 
@@ -270,7 +273,7 @@ src/
 proto/denpie.proto
 migrations/    # embedded SQLx PostgreSQL migrations
 schema.sql     # canonical fresh PostgreSQL schema
-frontend/       # Yew + Tailwind
+frontend-astro/ # Astro + React islands (served UI)
 settings.yaml   # local only — do not commit
 ```
 
@@ -298,7 +301,7 @@ settings.yaml   # local only — do not commit
 just test
 ```
 
-Integration tests use real servers on ephemeral ports, isolated PostgreSQL schemas, and isolated temp settings. Start the local database with `just db-up`; `just ci` also runs fmt, clippy, and a release frontend build.
+Integration tests use real servers on ephemeral ports, isolated PostgreSQL schemas, and isolated temp settings. Start the local database with `just db-up`; `just ci` also runs fmt, clippy, Astro tests, and an Astro release build.
 
 ## Stack
 
@@ -310,7 +313,7 @@ Integration tests use real servers on ephemeral ports, isolated PostgreSQL schem
 | Runtime | Tokio |
 | LLM | `async-openai` + dedicated 300s `reqwest` client |
 | Wire format | Protobuf (`prost`) |
-| Frontend | Yew/WASM + Tailwind v4 (shadcn token-port) |
+| Frontend | Astro + React + Tailwind v4 (shadcn CLI) in `frontend-astro/` |
 | Public API | `POST /api` |
 
 ## License

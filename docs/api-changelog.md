@@ -3,6 +3,13 @@
 This log records consumer-visible changes to the versioned public API. Entries
 describe wire behavior rather than dashboard internals.
 
+## 2026-08-23 — Versioned tipcard image editing
+
+- Added replayable `append_tipcard_images` and `replace_tipcard_images`
+  operations. Clients can attach validated uploads, owned pool images, or safe
+  remote images, and can replace or clear an owned card's image list without
+  using dashboard-only JSON endpoints.
+
 ## 2026-08-16 — Stable Continue slot identity
 
 - `ContinueDailyReviewResponse.active_card_id` additively identifies the exact

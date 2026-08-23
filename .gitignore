@@ -19,9 +19,9 @@ tipcard-images/
 lab/runs/
 
 # Frontend
-frontend/dist/
-frontend/.trunk/
-frontend/.dev-build-stamp
+frontend-astro/.astro/
+frontend-astro/dist/
+frontend-astro/.dev-build-stamp
 node_modules/
 test-results/
 playwright-report/

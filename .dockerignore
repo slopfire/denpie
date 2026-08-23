@@ -7,3 +7,5 @@ target
 settings.yaml
 __pycache__
 denpie_pb2.py
+frontend-astro/node_modules
+frontend-astro/.astro

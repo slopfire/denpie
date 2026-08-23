@@ -129,7 +129,7 @@ pub async fn run() {
 
     let frontend_dist = std::env::var_os("DENPIE_FRONTEND_DIST")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("frontend/dist"));
+        .unwrap_or_else(|| PathBuf::from("frontend-astro/dist"));
 
     let shared_state = Arc::new(AppState {
         db: pool,
@@ -182,7 +182,7 @@ fn init_tracing() {
     tracing_subscriber::fmt().with_env_filter(filter).init();
 }
 
-const DEV_FRONTEND_BUILD_STAMP: &str = "debug-v2";
+const DEV_FRONTEND_BUILD_STAMP: &str = "astro-v1";
 
 fn build_frontend_for_cargo_run() {
     if !cfg!(debug_assertions) {
@@ -195,22 +195,20 @@ fn build_frontend_for_cargo_run() {
     if std::env::var_os("DENPIE_FRONTEND_DIST").is_some() {
         return;
     }
-    let frontend_dir = PathBuf::from("frontend");
-    if !frontend_dir.join("index.html").exists() {
+    let frontend_dir = PathBuf::from("frontend-astro");
+    if !frontend_dir.join("package.json").exists() {
         return;
     }
     if dev_frontend_build_stamp_matches(&frontend_dir) && frontend_dist_is_fresh(&frontend_dir) {
-        tracing::info!("frontend dist is up to date; skipping trunk build");
+        tracing::info!("frontend dist is up to date; skipping Astro build");
         return;
     }
-    tracing::info!("building frontend with trunk build (debug)");
-    let status = Command::new("trunk")
-        .arg("build")
-        .env_remove("NO_COLOR")
-        .current_dir(&frontend_dir)
+    tracing::info!("building frontend with bun run build");
+    let status = Command::new("sh")
+        .arg("scripts/build-frontend.sh")
         .status()
         .unwrap_or_else(|err| {
-            panic!("failed to run trunk; install it with `cargo install trunk --locked`: {err}")
+            panic!("failed to run scripts/build-frontend.sh; install bun (https://bun.sh): {err}")
         });
     if !status.success() {
         panic!("frontend build failed with status {status}");
@@ -243,11 +241,11 @@ fn frontend_dist_is_fresh(frontend_dir: &Path) -> bool {
     };
 
     for path in [
-        frontend_dir.join("Cargo.toml"),
-        frontend_dir.join("index.html"),
-        frontend_dir.join("Trunk.toml"),
-        frontend_dir.join("service-worker.js"),
-        frontend_dir.join("src/passkeys.js"),
+        frontend_dir.join("package.json"),
+        frontend_dir.join("astro.config.mjs"),
+        frontend_dir.join("tsconfig.json"),
+        frontend_dir.join("public/service-worker.js"),
+        PathBuf::from("lab/cases/cards/repeatable-states.json"),
     ] {
         if path.is_file() && file_is_newer_than(&path, dist_mtime) {
             return false;

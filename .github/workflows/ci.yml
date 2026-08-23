@@ -13,8 +13,6 @@ concurrency:
 env:
   DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || github.event.repository.name }}
   CARGO_TERM_COLOR: always
-  # Pin Trunk so frontend builds do not drift with :latest.
-  TRUNK_VERSION: "0.21.13"
 
 jobs:
   rust:
@@ -44,7 +42,6 @@ jobs:
         with:
           toolchain: 1.95.0
           components: rustfmt, clippy
-          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -79,30 +76,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: oven-sh/setup-bun@v2
         with:
-          toolchain: 1.95.0
-          targets: wasm32-unknown-unknown
+          bun-version: latest
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci
-          cache-all-crates: true
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+        working-directory: frontend-astro
 
-      - name: Install Trunk ${{ env.TRUNK_VERSION }}
-        run: |
-          curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
-            | tar xz -C ~/.cargo/bin
-          trunk --version
+      - name: Check topic icons
+        run: bun run check:topic-icons
+        working-directory: frontend-astro
+
+      - name: Check i18n catalog usage
+        run: bun run check:i18n
+        working-directory: frontend-astro
+
+      - name: Run frontend tests
+        run: bun test
+        working-directory: frontend-astro
 
       - name: Build frontend
-        run: cd frontend && env -u NO_COLOR trunk build --release
+        run: bun run build
+        working-directory: frontend-astro
 
       - name: Upload frontend dist
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
-          path: frontend/dist/
+          path: frontend-astro/dist/
           retention-days: 1
 
   api-docs:
@@ -164,7 +166,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: frontend-dist
-          path: frontend/dist/
+          path: frontend-astro/dist/
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

@@ -94,6 +94,8 @@ message ApiRequest {
         ReviewRequestV1 review_v1 = 41;
         CreateApiKeyV1Request create_api_key_v1 = 42;
         ReviewAndAdvanceRequest review_and_advance = 43;
+        AppendTipcardImagesRequest append_tipcard_images = 44;
+        ReplaceTipcardImagesRequest replace_tipcard_images = 45;
     }
 }
 
@@ -478,6 +480,18 @@ message FlowCardPage {
 
 message TipcardDetail {
     FlowCardInfo card = 1;
+}
+
+message AppendTipcardImagesRequest {
+    int64 card_id = 1;
+    repeated string image_data = 2;
+    repeated int64 pool_image_ids = 3;
+    repeated string urls = 4;
+}
+
+message ReplaceTipcardImagesRequest {
+    int64 card_id = 1;
+    repeated string image_data = 2;
 }
 
 message DocumentDetail {

@@ -1061,6 +1061,134 @@ async fn test_v1_idempotency_replays_results_and_rejects_payload_conflicts() {
 }
 
 #[tokio::test]
+async fn test_v1_tipcard_image_mutations_append_replay_clear_and_reject_foreign_card() {
+    let (url, client) = spawn_test_server().await;
+    let api_key = bootstrap_api_key(&url, &client, "tipcard_image_mutations").await;
+    let created = post_api(
+        &url,
+        &client,
+        crate::api::pb::ApiRequest {
+            auth: api_key.clone(),
+            op: Some(crate::api::pb::api_request::Op::SubmitCustomTipcard(
+                crate::api::pb::CustomTipcardRequest {
+                    topic: "image contract".into(),
+                    full_content: "Card with managed images".into(),
+                    compressed_content: "Managed images".into(),
+                    title: "Managed images".into(),
+                },
+            )),
+        },
+    )
+    .await;
+    assert_eq!(created.status(), reqwest::StatusCode::OK);
+    let created = crate::api::pb::ApiResponse::decode(created.bytes().await.unwrap()).unwrap();
+    let card_id = match created.result.unwrap() {
+        crate::api::pb::api_response::Result::Tips(tips) => tips.tips[0].id,
+        other => panic!("unexpected response: {other:?}"),
+    };
+    let pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    let append_call = crate::api::pb::ApiRequest {
+        auth: String::new(),
+        op: Some(crate::api::pb::api_request::Op::AppendTipcardImages(
+            crate::api::pb::AppendTipcardImagesRequest {
+                card_id,
+                image_data: vec![pixel.to_string()],
+                pool_image_ids: vec![],
+                urls: vec![],
+            },
+        )),
+    };
+    let appended = post_api_v1_with_idempotency(
+        &url,
+        &client,
+        Some(&api_key),
+        "append-image-first",
+        "append-image-once",
+        append_call.clone(),
+    )
+    .await;
+    assert_eq!(appended.status(), reqwest::StatusCode::OK);
+    let replay = post_api_v1_with_idempotency(
+        &url,
+        &client,
+        Some(&api_key),
+        "append-image-replay",
+        "append-image-once",
+        append_call,
+    )
+    .await;
+    assert_eq!(replay.status(), reqwest::StatusCode::OK);
+    assert_eq!(replay.headers()["idempotency-replayed"], "true");
+
+    let detail = post_api_v1(
+        &url,
+        &client,
+        Some(&api_key),
+        "image-detail-after-append",
+        crate::api::pb::ApiRequest {
+            auth: String::new(),
+            op: Some(crate::api::pb::api_request::Op::GetTipcard(
+                crate::api::pb::GetByIdRequest { id: card_id },
+            )),
+        },
+    )
+    .await;
+    let detail = crate::api::pb::ApiV1Response::decode(detail.bytes().await.unwrap()).unwrap();
+    let image_count = match detail.outcome.unwrap() {
+        crate::api::pb::api_v1_response::Outcome::Success(success) => match success.result.unwrap()
+        {
+            crate::api::pb::api_response::Result::TipcardDetail(detail) => {
+                detail.card.unwrap().images.len()
+            }
+            other => panic!("unexpected response: {other:?}"),
+        },
+        other => panic!("unexpected response: {other:?}"),
+    };
+    assert_eq!(
+        image_count, 1,
+        "idempotency replay must not duplicate the image"
+    );
+
+    let cleared = post_api_v1(
+        &url,
+        &client,
+        Some(&api_key),
+        "clear-images",
+        crate::api::pb::ApiRequest {
+            auth: String::new(),
+            op: Some(crate::api::pb::api_request::Op::ReplaceTipcardImages(
+                crate::api::pb::ReplaceTipcardImagesRequest {
+                    card_id,
+                    image_data: vec![],
+                },
+            )),
+        },
+    )
+    .await;
+    assert_eq!(cleared.status(), reqwest::StatusCode::OK);
+
+    let missing = post_api_v1(
+        &url,
+        &client,
+        Some(&api_key),
+        "append-image-missing",
+        crate::api::pb::ApiRequest {
+            auth: String::new(),
+            op: Some(crate::api::pb::api_request::Op::AppendTipcardImages(
+                crate::api::pb::AppendTipcardImagesRequest {
+                    card_id: i64::MAX,
+                    image_data: vec![pixel.to_string()],
+                    pool_image_ids: vec![],
+                    urls: vec![],
+                },
+            )),
+        },
+    )
+    .await;
+    assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn test_v1_idempotency_handles_concurrency_failures_and_required_keys() {
     let (url, client) = spawn_test_server().await;
     let api_key = bootstrap_api_key(&url, &client, "idempotency_concurrency").await;

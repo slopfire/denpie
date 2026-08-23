@@ -1,0 +1,48 @@
+---
+// Opt-in lab page: the checked-in repeatable-card fixtures rendered through
+// the production card projection. Standalone on purpose — it replaces the
+// normal app shell instead of nesting inside the auth-gated AppShell. Static
+// data; no server calls; not in navigation.
+// `__LAB_CARD_FIXTURES__` is inlined from
+// lab/cases/cards/repeatable-states.json by vite `define` (astro.config.mjs).
+import "../styles/global.css";
+import { LabGallery } from "@/components/content/LabGallery";
+import type { LabCardFixtureJson } from "@/lib/lab-card-view";
+
+declare const __LAB_CARD_FIXTURES__: string;
+
+const fixtures = JSON.parse(
+    __LAB_CARD_FIXTURES__,
+) as LabCardFixtureJson[];
+---
+
+<!doctype html>
+<html lang="en" data-theme="shadcn">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width" />
+        <title>Card Lab · Denpie</title>
+    </head>
+    <body class="bg-background text-foreground">
+        <main>
+            <header
+                class="mx-auto w-full max-w-6xl border-b border-border px-4 pt-8 pb-6"
+            >
+                <h1 class="text-2xl font-bold">
+                    Production flow-card fixtures
+                </h1>
+                <p class="mt-2 text-muted-foreground">
+                    Checked-in states mount the same flow card used by
+                    Transmission and Archive. Expand, review, pin, delete,
+                    inspect errors, and enter fullscreen without writing
+                    server data.
+                </p>
+                <p class="mt-1 text-sm text-muted-foreground">
+                    {fixtures.length} fixtures · <code>just lab-cards-ui</code> on
+                    :3027
+                </p>
+            </header>
+            <LabGallery client:load fixtures={fixtures} />
+        </main>
+    </body>
+</html>

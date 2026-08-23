@@ -60,7 +60,7 @@ Implemented shape:
 
 1. `src/llm/images/bing.rs` owns static discovery and the checked-in parser fixture.
 2. `ImageStrategy::BingHtml` uses setting string `bing_html` and dispatches in `src/llm/images/mod.rs`.
-3. Global and per-topic settings expose the strategy with copy in `frontend/src/i18n/en.json`.
+3. Global and per-topic settings expose the strategy with copy in the English catalog `frontend-astro/src/i18n/en.json`.
 4. Domain: `ImageStrategy::from_setting` / `as_str` in `src/domain/grounding.rs`. Unknown values must keep falling back to `None`.
 5. Enrichment still calls `retrieve_image` from `src/services/image_enrichment.rs`; no new job table was needed. A strategy miss completes the job without an image. Saving a new image strategy requeues failed jobs and completed jobs that never attached an image. Legacy remote strategy values resolve to `bing_html`.
 

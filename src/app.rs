@@ -71,7 +71,7 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
     );
     // Card and pool image GETs are same-origin <img> loads. Sharing the POST
     // /api/v1 burst of 50 with a page of thumbnails 429s review clicks and
-    // used to return plain text the WASM client decoded as protobuf.
+    // used to return plain text the browser decoded as protobuf.
     let image_governor_conf = Arc::new(
         GovernorConfigBuilder::default()
             .period(replenish_interval(IMAGE_REQUESTS_PER_SECOND))
@@ -383,7 +383,7 @@ async fn service_worker() -> Response {
                 HeaderValue::from_static("no-cache, max-age=0, must-revalidate"),
             ),
         ],
-        include_str!("../frontend/service-worker.js"),
+        include_str!("../frontend-astro/public/service-worker.js"),
     )
         .into_response()
 }
@@ -459,9 +459,7 @@ fn is_frontend_document(path: &str) -> bool {
 }
 
 fn is_hashed_frontend_asset(path: &str) -> bool {
-    path.starts_with("/snippets/")
-        || ((path.starts_with("/frontend-") || path.contains("/frontend-"))
-            && (path.ends_with(".wasm") || path.ends_with(".js") || path.ends_with(".css")))
+    path.starts_with("/_astro/")
 }
 
 #[cfg(test)]
@@ -474,17 +472,15 @@ mod cache_tests {
         assert!(is_frontend_document("/flow"));
         assert!(is_frontend_document("/archive/cards"));
         assert!(is_frontend_document("/index.html"));
-        assert!(!is_frontend_document("/frontend-abc123.js"));
+        assert!(!is_frontend_document("/_astro/AppShell.js"));
     }
 
     #[test]
     fn only_built_frontend_assets_are_treated_as_immutable() {
-        assert!(is_hashed_frontend_asset("/frontend-abc123.js"));
-        assert!(is_hashed_frontend_asset("/frontend-abc123_bg.wasm"));
-        assert!(is_hashed_frontend_asset(
-            "/snippets/frontend-aebe9231459ec4d1/src/passkeys.js"
-        ));
+        assert!(is_hashed_frontend_asset("/_astro/AppShell.Dc70N9Ko.js"));
+        assert!(is_hashed_frontend_asset("/_astro/Flow.CmqepcG-.css"));
         assert!(!is_hashed_frontend_asset("/service-worker.js"));
+        assert!(!is_hashed_frontend_asset("/account/index.html"));
     }
 
     #[test]

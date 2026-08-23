@@ -17,6 +17,14 @@
       "result_field": "ok",
       "scope": "images:write"
     },
+    "append_tipcard_images": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "AppendTipcardImagesRequest",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "cards:write"
+    },
     "attach_document_topic": {
       "auth": "Bearer API key",
       "kind": "mutation",
@@ -245,6 +253,14 @@
       "auth": "Bearer API key",
       "kind": "mutation",
       "request": "PinTipcardRequest",
+      "result": "Empty",
+      "result_field": "ok",
+      "scope": "cards:write"
+    },
+    "replace_tipcard_images": {
+      "auth": "Bearer API key",
+      "kind": "mutation",
+      "request": "ReplaceTipcardImagesRequest",
       "result": "Empty",
       "result_field": "ok",
       "scope": "cards:write"
@@ -645,6 +661,12 @@
             "oneof": "op",
             "type": "AddPoolImageRequest"
           },
+          "append_tipcard_images": {
+            "cardinality": "singular",
+            "number": 44,
+            "oneof": "op",
+            "type": "AppendTipcardImagesRequest"
+          },
           "attach_document_topic": {
             "cardinality": "singular",
             "number": 28,
@@ -824,6 +846,12 @@
             "number": 19,
             "oneof": "op",
             "type": "PinTipcardRequest"
+          },
+          "replace_tipcard_images": {
+            "cardinality": "singular",
+            "number": 45,
+            "oneof": "op",
+            "type": "ReplaceTipcardImagesRequest"
           },
           "review": {
             "cardinality": "singular",
@@ -1217,6 +1245,35 @@
             "number": 1,
             "oneof": null,
             "type": "AppTopicInfo"
+          }
+        },
+        "reserved": []
+      },
+      "AppendTipcardImagesRequest": {
+        "fields": {
+          "card_id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "image_data": {
+            "cardinality": "repeated",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "pool_image_ids": {
+            "cardinality": "repeated",
+            "number": 3,
+            "oneof": null,
+            "type": "int64"
+          },
+          "urls": {
+            "cardinality": "repeated",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
           }
         },
         "reserved": []
@@ -1869,6 +1926,23 @@
             "number": 1,
             "oneof": null,
             "type": "PoolImageInfo"
+          }
+        },
+        "reserved": []
+      },
+      "ReplaceTipcardImagesRequest": {
+        "fields": {
+          "card_id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          },
+          "image_data": {
+            "cardinality": "repeated",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
           }
         },
         "reserved": []

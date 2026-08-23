@@ -61,6 +61,7 @@ full flow reload is not required.
 | `create_api_key` / `list_api_keys` / `delete_api_key` | key / list / `ok` | Full-access keys; raw key never re-returned |
 | `get_topics` / `list_app_topics` / `list_admin_topics` | topics | Names, due/completed counts, prompt overrides |
 | `list_tipcards` / `delete_tipcard` / `pin_tipcard` | cards / `ok` | Inventory, delete, pin |
+| `append_tipcard_images` / `replace_tipcard_images` | `ok` | Append validated images, or replace and clear a card's images |
 | `update_topic` / `delete_topic` | `ok` | Prompt/daily/compression/grounding/image overrides; full topic wipe |
 | `get_summary` | `summary` | Card/topic counts |
 | `submit_custom_tipcard` | `tips` | External `custom_tip`, no review state |
