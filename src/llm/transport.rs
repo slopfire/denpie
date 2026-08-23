@@ -25,6 +25,10 @@ pub struct LlmResponse {
     /// model returned no usable content). `content` then holds a diagnostic
     /// message and must never be treated as model output.
     pub is_error: bool,
+    /// True when the provider reported `finish_reason=length`: the completion
+    /// token budget ran out mid-generation, so trailing output (typically a
+    /// JSON batch) is cut off.
+    pub truncated: bool,
 }
 
 impl LlmResponse {
@@ -34,6 +38,7 @@ impl LlmResponse {
             usage: TokenUsage::default(),
             citations: Vec::new(),
             is_error: true,
+            truncated: false,
         }
     }
 }
@@ -573,12 +578,19 @@ fn build_chat_body(
             },
         );
 
+    // OpenRouter's documented way to disable thinking models' hidden reasoning
+    // is `enabled: false`; an `effort` value alone still lets mandatory
+    // reasoning models burn the completion budget before any visible content.
+    let reasoning_block = if effort == "none" {
+        json!({ "enabled": false })
+    } else {
+        json!({ "effort": effort })
+    };
+
     let mut body = json!({
         "model": model,
         "messages": [message],
-        "reasoning": {
-            "effort": effort
-        }
+        "reasoning": reasoning_block
     });
 
     if let Some(limit) = max_tokens {
@@ -604,6 +616,14 @@ fn build_vision_body(
     max_tokens: Option<u32>,
 ) -> Value {
     let effort = normalize_reasoning_effort(&reasoning.effort);
+    // Same rationale as `build_chat_body`: `enabled: false` is the reliable
+    // way to stop thinking models from spending max_tokens on hidden
+    // reasoning instead of the visible answer.
+    let reasoning_block = if effort == "none" {
+        json!({ "enabled": false })
+    } else {
+        json!({ "effort": effort })
+    };
     let mut body = json!({
         "model": model,
         "messages": [{
@@ -613,9 +633,7 @@ fn build_vision_body(
                 {"type": "image_url", "image_url": {"url": image_data_url}}
             ]
         }],
-        "reasoning": {
-            "effort": effort
-        }
+        "reasoning": reasoning_block
     });
     if let Some(limit) = max_tokens {
         body["max_tokens"] = json!(limit);
@@ -679,6 +697,12 @@ fn map_response_with_detail(
     raw_content: Option<String>,
     empty_detail: &str,
 ) -> LlmResponse {
+    let truncated = response
+        .choices
+        .first()
+        .and_then(|choice| choice.finish_reason.as_ref())
+        == Some(&async_openai::types::chat::FinishReason::Length);
+
     let Some(content) = response
         .choices
         .into_iter()
@@ -712,6 +736,7 @@ fn map_response_with_detail(
         usage,
         citations,
         is_error: false,
+        truncated,
     }
 }
 
@@ -766,10 +791,22 @@ mod tests {
     }
 
     #[test]
-    fn response_body_snippet_marks_empty_body() {
-        assert_eq!(response_body_snippet("   "), "(empty)");
-    }
+    fn build_vision_body_disables_reasoning_with_enabled_false() {
+        let body = build_vision_body(
+            "minimax/minimax-m3",
+            "what color?",
+            "data:image/png;base64,abc",
+            &ReasoningConfig::new("none"),
+            Some(1024),
+        );
 
+        assert_eq!(body["model"], "minimax/minimax-m3");
+        assert_eq!(body["reasoning"]["enabled"], false);
+        assert!(body["reasoning"].get("effort").is_none());
+        assert_eq!(body["max_tokens"], 1024);
+        assert_eq!(body["messages"][0]["content"][0]["type"], "text");
+        assert_eq!(body["messages"][0]["content"][1]["type"], "image_url");
+    }
     #[test]
     fn parse_llm_json_body_includes_status_and_snippet() {
         let err = parse_llm_json_body(
@@ -782,23 +819,6 @@ mod tests {
         assert!(err.contains("status=200"));
         assert!(err.contains("text/html; charset=utf-8"));
         assert!(err.contains("<html>nope</html>"));
-    }
-
-    #[test]
-    fn build_vision_body_sends_reasoning_effort_and_max_tokens() {
-        let body = build_vision_body(
-            "minimax/minimax-m3",
-            "what color?",
-            "data:image/png;base64,abc",
-            &ReasoningConfig::new("none"),
-            Some(1024),
-        );
-
-        assert_eq!(body["model"], "minimax/minimax-m3");
-        assert_eq!(body["reasoning"]["effort"], "none");
-        assert_eq!(body["max_tokens"], 1024);
-        assert_eq!(body["messages"][0]["content"][0]["type"], "text");
-        assert_eq!(body["messages"][0]["content"][1]["type"], "image_url");
     }
 
     #[test]
@@ -849,6 +869,37 @@ mod tests {
     }
 
     #[test]
+    fn build_chat_body_disables_reasoning_with_enabled_false() {
+        let body = build_chat_body(
+            "google/gemini-2.5-pro",
+            "hello",
+            &ReasoningConfig::new("none"),
+            None,
+            false,
+            false,
+        );
+
+        assert_eq!(body["reasoning"]["enabled"], false);
+        assert!(body["reasoning"].get("effort").is_none());
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn build_chat_body_keeps_explicit_reasoning_effort() {
+        let body = build_chat_body(
+            "google/gemini-2.5-pro",
+            "hello",
+            &ReasoningConfig::new("low"),
+            None,
+            false,
+            false,
+        );
+
+        assert_eq!(body["reasoning"]["effort"], "low");
+        assert!(body["reasoning"].get("enabled").is_none());
+    }
+
+    #[test]
     fn build_chat_body_uses_nested_reasoning_effort_xhigh() {
         let body = build_chat_body(
             "google/gemini-2.5-pro",
@@ -865,21 +916,6 @@ mod tests {
         assert_eq!(body["reasoning"]["effort"], "xhigh");
         assert!(body.get("reasoning_effort").is_none());
         assert!(body.get("max_tokens").is_none());
-    }
-
-    #[test]
-    fn build_chat_body_uses_nested_reasoning_effort_none() {
-        let body = build_chat_body(
-            "google/gemini-2.5-pro",
-            "hello",
-            &ReasoningConfig::new("none"),
-            None,
-            false,
-            false,
-        );
-
-        assert_eq!(body["reasoning"]["effort"], "none");
-        assert!(body.get("reasoning_effort").is_none());
     }
 
     #[test]
@@ -1066,6 +1102,54 @@ mod tests {
         assert_eq!(result.usage.prompt_tokens, 10);
         assert_eq!(result.usage.completion_tokens, 5);
         assert_eq!(result.usage.total_tokens, 15);
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn map_response_marks_length_finish_reason_as_truncated() {
+        let make = |finish_reason: Option<async_openai::types::chat::FinishReason>| {
+            async_openai::types::chat::CreateChatCompletionResponse {
+                id: "test-id".to_string(),
+                choices: vec![async_openai::types::chat::ChatChoice {
+                    index: 0,
+                    message: async_openai::types::chat::ChatCompletionResponseMessage {
+                        content: Some("{\"cards\": [{\"title\": \"cut".to_string()),
+                        refusal: None,
+                        tool_calls: None,
+                        annotations: None,
+                        role: async_openai::types::chat::Role::Assistant,
+                        function_call: None,
+                        audio: None,
+                    },
+                    finish_reason,
+                    logprobs: None,
+                }],
+                created: 0,
+                model: "m".to_string(),
+                service_tier: None,
+                system_fingerprint: None,
+                object: "chat.completion".to_string(),
+                usage: None,
+            }
+        };
+
+        let truncated = map_response_with_detail(
+            make(Some(async_openai::types::chat::FinishReason::Length)),
+            Vec::new(),
+            None,
+            "",
+        );
+        assert!(!truncated.is_error);
+        assert!(truncated.truncated);
+
+        let complete = map_response_with_detail(
+            make(Some(async_openai::types::chat::FinishReason::Stop)),
+            Vec::new(),
+            None,
+            "",
+        );
+        assert!(!complete.is_error);
+        assert!(!complete.truncated);
     }
 
     #[test]

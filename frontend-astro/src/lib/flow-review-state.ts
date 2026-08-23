@@ -3,6 +3,7 @@
 // owns when transitions run; this module owns what the next state is and
 // ignores stale request generations.
 
+import { tf } from "./i18n";
 import type {
   FlowCardInfo,
   ReviewActionValue,
@@ -81,6 +82,8 @@ export type ReviewSlot =
       kind: "continuing";
       generation: number;
       attempt: ContinueAttempt;
+      /** Wall-clock start of this generation, drives the elapsed indicator. */
+      startedAt: number;
     } & ReviewedSlotIdentity)
   /**
    * A Continue mutation failed. Records whether the outcome was
@@ -394,6 +397,48 @@ export function refillPollMiss(
   );
 }
 
+/** Seconds since `startedAt` at `now`, floored at zero against clock skew. */
+export function continueElapsedSeconds(startedAt: number, now: number): number {
+  return Math.max(0, Math.floor((now - startedAt) / 1000));
+}
+
+/** Compact m:ss rendering for the Continue progress indicator. */
+export function formatContinueElapsed(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+/** Seconds of silence before the elapsed m:ss counter joins the description. */
+export const CONTINUE_TICK_AFTER_SECONDS = 5;
+
+/** Seconds before a spinning Continue escalates to a patience message. */
+export const CONTINUE_SLOW_AFTER_SECONDS = 45;
+
+/**
+ * Text shown while a Continue runs. Plain description at first, then the
+ * elapsed m:ss so a long backend generation does not read as a frozen UI,
+ * finally an explicit patience message for research-grade waits.
+ */
+export function continuingStatusText(
+  elapsedSeconds: number,
+  topicName: string,
+): string {
+  if (elapsedSeconds >= CONTINUE_SLOW_AFTER_SECONDS) {
+    return tf("flow.continuing_slow_description", {
+      topic: topicName,
+      elapsed: formatContinueElapsed(elapsedSeconds),
+    });
+  }
+  if (elapsedSeconds >= CONTINUE_TICK_AFTER_SECONDS) {
+    return tf("flow.continuing_elapsed_description", {
+      topic: topicName,
+      elapsed: formatContinueElapsed(elapsedSeconds),
+    });
+  }
+  return tf("flow.continuing_description", { topic: topicName });
+}
+
 /**
  * Begin continuing `reviewedCardId` with the caller-owned attempt. Only a
  * `completed` slot may start a Continue; a `continueError` slot retries via
@@ -427,6 +472,7 @@ export function startContinue(
           kind: "continuing",
           generation: 1,
           attempt,
+          startedAt: Date.now(),
           reviewedCardId: current.reviewedCardId,
           topicName: current.topicName,
           title: current.title,
@@ -440,6 +486,7 @@ export function startContinue(
             kind: "continuing",
             generation: current.generation + 1,
             attempt,
+            startedAt: Date.now(),
             reviewedCardId: current.reviewedCardId,
             topicName: current.topicName,
             title: current.title,

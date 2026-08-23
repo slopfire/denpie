@@ -101,12 +101,13 @@ const BATCH_MAX_ATTEMPTS: usize = 2;
 /// asks the provider for strict JSON output.
 pub(crate) async fn generate_batch_with_retry(
     input: &GroundingInput<'_>,
-    max_tokens: u32,
+    starting_max_tokens: u32,
     web_search: bool,
     json_object: bool,
 ) -> Result<Vec<GeneratedCard>, String> {
     let prompt = batch_prompt(input);
     let mut last_error = String::new();
+    let mut max_tokens = starting_max_tokens;
     for attempt in 1..=BATCH_MAX_ATTEMPTS {
         let started = std::time::Instant::now();
         let response = if web_search {
@@ -152,14 +153,28 @@ pub(crate) async fn generate_batch_with_retry(
                 error = %last_error,
                 "grounding batch request failed"
             );
-            if attempt < BATCH_MAX_ATTEMPTS {
-                tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+            // Transport-level failures are already retried inside the
+            // transport; only a completion-token limit error benefits from a
+            // retry with a larger budget.
+            if attempt < BATCH_MAX_ATTEMPTS
+                && response.content.contains("completion token limit")
+                && let Some(next) = agentic::escalated_max_tokens(max_tokens)
+            {
+                tracing::info!(
+                    topic = input.topic_name,
+                    attempt,
+                    previous_max_tokens = max_tokens,
+                    max_tokens = next,
+                    "grounding batch escalating completion budget after limit error"
+                );
+                max_tokens = next;
                 continue;
             }
             return Err(last_error);
         }
         let snippet = content_snippet(&response.content, 200);
         let content_len = response.content.len();
+        let truncated = response.truncated;
         let cards = build_batch(response, input).await;
         if !cards.is_empty() {
             return Ok(cards);
@@ -170,9 +185,15 @@ pub(crate) async fn generate_batch_with_retry(
             attempt,
             duration_ms,
             content_len,
+            truncated,
             error = %last_error,
             "grounding batch response was not parseable JSON"
         );
+        // A truncated batch that salvage could not recover needs a bigger
+        // completion budget; otherwise the retry reproduces the same cut-off.
+        if truncated && let Some(next) = agentic::escalated_max_tokens(max_tokens) {
+            max_tokens = next;
+        }
         if attempt < BATCH_MAX_ATTEMPTS {
             tokio::time::sleep(std::time::Duration::from_millis(800)).await;
         }

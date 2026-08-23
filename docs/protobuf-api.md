@@ -167,6 +167,14 @@ Topic override: `update_topic.compression_level` (empty = inherit). Fenced code 
 
 Empty → inherit `model` / `reasoning_effort`. Both are optional partial fields on `update_settings`.
 
+An effort of `none` (the default) is sent to OpenRouter-compatible providers as
+`reasoning: {"enabled": false}` so thinking models cannot spend the completion
+budget on hidden reasoning. Batch grounding requests start with an 8192-token
+completion budget; when a provider reports `finish_reason=length` and the batch
+cannot be recovered, the single retry doubles the budget once (ceiling 32768).
+Complete card objects are salvaged from a truncated batch before retrying, so a
+cut-off response still delivers the finished cards.
+
 The "From My Data" grounding strategy (protocol id `rag`) only uses sources assigned to the current topic. Documents/links are reusable via `topic_ids`. Unassigned sources are not retrieved.
 
 **Empty title on pasted docs:** compression model titles from the first 4,000 chars (cap 32 tokens). Model down → first ten words. Links still need a title.

@@ -10,6 +10,20 @@ use super::{GroundingInput, GroundingOutcome, factual_fallback};
 const MIN_CARDS: i64 = 5;
 const MAX_CARDS: i64 = 12;
 
+/// Starting completion-token budget for the researched batch. Reasoning-heavy
+/// providers can exhaust this mid-JSON; [`escalated_max_tokens`] doubles it
+/// once instead of repeating the same truncation.
+const BASE_MAX_TOKENS: u32 = 8192;
+/// Upper bound for the doubled budget so a misbehaving provider cannot be
+/// answered with an unbounded request.
+const MAX_TOKENS_CEILING: u32 = 32768;
+
+/// Next completion budget after a truncated response, or `None` at the ceiling.
+pub(super) fn escalated_max_tokens(current: u32) -> Option<u32> {
+    let doubled = current.checked_mul(2)?;
+    (doubled <= MAX_TOKENS_CEILING).then_some(doubled)
+}
+
 pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, String> {
     tracing::info!(
         topic = input.topic_name,
@@ -53,6 +67,7 @@ pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, Str
         topic = input.topic_name,
         cards_requested = n,
         prompt_len = research_prompt.len(),
+        max_tokens = BASE_MAX_TOKENS,
         provider_native_search = web_search,
         "agentic grounding requesting researched card batch"
     );
@@ -61,6 +76,8 @@ pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, Str
     let mut citations = Vec::new();
     let mut parsed = Vec::new();
     let mut response_usage = TokenUsage::default();
+    let mut max_tokens = BASE_MAX_TOKENS;
+
     for attempt in 1..=2 {
         let started = std::time::Instant::now();
         let response = create_chat_completion_grounded(
@@ -69,7 +86,7 @@ pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, Str
             input.api_key,
             input.api_base,
             input.reasoning,
-            Some(8192),
+            Some(max_tokens),
             web_search,
             true,
         )
@@ -97,8 +114,23 @@ pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, Str
                 error = %last_error,
                 "agentic grounding research request failed"
             );
-            if attempt < 2 {
-                tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+            // Transport-level failures are already retried inside the
+            // transport (with backoff); repeating an identical request here
+            // only doubles the user's wait. The exception is a completion
+            // token limit hit before any usable content — a larger budget
+            // can fix that one.
+            if attempt < 2
+                && response.content.contains("completion token limit")
+                && let Some(next) = escalated_max_tokens(max_tokens)
+            {
+                tracing::info!(
+                    topic = input.topic_name,
+                    attempt,
+                    previous_max_tokens = max_tokens,
+                    max_tokens = next,
+                    "agentic grounding escalating completion budget after limit error"
+                );
+                max_tokens = next;
                 continue;
             }
             return Err(last_error);
@@ -114,6 +146,7 @@ pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, Str
             topic = input.topic_name,
             attempt,
             parsed_cards = parsed.len(),
+            truncated = response.truncated,
             "agentic grounding parsed researched card batch"
         );
 
@@ -129,9 +162,18 @@ pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, Str
             attempt,
             duration_ms,
             content_len = response.content.len(),
+            truncated = response.truncated,
             error = %last_error,
             "agentic grounding produced no parseable cards"
         );
+        // A truncated batch that salvage could not recover means the model
+        // ran out of budget before finishing even one card object; double the
+        // budget for the retry rather than reproducing the same cut-off.
+        if response.truncated
+            && let Some(next) = escalated_max_tokens(max_tokens)
+        {
+            max_tokens = next;
+        }
         if attempt < 2 {
             tokio::time::sleep(std::time::Duration::from_millis(800)).await;
         }
@@ -197,7 +239,7 @@ fn build_prompt(rendered_prompt: &str, topic: &str, n: i64, sources: Option<&str
 
 #[cfg(test)]
 mod tests {
-    use super::build_prompt;
+    use super::{BASE_MAX_TOKENS, MAX_TOKENS_CEILING, build_prompt, escalated_max_tokens};
 
     #[test]
     fn batch_prompt_keeps_learner_feedback() {
@@ -212,5 +254,13 @@ mod tests {
         assert!(prompt.contains("Write 3 distinct cards about \"Japanese\""));
         assert!(!prompt.contains("Do NOT duplicate these existing card titles"));
         assert_eq!(prompt.matches("Basic kana").count(), 1);
+    }
+
+    #[test]
+    fn escalation_doubles_once_and_stops_at_ceiling() {
+        assert_eq!(escalated_max_tokens(BASE_MAX_TOKENS), Some(16384));
+        assert_eq!(escalated_max_tokens(16384), Some(32768));
+        assert_eq!(escalated_max_tokens(MAX_TOKENS_CEILING), None);
+        assert_eq!(escalated_max_tokens(u32::MAX / 2 + 1), None);
     }
 }

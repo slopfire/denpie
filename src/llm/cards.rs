@@ -337,8 +337,77 @@ pub(crate) fn parse_card_array(raw: &str) -> Vec<ParsedGeneratedCard> {
             return cards;
         }
     }
+    // Last resort for responses cut off by the completion token limit: the
+    // JSON wrapper never closes, but finished cards before the cut are intact.
+    salvage_truncated_card_array(json_text)
+}
 
-    Vec::new()
+/// Recover complete card objects from a truncated batch response. Scans the
+/// card array (`{"cards":[...]}` or a legacy bare array) for balanced `{...}`
+/// spans — string-aware, so braces and quotes inside values do not confuse it
+/// — and parses each finished object individually. The incomplete trailing
+/// object is dropped.
+fn salvage_truncated_card_array(json_text: &str) -> Vec<ParsedGeneratedCard> {
+    let array_open = match json_text.find("\"cards\"") {
+        Some(key) => json_text[key..].find('[').map(|relative| key + relative),
+        None => json_text.find('['),
+    };
+    let Some(open) = array_open else {
+        return Vec::new();
+    };
+
+    let bytes = json_text.as_bytes();
+    let mut cards = Vec::new();
+    let mut cursor = open;
+    while cursor < bytes.len() {
+        if bytes[cursor] != b'{' {
+            cursor += 1;
+            continue;
+        }
+        let Some((close, next)) = balanced_object_span(bytes, cursor) else {
+            // Input ended inside this object: nothing later can be complete.
+            break;
+        };
+        if let Ok(card) = serde_json::from_str::<ParsedGeneratedCard>(&json_text[cursor..=close]) {
+            cards.push(card);
+        }
+        cursor = next;
+    }
+    valid_generated_cards(cards)
+}
+
+/// Find the end of the balanced `{...}` span starting at `start`. Returns the
+/// close index plus the index just after it, or `None` when the span never
+/// closes. UTF-8 continuation bytes cannot equal ASCII delimiters, so scanning
+/// bytes is safe.
+fn balanced_object_span(bytes: &[u8], start: usize) -> Option<(usize, usize)> {
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escape = false;
+    for (i, &c) in bytes.iter().enumerate().skip(start) {
+        if in_string {
+            if escape {
+                escape = false;
+            } else if c == b'\\' {
+                escape = true;
+            } else if c == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match c {
+            b'"' => in_string = true,
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((i, i + 1));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn parse_card_batch_json(json_text: &str) -> Option<Vec<ParsedGeneratedCard>> {
@@ -461,6 +530,7 @@ async fn compress_text_segment(
             usage: TokenUsage::default(),
             citations: Vec::new(),
             is_error: false,
+            truncated: false,
         };
     }
 
@@ -470,6 +540,7 @@ async fn compress_text_segment(
             usage: TokenUsage::default(),
             citations: Vec::new(),
             is_error: false,
+            truncated: false,
         };
     }
 
@@ -509,6 +580,7 @@ pub async fn compress_card(
             usage: TokenUsage::default(),
             citations: Vec::new(),
             is_error: false,
+            truncated: false,
         };
     }
 
@@ -519,6 +591,7 @@ pub async fn compress_card(
             usage: TokenUsage::default(),
             citations: Vec::new(),
             is_error: false,
+            truncated: false,
         };
     }
 
@@ -573,6 +646,7 @@ pub async fn compress_card(
         usage: total_usage,
         citations: Vec::new(),
         is_error: false,
+        truncated: false,
     }
 }
 
@@ -798,6 +872,39 @@ mod tests {
     fn card_array_rejects_lone_card_object() {
         let cards = parse_card_array(r#"{"title":"Only","content":"Body"}"#);
         assert!(cards.is_empty());
+    }
+
+    #[test]
+    fn card_array_salvages_complete_cards_from_truncated_batch() {
+        let cards = parse_card_array(
+            r#"{"cards":[{"title":"First","content":"Body 1"},{"title":"Second","content":"Body 2"},{"title":"Cut
+    "#,
+        );
+        assert_eq!(cards.len(), 2);
+        assert_eq!(cards[0].title.as_deref(), Some("First"));
+        assert_eq!(cards[1].title.as_deref(), Some("Second"));
+    }
+
+    #[test]
+    fn card_array_salvage_ignores_braces_and_quotes_inside_strings() {
+        let cards = parse_card_array(
+            r#"{"cards":[{"title":"Weird","content":"has } and { and \"quotes\""},{"title":"Cut""#,
+        );
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].title.as_deref(), Some("Weird"));
+        assert_eq!(
+            cards[0].content.as_deref(),
+            Some(r#"has } and { and "quotes""#)
+        );
+    }
+
+    #[test]
+    fn card_array_salvage_still_filters_contentless_cards() {
+        let cards = parse_card_array(
+            r#"{"cards":[{"title":"Empty"},{"title":"Real","content":"Body"},{"title":"Cut"#,
+        );
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].title.as_deref(), Some("Real"));
     }
 
     #[test]

@@ -20,6 +20,7 @@ pub async fn pick_topic_icon(
             usage: TokenUsage::default(),
             citations: Vec::new(),
             is_error: false,
+            truncated: false,
         };
     }
 
@@ -45,6 +46,7 @@ pub async fn pick_topic_icon(
                 usage: response.usage,
                 citations: Vec::new(),
                 is_error: false,
+                truncated: false,
             };
         }
     }
@@ -54,6 +56,7 @@ pub async fn pick_topic_icon(
         usage: response.usage,
         citations: Vec::new(),
         is_error: false,
+        truncated: false,
     }
 }
 
@@ -73,6 +76,7 @@ pub async fn suggest_topic_icons(
             usage: TokenUsage::default(),
             citations: Vec::new(),
             is_error: false,
+            truncated: false,
         };
     }
 
@@ -98,6 +102,7 @@ pub async fn suggest_topic_icons(
         usage: response.usage,
         citations: Vec::new(),
         is_error: false,
+        truncated: false,
     }
 }
 

@@ -119,6 +119,8 @@ import {
     refillPollFound,
     refillPollMiss,
     flowSlotKey,
+    continueElapsedSeconds,
+    continuingStatusText,
     type ReviewSlot,
 } from "@/lib/flow-review-state";
 import {
@@ -1036,6 +1038,48 @@ function slotIsRepeatable(slot: ReviewSlot): boolean {
         : slot.tipcardType === "repeatable_tip";
 }
 
+function useContinueElapsedSeconds(startedAt: number): number {
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+    return continueElapsedSeconds(startedAt, now);
+}
+
+function ContinuingAlertBody({
+    topicName,
+    startedAt,
+}: {
+    topicName: string;
+    startedAt: number;
+}) {
+    const elapsed = useContinueElapsedSeconds(startedAt);
+    return (
+        <AlertDescription role="status">
+            {continuingStatusText(elapsed, topicName)}
+        </AlertDescription>
+    );
+}
+
+function ContinuingInlineStatus({
+    topicName,
+    startedAt,
+}: {
+    topicName: string;
+    startedAt: number;
+}) {
+    const elapsed = useContinueElapsedSeconds(startedAt);
+    return (
+        <span
+            className="min-w-0 flex-1 text-sm font-medium text-muted-foreground"
+            role="status"
+        >
+            {continuingStatusText(elapsed, topicName)}
+        </span>
+    );
+}
+
 function ReviewSlotFollowUp({
     slot,
     onContinue,
@@ -1093,11 +1137,10 @@ function ReviewSlotFollowUp({
                 data-testid={`continue-saving-${slot.reviewedCardId}`}
             >
                 <AlertTitle>{t("flow.continuing_title")}</AlertTitle>
-                <AlertDescription role="status">
-                    {tf("flow.continuing_description", {
-                        topic: slot.topicName,
-                    })}
-                </AlertDescription>
+                <ContinuingAlertBody
+                    topicName={slot.topicName}
+                    startedAt={slot.startedAt}
+                />
             </Alert>
         );
     }
@@ -1175,12 +1218,10 @@ function FollowUpActions({
     }
     if (slot.kind === "continuing") {
         return (
-            <span
-                className="min-w-0 flex-1 text-sm font-medium text-muted-foreground"
-                role="status"
-            >
-                {tf("flow.continuing_description", { topic: slot.topicName })}
-            </span>
+            <ContinuingInlineStatus
+                topicName={slot.topicName}
+                startedAt={slot.startedAt}
+            />
         );
     }
     if (slot.kind === "awaitingRefill") {

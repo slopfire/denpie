@@ -58,6 +58,14 @@ Put UI in `frontend-astro/`. Astro emits a static `dist/`. Axum is the only serv
 
 **Flow fullscreen.** Repeatable-card detail stays open across review replacement and Continue. The overlay follows the topic slot (`flowSlotKey`), not the consumed card ID. On desktop the overlay and card stay to the right of the 14rem rail, so the sidebar stays visible and clickable. The overlay portals into `#flow-view`, so keep-alive hides it with Flow. Escape, the close button, the fullscreen trigger, and a click on the empty frame still dismiss it. Review, Continue, pin, and other in-overlay controls do not.
 
+**Continue progress.** A `continuing` slot shows a live elapsed counter
+(`flow.continuing_elapsed_description`) after `CONTINUE_TICK_AFTER_SECONDS`
+(5s) and switches to an explicit patience message
+(`flow.continuing_slow_description`) at `CONTINUE_SLOW_AFTER_SECONDS` (45s);
+both live in `continuingStatusText` in `src/lib/flow-review-state.ts`. The
+slot records its `startedAt` so retries restart the clock, and the slow path
+covers research-grade backend generations that legitimately take minutes.
+
 **Topic icons.** `scripts/generate-topic-icons.mjs` checks in the allowlisted subset from `config/topic_icons.json`. Render through `@iconify/react/offline`. Cards do not fetch a CDN and do not bundle whole collections. Grounding topic cards use a compact grid (icon + name + type badge, due/total, pending/scheduled, Load/Delete). The icon button opens the AI picker: session JSON `POST /app/topics/suggest-icons` and `POST /app/topics/set-icon`. Helpers live in `src/lib/topic-icon-picker.ts`.
 
 ## Add a page

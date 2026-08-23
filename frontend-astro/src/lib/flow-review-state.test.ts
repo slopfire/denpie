@@ -6,14 +6,19 @@ import {
   type FlowCardInfo,
 } from "../generated/denpie_pb";
 import {
+  continueElapsedSeconds,
+  continuingStatusText,
   continueFailure,
   continueRetryDecision,
   continueSuccess,
   flowSlotKey,
+  formatContinueElapsed,
   refillPollFound,
   refillPollMiss,
   reviewFailure,
   reviewSuccess,
+  CONTINUE_SLOW_AFTER_SECONDS,
+  CONTINUE_TICK_AFTER_SECONDS,
   retryDecision,
   slotIdentity,
   startContinue,
@@ -411,8 +416,42 @@ describe("continue", () => {
       attempt: CONTINUE_ATTEMPT,
       reviewedCardId: 2n,
     });
+    expect(
+      typeof (started[1] as Extract<ReviewSlot, { kind: "continuing" }>)
+        .startedAt,
+    ).toBe("number");
   });
 
+
+  test("continue elapsed helpers floor clock skew and format m:ss", () => {
+    const start = 1_000_000;
+    expect(continueElapsedSeconds(start, start - 5_000)).toBe(0);
+    expect(continueElapsedSeconds(start, start + 65_400)).toBe(65);
+    expect(formatContinueElapsed(0)).toBe("0:00");
+    expect(formatContinueElapsed(65)).toBe("1:05");
+    expect(formatContinueElapsed(604)).toBe("10:04");
+  });
+
+
+
+  test("continuingStatusText ticks after 5s and escalates at the slow threshold", () => {
+    const topic = "rust";
+    expect(continuingStatusText(CONTINUE_TICK_AFTER_SECONDS - 1, topic)).toBe(
+      "Preparing the next card for rust…",
+    );
+    expect(continuingStatusText(CONTINUE_TICK_AFTER_SECONDS, topic)).toBe(
+      "Preparing the next card for rust… (0:05)",
+    );
+    expect(continuingStatusText(CONTINUE_SLOW_AFTER_SECONDS - 1, topic)).toBe(
+      "Preparing the next card for rust… (0:44)",
+    );
+    expect(continuingStatusText(CONTINUE_SLOW_AFTER_SECONDS, topic)).toBe(
+      "Still preparing rust… (0:45 elapsed). Fresh research can take a few minutes.",
+    );
+    expect(continuingStatusText(125, topic)).toBe(
+      "Still preparing rust… (2:05 elapsed). Fresh research can take a few minutes.",
+    );
+  });
   test("startContinue rejects a mismatched topic and non-repeatable slot", () => {
     const completed = [completedSlot(2n)];
     expect(

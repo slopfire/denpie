@@ -497,6 +497,108 @@ test("Continue on a completed repeatable slot sends one mutation and one detail 
     });
 });
 
+test("slow Continue shows a live elapsed indicator instead of a frozen spinner", async ({
+    page,
+}) => {
+    test.setTimeout(20_000);
+    const reviewed = flowCard(11n, "Reviewed card", "repeatable_tip");
+    const continued = create(FlowCardInfoSchema, {
+        ...flowCard(44n, "Continued card", "repeatable_tip"),
+        pinned: false,
+    });
+
+    await page.route("**/api/v1", async (route) => {
+        const bytes = route.request().postDataBuffer();
+        if (bytes === null)
+            throw new TypeError("missing protobuf request body");
+        const envelope = fromBinary(ApiV1RequestSchema, bytes);
+        let response;
+
+        if (envelope.call.op.case === "listFlowCards") {
+            response = create(ApiResponseSchema, {
+                result: {
+                    case: "flowCardPage",
+                    value: create(FlowCardPageSchema, {
+                        cards: [reviewed],
+                        hasMore: false,
+                    }),
+                },
+            });
+        } else if (envelope.call.op.case === "reviewAndAdvance") {
+            response = create(ApiResponseSchema, {
+                result: {
+                    case: "reviewAndAdvance",
+                    value: create(ReviewAndAdvanceResponseSchema, {
+                        reviewedCardId: 11n,
+                        pendingCount: 0,
+                        dailyComplete: true,
+                        refillScheduled: false,
+                    }),
+                },
+            });
+        } else if (envelope.call.op.case === "continueDailyReview") {
+            // Hold the mutation open so the continuing state is observable.
+            const { promise, resolve } = Promise.withResolvers<void>();
+            setTimeout(resolve, 6500);
+            await promise;
+            response = create(ApiResponseSchema, {
+                result: {
+                    case: "continueDailyReview",
+                    value: create(ContinueDailyReviewResponseSchema, {
+                        availableCards: 2n,
+                        activeCardId: 44n,
+                        pendingCount: 7,
+                    }),
+                },
+            });
+        } else if (envelope.call.op.case === "getTipcard") {
+            response = create(ApiResponseSchema, {
+                result: {
+                    case: "tipcardDetail",
+                    value: create(TipcardDetailSchema, { card: continued }),
+                },
+            });
+        } else {
+            throw new TypeError(
+                `unexpected API operation ${String(envelope.call.op.case)}`,
+            );
+        }
+
+        const body = toBinary(
+            ApiV1ResponseSchema,
+            create(ApiV1ResponseSchema, {
+                requestId: envelope.requestId,
+                outcome: { case: "success", value: response },
+            }),
+        );
+        await route.fulfill({
+            status: 200,
+            contentType: "application/x-protobuf",
+            body: Buffer.from(body),
+        });
+    });
+
+    await page.goto("/flow");
+    const grid = page.getByTestId("flow-grid");
+    await expect(grid).toBeVisible();
+
+    await page.getByTestId("review-again-11").click();
+    const completedLi = grid.locator("li").nth(0);
+    await expect(completedLi.getByTestId("review-completed-11")).toBeVisible();
+
+    await completedLi.getByTestId("continue-11").click();
+
+    // While the mutation is in flight the slot shows the continuing alert
+    // with an m:ss elapsed counter that actually ticks.
+    const saving = completedLi.getByTestId("continue-saving-11");
+    await expect(saving).toBeVisible();
+    const status = saving.locator('[role="status"]');
+    await expect(status).toContainText(/0:0[56]/, { timeout: 10_000 });
+
+    // The held mutation resolves and the slot completes normally.
+    await expect(completedLi).toHaveAttribute("data-testid", "flow-slot-44");
+});
+
 test("awaiting refill placeholder is replaced in place by the first poll", async ({
     page,
 }) => {

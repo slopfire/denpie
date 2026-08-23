@@ -270,6 +270,8 @@
   "flow.continue_retry_title": "Continue pending retry",
   "flow.continuing_description": "Preparing the next card for {topic}…",
   "flow.continuing_title": "Continuing today's review",
+  "flow.continuing_slow_description": "Still preparing {topic}… ({elapsed} elapsed). Fresh research can take a few minutes.",
+  "flow.continuing_elapsed_description": "Preparing the next card for {topic}… ({elapsed})",
   "flow.empty_description": "No cards yet. Once topics produce tips they will appear here.",
   "flow.empty_title": "Your flow is empty",
   "flow.grid_layout_aria": "Grid layout",
