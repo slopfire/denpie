@@ -61,22 +61,22 @@ describe("parseGridColumns", () => {
 describe("gridClassesForColumns", () => {
   test("exact responsive ceiling classes per column count", () => {
     expect(gridClassesForColumns(1)).toBe(
-      "grid grid-cols-1 gap-3 items-start",
+      "grid grid-cols-1 gap-6 items-start",
     );
     expect(gridClassesForColumns(2)).toBe(
-      "grid grid-cols-1 md:grid-cols-2 gap-3 items-start",
+      "grid grid-cols-1 md:grid-cols-2 gap-6 items-start",
     );
     expect(gridClassesForColumns(3)).toBe(
-      "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start",
+      "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 items-start",
     );
     expect(gridClassesForColumns(4)).toBe(
-      "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start",
+      "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 items-start",
     );
   });
 
   test("list mode is one centered capped column", () => {
     expect(FLOW_LIST_CLASSES).toBe(
-      "grid grid-cols-1 gap-3 items-start w-full max-w-4xl mx-auto",
+      "grid grid-cols-1 gap-6 items-start w-full max-w-4xl mx-auto",
     );
   });
 });

@@ -223,11 +223,27 @@ test("mobile keeps one-column cards above the in-flow five-item dock", async ({
     const dock = page.getByTestId("mobile-navigation");
     await expect(dock).toBeVisible();
     await expect(dock.locator("a, [aria-disabled=true]")).toHaveCount(5);
+    await expect(dock.getByText("Transmission", { exact: true })).toBeVisible();
+    await expect(dock.getByText("Grounding", { exact: true })).toBeVisible();
+    const dockLabels = await dock.locator("a").allTextContents();
+    expect(dockLabels.map((label) => label.trim())).toEqual([
+        "Transmission",
+        "Grounding",
+        "Settings",
+        "API Keys",
+        "Archive",
+    ]);
     const mainBox = await main.boundingBox();
     const dockBox = await dock.boundingBox();
     if (mainBox === null || dockBox === null)
         throw new TypeError("missing mobile boxes");
     expect(mainBox.y + mainBox.height).toBeLessThanOrEqual(dockBox.y + 1);
+
+    const form = page.getByTestId("transmission-form-surface");
+    const formBox = await form.boundingBox();
+    if (formBox === null) throw new TypeError("missing mobile form box");
+    expect(formBox.x).toBeLessThan(mainBox.x + 32);
+    expect(formBox.width).toBeGreaterThan((mainBox.width - 48) * 0.9);
 
     const grid = page.getByTestId("flow-grid");
     await expect(grid).toHaveCSS("grid-template-columns", /^(?!.* ).+$/);

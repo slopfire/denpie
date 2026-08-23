@@ -77,7 +77,7 @@ export function LabGallery({ fixtures }: LabGalleryProps) {
                                         );
                                     },
                                 )}
-                                <Card className="relative z-10 flex h-full min-h-60 flex-col gap-0 overflow-hidden rounded-md py-0 ring-border">
+                                <Card className="relative z-10 flex flex-col gap-0 overflow-hidden rounded-xl py-0 ring-border">
                                     <CardBodies
                                         card={card}
                                         fullscreen={fullscreen}

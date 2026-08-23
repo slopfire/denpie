@@ -14,6 +14,7 @@ import {
     DatabaseIcon,
     ImageIcon,
     LayersIcon,
+    MoreHorizontalIcon,
     PencilIcon,
     RefreshCwIcon,
     SearchIcon,
@@ -36,6 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
     Card,
+    CardAction,
     CardContent,
     CardDescription,
     CardFooter,
@@ -70,6 +72,13 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { LoadedImage } from "@/components/content/LoadedImage";
 import {
     Tooltip,
     TooltipContent,
@@ -181,12 +190,14 @@ function navigateToArchive(event: React.MouseEvent<HTMLAnchorElement>) {
     window.scrollTo(0, 0);
 }
 
-function SummaryCard({ label, value }: { label: string; value: bigint }) {
+function SummaryCard({ label, value }: { label: string; value: string }) {
     return (
         <Card size="sm">
             <CardHeader>
                 <CardDescription>{label}</CardDescription>
-                <CardTitle>{value.toString()}</CardTitle>
+                <CardTitle className="text-2xl font-semibold tracking-tight tabular-nums">
+                    {value}
+                </CardTitle>
             </CardHeader>
         </Card>
     );
@@ -238,6 +249,71 @@ function ConfirmDelete({
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
+    );
+}
+
+function TopicActionsMenu({
+    topic,
+    busy,
+    onDelete,
+}: {
+    topic: AppTopicInfo;
+    busy: boolean;
+    onDelete: () => void;
+}) {
+    const [open, setOpen] = useState(false);
+    return (
+        <>
+            <DropdownMenu>
+                <DropdownMenuTrigger
+                    render={<Button variant="ghost" size="icon-sm" />}
+                    disabled={busy}
+                    aria-label={tf("grounding.topics.more_actions", {
+                        name: topic.name,
+                    })}
+                    data-testid={`topic-more-${topic.id}`}
+                >
+                    <MoreHorizontalIcon />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                        variant="destructive"
+                        disabled={busy}
+                        data-testid={`topic-delete-${topic.id}`}
+                        onClick={() => setOpen(true)}
+                    >
+                        <Trash2Icon data-icon="inline-start" />
+                        {t("common.delete")}
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+            <AlertDialog open={open} onOpenChange={setOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {tf("grounding.delete_topic_title", {
+                                name: topic.name,
+                            })}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {t("grounding.delete_topic_description")}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+                        <AlertDialogAction
+                            variant="destructive"
+                            onClick={() => {
+                                setOpen(false);
+                                onDelete();
+                            }}
+                        >
+                            {t("common.delete")}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </>
     );
 }
 
@@ -457,7 +533,7 @@ function TopicsPanel({
             <div
                 id="topics-grid"
                 data-testid="topics-grid"
-                className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+                className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
             >
                 {visible.map((topic) => {
                     const iconButton = (
@@ -496,7 +572,7 @@ function TopicsPanel({
                             size="sm"
                             data-testid={`topic-card-${topic.id}`}
                         >
-                            <CardHeader className="flex-row items-start justify-between gap-2">
+                            <CardHeader>
                                 <CardTitle className="flex min-w-0 items-center gap-2 text-lg">
                                     <Tooltip>
                                         <TooltipTrigger render={iconButton} />
@@ -508,11 +584,31 @@ function TopicsPanel({
                                         {topic.name}
                                     </span>
                                 </CardTitle>
-                                <Badge variant="outline" className="shrink-0">
-                                    {tipcardTypeLabel(
-                                        topic.tipcardType || "casual_tip",
-                                    )}
-                                </Badge>
+                                <CardAction className="flex items-center gap-1">
+                                    <Badge variant="outline">
+                                        {tipcardTypeLabel(
+                                            topic.tipcardType || "casual_tip",
+                                        )}
+                                    </Badge>
+                                    <TopicActionsMenu
+                                        topic={topic}
+                                        busy={busy}
+                                        onDelete={() =>
+                                            run(
+                                                t(
+                                                    "grounding.actions.deleting_topic",
+                                                ),
+                                                async () => {
+                                                    await deleteTopic({
+                                                        id: topic.id,
+                                                        idempotencyKey:
+                                                            newIdempotencyKey(),
+                                                    });
+                                                },
+                                            )
+                                        }
+                                    />
+                                </CardAction>
                             </CardHeader>
                             <CardContent className="flex flex-col gap-3">
                                 <p
@@ -569,7 +665,7 @@ function TopicsPanel({
                                         {t("grounding.show_scheduled_cards")}
                                     </Button>
                                 </div>
-                                <div className="grid grid-cols-3 gap-2">
+                                <div className="grid grid-cols-2 gap-2">
                                     <Button
                                         variant="secondary"
                                         size="sm"
@@ -606,33 +702,6 @@ function TopicsPanel({
                                         <PencilIcon data-icon="inline-start" />
                                         {t("common.edit")}
                                     </Button>
-                                    <ConfirmDelete
-                                        className="w-full"
-                                        label={tf(
-                                            "grounding.delete_topic_title",
-                                            {
-                                                name: topic.name,
-                                            },
-                                        )}
-                                        description={t(
-                                            "grounding.delete_topic_description",
-                                        )}
-                                        disabled={busy}
-                                        onConfirm={() =>
-                                            run(
-                                                t(
-                                                    "grounding.actions.deleting_topic",
-                                                ),
-                                                async () => {
-                                                    await deleteTopic({
-                                                        id: topic.id,
-                                                        idempotencyKey:
-                                                            newIdempotencyKey(),
-                                                    });
-                                                },
-                                            )
-                                        }
-                                    />
                                 </div>
                             </CardContent>
                         </Card>
@@ -1005,11 +1074,22 @@ function ImagesPanel({
                     {images.map((image) => (
                         <Card key={image.id.toString()} size="sm">
                             <CardContent className="pt-4">
-                                <img
+                                <LoadedImage
                                     src={`/api/v1/pool-images/${image.id}`}
                                     alt={image.name}
-                                    loading="lazy"
                                     className="aspect-video w-full rounded-md object-cover"
+                                    fallback={
+                                        <div
+                                            className="flex aspect-video w-full items-center justify-center rounded-md bg-muted text-muted-foreground"
+                                            role="img"
+                                            aria-label={t("images.unavailable")}
+                                        >
+                                            <ImageIcon
+                                                className="size-8"
+                                                aria-hidden="true"
+                                            />
+                                        </div>
+                                    }
                                 />
                             </CardContent>
                             <CardHeader>
@@ -1179,58 +1259,49 @@ export function GroundingPage({ active = true }: { active?: boolean }) {
                         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                             <SummaryCard
                                 label={t("grounding.summary.topics")}
-                                value={state.data.summary.topics}
+                                value={state.data.summary.topics.toString()}
                             />
                             <SummaryCard
                                 label={t("grounding.summary.total_cards")}
-                                value={state.data.summary.totalCards}
+                                value={state.data.summary.totalCards.toString()}
                             />
                             <SummaryCard
                                 label={t("grounding.summary.due_cards")}
-                                value={state.data.summary.dueCards}
+                                value={state.data.summary.dueCards.toString()}
                             />
                             <SummaryCard
                                 label={t("grounding.summary.active_cards")}
-                                value={state.data.summary.activeCards}
+                                value={state.data.summary.activeCards.toString()}
                             />
+                            {tokenSpend === null ? null : (
+                                <div
+                                    id="token-spend-row"
+                                    className="contents"
+                                    data-testid="token-spend"
+                                >
+                                    <SummaryCard
+                                        label={t("grounding.token_spend.daily")}
+                                        value={tf("format.tokens", {
+                                            count: tokenSpend.daily,
+                                        })}
+                                    />
+                                    <SummaryCard
+                                        label={t(
+                                            "grounding.token_spend.monthly",
+                                        )}
+                                        value={tf("format.tokens", {
+                                            count: tokenSpend.monthly,
+                                        })}
+                                    />
+                                    <SummaryCard
+                                        label={t("grounding.token_spend.total")}
+                                        value={tf("format.tokens", {
+                                            count: tokenSpend.total,
+                                        })}
+                                    />
+                                </div>
+                            )}
                         </div>
-                        {tokenSpend === null ? null : (
-                            <div
-                                id="token-spend-row"
-                                className="grid grid-cols-1 gap-2 sm:grid-cols-3"
-                                data-testid="token-spend"
-                            >
-                                {(
-                                    [
-                                        [
-                                            t("grounding.token_spend.daily"),
-                                            tokenSpend.daily,
-                                        ],
-                                        [
-                                            t("grounding.token_spend.monthly"),
-                                            tokenSpend.monthly,
-                                        ],
-                                        [
-                                            t("grounding.token_spend.total"),
-                                            tokenSpend.total,
-                                        ],
-                                    ] as const
-                                ).map(([label, count]) => (
-                                    <Card key={label} size="sm">
-                                        <CardHeader className="flex-row items-center justify-between">
-                                            <CardDescription>
-                                                {label}
-                                            </CardDescription>
-                                            <CardTitle className="text-base">
-                                                {tf("format.tokens", {
-                                                    count,
-                                                })}
-                                            </CardTitle>
-                                        </CardHeader>
-                                    </Card>
-                                ))}
-                            </div>
-                        )}
                         <Card>
                             <CardHeader>
                                 <CardTitle>

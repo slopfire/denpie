@@ -47,7 +47,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+    Card,
+    CardContent,
+    CardFooter,
+    CardHeader,
+} from "@/components/ui/card";
+import { LoadedImage } from "@/components/content/LoadedImage";
 import {
     FlowCardDetail,
     FlowCardDetailTrigger,
@@ -160,10 +166,7 @@ import {
     replacePinnedCard,
     serializePinnedCardOrder,
 } from "@/lib/flow-pinned-order";
-import {
-    splitTopicPicks,
-    TRANSMISSION_MAX_PICKS,
-} from "@/lib/flow-transmission";
+import { splitTopicPicks } from "@/lib/flow-transmission";
 
 /** Delay before each bounded refill poll after an awaiting-refill slot. */
 const REFILL_POLL_DELAY_MS = 2000;
@@ -375,10 +378,10 @@ export function CardBodies({
     return (
         <>
             <CardHeader
-                className="relative flex flex-row items-center justify-between gap-2 overflow-hidden rounded-none border-b px-4 py-3 pb-3"
+                className="flex flex-row items-center gap-2 overflow-hidden rounded-none border-b px-4 py-3"
                 data-testid={`card-title-bar-${card.id}`}
             >
-                <div className="relative z-10 flex items-center gap-2 bg-card">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
                     {leading}
                     <TopicIcon
                         aria-hidden
@@ -387,8 +390,6 @@ export function CardBodies({
                         color={card.topicColor || undefined}
                         data-testid={`topic-icon-${card.id}`}
                     />
-                </div>
-                <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center gap-1.5 px-4 text-center text-lg font-bold tracking-[0.02em] capitalize">
                     {card.pinned ? (
                         <PinIcon
                             aria-hidden
@@ -396,11 +397,11 @@ export function CardBodies({
                             className="size-4 shrink-0 text-primary"
                         />
                     ) : null}
-                    <span className="line-clamp-2 break-words">
+                    <span className="truncate text-base font-semibold tracking-tight">
                         {card.topicName}
                     </span>
                 </div>
-                <div className="relative z-10 flex items-center gap-2 bg-card">
+                <div className="flex shrink-0 items-center gap-2">
                     <Popover>
                         <PopoverTrigger
                             render={<Button variant="outline" size="xs" />}
@@ -474,7 +475,7 @@ export function CardBodies({
                     )}
                 </div>
             </CardHeader>
-            <CardContent className="flex flex-1 flex-col gap-4 px-4 py-4">
+            <CardContent className="flex flex-col gap-4 px-4 py-4">
                 <span className="sr-only">{card.title}</span>
                 {view.imageUrls.length === 0 ? null : (
                     <div
@@ -484,26 +485,28 @@ export function CardBodies({
                         )}
                     >
                         {view.imageUrls.map((url, index) => (
-                            <Button
+                            <LoadedImage
                                 key={url}
-                                type="button"
-                                variant="ghost"
-                                aria-label={tf("images.open_for_card", {
-                                    index: index + 1,
+                                src={url}
+                                alt={tf("images.illustration_for_card", {
                                     title: card.title,
                                 })}
-                                onClick={() => setLightboxIndex(index)}
-                                className="aspect-video h-auto w-full max-h-[220px] overflow-hidden rounded-md bg-muted p-0"
-                            >
-                                <img
-                                    src={url}
-                                    alt={tf("images.illustration_for_card", {
-                                        title: card.title,
-                                    })}
-                                    loading="lazy"
-                                    className="size-full rounded-md border border-border object-cover"
-                                />
-                            </Button>
+                                className="size-full rounded-md border border-border object-cover"
+                                render={(image) => (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        aria-label={tf("images.open_for_card", {
+                                            index: index + 1,
+                                            title: card.title,
+                                        })}
+                                        onClick={() => setLightboxIndex(index)}
+                                        className="aspect-video h-auto w-full max-h-[220px] overflow-hidden rounded-md bg-muted p-0"
+                                    >
+                                        {image}
+                                    </Button>
+                                )}
+                            />
                         ))}
                     </div>
                 )}
@@ -512,7 +515,7 @@ export function CardBodies({
                     ref={bodyRef}
                     data-testid={`card-body-${card.id}`}
                     className={cn(
-                        "min-w-0 flex-1 text-base leading-7",
+                        "min-w-0 text-base leading-7",
                         !expanded && hasCompact && "max-h-72",
                         !expanded &&
                             hasCompact &&
@@ -525,7 +528,7 @@ export function CardBodies({
                         <LazyMarkdownContent content={content} />
                     </Suspense>
                     {hasCompact ? (
-                        <div className="mt-2 flex justify-center">
+                        <div className="mt-2">
                             <Button
                                 type="button"
                                 variant="outline"
@@ -1335,7 +1338,7 @@ const ReviewSlotCard = memo(function ReviewSlotCard({
             {live ? (
                 <div
                     className={cn(
-                        "relative isolate flex min-h-60 flex-col",
+                        "relative isolate flex flex-col",
                         stackLayers > 0 && "mr-3 mb-3",
                     )}
                     data-repeatable-stack={
@@ -1364,7 +1367,7 @@ const ReviewSlotCard = memo(function ReviewSlotCard({
                     })}
                     <Card
                         className={cn(
-                            "relative z-10 flex min-h-60 flex-1 flex-col gap-0 overflow-hidden rounded-md py-0 ring-border",
+                            "relative z-10 flex flex-col gap-0 overflow-hidden rounded-xl py-0 ring-border",
                             reviewSwipe !== undefined &&
                                 "repeatable-review-swipe",
                         )}
@@ -1412,12 +1415,12 @@ const ReviewSlotCard = memo(function ReviewSlotCard({
                                 </Button>
                             </CardContent>
                         ) : null}
-                        <CardContent
-                            className="mt-auto flex items-center gap-2 border-t px-4 py-4"
+                        <CardFooter
+                            className="gap-2"
                             data-testid={`card-actions-${id}`}
                         >
                             {liveControls}
-                        </CardContent>
+                        </CardFooter>
                     </Card>
                 </div>
             ) : (
@@ -1672,9 +1675,20 @@ function TransmissionSections({
                         {t("flow.picks")}
                     </h2>
                     <div className="mt-1 text-sm text-muted-foreground">
-                        <span id="flow-count">{picks.length}</span>/
-                        {TRANSMISSION_MAX_PICKS} {t("flow.picks_count_suffix")}
+                        <span id="flow-count">
+                            {tf(
+                                picks.length === 1
+                                    ? "flow.picks_showing_one"
+                                    : "flow.picks_showing_other",
+                                { count: picks.length },
+                            )}
+                        </span>
                     </div>
+                    {picks.length === 0 ? null : (
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            {t("flow.picks_advance_hint")}
+                        </p>
+                    )}
                 </div>
                 <SlotList
                     slots={picks}

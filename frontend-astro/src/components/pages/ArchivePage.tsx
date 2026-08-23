@@ -54,7 +54,8 @@ import { newIdempotencyKey } from "@/lib/api-v1/transport";
 import { t, tf } from "@/lib/i18n";
 import { useViewRefresh } from "@/islands/use-view-refresh";
 import { CardImageManager } from "@/components/flow/CardImageManager";
-import { inventoryToFlowCard } from "@/lib/pages/archive";
+import { archiveCardHeading, inventoryToFlowCard } from "@/lib/pages/archive";
+import { LoadedImage } from "@/components/content/LoadedImage";
 import {
     archiveSearch,
     archiveTopics,
@@ -88,6 +89,11 @@ function imageUrls(card: TipcardInfo): string[] {
             image.downloadPath ||
             `/api/v1/tipcard-images/${image.id.toString()}`,
     );
+}
+
+function displayCardTitle(card: TipcardInfo): string {
+    const heading = archiveCardHeading(card);
+    return heading === "" ? t("archive.untitled_card") : heading;
 }
 
 function humanDate(value: string): string {
@@ -181,7 +187,7 @@ function ArchiveCard({
                             ) : null}
                         </div>
                         <h2 className="mt-2 line-clamp-2 text-base font-semibold">
-                            {card.title || t("archive.untitled_card")}
+                            {displayCardTitle(card)}
                         </h2>
                     </div>
                     <span className="shrink-0 font-mono text-[0.65rem] text-muted-foreground">
@@ -197,30 +203,31 @@ function ArchiveCard({
                 {images.length === 0 ? null : (
                     <div className="grid grid-cols-2 gap-2">
                         {images.slice(0, 4).map((src, index) => (
-                            <Button
+                            <LoadedImage
                                 key={src}
-                                type="button"
-                                variant="ghost"
-                                className="aspect-video h-auto w-full overflow-hidden rounded-md bg-muted p-0"
-                                onClick={() => onDetail(card)}
-                                aria-label={tf("archive.open_image_details", {
-                                    index: index + 1,
-                                    title:
-                                        card.title ||
-                                        t("archive.untitled_card"),
+                                src={src}
+                                alt={tf("archive.image_alt", {
+                                    title: displayCardTitle(card),
                                 })}
-                            >
-                                <img
-                                    src={src}
-                                    alt={tf("archive.image_alt", {
-                                        title:
-                                            card.title ||
-                                            t("archive.untitled_card"),
-                                    })}
-                                    loading="lazy"
-                                    className="size-full object-cover transition-transform hover:scale-105"
-                                />
-                            </Button>
+                                className="size-full object-cover transition-transform hover:scale-105"
+                                render={(image) => (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        className="aspect-video h-auto w-full overflow-hidden rounded-md bg-muted p-0"
+                                        onClick={() => onDetail(card)}
+                                        aria-label={tf(
+                                            "archive.open_image_details",
+                                            {
+                                                index: index + 1,
+                                                title: displayCardTitle(card),
+                                            },
+                                        )}
+                                    >
+                                        {image}
+                                    </Button>
+                                )}
+                            />
                         ))}
                     </div>
                 )}
@@ -231,7 +238,7 @@ function ArchiveCard({
                     <MarkdownContent content={content} />
                 </div>
             </CardContent>
-            <CardFooter className="flex-wrap justify-between gap-2">
+            <CardFooter className="flex-wrap justify-between gap-3 px-5 py-4">
                 <span className="text-xs text-muted-foreground">
                     {card.repeatCount === 1
                         ? tf("format.review_count_one", {
@@ -260,14 +267,10 @@ function ArchiveCard({
                         aria-label={
                             card.pinned
                                 ? tf("archive.unpin_card", {
-                                      title:
-                                          card.title ||
-                                          t("archive.untitled_card"),
+                                      title: displayCardTitle(card),
                                   })
                                 : tf("archive.pin_card", {
-                                      title:
-                                          card.title ||
-                                          t("archive.untitled_card"),
+                                      title: displayCardTitle(card),
                                   })
                         }
                     >
@@ -280,7 +283,7 @@ function ArchiveCard({
                         disabled={busy}
                         onClick={() => onDelete(card)}
                         aria-label={tf("common.delete_named", {
-                            name: card.title || t("archive.untitled_card"),
+                            name: displayCardTitle(card),
                         })}
                     >
                         <Trash2Icon />
@@ -578,8 +581,9 @@ export function ArchivePage({ active = true }: { active?: boolean }) {
                         <AlertDialogDescription>
                             {tf("confirm.delete_archived_card_description", {
                                 title:
-                                    deleteTarget?.title ||
-                                    t("archive.this_card"),
+                                    deleteTarget === null
+                                        ? t("archive.this_card")
+                                        : displayCardTitle(deleteTarget),
                             })}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
@@ -626,8 +630,7 @@ export function ArchivePage({ active = true }: { active?: boolean }) {
                                     </Badge>
                                 </div>
                                 <DialogTitle>
-                                    {detailCard.title ||
-                                        t("archive.untitled_card")}
+                                    {displayCardTitle(detailCard)}
                                 </DialogTitle>
                                 <DialogDescription>
                                     {tf("format.created_card", {
@@ -639,32 +642,33 @@ export function ArchivePage({ active = true }: { active?: boolean }) {
                             {detailImages.length === 0 ? null : (
                                 <div className="grid grid-cols-2 gap-2">
                                     {detailImages.map((src, index) => (
-                                        <Button
+                                        <LoadedImage
                                             key={src}
-                                            type="button"
-                                            variant="ghost"
-                                            onClick={() => {
-                                                setLightboxIndex(index);
-                                                setLightboxOpen(true);
-                                            }}
-                                            className="aspect-video h-auto w-full overflow-hidden rounded-md bg-muted p-0"
-                                            aria-label={tf(
-                                                "archive.open_image",
-                                                { index: index + 1 },
+                                            src={src}
+                                            alt={tf("archive.image_alt", {
+                                                title: displayCardTitle(
+                                                    detailCard,
+                                                ),
+                                            })}
+                                            className="size-full object-contain"
+                                            render={(image) => (
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    onClick={() => {
+                                                        setLightboxIndex(index);
+                                                        setLightboxOpen(true);
+                                                    }}
+                                                    className="aspect-video h-auto w-full overflow-hidden rounded-md bg-muted p-0"
+                                                    aria-label={tf(
+                                                        "archive.open_image",
+                                                        { index: index + 1 },
+                                                    )}
+                                                >
+                                                    {image}
+                                                </Button>
                                             )}
-                                        >
-                                            <img
-                                                src={src}
-                                                alt={tf("archive.image_alt", {
-                                                    title:
-                                                        detailCard.title ||
-                                                        t(
-                                                            "archive.untitled_card",
-                                                        ),
-                                                })}
-                                                className="size-full object-contain"
-                                            />
-                                        </Button>
+                                        />
                                     ))}
                                 </div>
                             )}
@@ -695,7 +699,10 @@ export function ArchivePage({ active = true }: { active?: boolean }) {
                 images={detailImages.map((src) => ({
                     src,
                     alt: tf("archive.image_alt", {
-                        title: detailCard?.title || t("archive.untitled_card"),
+                        title:
+                            detailCard === null
+                                ? t("archive.untitled_card")
+                                : displayCardTitle(detailCard),
                     }),
                 }))}
                 initialIndex={lightboxIndex}

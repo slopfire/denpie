@@ -106,6 +106,32 @@ export function filterArchiveCards(
     });
 }
 
+const HEADING_MAX = 80;
+
+/**
+ * Visible archive heading: a real title wins; otherwise the first line of
+ * body text. Empty only when the card has no title and no content.
+ */
+export function archiveCardHeading(
+    card: Pick<TipcardInfo, "title" | "fullContent" | "compressedContent">,
+): string {
+    const titled = card.title.trim();
+    if (titled !== "") return titled;
+    const content = card.fullContent.trim() || card.compressedContent.trim();
+    if (content === "") return "";
+    let firstLine = "";
+    for (const line of content.split(/\r?\n/)) {
+        const stripped = line.replace(/^#+\s*/, "").trim();
+        if (stripped !== "") {
+            firstLine = stripped;
+            break;
+        }
+    }
+    if (firstLine === "") return "";
+    if (firstLine.length <= HEADING_MAX) return firstLine;
+    return `${firstLine.slice(0, HEADING_MAX - 1).trimEnd()}…`;
+}
+
 export function archiveTopics(cards: readonly TipcardInfo[]): string[] {
     return [
         ...new Set(cards.map((card) => card.topicName).filter(Boolean)),

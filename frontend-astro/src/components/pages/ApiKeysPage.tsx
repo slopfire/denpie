@@ -16,9 +16,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
     Card,
+    CardAction,
     CardContent,
     CardDescription,
-    CardFooter,
     CardHeader,
     CardTitle,
 } from "@/components/ui/card";
@@ -215,6 +215,17 @@ export function ApiKeysPage({ active = true }: { active?: boolean }) {
                         )}{" "}
                         {t("api_keys.currently_in_account")}
                     </CardDescription>
+                    <CardAction>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void refresh()}
+                            disabled={loading || busy}
+                        >
+                            {t("common.refresh")}
+                        </Button>
+                    </CardAction>
                 </CardHeader>
                 <CardContent>
                     {loading ? (
@@ -306,17 +317,6 @@ export function ApiKeysPage({ active = true }: { active?: boolean }) {
                         </div>
                     )}
                 </CardContent>
-                <CardFooter className="justify-end">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void refresh()}
-                        disabled={loading || busy}
-                    >
-                        {t("common.refresh")}
-                    </Button>
-                </CardFooter>
             </Card>
 
             <AlertDialog

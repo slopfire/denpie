@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { TipcardInfoSchema } from "@/generated/denpie_pb";
 import {
+    archiveCardHeading,
     archiveSearch,
     archiveStatusLabel,
     archiveTopics,
@@ -110,6 +111,63 @@ describe("archive page helpers", () => {
             archiveSearch({ status: "scheduled", topic: "Astro migration" }),
         ).toBe("?status=scheduled&topic=Astro+migration");
         expect(archiveSearch({ status: "all", topic: "" })).toBe("");
+    });
+
+    test("archive heading prefers a title and falls back to the first content line", () => {
+        expect(
+            archiveCardHeading(
+                card({
+                    id: 10n,
+                    topicName: "Rust",
+                    title: "Ownership",
+                    status: "active",
+                    createdAt: "2026-01-01",
+                    repeatCount: 0,
+                    fullContent: "Ownership gives a value a single owner",
+                }),
+            ),
+        ).toBe("Ownership");
+        expect(
+            archiveCardHeading(
+                card({
+                    id: 11n,
+                    topicName: "Rust",
+                    title: "  ",
+                    status: "active",
+                    createdAt: "2026-01-01",
+                    repeatCount: 0,
+                    fullContent:
+                        "Ownership gives a value a single owner\nMore detail follows.",
+                }),
+            ),
+        ).toBe("Ownership gives a value a single owner");
+        expect(
+            archiveCardHeading(
+                card({
+                    id: 12n,
+                    topicName: "Rust",
+                    title: "",
+                    status: "active",
+                    createdAt: "2026-01-01",
+                    repeatCount: 0,
+                    fullContent: "",
+                    compressedContent: "",
+                }),
+            ),
+        ).toBe("");
+        expect(
+            archiveCardHeading(
+                card({
+                    id: 13n,
+                    topicName: "Rust",
+                    title: "",
+                    status: "active",
+                    createdAt: "2026-01-01",
+                    repeatCount: 0,
+                    fullContent: `${"a".repeat(90)} more`,
+                }),
+            ),
+        ).toBe(`${"a".repeat(79)}…`);
     });
 
     test("projects inventory cards onto the Flow card message", () => {

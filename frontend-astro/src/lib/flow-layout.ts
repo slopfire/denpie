@@ -50,16 +50,16 @@ export function gridClassesForColumns(
 ): string {
   switch (columns) {
     case 1:
-      return "grid grid-cols-1 gap-3 items-start";
+      return "grid grid-cols-1 gap-6 items-start";
     case 2:
-      return "grid grid-cols-1 md:grid-cols-2 gap-3 items-start";
+      return "grid grid-cols-1 md:grid-cols-2 gap-6 items-start";
     case 3:
-      return "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start";
+      return "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 items-start";
     case 4:
-      return "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3 items-start";
+      return "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 items-start";
   }
 }
 
 /** List mode: one column, full width, capped and centered. */
 export const FLOW_LIST_CLASSES =
-  "grid grid-cols-1 gap-3 items-start w-full max-w-4xl mx-auto";
+  "grid grid-cols-1 gap-6 items-start w-full max-w-4xl mx-auto";

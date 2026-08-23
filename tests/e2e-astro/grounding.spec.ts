@@ -180,14 +180,17 @@ test("topic cards match the compact layout and the icon picker can set an icon",
 
     const card = page.getByTestId("topic-card-11");
     await expect(card.getByText("Rust")).toBeVisible();
-    await expect(card.getByText("casual tip")).toBeVisible();
+    await expect(card.getByText("Casual", { exact: true })).toBeVisible();
     await expect(page.getByTestId("topic-due-total-11")).toHaveText(
         "3 due / 10 total",
     );
     await expect(page.getByTestId("topic-11-pending-archive")).toBeVisible();
     await expect(page.getByTestId("topic-11-scheduled-archive")).toBeVisible();
     await expect(card.getByRole("button", { name: "Load" })).toBeVisible();
-    await expect(card.getByRole("button", { name: "Delete" })).toBeVisible();
+    await expect(card.getByRole("button", { name: "Delete" })).toHaveCount(0);
+    await page.getByTestId("topic-more-11").click();
+    await expect(page.getByTestId("topic-delete-11")).toBeVisible();
+    await page.keyboard.press("Escape");
     await expect(
         card.getByRole("button", { name: "Save defaults" }),
     ).toHaveCount(0);

@@ -112,14 +112,6 @@ const desktopNavigation = [
     },
 ] as const satisfies readonly NavigationItem[];
 
-const mobileNavigation = [
-    desktopNavigation[1],
-    desktopNavigation[0],
-    desktopNavigation[4],
-    desktopNavigation[2],
-    desktopNavigation[3],
-] as const;
-
 function pathnameForView(view: AppView): string {
     switch (view) {
         case "flow":
@@ -418,7 +410,7 @@ function MobileNavigation({
             aria-label={t("common.primary_navigation")}
             data-testid="mobile-navigation"
         >
-            {mobileNavigation.map((item) => {
+            {desktopNavigation.map((item) => {
                 const Icon = item.icon;
                 const active = item.view === view;
                 return (
@@ -432,14 +424,16 @@ function MobileNavigation({
                             onNavigate(item.view);
                         }}
                         className={cn(
-                            "flex min-h-14 items-center justify-center rounded-md px-2 py-2",
+                            "flex min-h-14 flex-col items-center justify-center gap-1 px-1 py-2 text-[10px] leading-none",
                             active
-                                ? "bg-muted text-foreground"
+                                ? "font-medium text-foreground"
                                 : "text-muted-foreground hover:text-foreground",
                         )}
                     >
                         <Icon className="size-5" aria-hidden="true" />
-                        <span className="sr-only">{t(item.labelKey)}</span>
+                        <span className="max-w-full truncate">
+                            {t(item.labelKey)}
+                        </span>
                     </a>
                 );
             })}

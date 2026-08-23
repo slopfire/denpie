@@ -96,6 +96,7 @@ function SelectField({
     options,
     disabled,
     onValueChange,
+    className,
 }: {
     id: string;
     label: string;
@@ -104,9 +105,10 @@ function SelectField({
     options: readonly Option[];
     disabled: boolean;
     onValueChange: (value: string) => void;
+    className?: string;
 }) {
     return (
-        <Field>
+        <Field className={className}>
             <FieldLabel htmlFor={id}>{label}</FieldLabel>
             <Select
                 value={value}
@@ -159,6 +161,31 @@ const AUTOUPDATE_PHASE_KEYS = {
 function autoupdatePhaseLabel(phase: string): string {
     const key = AUTOUPDATE_PHASE_KEYS[phase as keyof typeof AUTOUPDATE_PHASE_KEYS];
     return key === undefined ? t("settings.admin.phase.unknown") : t(key);
+}
+
+function SaveChangesButton({
+    saving,
+    changed,
+    onSave,
+}: {
+    saving: boolean;
+    changed: boolean;
+    onSave: () => void;
+}) {
+    return (
+        <Button
+            type="button"
+            onClick={() => void onSave()}
+            disabled={saving || !changed}
+        >
+            {saving ? (
+                <Spinner data-icon="inline-start" />
+            ) : (
+                <SaveIcon data-icon="inline-start" />
+            )}
+            {saving ? t("settings.saving") : t("settings.save_changes")}
+        </Button>
+    );
 }
 
 export function SettingsPage({
@@ -352,18 +379,11 @@ export function SettingsPage({
                         {t("settings.unsaved_description")}
                     </p>
                 </div>
-                <Button
-                    type="button"
-                    onClick={() => void save()}
-                    disabled={saving || !changed}
-                >
-                    {saving ? (
-                        <Spinner data-icon="inline-start" />
-                    ) : (
-                        <SaveIcon data-icon="inline-start" />
-                    )}
-                    {saving ? t("settings.saving") : t("settings.save_changes")}
-                </Button>
+                <SaveChangesButton
+                    saving={saving}
+                    changed={changed}
+                    onSave={() => void save()}
+                />
             </div>
 
             {feedback.kind === "success" || feedback.kind === "error" ? (
@@ -461,6 +481,7 @@ export function SettingsPage({
                                     />
                                     <SelectField
                                         id="settings-compression-level"
+                                        className="md:col-span-2"
                                         label={t(
                                             "settings.models.compression_level",
                                         )}
@@ -545,7 +566,7 @@ export function SettingsPage({
                                             }
                                         />
                                     </Field>
-                                    <Field>
+                                    <Field className="md:col-span-2">
                                         <FieldLabel htmlFor="settings-compress-base-url">
                                             {t(
                                                 "settings.models.compression_base_url",
@@ -897,7 +918,7 @@ export function SettingsPage({
                                         }
                                     />
                                 </Field>
-                                <Field>
+                                <Field className="md:col-span-2">
                                     <FieldLabel htmlFor="settings-max-active-cards">
                                         {t(
                                             "settings.schedule.max_active_cards",
@@ -1237,6 +1258,13 @@ export function SettingsPage({
                         </CardContent>
                     </Card>
                 </section>
+                <div className="flex justify-end border-t pt-5">
+                    <SaveChangesButton
+                        saving={saving}
+                        changed={changed}
+                        onSave={() => void save()}
+                    />
+                </div>
             </div>
         </section>
     );

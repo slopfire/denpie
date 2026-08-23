@@ -168,7 +168,7 @@ export function FlowAddForm({
     return (
         <div className="flex w-full min-w-0 max-w-full justify-end">
             <Card
-                className="max-w-full"
+                className="w-full max-w-full sm:w-auto"
                 size="sm"
                 data-testid="transmission-form-surface"
             >
