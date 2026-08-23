@@ -24,6 +24,7 @@ Put UI in `frontend-astro/`. Astro emits a static `dist/`. Axum is the only serv
 `just` lists the recipes. The traps:
 
 - `just dev` is the live loop. Open `http://localhost:4321/`. Vite proxies `/api`, `/auth`, `/app`, `/admin`, and `/static` to Axum. `:3017` serves a built `frontend-astro/dist` when one exists.
+- Keep `vite` as a direct `frontend-astro` dependency (Astro 7's Vite 8). `@vitejs/plugin-react` detects Rolldown/Oxc by importing `vite`; a hoisted Vite 6 peer makes it emit `esbuild` / `optimizeDeps.esbuildOptions` deprecation warnings. The `overrides.vite` pin keeps one copy in the tree.
 - `just agent-server` serves `frontend-astro/dist` on `:3027` and auto-builds it when `index.html` is missing. A custom `--frontend-dist` is never auto-built.
 - `just ui-check` / `just frontend-astro-runtime` builds, then smoke-checks on `:3027`.
 - `/lab-cards` is the opt-in fixture gallery (see `docs/lab.md`). It is
