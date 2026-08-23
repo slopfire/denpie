@@ -22,6 +22,10 @@ use crate::{api, auth, dashboard, services};
 const AUTH_REQUESTS_PER_SECOND: u64 = 2;
 const API_REQUESTS_PER_SECOND: u64 = 10;
 const IMAGE_REQUESTS_PER_SECOND: u64 = 50;
+/// Image rows are write-once bytes (append/delete only; `byte_size`
+/// participates in the ETag), so thumbnails can live in the private browser
+/// cache for a week instead of revalidating on every load.
+const IMAGE_CACHE_CONTROL: &str = "private, max-age=604800, stale-while-revalidate=86400";
 
 const fn replenish_interval(requests_per_second: u64) -> Duration {
     // tower-governor 0.4 configures the interval for one replenished token,
@@ -231,15 +235,17 @@ pub fn build_app<S: tower_sessions::session_store::SessionStore + Clone + Send +
                 }),
         );
 
-    let frontend_serve = ServeDir::new(frontend_dist.clone()).fallback(
-        tower_http::services::ServeFile::new(frontend_dist.join("index.html")),
-    );
+    let frontend_serve = ServeDir::new(frontend_dist.clone())
+        .precompressed_gzip()
+        .fallback(tower_http::services::ServeFile::new(
+            frontend_dist.join("index.html"),
+        ));
     Router::new()
         .merge(protected_routes)
         .merge(admin_routes)
         .merge(versioned_api_routes)
         .nest("/auth", auth_routes)
-        .nest_service("/static", ServeDir::new(static_dir))
+        .nest_service("/static", ServeDir::new(static_dir).precompressed_gzip())
         .route("/service-worker.js", get(service_worker))
         .route(
             "/api",
@@ -281,7 +287,7 @@ async fn serve_tipcard_image(
             [
                 (
                     header::CACHE_CONTROL,
-                    HeaderValue::from_static("private, no-cache, max-age=0, must-revalidate"),
+                    HeaderValue::from_static(IMAGE_CACHE_CONTROL),
                 ),
                 (header::ETAG, etag_header),
             ],
@@ -299,7 +305,7 @@ async fn serve_tipcard_image(
             (header::CONTENT_TYPE, content_type),
             (
                 header::CACHE_CONTROL,
-                HeaderValue::from_static("private, no-cache, max-age=0, must-revalidate"),
+                HeaderValue::from_static(IMAGE_CACHE_CONTROL),
             ),
             (header::ETAG, etag_header),
         ],
@@ -330,7 +336,7 @@ async fn serve_pool_image(
             [
                 (
                     header::CACHE_CONTROL,
-                    HeaderValue::from_static("private, no-cache, max-age=0, must-revalidate"),
+                    HeaderValue::from_static(IMAGE_CACHE_CONTROL),
                 ),
                 (header::ETAG, etag_header),
             ],
@@ -348,7 +354,7 @@ async fn serve_pool_image(
             (header::CONTENT_TYPE, content_type),
             (
                 header::CACHE_CONTROL,
-                HeaderValue::from_static("private, no-cache, max-age=0, must-revalidate"),
+                HeaderValue::from_static(IMAGE_CACHE_CONTROL),
             ),
             (header::ETAG, etag_header),
         ],
@@ -499,6 +505,14 @@ mod cache_tests {
             Some(&HeaderValue::from_static("\"tipcard-image-2-20\"")),
             "\"tipcard-image-1-20\""
         ));
+    }
+
+    #[test]
+    fn image_cache_control_is_long_lived_private() {
+        assert_eq!(
+            IMAGE_CACHE_CONTROL,
+            "private, max-age=604800, stale-while-revalidate=86400"
+        );
     }
 
     #[test]

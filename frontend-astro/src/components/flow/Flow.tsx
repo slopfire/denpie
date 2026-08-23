@@ -1,4 +1,24 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    lazy,
+    memo,
+    Suspense,
+} from "react";
+import {
+    seedFromSnapshot,
+    useFlowPager,
+    type FlowState,
+} from "./use-flow-pager";
+import { usePinMutations, useDeleteMutations } from "./use-flow-pin-mutations";
+import { useFlowReviewLifecycle } from "./use-flow-review-lifecycle";
+import { useFlowAddLifecycle } from "./use-flow-add-lifecycle";
+import { saveFlowSnapshot, type SavedFlowPage } from "@/lib/flow-snapshot";
+
+export type { FlowState };
 import {
     CheckIcon,
     ChevronUpIcon,
@@ -34,7 +54,23 @@ import {
 } from "@/components/flow/FlowCardDetail";
 import { Dialog } from "@/components/ui/dialog";
 import { ImageLightbox } from "@/components/content/ImageLightbox";
-import { MarkdownContent } from "@/components/content/MarkdownContent";
+
+/** Lazy markdown: prismjs/react-markdown/remark-gfm leave the critical path. */
+const LazyMarkdownContent = lazy(() =>
+    import("@/components/content/MarkdownContent").then((m) => ({
+        default: m.MarkdownContent,
+    })),
+);
+
+function MarkdownFallback() {
+    return (
+        <div className="space-y-2 animate-pulse" aria-hidden="true">
+            <div className="h-4 rounded bg-muted" />
+            <div className="h-4 w-5/6 rounded bg-muted" />
+            <div className="h-4 w-2/3 rounded bg-muted" />
+        </div>
+    );
+}
 import {
     humanDetailDate,
     isUserFullscreenDismiss,
@@ -72,81 +108,27 @@ import {
 } from "@/components/ui/tooltip";
 import { ReviewActionValue, type FlowCardInfo } from "@/generated/denpie_pb";
 import { lookupTopicIconId, TopicIcon } from "@/lib/topic-icons.generated";
-import {
-    continueDailyReview,
-    getTipcard,
-    listFlowCards,
-    reviewAndAdvance,
-    pinTipcard,
-    deleteTipcard,
-    createTips,
-} from "@/lib/api-v1/ops";
-import { TransportError, newIdempotencyKey } from "@/lib/api-v1/transport";
+import { listFlowCards } from "@/lib/api-v1/ops";
 import { FlowAddForm } from "@/components/flow/FlowAddForm";
-import { buildTipsRequest, clearAddPrefill } from "@/lib/flow-add-form";
-import type { AddTipsPayload } from "@/lib/flow-add-form";
 import {
-    addFailed,
-    addMutationSucceeded,
-    addRetryDecision,
-    canStartAdd,
-    resolutionRetryDecision,
-    resolveFailed,
-    resolveSettled,
-    startAdd,
-    startMutationRetry,
-    startResolutionRetry,
-    type AddAttempt,
-    type AddLifecycle,
-    type AddResolutionRun,
-} from "@/lib/flow-add-state";
-import {
-    integrateCreatedCards,
-    mergeReconciledCards,
-} from "@/lib/flow-add-integration";
-import {
-    appendIdleSlots,
-    classifyReviewError,
     reviewActionsFor,
-    slotsFromCards,
     type ReviewChoice,
 } from "@/lib/flow-review-actions";
 import type { FlowCursor } from "@/lib/flow-state";
 import {
-    continueFailure,
-    continueRetryDecision,
-    continueSuccess,
     refillPollFound,
     refillPollMiss,
-    retryDecision,
     flowSlotKey,
-    reviewFailure,
-    reviewSuccess,
-    startContinue,
-    startReview,
-    type ContinueAttempt,
-    type ReviewAttempt,
     type ReviewSlot,
 } from "@/lib/flow-review-state";
 import {
-    applyPinFailure,
-    applyPinSuccess,
-    EMPTY_PIN_STATE,
     pinCardState,
-    pinRetryDecision,
-    startPin,
-    type PinAttempt,
+    type PinCardState,
     type PinState,
 } from "@/lib/flow-pin-state";
 import {
-    applyDeleteFailure,
-    applyDeleteSuccess,
     deleteCardState,
-    deleteRetryDecision,
-    EMPTY_DELETE_STATE,
-    startDelete,
     type DeleteCardState,
-    type DeleteAttempt,
     type DeleteState,
 } from "@/lib/flow-delete-state";
 import { repeatableStackLayers, toFlowCardViews } from "@/lib/flow-view";
@@ -181,12 +163,10 @@ import {
     TRANSMISSION_MAX_PICKS,
 } from "@/lib/flow-transmission";
 
-const PAGE_SIZE = 48;
 /** Delay before each bounded refill poll after an awaiting-refill slot. */
 const REFILL_POLL_DELAY_MS = 2000;
 /** Miss budget per awaiting-refill slot before it becomes completed. */
 const REFILL_MAX_ATTEMPTS = 4;
-const REVIEW_SWIPE_DELAY_MS = 180;
 
 const NO_SLOTS: ReviewSlot[] = [];
 
@@ -267,30 +247,6 @@ function repeatableReviewSwipe(
     return slot.attempt.action === ReviewActionValue.AGAIN ? "left" : "right";
 }
 
-type FlowSlotsState =
-    | { kind: "ready"; slots: ReviewSlot[]; cursor: FlowCursor }
-    | { kind: "loading-more"; slots: ReviewSlot[]; pageToken: string }
-    | {
-          kind: "load-error";
-          slots: ReviewSlot[];
-          pageToken: string;
-          message: string;
-      };
-
-/**
- * Discriminated Flow state with only legal combinations: `loading-more` and
- * `load-error` always carry the non-empty cursor token they are fetching or
- * retrying; pagination is a `FlowCursor` union (`end` | `more` + required
- * token), so "hasMore without a token" is unrepresentable. Cards ride inside
- * ready/loading-more/load-error as `ReviewSlot`s, so a "load more" never
- * replaces already rendered cards — and a reviewed card's replacement,
- * completed, or awaiting-refill placeholder stays at its exact list position.
- */
-export type FlowState =
-    | { kind: "initial-loading" }
-    | FlowSlotsState
-    | { kind: "empty" }
-    | { kind: "error"; message: string };
 
 function PinnedDragHandle({
     cardId,
@@ -417,10 +373,10 @@ export function CardBodies({
     return (
         <>
             <CardHeader
-                className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-none border-b px-4 py-3"
+                className="relative flex flex-row items-center justify-between gap-2 overflow-hidden rounded-none border-b px-4 py-3 pb-3"
                 data-testid={`card-title-bar-${card.id}`}
             >
-                <div className="flex items-center justify-self-start gap-2">
+                <div className="relative z-10 flex items-center gap-2 bg-card">
                     {leading}
                     <TopicIcon
                         aria-hidden
@@ -430,7 +386,7 @@ export function CardBodies({
                         data-testid={`topic-icon-${card.id}`}
                     />
                 </div>
-                <div className="flex min-w-0 items-center justify-center gap-1.5 px-1 text-center text-lg font-bold tracking-[0.02em] capitalize">
+                <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center gap-1.5 px-4 text-center text-lg font-bold tracking-[0.02em] capitalize">
                     {card.pinned ? (
                         <PinIcon
                             aria-hidden
@@ -442,7 +398,7 @@ export function CardBodies({
                         {card.topicName}
                     </span>
                 </div>
-                <div className="flex items-center justify-self-end gap-2">
+                <div className="relative z-10 flex items-center gap-2 bg-card">
                     <Popover>
                         <PopoverTrigger
                             render={<Button variant="outline" size="xs" />}
@@ -563,9 +519,11 @@ export function CardBodies({
                                 : "overflow-hidden"),
                     )}
                 >
-                    <MarkdownContent content={content} />
+                    <Suspense fallback={<MarkdownFallback />}>
+                        <LazyMarkdownContent content={content} />
+                    </Suspense>
                     {hasCompact ? (
-                        <div className="mt-2">
+                        <div className="mt-2 flex justify-center">
                             <Button
                                 type="button"
                                 variant="outline"
@@ -1235,13 +1193,13 @@ function FollowUpActions({
     return null;
 }
 
-function ReviewSlotCard({
+const ReviewSlotCard = memo(function ReviewSlotCard({
     slot,
     onReview,
     onRetry,
     onContinue,
-    pinStates,
-    deleteStates,
+    pinCard,
+    deleteCard,
     onPinToggle,
     onPinRetry,
     onDeleteConfirm,
@@ -1256,8 +1214,8 @@ function ReviewSlotCard({
     onReview: (cardId: bigint, choice: ReviewChoice) => void;
     onRetry: (cardId: bigint) => void;
     onContinue: (reviewedCardId: bigint) => void;
-    pinStates: PinState;
-    deleteStates: DeleteState;
+    pinCard: PinCardState;
+    deleteCard: DeleteCardState;
     onPinToggle: (cardId: bigint, targetPinned: boolean) => void;
     onPinRetry: (cardId: bigint) => void;
     onDeleteConfirm: (cardId: bigint) => void;
@@ -1297,10 +1255,8 @@ function ReviewSlotCard({
     );
 
     const id = live ? slot.card.id : slot.reviewedCardId;
-    const cardPin = pinCardState(pinStates, id);
-    const pinBusy = cardPin.kind !== "idle";
-    const cardDelete = deleteCardState(deleteStates, id);
-    const deleteBusy = cardDelete.kind === "deleting";
+    const pinBusy = pinCard.kind !== "idle";
+    const deleteBusy = deleteCard.kind === "deleting";
     const controlsBusy = pinBusy || deleteBusy;
     const dragEnabled = live && enableDrag && slot.card.pinned;
     const stackLayers = live ? repeatableStackLayers(slot.card) : 0;
@@ -1308,8 +1264,8 @@ function ReviewSlotCard({
     const liveControls = live ? (
         <LiveCardControls
             slot={slot}
-            pinState={cardPin}
-            deleteState={cardDelete}
+            pinState={pinCard}
+            deleteState={deleteCard}
             controlsBusy={controlsBusy}
             pinBusy={pinBusy}
             deleteBusy={deleteBusy}
@@ -1338,7 +1294,7 @@ function ReviewSlotCard({
             {live ? (
                 <div
                     className={cn(
-                        "relative isolate h-full",
+                        "relative isolate flex min-h-60 flex-col",
                         stackLayers > 0 && "mr-3 mb-3",
                     )}
                     data-repeatable-stack={
@@ -1367,7 +1323,7 @@ function ReviewSlotCard({
                     })}
                     <Card
                         className={cn(
-                            "relative z-10 flex h-full min-h-60 flex-col gap-0 overflow-hidden rounded-md py-0 ring-border",
+                            "relative z-10 flex min-h-60 flex-1 flex-col gap-0 overflow-hidden rounded-md py-0 ring-border",
                             reviewSwipe !== undefined &&
                                 "repeatable-review-swipe",
                         )}
@@ -1437,9 +1393,9 @@ function ReviewSlotCard({
             ) : null}
         </Dialog>
     );
-}
+});
 
-function SlotList({
+const SlotList = memo(function SlotList({
     slots,
     testId,
     labelledBy,
@@ -1498,9 +1454,10 @@ function SlotList({
                         style={enableDrag ? { order: index } : undefined}
                         aria-posinset={enableDrag ? index + 1 : undefined}
                         aria-setsize={enableDrag ? slots.length : undefined}
-                        className={
-                            draggingCardId === id ? "opacity-50" : undefined
-                        }
+                        className={cn(
+                            "min-w-0",
+                            draggingCardId === id && "opacity-50",
+                        )}
                         onDragOver={
                             onPinnedDrop
                                 ? (event) => {
@@ -1564,8 +1521,8 @@ function SlotList({
                             onReview={onReview}
                             onRetry={onRetry}
                             onContinue={onContinue}
-                            pinStates={pinStates}
-                            deleteStates={deleteStates}
+                            pinCard={pinCardState(pinStates, id)}
+                            deleteCard={deleteCardState(deleteStates, id)}
                             onPinToggle={onPinToggle}
                             onPinRetry={onPinRetry}
                             onDeleteConfirm={onDeleteConfirm}
@@ -1581,7 +1538,7 @@ function SlotList({
             })}
         </ul>
     );
-}
+});
 
 function TransmissionSections({
     pinned,
@@ -1777,16 +1734,15 @@ function AddedNotice() {
 }
 
 export function Flow({ active = true }: { active?: boolean }) {
-    const [state, setState] = useState<FlowState>({ kind: "initial-loading" });
+    const [state, setState] = useState<FlowState>(
+        () => seedFromSnapshot() ?? { kind: "initial-loading" },
+    );
     // Ref mirror of the latest state so event handlers read current data
     // without launching work inside a setState updater (updaters must stay
     // pure — React may invoke them more than once).
-    const stateRef = useRef<FlowState>({ kind: "initial-loading" });
-    // Generation counter: async results from an earlier load/retry/unmount are
-    // stale and must not touch state.
-    const generationRef = useRef(0);
-    // Explicit in-flight ownership: double clicks cannot start a second request.
-    const inFlightRef = useRef(false);
+    const stateRef = useRef<FlowState>(state);
+    // Component lifetime marker shared by every async handler; the pager owns
+    // its own generation/in-flight guards internally.
     const mountedRef = useRef(true);
     // Layout preferences: SSR-safe lazy init reads localStorage only in the
     // browser; valid user changes persist under the canonical shared keys.
@@ -1917,609 +1873,51 @@ export function Flow({ active = true }: { active?: boolean }) {
         setState(next);
     }, []);
 
-    const [pinStates, setPinStates] = useState<PinState>(EMPTY_PIN_STATE);
-    const pinStatesRef = useRef<PinState>(EMPTY_PIN_STATE);
-    const applyPins = useCallback((next: PinState) => {
-        pinStatesRef.current = next;
-        setPinStates(next);
-    }, []);
-    const [deleteStates, setDeleteStates] =
-        useState<DeleteState>(EMPTY_DELETE_STATE);
-    const deleteStatesRef = useRef<DeleteState>(EMPTY_DELETE_STATE);
-    const applyDeletes = useCallback((next: DeleteState) => {
-        deleteStatesRef.current = next;
-        setDeleteStates(next);
-    }, []);
-
-    const loadInitial = useCallback(async () => {
-        if (inFlightRef.current) return;
-        inFlightRef.current = true;
-        const generation = ++generationRef.current;
-        apply({ kind: "initial-loading" });
-        try {
-            const page = await listFlowCards({ pageSize: PAGE_SIZE });
-            if (!mountedRef.current || generationRef.current !== generation)
-                return;
-            if (page.cards.length === 0) {
-                apply({ kind: "empty" });
-            } else {
-                apply({
-                    kind: "ready",
-                    slots: slotsFromCards(page.cards),
-                    cursor: page.cursor,
-                });
-            }
-        } catch (error) {
-            if (!mountedRef.current || generationRef.current !== generation)
-                return;
-            apply({
-                kind: "error",
-                message: error instanceof Error ? error.message : String(error),
-            });
-        } finally {
-            if (generationRef.current === generation)
-                inFlightRef.current = false;
-        }
-    }, [apply]);
-
-    const loadMoreFrom = useCallback(
-        (slots: ReviewSlot[], pageToken: string) => {
-            if (inFlightRef.current) return;
-            inFlightRef.current = true;
-            const generation = ++generationRef.current;
-            apply({ kind: "loading-more", slots, pageToken });
-            void (async () => {
-                try {
-                    const page = await listFlowCards({
-                        pageSize: PAGE_SIZE,
-                        pageToken,
-                    });
-                    if (
-                        !mountedRef.current ||
-                        generationRef.current !== generation
-                    )
-                        return;
-                    const current = stateRef.current;
-                    if (
-                        current.kind !== "loading-more" ||
-                        current.pageToken !== pageToken
-                    )
-                        return;
-                    apply({
-                        kind: "ready",
-                        slots: appendIdleSlots(current.slots, page.cards),
-                        cursor: page.cursor,
-                    });
-                } catch (error) {
-                    // Recoverable: keep the rendered slots and the same cursor so a
-                    // retry re-requests exactly the failed page. The notice persists
-                    // until a successful retry or an explicit whole-flow reload.
-                    if (
-                        !mountedRef.current ||
-                        generationRef.current !== generation
-                    )
-                        return;
-                    const current = stateRef.current;
-                    if (
-                        current.kind !== "loading-more" ||
-                        current.pageToken !== pageToken
-                    )
-                        return;
-                    apply({
-                        kind: "load-error",
-                        slots: current.slots,
-                        pageToken,
-                        message:
-                            error instanceof Error
-                                ? error.message
-                                : String(error),
-                    });
-                } finally {
-                    if (generationRef.current === generation)
-                        inFlightRef.current = false;
-                }
-            })();
+    // ---------------------------------------------------------------------------
+    // Extracted lifecycles. The component keeps sole ownership of the Flow
+    // state union (`apply`); every hook commits through it atomically.
+    // ---------------------------------------------------------------------------
+    const getState = useCallback(() => stateRef.current, []);
+    const produce = useCallback(
+        (produceState: (current: FlowState) => FlowState) => {
+            const next = produceState(stateRef.current);
+            if (next !== stateRef.current) apply(next);
         },
         [apply],
     );
-
-    const loadMore = useCallback(() => {
-        // Reads current data from the ref; no request launches inside any updater.
-        const current = stateRef.current;
-        if (current.kind !== "ready" || current.cursor.kind !== "more") return;
-        loadMoreFrom(current.slots, current.cursor.pageToken);
-    }, [loadMoreFrom]);
-
-    /**
-     * Launch exactly one card's mutation outside any state updater/ref
-     * callback. `attempt` and the post-`startReview` slot list are provided by
-     * the caller; the per-slot generation captured here makes stale results —
-     * including after unmount or a newer retry — unable to commit.
-     */
-    const launchReview = useCallback(
-        (started: ReviewSlot[], cardId: bigint, attempt: ReviewAttempt) => {
-            const target = started.find(
-                (candidate) =>
-                    candidate.kind === "reviewing" &&
-                    candidate.card.id === cardId,
-            );
-            if (target?.kind !== "reviewing") return;
-            const generation = target.generation;
-            void (async () => {
-                try {
-                    if (target.card.tipcardType === "repeatable_tip") {
-                        await new Promise((resolve) =>
-                            setTimeout(resolve, REVIEW_SWIPE_DELAY_MS),
-                        );
-                        if (!mountedRef.current) return;
-                    }
-                    const outcome = await reviewAndAdvance({
-                        cardId,
-                        grade: attempt.grade,
-                        action: attempt.action,
-                        idempotencyKey: attempt.idempotencyKey,
-                    });
-                    if (!mountedRef.current) return;
-                    const current = stateRef.current;
-                    if (
-                        current.kind !== "ready" &&
-                        current.kind !== "loading-more" &&
-                        current.kind !== "load-error"
-                    )
-                        return;
-                    const nextSlots = reviewSuccess(
-                        current.slots,
-                        outcome.reviewedCardId,
-                        generation,
-                        outcome,
-                    );
-                    if (nextSlots === current.slots) return; // stale generation
-                    apply({ ...current, slots: nextSlots });
-                } catch (error) {
-                    if (!mountedRef.current) return;
-                    const current = stateRef.current;
-                    if (
-                        current.kind !== "ready" &&
-                        current.kind !== "loading-more" &&
-                        current.kind !== "load-error"
-                    )
-                        return;
-                    const nextSlots = reviewFailure(
-                        current.slots,
-                        cardId,
-                        generation,
-                        classifyReviewError(error),
-                    );
-                    if (nextSlots === current.slots) return; // stale generation
-                    apply({ ...current, slots: nextSlots });
-                }
-            })();
-        },
-        [apply],
+    const mutationHost = useMemo(
+        () => ({
+            getState,
+            produce,
+            getPinnedOrder: () => pinnedOrderRef.current,
+            applyPinnedOrder,
+            mounted: () => mountedRef.current,
+        }),
+        [applyPinnedOrder, getState, produce],
     );
-
-    const onReview = useCallback(
-        (cardId: bigint, choice: ReviewChoice) => {
-            if (pinCardState(pinStatesRef.current, cardId).kind !== "idle")
-                return;
-            const current = stateRef.current;
-            if (
-                current.kind !== "ready" &&
-                current.kind !== "loading-more" &&
-                current.kind !== "load-error"
-            )
-                return;
-            const attempt: ReviewAttempt = {
-                grade: choice.grade,
-                action: choice.action,
-                idempotencyKey: newIdempotencyKey(),
-            };
-            const started = startReview(current.slots, cardId, attempt);
-            if (started === current.slots) return;
-            apply({ ...current, slots: started });
-            launchReview(started, cardId, attempt);
-        },
-        [apply, launchReview],
+    const { pinStates, pinStatesRef, onPinToggle, onPinRetry } =
+        usePinMutations(mutationHost);
+    const { deleteStates, deleteStatesRef, onDeleteConfirm, onDeleteRetry } =
+        useDeleteMutations(mutationHost);
+    const pinIdle = useCallback(
+        (cardId: bigint) =>
+            pinCardState(pinStatesRef.current, cardId).kind === "idle",
+        [pinStatesRef],
     );
-
-    const onRetry = useCallback(
-        (cardId: bigint) => {
-            if (pinCardState(pinStatesRef.current, cardId).kind !== "idle")
-                return;
-            const current = stateRef.current;
-            if (
-                current.kind !== "ready" &&
-                current.kind !== "loading-more" &&
-                current.kind !== "load-error"
-            )
-                return;
-            const errored = current.slots.find(
-                (slot) => slot.kind === "error" && slot.card.id === cardId,
-            );
-            if (errored?.kind !== "error") return;
-            const decision = retryDecision(errored);
-            const attempt: ReviewAttempt =
-                decision.kind === "reuseAttempt"
-                    ? decision.attempt
-                    : {
-                          grade: decision.grade,
-                          action: decision.action,
-                          idempotencyKey: newIdempotencyKey(),
-                      };
-            const started = startReview(current.slots, cardId, attempt);
-            if (started === current.slots) return;
-            apply({ ...current, slots: started });
-            launchReview(started, cardId, attempt);
-        },
-        [apply, launchReview],
+    const reviewHost = useMemo(
+        () => ({
+            getState,
+            apply,
+            mounted: () => mountedRef.current,
+            pinIdle,
+        }),
+        [apply, getState, pinIdle],
     );
-
-    /**
-     * Launch exactly one Continue mutation outside any state updater. The
-     * per-slot generation captured from the `continuing` slot makes stale
-     * results — including after unmount or a newer retry — unable to commit.
-     */
-    const launchContinue = useCallback(
-        (
-            started: ReviewSlot[],
-            reviewedCardId: bigint,
-            attempt: ContinueAttempt,
-        ) => {
-            const target = started.find(
-                (candidate) =>
-                    candidate.kind === "continuing" &&
-                    candidate.reviewedCardId === reviewedCardId,
-            );
-            if (target?.kind !== "continuing") return;
-            const generation = target.generation;
-            void (async () => {
-                let mutationReturned = false;
-                try {
-                    const outcome = await continueDailyReview({
-                        topicName: attempt.topicName,
-                        idempotencyKey: attempt.idempotencyKey,
-                    });
-                    mutationReturned = true;
-                    const detail = await getTipcard({
-                        cardId: outcome.activeCardId,
-                    });
-                    if (!mountedRef.current) return;
-                    const current = stateRef.current;
-                    if (
-                        current.kind !== "ready" &&
-                        current.kind !== "loading-more" &&
-                        current.kind !== "load-error"
-                    )
-                        return;
-                    const nextSlots = continueSuccess(
-                        current.slots,
-                        reviewedCardId,
-                        generation,
-                        detail.card,
-                        outcome.pendingCount,
-                    );
-                    if (nextSlots === current.slots) return; // stale generation
-                    apply({ ...current, slots: nextSlots });
-                } catch (error) {
-                    if (!mountedRef.current) return;
-                    const current = stateRef.current;
-                    if (
-                        current.kind !== "ready" &&
-                        current.kind !== "loading-more" &&
-                        current.kind !== "load-error"
-                    )
-                        return;
-                    const classified = classifyReviewError(error);
-                    // Once the mutation itself returned successfully, a detail-read
-                    // failure cannot prove the mutation did not commit: force the
-                    // indeterminate verdict so Retry reuses the exact same key and
-                    // obtains the idempotent result before reading detail again.
-                    const failure = mutationReturned
-                        ? { ...classified, mutationOutcomeIndeterminate: true }
-                        : classified;
-                    const nextSlots = continueFailure(
-                        current.slots,
-                        reviewedCardId,
-                        generation,
-                        failure,
-                    );
-                    if (nextSlots === current.slots) return; // stale generation
-                    apply({ ...current, slots: nextSlots });
-                }
-            })();
-        },
-        [apply],
-    );
-
-    /**
-     * Start (or retry) Continue for one completed/errored slot. The second
-     * click cannot launch another mutation: after the first, the slot is no
-     * longer `completed`/`continueError`, so `startContinue` is a no-op.
-     */
-    const onContinue = useCallback(
-        (reviewedCardId: bigint) => {
-            const current = stateRef.current;
-            if (
-                current.kind !== "ready" &&
-                current.kind !== "loading-more" &&
-                current.kind !== "load-error"
-            )
-                return;
-            const slot = current.slots.find(
-                (candidate) =>
-                    (candidate.kind === "completed" ||
-                        candidate.kind === "continueError") &&
-                    candidate.reviewedCardId === reviewedCardId,
-            );
-            if (slot?.kind !== "completed" && slot?.kind !== "continueError")
-                return;
-            const attempt: ContinueAttempt =
-                slot.kind === "continueError"
-                    ? (() => {
-                          const decision = continueRetryDecision(slot);
-                          return decision.kind === "reuseAttempt"
-                              ? decision.attempt
-                              : {
-                                    topicName: decision.topicName,
-                                    idempotencyKey: newIdempotencyKey(),
-                                };
-                      })()
-                    : {
-                          topicName: slot.topicName,
-                          idempotencyKey: newIdempotencyKey(),
-                      };
-            const started = startContinue(
-                current.slots,
-                reviewedCardId,
-                attempt,
-            );
-            if (started === current.slots) return;
-            apply({ ...current, slots: started });
-            launchContinue(started, reviewedCardId, attempt);
-        },
-        [apply, launchContinue],
-    );
-
-    /**
-     * Launch exactly one pin mutation outside any state updater. The captured
-     * attempt makes stale results — a newer retry, unmount, or an unknown
-     * attempt — unable to commit; the pure model owns the exact commit rules.
-     */
-    const launchPin = useCallback(
-        (attempt: PinAttempt) => {
-            void (async () => {
-                try {
-                    await pinTipcard({
-                        cardId: attempt.cardId,
-                        pinned: attempt.targetPinned,
-                        idempotencyKey: attempt.idempotencyKey,
-                    });
-                    if (!mountedRef.current) return;
-                    const current = stateRef.current;
-                    if (
-                        current.kind !== "ready" &&
-                        current.kind !== "loading-more" &&
-                        current.kind !== "load-error"
-                    )
-                        return;
-                    const committed = applyPinSuccess(
-                        current.slots,
-                        pinStatesRef.current,
-                        attempt,
-                    );
-                    if (committed.state === pinStatesRef.current) return; // stale
-                    apply({ ...current, slots: committed.slots });
-                    applyPins(committed.state);
-                } catch (error) {
-                    if (!mountedRef.current) return;
-                    const current = stateRef.current;
-                    if (
-                        current.kind !== "ready" &&
-                        current.kind !== "loading-more" &&
-                        current.kind !== "load-error"
-                    )
-                        return;
-                    const committed = applyPinFailure(
-                        current.slots,
-                        pinStatesRef.current,
-                        attempt,
-                        classifyReviewError(error),
-                    );
-                    if (committed.state === pinStatesRef.current) return; // stale
-                    apply({ ...current, slots: committed.slots });
-                    applyPins(committed.state);
-                }
-            })();
-        },
-        [apply, applyPins],
-    );
-
-    const beginPin = useCallback(
-        (attempt: PinAttempt) => {
-            const current = stateRef.current;
-            if (
-                current.kind !== "ready" &&
-                current.kind !== "loading-more" &&
-                current.kind !== "load-error"
-            )
-                return;
-            const started = startPin(
-                current.slots,
-                pinStatesRef.current,
-                attempt,
-            );
-            if (started === undefined) return;
-            applyPins(started);
-            launchPin(attempt);
-        },
-        [applyPins, launchPin],
-    );
-
-    const onPinToggle = useCallback(
-        (cardId: bigint, targetPinned: boolean) => {
-            const previous = pinCardState(pinStatesRef.current, cardId);
-            const attempt: PinAttempt = {
-                cardId,
-                targetPinned,
-                idempotencyKey: newIdempotencyKey(),
-                generation:
-                    previous.kind === "idle"
-                        ? 1
-                        : previous.attempt.generation + 1,
-            };
-            beginPin(attempt);
-        },
-        [beginPin],
-    );
-
-    const onPinRetry = useCallback(
-        (cardId: bigint) => {
-            const errored = pinCardState(pinStatesRef.current, cardId);
-            if (errored.kind !== "error") return;
-            const decision = pinRetryDecision(errored);
-            const attempt: PinAttempt =
-                decision.kind === "reuseAttempt"
-                    ? decision.attempt
-                    : {
-                          cardId: decision.cardId,
-                          targetPinned: decision.targetPinned,
-                          idempotencyKey: newIdempotencyKey(),
-                          generation: decision.generation,
-                      };
-            beginPin(attempt);
-        },
-        [beginPin],
-    );
-
-    /**
-     * Launch one delete mutation for the captured attempt. A response commits
-     * only while the same per-card generation is still current. Success removes
-     * that exact slot in place and updates the shared pinned-order key; it
-     * never refetches the Flow.
-     */
-    const launchDelete = useCallback(
-        (attempt: DeleteAttempt) => {
-            void (async () => {
-                try {
-                    await deleteTipcard({
-                        cardId: attempt.cardId,
-                        idempotencyKey: attempt.idempotencyKey,
-                    });
-                    if (!mountedRef.current) return;
-                    const current = stateRef.current;
-                    if (
-                        current.kind !== "ready" &&
-                        current.kind !== "loading-more" &&
-                        current.kind !== "load-error"
-                    )
-                        return;
-                    const committed = applyDeleteSuccess(
-                        current.slots,
-                        deleteStatesRef.current,
-                        attempt,
-                        pinnedOrderRef.current,
-                    );
-                    if (committed.state === deleteStatesRef.current) return;
-                    applyDeletes(committed.state);
-                    applyPinnedOrder(committed.pinnedOrder);
-                    if (committed.slots.length === 0) {
-                        apply({ kind: "empty" });
-                    } else {
-                        apply({ ...current, slots: committed.slots });
-                    }
-                } catch (error) {
-                    if (!mountedRef.current) return;
-                    const current = stateRef.current;
-                    if (
-                        current.kind !== "ready" &&
-                        current.kind !== "loading-more" &&
-                        current.kind !== "load-error"
-                    )
-                        return;
-                    const committed = applyDeleteFailure(
-                        current.slots,
-                        deleteStatesRef.current,
-                        attempt,
-                        pinnedOrderRef.current,
-                        classifyReviewError(error),
-                    );
-                    if (committed.state === deleteStatesRef.current) return;
-                    applyDeletes(committed.state);
-                }
-            })();
-        },
-        [apply, applyDeletes, applyPinnedOrder],
-    );
-
-    const beginDelete = useCallback(
-        (attempt: DeleteAttempt) => {
-            const current = stateRef.current;
-            if (
-                current.kind !== "ready" &&
-                current.kind !== "loading-more" &&
-                current.kind !== "load-error"
-            )
-                return;
-            const started = startDelete(
-                current.slots,
-                deleteStatesRef.current,
-                attempt,
-            );
-            if (started === undefined) return;
-            applyDeletes(started);
-            launchDelete(attempt);
-        },
-        [applyDeletes, launchDelete],
-    );
-
-    const onDeleteConfirm = useCallback(
-        (cardId: bigint) => {
-            const previous = deleteCardState(deleteStatesRef.current, cardId);
-            const attempt: DeleteAttempt = {
-                cardId,
-                idempotencyKey: newIdempotencyKey(),
-                generation:
-                    previous.kind === "idle"
-                        ? 1
-                        : previous.attempt.generation + 1,
-            };
-            beginDelete(attempt);
-        },
-        [beginDelete],
-    );
-
-    const onDeleteRetry = useCallback(
-        (cardId: bigint) => {
-            const errored = deleteCardState(deleteStatesRef.current, cardId);
-            if (errored.kind !== "error") return;
-            const decision = deleteRetryDecision(errored);
-            const attempt: DeleteAttempt =
-                decision.kind === "reuseAttempt"
-                    ? decision.attempt
-                    : {
-                          cardId: decision.cardId,
-                          idempotencyKey: newIdempotencyKey(),
-                          generation: decision.generation,
-                      };
-            beginDelete(attempt);
-        },
-        [beginDelete],
-    );
+    const { onReview, onRetry, onContinue } =
+        useFlowReviewLifecycle(reviewHost);
 
     // ---------------------------------------------------------------------------
     // Add-card form lifecycle.
-    // ---------------------------------------------------------------------------
-    const [addState, setAddState] = useState<AddLifecycle>({ kind: "idle" });
-    const addStateRef = useRef<AddLifecycle>({ kind: "idle" });
-    const addGenerationRef = useRef(0);
-    // Double-submit guard: a click while a launch is pending cannot start twice.
-    const addInFlightRef = useRef(false);
-    const [addedNotice, setAddedNotice] = useState(false);
-    const applyAdd = useCallback((next: AddLifecycle) => {
-        addStateRef.current = next;
-        setAddState(next);
-    }, []);
-
     /** Card IDs currently owned by pin/delete mutations must not be replaced. */
     const busyCardIds = useCallback((): bigint[] => {
         const ids: bigint[] = [];
@@ -2532,284 +1930,73 @@ export function Flow({ active = true }: { active?: boolean }) {
         }
         return ids;
     }, []);
+    const {
+        addState,
+        addedNotice,
+        isInFlight: addIsInFlight,
+        onAddSubmit,
+        onAddRetryMutation,
+        onAddRetryResolve,
+    } = useFlowAddLifecycle({
+        getState,
+        apply,
+        busyCardIds,
+        getPinnedOrder: () => pinnedOrderRef.current,
+        applyPinnedOrder,
+    });
 
-    /**
-     * Atomically integrate one resolved batch into the latest slots and saved
-     * pinned order. Returns whether an authoritative quiet list read is still
-     * required; stale resolution runs cannot alter Flow state.
-     */
-    const commitIntegratedCards = useCallback(
-        (run: AddResolutionRun, cards: FlowCardInfo[]): boolean => {
-            const add = addStateRef.current;
-            if (add.kind !== "resolving" || add.run !== run) return false;
-            const current = stateRef.current;
-            const slots =
-                current.kind === "empty"
-                    ? []
-                    : current.kind === "ready" ||
-                        current.kind === "loading-more" ||
-                        current.kind === "load-error"
-                      ? current.slots
-                      : undefined;
-            if (slots === undefined) return false;
-            const integrated = integrateCreatedCards({
-                slots,
-                cards,
-                pinnedOrder: pinnedOrderRef.current,
-                busyCardIds: busyCardIds(),
-            });
-            applyPinnedOrder(integrated.pinnedOrder);
-            if (current.kind === "empty") {
-                if (integrated.slots.length > 0) {
-                    apply({
-                        kind: "ready",
-                        slots: integrated.slots,
-                        cursor: { kind: "end" },
-                    });
-                }
-            } else if (
-                current.kind === "ready" ||
-                current.kind === "loading-more" ||
-                current.kind === "load-error"
-            ) {
-                apply({ ...current, slots: integrated.slots });
+
+
+
+    // ---------------------------------------------------------------------------
+    // Flow pager: prefetch-consuming cold start, session snapshot seeding, and
+    // silent background refresh. Owns its own generation/in-flight guards;
+    // commits flow through the shared `apply`.
+    // ---------------------------------------------------------------------------
+    const mutationsInFlight = useCallback((): boolean => {
+        if (addIsInFlight()) return true;
+        for (const pin of pinStatesRef.current.values()) {
+            if (pin.kind !== "idle") return true;
+        }
+        for (const del of deleteStatesRef.current.values()) {
+            if (del.kind !== "idle") return true;
+        }
+        // A pending review/continue owns its slot's optimistic state; a
+        // concurrent merge would replace the slot and strand the result.
+        const current = stateRef.current;
+        if (
+            current.kind === "ready" ||
+            current.kind === "loading-more" ||
+            current.kind === "load-error"
+        ) {
+            for (const slot of current.slots) {
+                if (slot.kind === "reviewing" || slot.kind === "continuing")
+                    return true;
             }
-            return integrated.needsReconciliation;
-        },
-        [apply, applyPinnedOrder, busyCardIds],
+        }
+        return false;
+        // Depends only on stable identities: an unstable dep here would give
+        // loadInitial a new identity per render and re-trigger useViewRefresh
+        // (which invokes refresh on every identity change) in a hot loop.
+    }, [addIsInFlight]);
+    const saveSnapshot = useCallback(
+        (page: SavedFlowPage) => saveFlowSnapshot(page),
+        [],
     );
+    const { loadInitial, loadMoreFrom } = useFlowPager({
+        getState,
+        apply,
+        setStateOnly: setState,
+        mutationsInFlight,
+        saveSnapshot,
+    });
 
-    /**
-     * Resolution phase: after `tips_v1` succeeded, resolve every returned
-     * positive ID with `get_tipcard`, integrate the details, then — for
-     * repeatable creation, an empty created-ID list, or any detail failure —
-     * run one authoritative quiet list reconciliation. Never resubmits the
-     * mutation; stale/unmounted results cannot commit.
-     */
-    const launchResolution = useCallback(
-        (run: AddResolutionRun) => {
-            void (async () => {
-                try {
-                    const outcomes = await Promise.allSettled(
-                        run.createdIds.map(
-                            async (id) =>
-                                (await getTipcard({ cardId: id })).card,
-                        ),
-                    );
-                    if (
-                        !mountedRef.current ||
-                        addStateRef.current.kind !== "resolving" ||
-                        addStateRef.current.run !== run
-                    )
-                        return;
-                    const details = outcomes.flatMap((outcome) =>
-                        outcome.status === "fulfilled" ? [outcome.value] : [],
-                    );
-                    const detailFailed = outcomes.some(
-                        (outcome) => outcome.status === "rejected",
-                    );
-                    const integrationNeedsReconcile = commitIntegratedCards(
-                        run,
-                        details,
-                    );
-                    const needsReconcile =
-                        run.attempt.payload.kind === "repeatable" ||
-                        run.createdIds.length === 0 ||
-                        detailFailed ||
-                        integrationNeedsReconcile;
-                    if (!needsReconcile) {
-                        const next = resolveSettled(addStateRef.current, run);
-                        if (next !== addStateRef.current) {
-                            applyAdd(next);
-                            setAddedNotice(true);
-                        }
-                        return;
-                    }
-                    try {
-                        const page = await listFlowCards({
-                            pageSize: PAGE_SIZE,
-                        });
-                        if (
-                            !mountedRef.current ||
-                            addStateRef.current.kind !== "resolving" ||
-                            addStateRef.current.run !== run
-                        )
-                            return;
-                        const current = stateRef.current;
-                        if (
-                            current.kind === "ready" ||
-                            current.kind === "loading-more" ||
-                            current.kind === "load-error"
-                        ) {
-                            apply({
-                                ...current,
-                                slots: mergeReconciledCards(
-                                    current.slots,
-                                    page.cards,
-                                ),
-                            });
-                        } else if (
-                            current.kind === "empty" &&
-                            page.cards.length > 0
-                        ) {
-                            apply({
-                                kind: "ready",
-                                slots: mergeReconciledCards([], page.cards),
-                                cursor: page.cursor,
-                            });
-                        }
-                        const next = resolveSettled(addStateRef.current, run);
-                        if (next !== addStateRef.current) {
-                            applyAdd(next);
-                            setAddedNotice(true);
-                        }
-                    } catch (error) {
-                        if (!mountedRef.current) return;
-                        applyAdd(
-                            resolveFailed(
-                                addStateRef.current,
-                                run,
-                                error instanceof Error
-                                    ? error.message
-                                    : String(error),
-                            ),
-                        );
-                    }
-                } catch (error) {
-                    if (!mountedRef.current) return;
-                    applyAdd(
-                        resolveFailed(
-                            addStateRef.current,
-                            run,
-                            error instanceof Error
-                                ? error.message
-                                : String(error),
-                        ),
-                    );
-                } finally {
-                    // Resolution owns the guard: it starts only after the mutation
-                    // settled and covers both the submit and resolve-retry paths.
-                    addInFlightRef.current = false;
-                }
-            })();
-        },
-        [apply, applyAdd, commitIntegratedCards],
-    );
-
-    /** Launch exactly one `tips_v1` mutation for the captured attempt. */
-    const launchAddMutation = useCallback(
-        (attempt: AddAttempt) => {
-            void (async () => {
-                try {
-                    const outcome = await createTips({
-                        request: buildTipsRequest(attempt.payload),
-                        idempotencyKey: attempt.payload.idempotencyKey,
-                    });
-                    if (!mountedRef.current) return;
-                    const createdIds = outcome.tips.map((tip) => tip.id);
-                    const run: AddResolutionRun = {
-                        attempt,
-                        createdIds,
-                        resolutionGeneration: 1,
-                    };
-                    const next = addMutationSucceeded(
-                        addStateRef.current,
-                        attempt,
-                        run,
-                    );
-                    if (next === addStateRef.current) return;
-                    clearAddPrefill();
-                    applyAdd(next);
-                    launchResolution(run);
-                } catch (error) {
-                    if (!mountedRef.current) return;
-                    const indeterminate =
-                        error instanceof TransportError
-                            ? error.mutationOutcomeIndeterminate
-                            : true;
-                    applyAdd(
-                        addFailed(addStateRef.current, attempt, {
-                            mutationOutcomeIndeterminate: indeterminate,
-                            message:
-                                error instanceof Error
-                                    ? error.message
-                                    : String(error),
-                        }),
-                    );
-                    addInFlightRef.current = false;
-                }
-            })();
-        },
-        [applyAdd, launchResolution],
-    );
-
-    const onAddSubmit = useCallback(
-        (payload: AddTipsPayload) => {
-            if (addInFlightRef.current || !canStartAdd(addStateRef.current))
-                return;
-            addInFlightRef.current = true;
-            addGenerationRef.current += 1;
-            setAddedNotice(false);
-            const attempt: AddAttempt = {
-                payload,
-                submissionGeneration: addGenerationRef.current,
-            };
-            applyAdd(startAdd(addStateRef.current, attempt));
-            launchAddMutation(attempt);
-        },
-        [applyAdd, launchAddMutation],
-    );
-
-    /**
-     * Mutation retry. An outcome-indeterminate failure reuses the exact
-     * captured payload and key; a determinate failure preserves the semantic
-     * payload with a fresh key/generation.
-     */
-    const onAddRetryMutation = useCallback(() => {
-        if (addInFlightRef.current) return;
-        const errored = addStateRef.current;
-        if (errored.kind !== "mutationError") return;
-        const decision = addRetryDecision(errored);
-        const attempt: AddAttempt =
-            decision.kind === "reuseAttempt"
-                ? decision.attempt
-                : {
-                      payload: {
-                          ...decision.payload,
-                          idempotencyKey: newIdempotencyKey(),
-                      },
-                      submissionGeneration: decision.submissionGeneration,
-                  };
-        const next = startMutationRetry(errored, attempt);
-        if (next === errored) return;
-        addInFlightRef.current = true;
-        addGenerationRef.current = Math.max(
-            addGenerationRef.current,
-            attempt.submissionGeneration,
-        );
-        applyAdd(next);
-        launchAddMutation(attempt);
-    }, [applyAdd, launchAddMutation]);
-
-    /**
-     * Post-mutation retry: retries only detail resolution/reconciliation —
-     * never the already-successful mutation.
-     */
-    const onAddRetryResolve = useCallback(() => {
-        const errored = addStateRef.current;
-        if (errored.kind !== "resolutionError" || addInFlightRef.current)
-            return;
-        const decision = resolutionRetryDecision(
-            errored,
-            errored.run.resolutionGeneration + 1,
-        );
-        if (decision === undefined) return;
-        const next = startResolutionRetry(errored, decision);
-        if (next === errored) return;
-        addInFlightRef.current = true;
-        applyAdd(next);
-        launchResolution(decision.run);
-    }, [applyAdd, launchResolution]);
+    const loadMore = useCallback(() => {
+        // Reads current data from the ref; no request launches inside any updater.
+        const current = stateRef.current;
+        if (current.kind !== "ready" || current.cursor.kind !== "more") return;
+        loadMoreFrom(current.slots, current.cursor.pageToken);
+    }, [loadMoreFrom]);
 
     /**
      * Declarative bounded refill polling. Keyed by the current awaiting-refill
@@ -2940,8 +2127,20 @@ export function Flow({ active = true }: { active?: boolean }) {
         mountedRef.current = true;
         return () => {
             mountedRef.current = false;
-            generationRef.current += 1;
         };
+    }, []);
+    // Warm the lazy markdown chunk during idle time so expanded cards and
+    // detail dialogs never render the Suspense fallback in practice.
+    useEffect(() => {
+        const warm = () => {
+            void import("@/components/content/MarkdownContent");
+        };
+        if (typeof window.requestIdleCallback === "function") {
+            const id = window.requestIdleCallback(warm, { timeout: 5000 });
+            return () => window.cancelIdleCallback(id);
+        }
+        const timer = window.setTimeout(warm, 2000);
+        return () => window.clearTimeout(timer);
     }, []);
     useViewRefresh(active, loadInitial);
 
@@ -3018,7 +2217,14 @@ export function Flow({ active = true }: { active?: boolean }) {
         case "loading-more":
         case "load-error":
             return (
-                <div data-testid="flow-ready">
+                    <div
+                        data-testid="flow-ready"
+                        className={
+                            state.kind === "ready" && state.revalidating
+                                ? "opacity-80 transition-opacity"
+                                : undefined
+                        }
+                    >
                     <TransmissionHeader />
                     <TransmissionToolbar
                         lifecycle={addState}

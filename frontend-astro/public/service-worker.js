@@ -1,6 +1,13 @@
 const CACHE_PREFIX = "denpie";
 const APP_CACHE = `${CACHE_PREFIX}-app-v1`;
 const ASSET_CACHE = `${CACHE_PREFIX}-assets-v1`;
+// Hashed /_astro/ entries accumulate across deploys: each deploy emits new
+// content-hashed URLs, so old entries are never overwritten, only abandoned.
+// Correctness never depends on this cache — HTML is network-first and every
+// deploy references fresh hashes — so once the entry count exceeds this bound
+// we delete the whole cache and let it repopulate naturally from the network
+// rather than grow without limit on long-lived clients.
+const ASSET_CACHE_MAX_ENTRIES = 250;
 
 self.addEventListener("install", (event) => {
     event.waitUntil(
@@ -20,7 +27,7 @@ self.addEventListener("activate", (event) => {
                         .map((key) => caches.delete(key)),
                 ),
             )
-            .then(() => self.clients.claim()),
+            .then(boundAssetCache)
     );
 });
 
@@ -65,6 +72,8 @@ async function cacheFirst(request, cacheName) {
     if (response.ok || response.type === "opaque") {
         cache.put(request, response.clone()).catch(() => undefined);
     }
+
+    await boundAssetCache();
     return response;
 }
 
@@ -81,6 +90,22 @@ async function staleWhileRevalidate(request, cacheName) {
         .catch(() => undefined);
 
     return cached || refresh || fetch(request);
+}
+
+// Keeps ASSET_CACHE from growing without bound: hashed /_astro/ URLs are
+// immutable, so entries are never rewritten — deploys just abandon them.
+// When the count exceeds the bound, delete the cache wholesale; it refills
+// from the network on subsequent requests. Best-effort only. Opens the
+// cache itself so it can run from the activate chain or after a put.
+async function boundAssetCache() {
+    try {
+        const cache = await caches.open(ASSET_CACHE);
+        if ((await cache.keys()).length > ASSET_CACHE_MAX_ENTRIES) {
+            await caches.delete(ASSET_CACHE);
+        }
+    } catch {
+        // Storage errors must never break activation or a fetch response.
+    }
 }
 
 async function networkFirst(request, cacheName) {

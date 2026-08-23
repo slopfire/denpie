@@ -38,6 +38,9 @@ export type DeleteState = ReadonlyMap<string, DeleteCardState>;
 
 export const EMPTY_DELETE_STATE: DeleteState = new Map();
 
+/** Stable idle singleton: reference-equality memoization can rely on it. */
+const IDLE_DELETE_CARD: DeleteCardState = { kind: "idle" };
+
 function deleteKey(cardId: bigint): string {
   return cardId.toString();
 }
@@ -47,7 +50,7 @@ export function deleteCardState(
   state: DeleteState,
   cardId: bigint,
 ): DeleteCardState {
-  return state.get(deleteKey(cardId)) ?? { kind: "idle" };
+  return state.get(deleteKey(cardId)) ?? IDLE_DELETE_CARD;
 }
 
 function findLiveIdleSlotIndex(

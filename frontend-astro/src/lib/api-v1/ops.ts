@@ -33,6 +33,12 @@ import {
     callMutationWithKeyEnvelope,
     newRequestId,
 } from "./transport";
+import {
+    invalidateReadCache,
+    withReadCache,
+    readCacheKey,
+    READ_CACHE_DEFAULT_TTL_MS as READ_CACHE_TTL_MS,
+} from "./cache";
 import { cursorFromPage, type FlowCursor } from "../flow-state";
 
 export const getApiInfoOp = {
@@ -40,9 +46,17 @@ export const getApiInfoOp = {
     value: create(EmptySchema, {}),
 } as const;
 
-/** Typed read of `get_api_info`; returns the `api_info` result case. */
 export async function getApiInfo(
     deps: CallDeps = {},
+): Promise<{ requestId: string; info: ApiInfo }> {
+    return withReadCache(readCacheKey("getApiInfo"), READ_CACHE_TTL_MS, () =>
+        fetchApiInfo(deps),
+    );
+}
+
+/** Uncached producer behind {@link getApiInfo}. */
+async function fetchApiInfo(
+    deps: CallDeps,
 ): Promise<{ requestId: string; info: ApiInfo }> {
     const envelope = buildEnvelope(
         getApiInfoOp,
@@ -82,12 +96,31 @@ export interface ListFlowCardsOptions {
 
 /**
  * Typed read of `list_flow_cards`; returns the `flow_card_page` result case.
+ * Served from a short-TTL read cache; see {@link withReadCache}.
  */
 export async function listFlowCards({
     pageSize = FLOW_PAGE_DEFAULT_SIZE,
     pageToken,
     deps = {},
 }: ListFlowCardsOptions = {}): Promise<FlowCardsPage> {
+    return withReadCache(
+        readCacheKey(
+            "listFlowCards",
+            pageSize,
+            pageToken === undefined ? "" : pageToken,
+        ),
+        READ_CACHE_TTL_MS,
+        () => fetchFlowPage({ pageSize, pageToken, deps }),
+    );
+}
+
+/** Uncached producer behind {@link listFlowCards}. */
+async function fetchFlowPage({
+    pageSize,
+    pageToken,
+    deps,
+}: Required<Pick<ListFlowCardsOptions, "pageSize">> &
+    Pick<ListFlowCardsOptions, "pageToken" | "deps">): Promise<FlowCardsPage> {
     const envelope = buildEnvelope(
         listFlowCardsOp(
             create(ListFlowCardsRequestSchema, {
@@ -177,6 +210,7 @@ export async function reviewAndAdvance({
             `review_and_advance reviewed card ${result.reviewedCardId} but card ${cardId} was requested`,
         );
     }
+    invalidateReadCache();
     return {
         requestId,
         reviewedCardId: result.reviewedCardId,
@@ -211,6 +245,18 @@ export async function getTipcard({
     cardId,
     deps = {},
 }: GetTipcardOptions): Promise<TipcardRead> {
+    return withReadCache(
+        readCacheKey("getTipcard", cardId.toString()),
+        READ_CACHE_TTL_MS,
+        () => fetchTipcard(cardId, deps),
+    );
+}
+
+/** Uncached producer behind {@link getTipcard}. */
+async function fetchTipcard(
+    cardId: bigint,
+    deps: CallDeps,
+): Promise<TipcardRead> {
     const envelope = buildEnvelope(
         getTipcardOp(create(GetByIdRequestSchema, { id: cardId })),
         newRequestId("detail"),
@@ -294,6 +340,7 @@ export async function continueDailyReview({
             "continue_daily_review must return a positive activeCardId",
         );
     }
+    invalidateReadCache();
     return {
         requestId,
         availableCards: result.availableCards,
@@ -343,6 +390,7 @@ export async function pinTipcard({
             `pin_tipcard returned unexpected result case ${String(response.result.case)}`,
         );
     }
+    invalidateReadCache();
     return { requestId };
 }
 
@@ -386,6 +434,7 @@ export async function deleteTipcard({
             `delete_tipcard returned unexpected result case ${String(response.result.case)}`,
         );
     }
+    invalidateReadCache();
     return { requestId };
 }
 
@@ -441,6 +490,7 @@ export async function createTips({
             `tips_v1 returned unexpected result case ${String(response.result.case)}`,
         );
     }
+    invalidateReadCache();
     return {
         requestId,
         tips: response.result.value.tips,
@@ -497,6 +547,7 @@ export async function appendTipcardImages({
             `append_tipcard_images returned unexpected result case ${String(response.result.case)}`,
         );
     }
+    invalidateReadCache();
     return { requestId };
 }
 
@@ -535,5 +586,6 @@ export async function replaceTipcardImages({
             `replace_tipcard_images returned unexpected result case ${String(response.result.case)}`,
         );
     }
+    invalidateReadCache();
     return { requestId };
 }

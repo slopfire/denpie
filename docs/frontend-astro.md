@@ -33,7 +33,12 @@ Put UI in `frontend-astro/`. Astro emits a static `dist/`. Axum is the only serv
   `__LAB_CARD_FIXTURES__` vite `define` in `astro.config.mjs`.
 - The app registers `/service-worker.js` (Axum serves
   `frontend-astro/public/service-worker.js`). The worker caches hashed
-  `/_astro/` assets.
+  `/_astro/` assets cache-first and deletes the whole asset cache once it
+  exceeds 250 entries, so deploys cannot grow it without bound.
+- Read ops in `src/lib/api-v1/ops.ts` go through a 30-second TTL read cache
+  (`cache.ts`); every successful mutation invalidates it. The first real
+  `/auth/me` call also fires `bootstrap-prefetch`, racing the first
+  `list_flow_cards` page against the session check.
 
 ## Conventions
 
@@ -47,7 +52,7 @@ Put UI in `frontend-astro/`. Astro emits a static `dist/`. Axum is the only serv
 
 **Mutations.** The caller allocates the idempotency key. An outcome-indeterminate failure retries with the same key and payload. A determinate failure may allocate a new key. `TransportError.mutationOutcomeIndeterminate` is the transport's own verdict. Post-dispatch errors that cannot prove the mutation missed the server stay indeterminate.
 
-**Layout.** Authenticated desktop uses a fixed 14rem left rail and `lg:ml-56` main. Mobile uses the five-item dock. The main area owns scroll. `/` is Flow, `/flow` is an alias, then `/grounding`, `/settings`, `/keys`, `/archive`, `/account`. In-app navigation uses the History API so the shell stays mounted; swaps animate through the View Transitions API via `src/lib/view-transition.ts` (fade/slide on `main.app-main`, skipped under reduced motion or unsupported browsers). Visited routes stay mounted and hidden; the active view refreshes on focus and every 60 seconds. The account menu switches among remembered usernames (`denpie.remembered_accounts`) and admins can open the user-management console. Error toasts stay until dismissed; other toasts auto-hide. The Transmission add form is full width on mobile and shrink-wraps to the right from `sm`. It is capped at the main column (`max-w-full`) so the row cannot paint past the viewport. localStorage keys: `denpie-flow-sort`, `denpie-flow-layout`, `denpie-flow-grid-columns`, `denpie-pinned-card-order`, `denpie-appearance`, `denpie.remembered_accounts`, and `denpie.prefill_username`.
+**Layout.** Authenticated desktop uses a fixed 14rem left rail and `lg:ml-56` main. Mobile uses the five-item dock in the same column as main (main scrolls, the dock stays). Guest sign-in is centered in the main column. The main area owns scroll. `/` is Flow, `/flow` is an alias, then `/grounding`, `/settings`, `/keys`, `/archive`, `/account`. In-app navigation uses the History API so the shell stays mounted; swaps animate through the View Transitions API via `src/lib/view-transition.ts` (fade/slide on `main.app-main`, skipped under reduced motion or unsupported browsers). Visited routes stay mounted and hidden. The active view refreshes on focus and every 60 seconds; with rendered data that refresh is silent — page 1 refetches in the background and merges through `src/lib/flow-refresh-merge.ts` (skipped while a pin/delete/add mutation is in flight), so no skeleton flash or scroll reset. Only a true cold start shows the loading screen, optionally seeded from the session snapshot (`denpie-flow-snapshot`, 10-minute max age) with a dimmed `revalidating` grid.
 
 **Flow review.** Repeatable tips keep Again/Learned as primary buttons and put Known / Not interested / Too difficult in one skip-reasons menu. The menu opens on hover (click still works); the chevron points up when closed and rotates 180° while the menu is open.
 

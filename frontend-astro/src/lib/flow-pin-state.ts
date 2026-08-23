@@ -38,13 +38,16 @@ export type PinState = ReadonlyMap<string, PinCardState>;
 
 export const EMPTY_PIN_STATE: PinState = new Map();
 
+/** Stable idle singleton: reference-equality memoization can rely on it. */
+const IDLE_PIN_CARD: PinCardState = { kind: "idle" };
+
 function pinKey(cardId: bigint): string {
   return cardId.toString();
 }
 
 /** The pin mutation state for one card; cards never touched default to idle. */
 export function pinCardState(state: PinState, cardId: bigint): PinCardState {
-  return state.get(pinKey(cardId)) ?? { kind: "idle" };
+  return state.get(pinKey(cardId)) ?? IDLE_PIN_CARD;
 }
 
 function findLiveIdleSlotIndex(

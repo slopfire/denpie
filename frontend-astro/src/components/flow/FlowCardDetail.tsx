@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+    lazy,
+    Suspense,
+} from "react";
 import {
     CircleHelpIcon,
     ExternalLinkIcon,
@@ -10,7 +17,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ImageLightbox } from "@/components/content/ImageLightbox";
-import { MarkdownContent } from "@/components/content/MarkdownContent";
+
+/** Lazy markdown shared with the Flow grid; the chunk warms during idle. */
+const LazyMarkdownContent = lazy(() =>
+    import("@/components/content/MarkdownContent").then((m) => ({
+        default: m.MarkdownContent,
+    })),
+);
 import { CardImageManager } from "@/components/flow/CardImageManager";
 import {
     Card,
@@ -249,7 +262,17 @@ function DetailReady({
                             />
                         </Button>
                     ))}
-                    <MarkdownContent content={content} />
+                    <Suspense
+                        fallback={
+                            <div className="space-y-2 animate-pulse" aria-hidden="true">
+                                <div className="h-4 rounded bg-muted" />
+                                <div className="h-4 w-5/6 rounded bg-muted" />
+                                <div className="h-4 w-2/3 rounded bg-muted" />
+                            </div>
+                        }
+                    >
+                        <LazyMarkdownContent content={content} />
+                    </Suspense>
                 </CardContent>
                 <CardFooter className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                     <span>{cardTypeLabel(card.tipcardType)}</span>
@@ -422,7 +445,7 @@ export function FlowCardDetail({
             }}
         >
             <div className="mx-auto flex min-h-full w-full max-w-[850px] flex-col gap-4 px-4 py-5 sm:px-6">
-                <DialogHeader>
+                <DialogHeader className="pr-10">
                     <DialogTitle>
                         {state.kind === "ready"
                             ? state.card.title

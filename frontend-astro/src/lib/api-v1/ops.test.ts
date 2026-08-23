@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
     ApiErrorSchema,
@@ -44,6 +44,7 @@ import {
     createTips,
     replaceTipcardImages,
 } from "./ops";
+import { invalidateReadCache } from "./cache";
 
 function card(id: bigint) {
     return create(FlowCardInfoSchema, { id, title: `card-${id}` });
@@ -109,6 +110,7 @@ function expectListFlowCardsRequest(
 }
 
 describe("listFlowCards", () => {
+    beforeEach(() => invalidateReadCache());
     test("request shape: op case, default page size, empty page token", async () => {
         const deps = fakeDeps(() => page());
         await listFlowCards({ deps });
@@ -435,6 +437,7 @@ function fakeContinue(reply: SuccessReply): CallDeps & {
 }
 
 describe("getTipcard", () => {
+    beforeEach(() => invalidateReadCache());
     function tipcardReply(
         detailCard:
             | Parameters<typeof create<typeof FlowCardInfoSchema>>[1]

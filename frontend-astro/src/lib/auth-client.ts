@@ -16,6 +16,7 @@ import {
     type PasskeyAssertion,
     type PasskeyRegistration,
 } from "./webauthn-client";
+import { startBootstrapPrefetch } from "./bootstrap-prefetch";
 
 /** Result of an auth client call, mapped to the UI's session union. */
 export type AuthResult =
@@ -76,9 +77,20 @@ export type ProfileUpdateResult =
     | { readonly kind: "updated"; readonly user: SessionUser }
     | { readonly kind: "error"; readonly message: string };
 
+/**
+ * Options for {@link AuthClient.fetchMe}. `force` bypasses the short-TTL
+ * cache and any in-flight request for a guaranteed fresh GET /auth/me.
+ */
+export interface FetchMeOptions {
+    force?: boolean;
+}
+
 export interface AuthClient {
-    /** GET /auth/me */
-    fetchMe(): Promise<AuthResult>;
+    /**
+     * GET /auth/me. Successful results are shared across callers for a
+     * short TTL, in-flight calls are deduped; `force` bypasses both.
+     */
+    fetchMe(options?: FetchMeOptions): Promise<AuthResult>;
     /** POST /auth/login with JSON {username, password}; empty success body. */
     login(username: string, password: string): Promise<AuthResult>;
     /** POST /auth/setup with JSON {username, password, admin_token}; then GET /auth/me. */
@@ -136,6 +148,70 @@ export function createAuthClient(options: AuthClientOptions = {}): AuthClient {
         return text.trim() === "";
     }
 
+    // fetchMe dedupe state: one shared in-flight request plus a short-TTL
+    // success cache, so bootstrap prefetch and AppShell share a single
+    // GET /auth/me. Cleared on login/logout success so the next call always
+    // reflects the new session.
+    let inFlightMe: Promise<AuthResult> | null = null;
+    let cachedMe: { result: AuthResult; expiresAt: number } | null = null;
+    const ME_CACHE_TTL_MS = 15_000;
+    let prefetchTriggered = false;
+
+    async function rawFetchMe(): Promise<AuthResult> {
+        try {
+            const response = await doFetch("/auth/me", {
+                method: "GET",
+                credentials: "same-origin",
+                headers: { accept: "application/json" },
+            });
+            if (response.status === 401 || response.status === 403) {
+                return {
+                    ok: false,
+                    reason: "unauthorized",
+                    message: "Not signed in",
+                };
+            }
+            if (!response.ok) {
+                return {
+                    ok: false,
+                    reason: "network",
+                    message: `/auth/me failed with status ${response.status}`,
+                };
+            }
+            try {
+                return {
+                    ok: true,
+                    user: parseSessionUser(await response.json()),
+                };
+            } catch (error) {
+                // Body arrived but was not valid JSON or not the /auth/me shape.
+                return {
+                    ok: false,
+                    reason: "invalid-response",
+                    message:
+                        error instanceof Error
+                            ? `/auth/me returned an invalid body: ${error.message}`
+                            : "/auth/me returned an invalid body",
+                };
+            }
+        } catch (error) {
+            return {
+                ok: false,
+                reason: "network",
+                message: networkMessage(error),
+            };
+        }
+    }
+
+    /** Fire the dual bootstrap prefetch once, on the first real /auth/me. */
+    function triggerBootstrapPrefetch(): void {
+        if (prefetchTriggered) return;
+        prefetchTriggered = true;
+        if (options.fetchImpl === undefined && typeof window !== "undefined") {
+            startBootstrapPrefetch();
+        }
+    }
+
     function parsePasskeyList(value: unknown): readonly PasskeyInfo[] | null {
         if (!Array.isArray(value)) return null;
 
@@ -153,51 +229,38 @@ export function createAuthClient(options: AuthClientOptions = {}): AuthClient {
         return passkeys;
     }
 
+    /** Drop dedupe state so the next fetchMe observes the new session. */
+    function resetMeDedupe(): void {
+        inFlightMe = null;
+        cachedMe = null;
+    }
+
     return {
-        async fetchMe(): Promise<AuthResult> {
-            try {
-                const response = await doFetch("/auth/me", {
-                    method: "GET",
-                    credentials: "same-origin",
-                    headers: { accept: "application/json" },
-                });
-                if (response.status === 401 || response.status === 403) {
-                    return {
-                        ok: false,
-                        reason: "unauthorized",
-                        message: "Not signed in",
-                    };
+        async fetchMe(options: FetchMeOptions = {}): Promise<AuthResult> {
+            if (options.force !== true) {
+                const now = Date.now();
+                if (
+                    inFlightMe === null &&
+                    cachedMe !== null &&
+                    cachedMe.expiresAt > now
+                ) {
+                    return cachedMe.result;
                 }
-                if (!response.ok) {
-                    return {
-                        ok: false,
-                        reason: "network",
-                        message: `/auth/me failed with status ${response.status}`,
-                    };
+                if (cachedMe !== null && cachedMe.expiresAt <= now) {
+                    cachedMe = null;
                 }
-                try {
-                    return {
-                        ok: true,
-                        user: parseSessionUser(await response.json()),
-                    };
-                } catch (error) {
-                    // Body arrived but was not valid JSON or not the /auth/me shape.
-                    return {
-                        ok: false,
-                        reason: "invalid-response",
-                        message:
-                            error instanceof Error
-                                ? `/auth/me returned an invalid body: ${error.message}`
-                                : "/auth/me returned an invalid body",
-                    };
-                }
-            } catch (error) {
-                return {
-                    ok: false,
-                    reason: "network",
-                    message: networkMessage(error),
-                };
+                if (inFlightMe !== null) return inFlightMe;
             }
+            triggerBootstrapPrefetch();
+            inFlightMe = rawFetchMe().then((result) => {
+                inFlightMe = null;
+                if (result.ok) {
+                    // Only successes are cacheable; failures stay one-shot.
+                    cachedMe = { result, expiresAt: Date.now() + ME_CACHE_TTL_MS };
+                }
+                return result;
+            });
+            return inFlightMe;
         },
 
         async login(username, password): Promise<AuthResult> {
@@ -221,14 +284,8 @@ export function createAuthClient(options: AuthClientOptions = {}): AuthClient {
                                 : `Login failed with status ${response.status}`,
                     };
                 }
-                if (!(await readEmptySuccess(response))) {
-                    return {
-                        ok: false,
-                        reason: "invalid-response",
-                        message: "Login returned an unexpected body",
-                    };
-                }
                 // Login body is empty: resolve the session with /auth/me.
+                resetMeDedupe();
                 return await this.fetchMe();
             } catch (error) {
                 return {
@@ -271,6 +328,7 @@ export function createAuthClient(options: AuthClientOptions = {}): AuthClient {
                                 : "/auth/setup returned an invalid body",
                     };
                 }
+                resetMeDedupe();
                 return await this.fetchMe();
             } catch (error) {
                 return {
@@ -346,6 +404,7 @@ export function createAuthClient(options: AuthClientOptions = {}): AuthClient {
                         message: "Passkey login returned an unexpected body",
                     };
                 }
+                resetMeDedupe();
                 return await this.fetchMe();
             } catch (error) {
                 return {
@@ -546,7 +605,9 @@ export function createAuthClient(options: AuthClientOptions = {}): AuthClient {
                         message: await responseMessage(response),
                     };
                 }
-                return (await readEmptySuccess(response))
+                const okBody = await readEmptySuccess(response);
+                if (okBody) resetMeDedupe();
+                return okBody
                     ? { kind: "success" }
                     : {
                           kind: "error",
@@ -576,6 +637,7 @@ export function createAuthClient(options: AuthClientOptions = {}): AuthClient {
                         message: "Logout returned an unexpected body",
                     };
                 }
+                resetMeDedupe();
                 return { ok: true };
             } catch (error) {
                 return { ok: false, message: networkMessage(error) };
@@ -583,6 +645,14 @@ export function createAuthClient(options: AuthClientOptions = {}): AuthClient {
         },
     };
 }
+
+/**
+ * Shared client for browser code that has no injection point of its own.
+ * Its first `fetchMe()` triggers the dual bootstrap prefetch (see
+ * {@link startBootstrapPrefetch}); test doubles pass their own `fetchImpl`
+ * to {@link createAuthClient} instead of using this instance.
+ */
+export const defaultAuthClient = createAuthClient();
 
 /** Reduce an {@link AuthResult} into the renderable {@link SessionState}. */
 export function toSessionState(result: AuthResult): SessionState {

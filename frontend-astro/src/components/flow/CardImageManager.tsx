@@ -141,7 +141,7 @@ export function CardImageManager({
                 {t("images.label")}
             </DialogTrigger>
             <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
-                <DialogHeader>
+                <DialogHeader className="pr-10">
                     <DialogTitle>{t("images.manage_title")}</DialogTitle>
                     <DialogDescription>
                         {tf("images.manage_description", {
