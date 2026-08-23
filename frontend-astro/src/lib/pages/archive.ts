@@ -108,6 +108,25 @@ export function filterArchiveCards(
 
 const HEADING_MAX = 80;
 
+/** First rows of the archive grid hydrate immediately; the rest wait for view. */
+export const ARCHIVE_EAGER_HYDRATE_COUNT = 9;
+
+/** Overscan around the viewport before a card drops markdown and images. */
+export const ARCHIVE_VIEWPORT_ROOT_MARGIN = "800px 0px";
+
+const PREVIEW_CHARS = 280;
+
+export function shouldEagerHydrateArchiveCard(index: number): boolean {
+    return index >= 0 && index < ARCHIVE_EAGER_HYDRATE_COUNT;
+}
+
+/** Plain clipped preview used while an archive card is off-screen. */
+export function archiveCardPreview(content: string): string {
+    const stripped = content.replace(/\s+/g, " ").trim();
+    if (stripped.length <= PREVIEW_CHARS) return stripped;
+    return `${stripped.slice(0, PREVIEW_CHARS - 1).trimEnd()}…`;
+}
+
 /**
  * Visible archive heading: a real title wins; otherwise the first line of
  * body text. Empty only when the card has no title and no content.

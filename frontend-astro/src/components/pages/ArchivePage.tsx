@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+    lazy,
+    Suspense,
+    useCallback,
+    useEffect,
+    useMemo,
+    useState,
+} from "react";
 import {
     ArrowLeftIcon,
     ArchiveIcon,
@@ -38,7 +45,6 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { ImageLightbox } from "@/components/content/ImageLightbox";
-import { MarkdownContent } from "@/components/content/MarkdownContent";
 import { Input } from "@/components/ui/input";
 import {
     Select,
@@ -54,17 +60,38 @@ import { newIdempotencyKey } from "@/lib/api-v1/transport";
 import { t, tf } from "@/lib/i18n";
 import { useViewRefresh } from "@/islands/use-view-refresh";
 import { CardImageManager } from "@/components/flow/CardImageManager";
-import { archiveCardHeading, inventoryToFlowCard } from "@/lib/pages/archive";
 import { LoadedImage } from "@/components/content/LoadedImage";
+import { LIST_IMAGE_MAX_EDGE_PX } from "@/lib/image-thumbnail";
+import { useNearViewport } from "@/components/pages/use-near-viewport";
 import {
+    archiveCardHeading,
+    archiveCardPreview,
     archiveSearch,
     archiveTopics,
     filterArchiveCards,
+    inventoryToFlowCard,
     parseArchiveSearch,
+    shouldEagerHydrateArchiveCard,
     type ArchiveFilters,
     type ArchiveSort,
     type ArchiveStatus,
 } from "@/lib/pages/archive";
+
+const LazyMarkdownContent = lazy(() =>
+    import("@/components/content/MarkdownContent").then((module) => ({
+        default: module.MarkdownContent,
+    })),
+);
+
+function MarkdownFallback() {
+    return (
+        <div className="space-y-2 animate-pulse" aria-hidden="true">
+            <div className="h-4 rounded bg-muted" />
+            <div className="h-4 w-5/6 rounded bg-muted" />
+            <div className="h-4 w-2/3 rounded bg-muted" />
+        </div>
+    );
+}
 
 const statuses: ArchiveStatus[] = [
     "all",
@@ -155,20 +182,31 @@ function cardStatusText(card: TipcardInfo): string {
 function ArchiveCard({
     card,
     busy,
+    eager,
     onDelete,
     onDetail,
     onPin,
 }: {
     card: TipcardInfo;
     busy: boolean;
+    eager: boolean;
     onDelete: (card: TipcardInfo) => void;
     onDetail: (card: TipcardInfo) => void;
     onPin: (card: TipcardInfo) => void;
 }) {
+    const { ref, near, minHeight } = useNearViewport(eager);
     const images = imageUrls(card);
     const content = card.fullContent.trim() || card.compressedContent;
+    const hydrate = near;
     return (
-        <Card className="min-w-0">
+        <div
+            ref={ref}
+            className="[content-visibility:auto] [contain-intrinsic-size:auto_28rem]"
+            style={
+                hydrate || minHeight === undefined ? undefined : { minHeight }
+            }
+        >
+            <Card className="min-w-0">
             <CardHeader className="gap-3 border-b">
                 <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -200,43 +238,56 @@ function ArchiveCard({
                 </p>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
-                {images.length === 0 ? null : (
-                    <div className="grid grid-cols-2 gap-2">
-                        {images.slice(0, 4).map((src, index) => (
-                            <LoadedImage
-                                key={src}
-                                src={src}
-                                alt={tf("archive.image_alt", {
-                                    title: displayCardTitle(card),
-                                })}
-                                className="size-full object-cover transition-transform hover:scale-105"
-                                render={(image) => (
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        className="aspect-video h-auto w-full overflow-hidden rounded-md bg-muted p-0"
-                                        onClick={() => onDetail(card)}
-                                        aria-label={tf(
-                                            "archive.open_image_details",
-                                            {
-                                                index: index + 1,
-                                                title: displayCardTitle(card),
-                                            },
+                {hydrate ? (
+                    <>
+                        {images.length === 0 ? null : (
+                            <div className="grid grid-cols-2 gap-2">
+                                {images.slice(0, 4).map((src, index) => (
+                                    <LoadedImage
+                                        key={src}
+                                        src={src}
+                                        maxDecodeEdge={LIST_IMAGE_MAX_EDGE_PX}
+                                        alt={tf("archive.image_alt", {
+                                            title: displayCardTitle(card),
+                                        })}
+                                        className="size-full object-cover transition-transform hover:scale-105"
+                                        render={(image) => (
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                className="aspect-video h-auto w-full overflow-hidden rounded-md bg-muted p-0"
+                                                onClick={() => onDetail(card)}
+                                                aria-label={tf(
+                                                    "archive.open_image_details",
+                                                    {
+                                                        index: index + 1,
+                                                        title: displayCardTitle(
+                                                            card,
+                                                        ),
+                                                    },
+                                                )}
+                                            >
+                                                {image}
+                                            </Button>
                                         )}
-                                    >
-                                        {image}
-                                    </Button>
-                                )}
-                            />
-                        ))}
-                    </div>
+                                    />
+                                ))}
+                            </div>
+                        )}
+                        <div
+                            className="max-h-80 min-w-0 overflow-y-auto overscroll-contain pr-2"
+                            data-testid={`archive-card-content-${card.id}`}
+                        >
+                            <Suspense fallback={<MarkdownFallback />}>
+                                <LazyMarkdownContent content={content} />
+                            </Suspense>
+                        </div>
+                    </>
+                ) : (
+                    <p className="line-clamp-4 text-sm leading-6 text-muted-foreground">
+                        {archiveCardPreview(content)}
+                    </p>
                 )}
-                <div
-                    className="max-h-80 min-w-0 overflow-y-auto overscroll-contain pr-2"
-                    data-testid={`archive-card-content-${card.id}`}
-                >
-                    <MarkdownContent content={content} />
-                </div>
             </CardContent>
             <CardFooter className="flex-wrap justify-between gap-3 px-5 py-4">
                 <span className="text-xs text-muted-foreground">
@@ -290,7 +341,8 @@ function ArchiveCard({
                     </Button>
                 </div>
             </CardFooter>
-        </Card>
+            </Card>
+        </div>
     );
 }
 
@@ -330,6 +382,13 @@ export function ArchivePage({ active = true }: { active?: boolean }) {
     }, []);
 
     useViewRefresh(active, refresh);
+
+    useEffect(() => {
+        if (active) return;
+        setDetailCard(null);
+        setLightboxOpen(false);
+        setDeleteTarget(null);
+    }, [active]);
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -534,7 +593,7 @@ export function ArchivePage({ active = true }: { active?: boolean }) {
                 </Button>
             </div>
 
-            {loading ? (
+            {!active ? null : loading ? (
                 <p
                     className="py-16 text-center text-sm text-muted-foreground"
                     role="status"
@@ -554,11 +613,12 @@ export function ArchivePage({ active = true }: { active?: boolean }) {
                 </div>
             ) : (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {filtered.map((card) => (
+                    {filtered.map((card, index) => (
                         <ArchiveCard
                             key={card.id.toString()}
                             card={card}
                             busy={busyId === card.id}
+                            eager={shouldEagerHydrateArchiveCard(index)}
                             onPin={(item) => void mutate(item, "pin")}
                             onDelete={setDeleteTarget}
                             onDetail={(item) => setDetailCard(item)}
@@ -645,6 +705,7 @@ export function ArchivePage({ active = true }: { active?: boolean }) {
                                         <LoadedImage
                                             key={src}
                                             src={src}
+                                            maxDecodeEdge={LIST_IMAGE_MAX_EDGE_PX}
                                             alt={tf("archive.image_alt", {
                                                 title: displayCardTitle(
                                                     detailCard,
@@ -672,13 +733,15 @@ export function ArchivePage({ active = true }: { active?: boolean }) {
                                     ))}
                                 </div>
                             )}
-                            <MarkdownContent
-                                className="min-w-0 text-base sm:text-[1.05rem] sm:leading-8"
-                                content={
-                                    detailCard.fullContent ||
-                                    detailCard.compressedContent
-                                }
-                            />
+                            <Suspense fallback={<MarkdownFallback />}>
+                                <LazyMarkdownContent
+                                    className="min-w-0 text-base sm:text-[1.05rem] sm:leading-8"
+                                    content={
+                                        detailCard.fullContent ||
+                                        detailCard.compressedContent
+                                    }
+                                />
+                            </Suspense>
                             <CardImageManager
                                 card={inventoryToFlowCard(detailCard)}
                                 onChanged={(next) => {

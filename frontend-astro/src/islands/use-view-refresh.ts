@@ -3,8 +3,8 @@ import { useEffect } from "react";
 const REFRESH_INTERVAL_MS = 60_000;
 
 /**
- * Re-fetch when a keep-alive view becomes active, when the tab is visible
- * again, and every 60 seconds while it stays active. Hidden views do not poll.
+ * Re-fetch when a view becomes active, when the tab is visible again, and
+ * every 60 seconds while it stays active. Inactive views do not poll.
  */
 export function useViewRefresh(active: boolean, refresh: () => void): void {
     useEffect(() => {

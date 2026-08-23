@@ -79,6 +79,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LoadedImage } from "@/components/content/LoadedImage";
+import { LIST_IMAGE_MAX_EDGE_PX } from "@/lib/image-thumbnail";
 import {
     Tooltip,
     TooltipContent,
@@ -1076,6 +1077,7 @@ function ImagesPanel({
                             <CardContent className="pt-4">
                                 <LoadedImage
                                     src={`/api/v1/pool-images/${image.id}`}
+                                    maxDecodeEdge={LIST_IMAGE_MAX_EDGE_PX}
                                     alt={image.name}
                                     className="aspect-video w-full rounded-md object-cover"
                                     fallback={

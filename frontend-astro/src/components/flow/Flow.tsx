@@ -54,6 +54,7 @@ import {
     CardHeader,
 } from "@/components/ui/card";
 import { LoadedImage } from "@/components/content/LoadedImage";
+import { LIST_IMAGE_MAX_EDGE_PX } from "@/lib/image-thumbnail";
 import {
     FlowCardDetail,
     FlowCardDetailTrigger,
@@ -488,6 +489,7 @@ export function CardBodies({
                             <LoadedImage
                                 key={url}
                                 src={url}
+                                maxDecodeEdge={LIST_IMAGE_MAX_EDGE_PX}
                                 alt={tf("images.illustration_for_card", {
                                     title: card.title,
                                 })}

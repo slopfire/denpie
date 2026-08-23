@@ -151,4 +151,5 @@ test("topic archive links filter pending/scheduled cards and keep full details r
                 "still-mounted",
         ),
     ).toBe(true);
+    await expect(page.getByTestId("archive-page")).toHaveCount(0);
 });

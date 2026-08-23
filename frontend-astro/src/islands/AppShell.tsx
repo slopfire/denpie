@@ -74,6 +74,7 @@ import {
     saveRememberedAccounts,
     storePrefillUsername,
 } from "@/lib/remembered-accounts";
+import { PERSISTED_APP_VIEWS, nextMountedViews } from "@/lib/keep-alive";
 import { runViewTransition } from "@/lib/view-transition";
 import { cn } from "@/lib/utils";
 
@@ -684,15 +685,25 @@ function AuthenticatedView({
     // the view-transition update callback snapshots the DOM when it returns,
     // before passive effects run. Adjusting state during render keeps the
     // mount inside the flushSync'd update instead of a follow-up effect.
-    const [mounted, setMounted] = useState(() => new Set<AppView>([view]));
+    // Flow stays mounted after the first visit; Archive and the other
+    // routes unmount when you leave so their images and markdown can drop.
+    const [mounted, setMounted] = useState(() =>
+        nextMountedViews<AppView>(
+            new Set<AppView>(),
+            view,
+            PERSISTED_APP_VIEWS as readonly AppView[],
+        ),
+    );
     const [lastView, setLastView] = useState(view);
     if (view !== lastView) {
         setLastView(view);
-        if (!mounted.has(view)) {
-            const next = new Set(mounted);
-            next.add(view);
-            setMounted(next);
-        }
+        setMounted(
+            nextMountedViews<AppView>(
+                mounted,
+                view,
+                PERSISTED_APP_VIEWS as readonly AppView[],
+            ),
+        );
     }
     return (
         <>

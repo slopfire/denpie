@@ -3,6 +3,7 @@ import { create } from "@bufbuild/protobuf";
 import { TipcardInfoSchema } from "@/generated/denpie_pb";
 import {
     archiveCardHeading,
+    archiveCardPreview,
     archiveSearch,
     archiveStatusLabel,
     archiveTopics,
@@ -10,6 +11,7 @@ import {
     filterArchiveCards,
     inventoryToFlowCard,
     parseArchiveSearch,
+    shouldEagerHydrateArchiveCard,
 } from "./archive";
 
 function card(
@@ -187,5 +189,16 @@ describe("archive page helpers", () => {
         expect(flow.topicName).toBe("Rust");
         expect(flow.fullContent).toBe("full");
         expect(flow.pendingCount).toBe(0n);
+    });
+
+    test("eager-hydrates the first archive rows and clips off-screen previews", () => {
+        expect(shouldEagerHydrateArchiveCard(0)).toBe(true);
+        expect(shouldEagerHydrateArchiveCard(8)).toBe(true);
+        expect(shouldEagerHydrateArchiveCard(9)).toBe(false);
+        expect(archiveCardPreview("  short   preview  ")).toBe("short preview");
+        expect(archiveCardPreview("word ".repeat(80)).endsWith("…")).toBe(true);
+        expect(archiveCardPreview("word ".repeat(80)).length).toBeLessThanOrEqual(
+            280,
+        );
     });
 });

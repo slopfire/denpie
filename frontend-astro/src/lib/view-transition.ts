@@ -1,9 +1,10 @@
 /**
  * View Transitions API wrapper for the in-app route swaps in `AppShell`.
  *
- * `AppShell` keeps visited views mounted and toggles visibility, so Astro's
- * `<ClientRouter />` never runs: navigation happens through the History API
- * inside a single React island. This module animates those swaps by starting
+ * `AppShell` keeps Flow mounted after the first visit and unmounts the other
+ * routes when you leave, so Astro's `<ClientRouter />` never runs: navigation
+ * happens through the History API inside a single React island. This module
+ * animates those swaps by starting
  * `document.startViewTransition` and committing the React state update with
  * `flushSync` inside its update callback (the documented flushSync +
  * startViewTransition interop pattern), falling back to a direct commit when
