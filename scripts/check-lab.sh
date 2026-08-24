@@ -33,15 +33,19 @@ assert_contains "$check_dir/list.txt" 'algorithms  planned'
 
 lab run images --dry-run --strategy bing_html --strategy bing_html \
     >"$check_dir/images.txt"
-assert_contains "$check_dir/images.txt" '5 cases x 1 strategy = 5 runs'
+assert_contains "$check_dir/images.txt" '5 cases x 1 strategy x 1 samples = 5 runs'
 
 lab run prompts --dry-run >"$check_dir/prompts.txt"
-assert_contains "$check_dir/prompts.txt" '5 cases (0 LLM calls)'
+assert_contains "$check_dir/prompts.txt" '5 cases x 1 samples = 5 runs (0 LLM calls)'
 
 lab run cards --dry-run >"$check_dir/cards.txt"
-assert_contains "$check_dir/cards.txt" '7 fixtures (0 gallery artifacts)'
-assert_contains "$check_dir/cards.txt" 'images: 4'
+assert_contains "$check_dir/cards.txt" '15 fixtures (0 gallery artifacts)'
+assert_contains "$check_dir/cards.txt" '[stacked] topic: English Grammar status: active pinned: false pending_count: 3 images: 4'
+assert_contains "$check_dir/cards.txt" '[two-images] topic: Architectural composition status: active pinned: false pending_count: 0 images: 2'
+assert_contains "$check_dir/cards.txt" '[three-images] topic: Visual comparison status: active pinned: false pending_count: 0 images: 3'
 assert_contains "$check_dir/cards.txt" '[active] topic: English Grammar status: active pinned: false pending_count: 0 images: 1'
+assert_contains "$check_dir/cards.txt" '[manual-tip] topic: Field notes status: active pinned: false pending_count: 0 images: 0'
+assert_contains "$check_dir/cards.txt" '[custom-tip] topic: Team conventions status: reviewed pinned: true pending_count: 0 images: 0'
 
 printf '%s\n' 'lab-check: unsafe fixture IDs are rejected'
 printf '%s\n' '[{"id":"../escape","topic":"Rust","mode":"one_shot","expected":"reject unsafe id"}]' \
@@ -68,14 +72,27 @@ assert_contains "$check_dir/compare.txt" 'elapsed_ms: 20 -> 12 (-8)'
 printf '%s\n' 'lab-check: focused Rust and Astro contracts'
 DENPIE_SKIP_FRONTEND_BUILD=1 cargo test --quiet --workspace 'lab::'
 
+cd "$repo_root/frontend-astro"
+bun test src/lib/lab-card-state.test.ts
+cd "$repo_root"
+
 sh "$repo_root/scripts/build-frontend.sh" >/dev/null
 for fixture_id in active pinned reviewed-hold await-refill daily-complete \
-    stacked llm-error; do
+    stacked llm-error long-markdown two-images three-images broken-image \
+    api-key-missing manual-tip custom-tip casual-tip; do
     if ! grep -q "lab-fixture-$fixture_id" \
         frontend-astro/dist/lab-cards/index.html; then
         printf '%s\n' "Astro lab page is missing fixture $fixture_id" >&2
         exit 1
     fi
 done
+
+printf '%s\n' 'lab-check: offline hydrated DOM interactions'
+PLAYWRIGHT_BROWSERS_PATH=0 bunx playwright test \
+    --config tests/e2e-astro/lab-cards.config.mjs --grep @smoke
+
+printf '%s\n' 'lab-check: baseline/candidate review workbench'
+PLAYWRIGHT_BROWSERS_PATH=0 bunx playwright test \
+    --config tests/e2e-astro/lab-review.config.mjs
 
 printf '%s\n' 'lab-check: passed'

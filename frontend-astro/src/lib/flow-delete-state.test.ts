@@ -18,7 +18,9 @@ function card(id: bigint, pinned = false) {
   return create(FlowCardInfoSchema, {
     id,
     title: `card-${id}`,
-    topicName: "t",
+    // Keep delete-state fixtures in separate repeatable stacks. Topic-level
+    // deduplication belongs to flow projection and is not under test here.
+    topicName: `t-${id}`,
     fullContent: "body",
     tipcardType: "repeatable_tip",
     status: "active",

@@ -24,6 +24,8 @@ pub(crate) async fn update_topic_prompt(
             daily_update_time: req.daily_update_time,
             compression_level: req.compression_level,
             grounding_strategy: req.grounding_strategy,
+            grounding_model: req.grounding_model,
+            grounding_reasoning_effort: req.grounding_reasoning_effort,
             image_strategy: req.image_strategy,
         },
     )

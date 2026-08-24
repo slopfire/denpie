@@ -3,6 +3,7 @@
 // the live Flow. No fetch, no React.
 import { create } from "@bufbuild/protobuf";
 import {
+    CardSourceSchema,
     FlowCardInfoSchema,
     type TipcardImageInfo,
     TipcardImageInfoSchema,
@@ -19,6 +20,17 @@ export interface LabCardFixtureJson {
     status: string;
     pinned: boolean;
     pending_count: number;
+    created_at?: string;
+    next_review_at?: string;
+    repeat_count?: number;
+    topic_color?: string;
+    topic_icon?: string;
+    sources?: readonly {
+        document_id: number;
+        source_type: string;
+        title: string;
+        url?: string;
+    }[];
     images?: readonly string[];
     review_message?: string | null;
     notes: string;
@@ -39,30 +51,34 @@ export function fixtureImage(
 }
 
 /** Build the exact protocol message the live Flow would receive. */
-export function fixtureToFlowCard(
-    fixture: LabCardFixtureJson,
-    index: number,
-) {
+export function fixtureToFlowCard(fixture: LabCardFixtureJson, index: number) {
     return create(FlowCardInfoSchema, {
         id: BigInt(index + 1),
         topicName: fixture.topic_name,
-        topicIcon: "radix-icons:bookmark",
-        topicColor: "",
+        topicIcon: fixture.topic_icon ?? "radix-icons:bookmark",
+        topicColor: fixture.topic_color ?? "",
         title: fixture.title,
         fullContent: fixture.full_content,
         compressedContent: fixture.compressed_content,
-        createdAt: "",
+        createdAt: fixture.created_at ?? "",
         tipcardType: fixture.tipcard_type,
         status: fixture.status,
-        nextReviewAt: "",
+        nextReviewAt: fixture.next_review_at ?? "",
 
-        repeatCount: 0,
+        repeatCount: fixture.repeat_count ?? 0,
         pinned: fixture.pinned,
         pendingCount: BigInt(fixture.pending_count),
         images: (fixture.images ?? []).map((path, position) =>
             fixtureImage(position, path),
         ),
-        sources: [],
+        sources: (fixture.sources ?? []).map((source) =>
+            create(CardSourceSchema, {
+                documentId: BigInt(source.document_id),
+                sourceType: source.source_type,
+                title: source.title,
+                url: source.url,
+            }),
+        ),
     });
 }
 
@@ -75,9 +91,7 @@ export function repeatableStackLayersFromCount(
     return pendingCount >= 3n ? 3 : Number(pendingCount);
 }
 
-export function labCardViews(
-    fixtures: readonly LabCardFixtureJson[],
-): Array<{
+export function labCardViews(fixtures: readonly LabCardFixtureJson[]): Array<{
     fixtureId: string;
     notes: string;
     reviewMessage: string | null;

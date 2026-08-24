@@ -19,6 +19,8 @@ pub struct TopicRecord {
     pub icon_id: Option<String>,
     pub color_hue: Option<i32>,
     pub grounding_strategy: Option<String>,
+    pub grounding_model: Option<String>,
+    pub grounding_reasoning_effort: Option<String>,
     pub image_strategy: Option<String>,
 }
 
@@ -41,6 +43,8 @@ pub struct AppTopicRecord {
     pub daily_update_time: String,
     pub compression_level: String,
     pub grounding_strategy: String,
+    pub grounding_model: String,
+    pub grounding_reasoning_effort: String,
     pub image_strategy: String,
     pub icon_id: String,
     pub topic_color: String,
@@ -58,6 +62,8 @@ pub struct TopicSettingsRecord {
     pub daily_update_time: Option<String>,
     pub compression_level: Option<String>,
     pub grounding_strategy: Option<String>,
+    pub grounding_model: Option<String>,
+    pub grounding_reasoning_effort: Option<String>,
     pub image_strategy: Option<String>,
 }
 
@@ -72,6 +78,8 @@ type TopicRow = (
     Option<String>,
     Option<String>,
     Option<i64>,
+    Option<String>,
+    Option<String>,
     Option<String>,
     Option<String>,
 );
@@ -90,10 +98,12 @@ fn map_topic_row(row: TopicRow) -> TopicRecord {
         color_hue: row.9.map(|hue| hue as i32),
         grounding_strategy: row.10,
         image_strategy: row.11,
+        grounding_model: row.12,
+        grounding_reasoning_effort: row.13,
     }
 }
 
-const TOPIC_SELECT: &str = "SELECT id, name, tipcard_type, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level, icon_id, color_hue, grounding_strategy, image_strategy";
+const TOPIC_SELECT: &str = "SELECT id, name, tipcard_type, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level, icon_id, color_hue, grounding_strategy, image_strategy, grounding_model, grounding_reasoning_effort";
 
 pub async fn list_admin(pool: &PgPool, user_id: &str) -> AppResult<Vec<TopicRecord>> {
     let query = format!("{TOPIC_SELECT} FROM topics WHERE user_id = $1 ORDER BY name ASC");
@@ -154,7 +164,8 @@ pub async fn find_for_card(
     let query = "SELECT topics.id, topics.name, topics.tipcard_type, topics.prompt_template,
                 topics.daily_card_count, topics.daily_time_zone, topics.daily_update_time,
                 topics.compression_level, topics.icon_id, topics.color_hue,
-                topics.grounding_strategy, topics.image_strategy
+                topics.grounding_strategy, topics.image_strategy,
+                topics.grounding_model, topics.grounding_reasoning_effort
          FROM topics
          JOIN tipcards card ON card.topic_id = topics.id AND card.user_id = topics.user_id
          WHERE topics.user_id = $1 AND card.id = $2";
@@ -226,6 +237,8 @@ pub async fn get_or_create_topic(
             icon_id: Some(icon_id),
             color_hue: Some(color_hue),
             grounding_strategy: None,
+            grounding_model: None,
+            grounding_reasoning_effort: None,
             image_strategy: None,
         }),
         Ok(None) => find_by_name(pool, user_id, topic_name)
@@ -328,9 +341,11 @@ pub async fn get_settings(pool: &PgPool, user_id: &str, id: i64) -> AppResult<To
             Option<String>,
             Option<String>,
             Option<String>,
+            Option<String>,
+            Option<String>,
         ),
     >(
-        "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level, grounding_strategy, image_strategy
+        "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level, grounding_strategy, image_strategy, grounding_model, grounding_reasoning_effort
          FROM topics
          WHERE id = $1 AND user_id = $2",
     )
@@ -348,6 +363,8 @@ pub async fn get_settings(pool: &PgPool, user_id: &str, id: i64) -> AppResult<To
         compression_level: row.4,
         grounding_strategy: row.5,
         image_strategy: row.6,
+        grounding_model: row.7,
+        grounding_reasoning_effort: row.8,
     })
 }
 
@@ -359,8 +376,8 @@ pub async fn update_settings(
 ) -> AppResult<()> {
     sqlx::query(
         "UPDATE topics
-         SET prompt_template = $1, daily_card_count = $2, daily_time_zone = $3, daily_update_time = $4, compression_level = $5, grounding_strategy = $6, image_strategy = $7
-         WHERE id = $8 AND user_id = $9",
+         SET prompt_template = $1, daily_card_count = $2, daily_time_zone = $3, daily_update_time = $4, compression_level = $5, grounding_strategy = $6, image_strategy = $7, grounding_model = $8, grounding_reasoning_effort = $9
+         WHERE id = $10 AND user_id = $11",
     )
     .bind(settings.prompt_template)
     .bind(settings.daily_card_count)
@@ -369,6 +386,8 @@ pub async fn update_settings(
     .bind(settings.compression_level)
     .bind(settings.grounding_strategy)
     .bind(settings.image_strategy)
+    .bind(settings.grounding_model)
+    .bind(settings.grounding_reasoning_effort)
     .bind(id)
     .bind(user_id)
     .execute(pool)
@@ -423,6 +442,8 @@ pub async fn list_app_topics(
                 top.color_hue,
                 top.grounding_strategy,
                 top.image_strategy,
+                top.grounding_model,
+                top.grounding_reasoning_effort,
                 COUNT(t.id) AS total_cards,
                 SUM(CASE WHEN r.status = 'active' AND (r.next_review_at <= $1 OR t.pinned = 1) THEN 1 ELSE 0 END) AS due_cards,
                 SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) AS pending_cards,
@@ -431,7 +452,7 @@ pub async fn list_app_topics(
          LEFT JOIN tipcards t ON t.topic_id = top.id
          LEFT JOIN review_states r ON r.card_id = t.id
          WHERE top.user_id = $2
-         GROUP BY top.id, top.name, top.tipcard_type, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level, top.icon_id, top.color_hue, top.grounding_strategy, top.image_strategy
+         GROUP BY top.id, top.name, top.tipcard_type, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level, top.icon_id, top.color_hue, top.grounding_strategy, top.image_strategy, top.grounding_model, top.grounding_reasoning_effort
          ORDER BY due_cards DESC, top.name ASC",
     )
     .bind(now)
@@ -465,6 +486,12 @@ pub async fn list_app_topics(
                     .unwrap_or_default(),
                 grounding_strategy: row
                     .get::<Option<String>, _>("grounding_strategy")
+                    .unwrap_or_default(),
+                grounding_model: row
+                    .get::<Option<String>, _>("grounding_model")
+                    .unwrap_or_default(),
+                grounding_reasoning_effort: row
+                    .get::<Option<String>, _>("grounding_reasoning_effort")
                     .unwrap_or_default(),
                 image_strategy: row
                     .get::<Option<String>, _>("image_strategy")

@@ -1,6 +1,7 @@
 [
   {
     "id": "grammar-existing-known",
+    "tags": ["grammar", "context", "one-shot"],
     "topic": "English Grammar",
     "compression": "strong",
     "mode": "one_shot",
@@ -15,6 +16,7 @@
   },
   {
     "id": "rust-empty",
+    "tags": ["rust", "empty-context", "one-shot"],
     "topic": "Rust",
     "compression": "strong",
     "mode": "one_shot",
@@ -22,12 +24,14 @@
   },
   {
     "id": "helix-empty",
+    "tags": ["helix", "empty-context", "one-shot"],
     "topic": "Helix Editor",
     "mode": "one_shot",
     "expected": "One focused Helix Editor tip from an empty context; compression defaults to strong; use_image only for a meaningful UI screenshot."
   },
   {
     "id": "grammar-array-five",
+    "tags": ["grammar", "array", "context"],
     "topic": "English Grammar",
     "mode": "array",
     "batch_count": 5,
@@ -38,6 +42,7 @@
   },
   {
     "id": "custom-existing-slot",
+    "tags": ["rust", "custom-template", "context"],
     "topic": "Rust",
     "template": "You are a spaced-repetition coach for {topic}.\nAvoid duplicating any of these existing cards:\n{existing_cards}",
     "compression": "strong",

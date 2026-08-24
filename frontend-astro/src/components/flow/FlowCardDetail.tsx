@@ -264,7 +264,10 @@ function DetailReady({
                     ))}
                     <Suspense
                         fallback={
-                            <div className="space-y-2 animate-pulse" aria-hidden="true">
+                            <div
+                                className="space-y-2 animate-pulse"
+                                aria-hidden="true"
+                            >
                                 <div className="h-4 rounded bg-muted" />
                                 <div className="h-4 w-5/6 rounded bg-muted" />
                                 <div className="h-4 w-2/3 rounded bg-muted" />
@@ -324,18 +327,25 @@ export function FlowCardDetailTrigger({ cardId }: { cardId: bigint }) {
     );
 }
 
+async function loadProductionDetailCard(cardId: bigint): Promise<FlowCardInfo> {
+    const result = await getTipcard({ cardId });
+    return result.card;
+}
+
 export function FlowCardDetail({
     card,
     open,
     onOpenChange,
     onCardChanged,
     actions,
+    loadCard = loadProductionDetailCard,
 }: {
     card: FlowCardInfo;
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onCardChanged?: (card: FlowCardInfo) => void;
     actions?: React.ReactNode;
+    loadCard?: (cardId: bigint) => Promise<FlowCardInfo>;
 }) {
     const [state, setState] = useState<FlowDetailState>(
         INITIAL_FLOW_DETAIL_STATE,
@@ -359,10 +369,10 @@ export function FlowCardDetail({
         (request: DetailRequest) => {
             void (async () => {
                 try {
-                    const result = await getTipcard({ cardId: request.cardId });
+                    const loadedCard = await loadCard(request.cardId);
                     if (!mountedRef.current) return;
                     apply(
-                        detailSucceeded(stateRef.current, request, result.card),
+                        detailSucceeded(stateRef.current, request, loadedCard),
                     );
                 } catch (error) {
                     if (!mountedRef.current) return;
@@ -378,7 +388,7 @@ export function FlowCardDetail({
                 }
             })();
         },
-        [apply],
+        [apply, loadCard],
     );
 
     const beginLoad = useCallback(
@@ -447,9 +457,7 @@ export function FlowCardDetail({
             <div className="mx-auto flex min-h-full w-full max-w-[850px] flex-col gap-4 px-4 py-5 sm:px-6">
                 <DialogHeader className="pr-10">
                     <DialogTitle>
-                        {state.kind === "ready"
-                            ? state.card.title
-                            : card.title}
+                        {state.kind === "ready" ? state.card.title : card.title}
                     </DialogTitle>
                     <DialogDescription>
                         {tf("card.detail.full_description", {
@@ -463,9 +471,7 @@ export function FlowCardDetail({
                         variant="destructive"
                         data-testid="card-detail-error"
                     >
-                        <AlertTitle>
-                            {t("card.detail.load_error")}
-                        </AlertTitle>
+                        <AlertTitle>{t("card.detail.load_error")}</AlertTitle>
                         <AlertDescription className="flex flex-col items-start gap-3">
                             <span role="alert">{state.message}</span>
                             <Button

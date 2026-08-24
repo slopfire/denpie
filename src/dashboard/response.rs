@@ -127,6 +127,8 @@ pub struct TopicInfo {
     pub daily_update_time: String,
     pub compression_level: String,
     pub grounding_strategy: String,
+    pub grounding_model: String,
+    pub grounding_reasoning_effort: String,
     pub image_strategy: String,
 }
 
@@ -162,6 +164,8 @@ pub struct AppTopicInfo {
     pub daily_update_time: String,
     pub compression_level: String,
     pub grounding_strategy: String,
+    pub grounding_model: String,
+    pub grounding_reasoning_effort: String,
     pub image_strategy: String,
 }
 
@@ -174,6 +178,8 @@ pub struct UpdateTopicReq {
     pub daily_update_time: Option<String>,
     pub compression_level: Option<String>,
     pub grounding_strategy: Option<String>,
+    pub grounding_model: Option<String>,
+    pub grounding_reasoning_effort: Option<String>,
     pub image_strategy: Option<String>,
 }
 

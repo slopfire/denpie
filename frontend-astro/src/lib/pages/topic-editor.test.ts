@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { AppTopicInfoSchema } from "@/generated/denpie_pb";
 import {
+    applyTopicEditorDraft,
     hasTopicEditorPatch,
     topicEditorDraft,
     topicEditorPatch,
@@ -16,6 +17,8 @@ function topic() {
         dailyTimeZone: "UTC",
         dailyUpdateTime: "07:00",
         compressionLevel: "balanced",
+        groundingModel: "gpt-5.4-mini",
+        groundingReasoningEffort: "medium",
         groundingStrategy: "factual",
         imageStrategy: "bing_html",
     });
@@ -29,10 +32,14 @@ describe("topic editor patch", () => {
             false,
         );
         draft.dailyCardCount = "5";
+        draft.groundingModel = "gpt-5.4";
+        draft.groundingReasoningEffort = "high";
         draft.imageStrategy = "pool";
         const patch = topicEditorPatch(current, draft);
         expect(patch.id).toBe(9n);
         expect(patch.dailyCardCount).toBe(5);
+        expect(patch.groundingModel).toBe("gpt-5.4");
+        expect(patch.groundingReasoningEffort).toBe("high");
         expect(patch.imageStrategy).toBe("pool");
         expect(patch.promptTemplate).toBeUndefined();
     });
@@ -42,5 +49,20 @@ describe("topic editor patch", () => {
         const draft = topicEditorDraft(current);
         draft.dailyCardCount = "";
         expect(topicEditorPatch(current, draft).dailyCardCount).toBe(0);
+    });
+
+    test("clears topic grounding overrides to inherit settings", () => {
+        const current = topic();
+        const draft = topicEditorDraft(current);
+        draft.groundingModel = "";
+        draft.groundingReasoningEffort = "";
+
+        const patch = topicEditorPatch(current, draft);
+        expect(patch.groundingModel).toBe("");
+        expect(patch.groundingReasoningEffort).toBe("");
+
+        const updated = applyTopicEditorDraft(current, draft);
+        expect(updated.groundingModel).toBe("");
+        expect(updated.groundingReasoningEffort).toBe("");
     });
 });

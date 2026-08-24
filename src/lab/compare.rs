@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
+use crate::lab::artifacts::load_scorecard_manifest;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScorecardKind {
     Images,
@@ -32,6 +34,7 @@ struct Scorecard {
 }
 
 pub(crate) fn render(baseline_path: &str, candidate_path: &str) -> Result<String, String> {
+    validate_manifests(baseline_path, candidate_path)?;
     let baseline = load(baseline_path)?;
     let candidate = load(candidate_path)?;
     if baseline.kind != candidate.kind {
@@ -106,6 +109,22 @@ pub(crate) fn render(baseline_path: &str, candidate_path: &str) -> Result<String
     append_lines(&mut report, "outcomes", &outcome_changes);
     append_lines(&mut report, "metrics", &metric_changes);
     Ok(report)
+}
+
+fn validate_manifests(baseline_path: &str, candidate_path: &str) -> Result<(), String> {
+    let baseline = load_scorecard_manifest(baseline_path);
+    let candidate = load_scorecard_manifest(candidate_path);
+    match (baseline, candidate) {
+        (Ok(baseline), Ok(candidate)) => {
+            if let Some(reason) = baseline.compatibility_error(&candidate) {
+                Err(format!("incompatible lab experiments: {reason}"))
+            } else {
+                Ok(())
+            }
+        }
+        (Err(_), Err(_)) => Ok(()), // Legacy scorecards remain readable.
+        (Err(error), Ok(_)) | (Ok(_), Err(error)) => Err(error),
+    }
 }
 
 fn append_keys(report: &mut String, label: &str, keys: &[&String]) {
@@ -183,7 +202,10 @@ fn load(path: &str) -> Result<Scorecard, String> {
 fn parse_image_row(value: &Value, path: &str, index: usize) -> Result<(String, Row), String> {
     let case_id = unsigned_number(value, "case_id", path, index)?;
     let strategy = string(value, "strategy", path, index)?;
-    let key = format!("{case_id}/{strategy}");
+    let key = match optional_unsigned_number(value, "repeat_index") {
+        Some(repeat_index) => format!("{case_id}/{strategy}/{repeat_index}"),
+        None => format!("{case_id}/{strategy}"),
+    };
     let mechanical = BTreeMap::from([
         (
             "search_or_download",
@@ -252,7 +274,10 @@ fn parse_prompt_row(value: &Value, path: &str, index: usize) -> Result<(String, 
         ),
     ]);
     Ok((
-        case_id,
+        match optional_unsigned_number(value, "repeat_index") {
+            Some(repeat_index) => format!("{case_id}/{repeat_index}"),
+            None => case_id,
+        },
         Row {
             mechanical,
             metrics,
@@ -280,6 +305,10 @@ fn unsigned_number(value: &Value, field: &str, path: &str, index: usize) -> Resu
         .get(field)
         .and_then(Value::as_u64)
         .ok_or_else(|| format!("scorecard `{path}` row {index} has no unsigned integer `{field}`"))
+}
+
+fn optional_unsigned_number(value: &Value, field: &str) -> Option<u64> {
+    value.get(field).and_then(Value::as_u64)
 }
 
 fn optional_metric(

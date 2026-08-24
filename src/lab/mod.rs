@@ -3,11 +3,13 @@
 //! runs need network and are launched by hand with `just lab`; the cards
 //! fixture gallery is local-only.
 
+mod artifacts;
 mod cards;
 mod cases;
 mod compare;
 mod images;
 mod prompts;
+mod review;
 
 use std::io::Write;
 
@@ -21,6 +23,12 @@ denpie-lab — opt-in research runner (never part of just test / verify / ci)
 Usage:
   denpie-lab
   denpie-lab list
+  denpie-lab runs
+  denpie-lab show <latest|run-dir|label>
+  denpie-lab label <latest|run-dir|label> <name>
+  denpie-lab baseline set <name> <latest|run-dir|label>
+  denpie-lab baseline show [name]
+  denpie-lab review <review.json>
   denpie-lab run <bench> [options]
   denpie-lab compare <baseline-scorecard.json> <candidate-scorecard.json>
 
@@ -37,6 +45,12 @@ Image bench options:
                                        repeatable or comma-separated
   run images --strategy all            Expand to all three remote strategies
   run images --cases <path>            Case pack (default: lab/cases/images/gold.json)
+  run images --case <id>               Run one case; repeatable
+  run images --tag <tag>                Run cases with any selected tag; repeatable
+  run images --repeat <n>              Samples per case/strategy (default 1)
+  run images --label <name>             Name the run for later show/compare
+  run images --resume <run-dir>         Continue missing jobs in a prior run
+  run images --retry miss|timeout       Re-run selected failures while resuming
   run images --concurrency <n>         Parallel live jobs (default 5; Playwright stays 1)
 
 Default image strategy: bing_html. Live jobs share a 90s deadline each.
@@ -45,6 +59,12 @@ Prompt bench options:
   run prompts --dry-run                 Print assembled prompts, no LLM calls
   run prompts --offline                 Alias for --dry-run
   run prompts --cases <path>            Case pack (default: lab/cases/prompts/gold.json)
+  run prompts --case <id>               Run one case; repeatable
+  run prompts --tag <tag>                Run cases with any selected tag; repeatable
+  run prompts --repeat <n>              Samples per case (default 1)
+  run prompts --label <name>             Name the run for later show/compare
+  run prompts --resume <run-dir>         Continue missing jobs in a prior run
+  run prompts --retry miss|timeout       Re-run selected failures while resuming
   run prompts                           LIVE: one-shot cases call generate_card;
                                         array cases are assembled but not generated
 
@@ -115,9 +135,75 @@ pub(crate) async fn run_with(
 
     match args[0].as_str() {
         "list" => run_list(&args[1..], stdout, stderr),
+        "runs" => run_runs(&args[1..], stdout, stderr),
+        "show" => run_show(&args[1..], stdout, stderr),
+        "label" => run_label(&args[1..], stdout, stderr),
+        "baseline" => run_baseline(&args[1..], stdout, stderr),
+        "review" => run_review(&args[1..], stdout, stderr),
         "run" => run_bench(&args[1..], stdout, stderr).await,
         "compare" => run_compare(&args[1..], stdout, stderr),
         _ => usage_error(stderr, &format!("unknown command `{}`", args[0])),
+    }
+}
+
+fn run_review(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
+    let [path] = args else {
+        return usage_error(stderr, "`review` requires one exported review.json path");
+    };
+    match review::render(path) {
+        Ok(report) => write!(stdout, "{report}").map_or(2, |()| 0),
+        Err(message) => usage_error(stderr, &message),
+    }
+}
+
+fn run_baseline(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
+    let result = match args {
+        [command, name, selector] if command == "set" => artifacts::set_baseline(name, selector),
+        [command] if command == "show" || command == "list" => artifacts::show_baselines(None),
+        [command, name] if command == "show" => artifacts::show_baselines(Some(name)),
+        _ => {
+            return usage_error(
+                stderr,
+                "use `baseline set <name> <run>` or `baseline show [name]`",
+            );
+        }
+    };
+    match result {
+        Ok(report) => write!(stdout, "{report}").map_or(2, |()| 0),
+        Err(message) => usage_error(stderr, &message),
+    }
+}
+
+fn run_runs(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
+    if !args.is_empty() {
+        return usage_error(stderr, "`runs` takes no arguments");
+    }
+    match artifacts::list_runs() {
+        Ok(report) => write!(stdout, "{report}").map_or(2, |()| 0),
+        Err(message) => usage_error(stderr, &message),
+    }
+}
+
+fn run_show(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
+    let [selector] = args else {
+        return usage_error(
+            stderr,
+            "`show` requires one run directory, label, or `latest`",
+        );
+    };
+    match artifacts::show_run(selector) {
+        Ok(report) => write!(stdout, "{report}").map_or(2, |()| 0),
+        Err(message) => usage_error(stderr, &message),
+    }
+}
+
+fn run_label(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32 {
+    let [selector, label] = args else {
+        return usage_error(stderr, "`label` requires a run selector and label");
+    };
+    match artifacts::label_run(selector, label) {
+        Ok(report) => write!(stdout, "{report}").map_or(2, |()| 0),
+        Err(message) => usage_error(stderr, &message),
     }
 }
 
@@ -174,15 +260,19 @@ async fn run_bench(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Wri
                 Ok(options) => options,
                 Err(message) => return usage_error(stderr, &message),
             };
-            if let Err(message) = images::run_images(
-                &options.cases_path,
-                &options.strategies,
-                options.dry_run,
-                options.concurrency,
-                stdout,
-            )
-            .await
-            {
+            let config = images::ImageRunConfig {
+                cases_path: &options.cases_path,
+                strategies: &options.strategies,
+                dry_run: options.dry_run,
+                concurrency: options.concurrency,
+                case_ids: &options.case_ids,
+                tags: &options.tags,
+                repeat: options.repeat,
+                label: options.label.as_deref(),
+                resume: options.resume.as_deref(),
+                retry: options.retry,
+            };
+            if let Err(message) = images::run_images(&config, stdout).await {
                 return usage_error(stderr, &message);
             }
             0
@@ -192,9 +282,17 @@ async fn run_bench(args: &[String], stdout: &mut dyn Write, stderr: &mut dyn Wri
                 Ok(options) => options,
                 Err(message) => return usage_error(stderr, &message),
             };
-            if let Err(message) =
-                prompts::run_prompts(&options.cases_path, options.dry_run, stdout).await
-            {
+            let config = prompts::PromptRunConfig {
+                cases_path: &options.cases_path,
+                dry_run: options.dry_run,
+                case_ids: &options.case_ids,
+                tags: &options.tags,
+                repeat: options.repeat,
+                label: options.label.as_deref(),
+                resume: options.resume.as_deref(),
+                retry: options.retry,
+            };
+            if let Err(message) = prompts::run_prompts(&config, stdout).await {
                 return usage_error(stderr, &message);
             }
             0
@@ -222,6 +320,12 @@ struct ImageRunOptions {
     strategies: Vec<ImageStrategy>,
     dry_run: bool,
     concurrency: usize,
+    case_ids: Vec<u64>,
+    tags: Vec<String>,
+    repeat: usize,
+    label: Option<String>,
+    resume: Option<String>,
+    retry: Option<artifacts::RetryPolicy>,
 }
 
 impl ImageRunOptions {
@@ -230,6 +334,12 @@ impl ImageRunOptions {
         let mut strategies = Vec::new();
         let mut dry_run = false;
         let mut concurrency = images::DEFAULT_CONCURRENCY;
+        let mut case_ids = Vec::new();
+        let mut tags = Vec::new();
+        let mut repeat = 1;
+        let mut label = None;
+        let mut resume = None;
+        let mut retry = None;
         let mut index = 0;
 
         while index < args.len() {
@@ -274,6 +384,35 @@ impl ImageRunOptions {
                     cases_path = value.clone();
                     index += 1;
                 }
+                "--case" => {
+                    let value = required_value(args, index, "--case")?;
+                    case_ids.push(value.parse::<u64>().map_err(|_| {
+                        format!("`--case` requires an unsigned image case id, got `{value}`")
+                    })?);
+                    index += 1;
+                }
+                "--tag" => {
+                    tags.push(required_value(args, index, "--tag")?.to_string());
+                    index += 1;
+                }
+                "--repeat" => {
+                    repeat = positive_usize(args, index, "--repeat")?;
+                    index += 1;
+                }
+                "--label" => {
+                    let value = required_value(args, index, "--label")?;
+                    artifacts::validate_label(value)?;
+                    label = Some(value.to_string());
+                    index += 1;
+                }
+                "--resume" => {
+                    resume = Some(required_value(args, index, "--resume")?.to_string());
+                    index += 1;
+                }
+                "--retry" => {
+                    retry = Some(parse_retry(required_value(args, index, "--retry")?)?);
+                    index += 1;
+                }
                 other if other.starts_with('-') => {
                     return Err(format!("unknown flag `{other}`"));
                 }
@@ -291,11 +430,18 @@ impl ImageRunOptions {
                 unique_strategies.push(strategy);
             }
         }
+        validate_resume_flags(dry_run, resume.as_deref(), retry)?;
         Ok(Self {
             cases_path,
             strategies: unique_strategies,
             dry_run,
             concurrency,
+            case_ids,
+            tags,
+            repeat,
+            label,
+            resume,
+            retry,
         })
     }
 }
@@ -344,12 +490,24 @@ impl CardRunOptions {
 struct PromptRunOptions {
     cases_path: String,
     dry_run: bool,
+    case_ids: Vec<String>,
+    tags: Vec<String>,
+    repeat: usize,
+    label: Option<String>,
+    resume: Option<String>,
+    retry: Option<artifacts::RetryPolicy>,
 }
 
 impl PromptRunOptions {
     fn parse(args: &[String]) -> Result<Self, String> {
         let mut cases_path = crate::lab::cases::DEFAULT_PROMPT_CASES_PATH.to_string();
         let mut dry_run = false;
+        let mut case_ids = Vec::new();
+        let mut tags = Vec::new();
+        let mut repeat = 1;
+        let mut label = None;
+        let mut resume = None;
+        let mut retry = None;
         let mut index = 0;
 
         while index < args.len() {
@@ -365,6 +523,32 @@ impl PromptRunOptions {
                     cases_path = value.clone();
                     index += 1;
                 }
+                "--case" => {
+                    case_ids.push(required_value(args, index, "--case")?.to_string());
+                    index += 1;
+                }
+                "--tag" => {
+                    tags.push(required_value(args, index, "--tag")?.to_string());
+                    index += 1;
+                }
+                "--repeat" => {
+                    repeat = positive_usize(args, index, "--repeat")?;
+                    index += 1;
+                }
+                "--label" => {
+                    let value = required_value(args, index, "--label")?;
+                    artifacts::validate_label(value)?;
+                    label = Some(value.to_string());
+                    index += 1;
+                }
+                "--resume" => {
+                    resume = Some(required_value(args, index, "--resume")?.to_string());
+                    index += 1;
+                }
+                "--retry" => {
+                    retry = Some(parse_retry(required_value(args, index, "--retry")?)?);
+                    index += 1;
+                }
                 other if other.starts_with('-') => {
                     return Err(format!("unknown flag `{other}`"));
                 }
@@ -373,11 +557,63 @@ impl PromptRunOptions {
             index += 1;
         }
 
+        validate_resume_flags(dry_run, resume.as_deref(), retry)?;
         Ok(Self {
             cases_path,
             dry_run,
+            case_ids,
+            tags,
+            repeat,
+            label,
+            resume,
+            retry,
         })
     }
+}
+
+fn required_value<'a>(args: &'a [String], index: usize, flag: &str) -> Result<&'a str, String> {
+    let value = args
+        .get(index + 1)
+        .ok_or_else(|| format!("`{flag}` requires a value"))?;
+    if value.starts_with('-') {
+        return Err(format!("`{flag}` requires a value, got `{value}`"));
+    }
+    Ok(value)
+}
+
+fn positive_usize(args: &[String], index: usize, flag: &str) -> Result<usize, String> {
+    let value = required_value(args, index, flag)?;
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|_| format!("`{flag}` requires a positive integer, got `{value}`"))?;
+    if parsed == 0 {
+        return Err(format!("`{flag}` must be at least 1"));
+    }
+    Ok(parsed)
+}
+
+fn parse_retry(value: &str) -> Result<artifacts::RetryPolicy, String> {
+    match value {
+        "miss" => Ok(artifacts::RetryPolicy::Miss),
+        "timeout" => Ok(artifacts::RetryPolicy::Timeout),
+        _ => Err(format!(
+            "`--retry` must be `miss` or `timeout`, got `{value}`"
+        )),
+    }
+}
+
+fn validate_resume_flags(
+    dry_run: bool,
+    resume: Option<&str>,
+    retry: Option<artifacts::RetryPolicy>,
+) -> Result<(), String> {
+    if retry.is_some() && resume.is_none() {
+        return Err("`--retry` requires `--resume <run-dir>`".to_string());
+    }
+    if dry_run && resume.is_some() {
+        return Err("`--resume` is only available for live runs".to_string());
+    }
+    Ok(())
 }
 
 fn parse_strategy_value(value: &str) -> Result<Vec<ImageStrategy>, String> {
@@ -563,6 +799,45 @@ mod tests {
                 ImageStrategy::BingPlaywright,
                 ImageStrategy::DdgsTextOg,
             ]
+        );
+    }
+
+    #[test]
+    fn image_iteration_flags_parse_case_repeat_and_label() {
+        let options = ImageRunOptions::parse(&[
+            "--case".to_string(),
+            "270".to_string(),
+            "--tag".to_string(),
+            "grammar".to_string(),
+            "--repeat".to_string(),
+            "3".to_string(),
+            "--label".to_string(),
+            "candidate_3".to_string(),
+        ])
+        .expect("iteration flags are valid");
+
+        assert_eq!(options.case_ids, vec![270]);
+        assert_eq!(options.tags, vec!["grammar"]);
+        assert_eq!(options.repeat, 3);
+        assert_eq!(options.label.as_deref(), Some("candidate_3"));
+    }
+
+    #[test]
+    fn prompt_iteration_flags_reject_invalid_repeat_and_label() {
+        assert!(
+            PromptRunOptions::parse(&["--repeat".to_string(), "0".to_string()])
+                .unwrap_err()
+                .contains("at least 1")
+        );
+        assert!(
+            PromptRunOptions::parse(&["--label".to_string(), "has spaces".to_string(),])
+                .unwrap_err()
+                .contains("run labels")
+        );
+        assert!(
+            PromptRunOptions::parse(&["--retry".to_string(), "timeout".to_string(),])
+                .unwrap_err()
+                .contains("requires `--resume")
         );
     }
 

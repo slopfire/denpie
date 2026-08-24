@@ -1,0 +1,14 @@
+[
+  {
+    "case_id": "rust",
+    "repeat_index": 1,
+    "topic": "Rust",
+    "mode": "one_shot",
+    "generated": "hit",
+    "kind": "generated",
+    "total_tokens": 32,
+    "elapsed_ms": 90,
+    "visual": "needs_review",
+    "expected": "Explain one focused Rust idea accurately and make the compact form useful for recall."
+  }
+]

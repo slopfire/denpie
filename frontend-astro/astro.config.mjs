@@ -53,7 +53,8 @@ function injectModulePreloads(dir, pages) {
         // Root page arrives as "" and directory-format pages as "foo/";
         // resolve either to the emitted index.html inside.
         try {
-            if (statSync(htmlPath).isDirectory()) htmlPath = join(htmlPath, "index.html");
+            if (statSync(htmlPath).isDirectory())
+                htmlPath = join(htmlPath, "index.html");
         } catch {
             continue;
         }
@@ -65,24 +66,34 @@ function injectModulePreloads(dir, pages) {
         }
         const entries = [
             ...new Set(
-                [...original.matchAll(/component-url="(\/_astro\/[^"]+\.js)"/g)].map(
-                    (match) => match[1],
-                ),
+                [
+                    ...original.matchAll(
+                        /component-url="(\/_astro\/[^"]+\.js)"/g,
+                    ),
+                ].map((match) => match[1]),
             ),
         ];
         if (entries.length === 0) continue;
         const urls = new Set();
         for (const entry of entries) {
-            for (const chunk of collectStaticChunks(distDir, entry.slice(ASTRO_DIR.length + 2))) {
+            for (const chunk of collectStaticChunks(
+                distDir,
+                entry.slice(ASTRO_DIR.length + 2),
+            )) {
                 urls.add(`/${ASTRO_DIR}/${chunk}`);
             }
         }
         if (urls.size === 0) continue;
-        const tags = [...urls].map((href) => `<link rel="modulepreload" href="${href}">`).join("");
+        const tags = [...urls]
+            .map((href) => `<link rel="modulepreload" href="${href}">`)
+            .join("");
         const headIndex = original.indexOf("<head>");
         if (headIndex === -1) continue;
         const insertAt = headIndex + "<head>".length;
-        writeFileSync(htmlPath, original.slice(0, insertAt) + tags + original.slice(insertAt));
+        writeFileSync(
+            htmlPath,
+            original.slice(0, insertAt) + tags + original.slice(insertAt),
+        );
         injected += 1;
     }
     return injected;
@@ -94,7 +105,9 @@ function modulePreloadIntegration() {
         hooks: {
             "astro:build:done": ({ dir, pages, logger }) => {
                 const count = injectModulePreloads(dir, pages);
-                logger.info(`modulepreload: injected island graph into ${count} page(s)`);
+                logger.info(
+                    `modulepreload: injected island graph into ${count} page(s)`,
+                );
             },
         },
     };
@@ -103,46 +116,55 @@ function modulePreloadIntegration() {
 import { defineConfig } from "astro/config";
 import react from "@astrojs/react";
 import tailwindcss from "@tailwindcss/vite";
+import { loadLabReviewPayload } from "./scripts/lab-review-data.mjs";
 
 // Checked-in lab card fixtures, inlined at build time via Vite `define` so
 // the lab page renders the exact pack under `lab/cases/cards/` without a
 // network call or a copy drifting from the source of truth.
 const labCardFixtures = readFileSync(
-  new URL("../lab/cases/cards/repeatable-states.json", import.meta.url),
-  "utf8",
+    new URL("../lab/cases/cards/repeatable-states.json", import.meta.url),
+    "utf8",
 );
 
+const labReviewPayload = loadLabReviewPayload({
+    baseline: process.env.DENPIE_LAB_REVIEW_BASELINE,
+    candidate: process.env.DENPIE_LAB_REVIEW_CANDIDATE,
+});
+
 const axumOrigin = (() => {
-  const bind = process.env.DENPIE_BIND_ADDR || "127.0.0.1:3017";
-  if (/^https?:\/\//.test(bind)) {
-    return bind;
-  }
-  return `http://${bind}`;
+    const bind = process.env.DENPIE_BIND_ADDR || "127.0.0.1:3017";
+    if (/^https?:\/\//.test(bind)) {
+        return bind;
+    }
+    return `http://${bind}`;
 })();
 
 const axumProxy = {
-  "/api": axumOrigin,
-  "/auth": axumOrigin,
-  "/app": axumOrigin,
-  "/admin": axumOrigin,
-  "/static": axumOrigin,
+    "/api": axumOrigin,
+    "/auth": axumOrigin,
+    "/app": axumOrigin,
+    "/admin": axumOrigin,
+    "/static": axumOrigin,
 };
 
 export default defineConfig({
-  output: "static",
-  site: "http://localhost:3027",
-  integrations: [react(), modulePreloadIntegration()],
-  server: {
-    port: 4321,
-  },
-  vite: {
-    plugins: [tailwindcss()],
-    define: {
-      __LAB_CARD_FIXTURES__: JSON.stringify(labCardFixtures),
-    },
+    output: "static",
+    site: "http://localhost:3027",
+    integrations: [react(), modulePreloadIntegration()],
     server: {
-      strictPort: true,
-      proxy: axumProxy,
+        port: 4321,
     },
-  },
+    vite: {
+        plugins: [tailwindcss()],
+        define: {
+            __LAB_CARD_FIXTURES__: JSON.stringify(labCardFixtures),
+            __LAB_REVIEW_PAYLOAD__: JSON.stringify(
+                JSON.stringify(labReviewPayload),
+            ),
+        },
+        server: {
+            strictPort: true,
+            proxy: axumProxy,
+        },
+    },
 });

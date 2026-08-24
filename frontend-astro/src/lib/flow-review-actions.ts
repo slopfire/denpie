@@ -102,9 +102,43 @@ export function reviewActionsFor(card: FlowCardInfo): ReviewActions {
   }
 }
 
-/** A fetched initial page becomes idle slots in server order. */
+function repeatableTopic(slot: ReviewSlot): string | undefined {
+  if (
+    slot.kind === "idle" ||
+    slot.kind === "reviewing" ||
+    slot.kind === "error"
+  ) {
+    return slot.card.tipcardType === "repeatable_tip"
+      ? slot.card.topicName
+      : undefined;
+  }
+  return slot.tipcardType === "repeatable_tip" ? slot.topicName : undefined;
+}
+
+/**
+ * A fetched initial page becomes idle slots in server order. Duplicate card
+ * IDs and repeatable topics are ignored so one semantic review stack owns each
+ * topic even if a stale/HMR response repeats it.
+ */
 export function slotsFromCards(cards: readonly FlowCardInfo[]): ReviewSlot[] {
-  return cards.map((card) => ({ kind: "idle", card }) satisfies ReviewSlot);
+  const knownIds = new Set<bigint>();
+  const repeatableTopics = new Set<string>();
+  const slots: ReviewSlot[] = [];
+  for (const card of cards) {
+    if (knownIds.has(card.id)) continue;
+    if (
+      card.tipcardType === "repeatable_tip" &&
+      repeatableTopics.has(card.topicName)
+    ) {
+      continue;
+    }
+    knownIds.add(card.id);
+    if (card.tipcardType === "repeatable_tip") {
+      repeatableTopics.add(card.topicName);
+    }
+    slots.push({ kind: "idle", card });
+  }
+  return slots;
 }
 
 /**
@@ -126,10 +160,25 @@ export function appendIdleSlots(
         : slot.reviewedCardId,
     ),
   );
+  const repeatableTopics = new Set(
+    slots.flatMap((slot) => {
+      const topicName = repeatableTopic(slot);
+      return topicName === undefined ? [] : [topicName];
+    }),
+  );
   const appended: ReviewSlot[] = [];
   for (const card of incoming) {
     if (knownIds.has(card.id)) continue;
+    if (
+      card.tipcardType === "repeatable_tip" &&
+      repeatableTopics.has(card.topicName)
+    ) {
+      continue;
+    }
     knownIds.add(card.id);
+    if (card.tipcardType === "repeatable_tip") {
+      repeatableTopics.add(card.topicName);
+    }
     appended.push({ kind: "idle", card });
   }
   return [...slots, ...appended];

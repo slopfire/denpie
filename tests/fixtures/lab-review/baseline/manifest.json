@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "bench": "prompts",
+  "label": "before",
+  "case_pack_sha256": "fixture"
+}

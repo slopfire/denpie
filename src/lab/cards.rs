@@ -355,6 +355,12 @@ mod tests {
             images: vec!["data:image/png;base64,AAAA".to_string()],
             notes: "script <script> must not execute".to_string(),
             review_message: Some("<em>saved</em>".to_string()),
+            created_at: None,
+            next_review_at: None,
+            repeat_count: None,
+            topic_color: None,
+            topic_icon: None,
+            sources: Vec::new(),
         };
 
         let html = gallery_html(&[fixture]);

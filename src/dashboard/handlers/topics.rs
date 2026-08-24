@@ -36,6 +36,8 @@ pub async fn list_topics(
             daily_update_time: r.daily_update_time,
             compression_level: r.compression_level,
             grounding_strategy: r.grounding_strategy,
+            grounding_model: r.grounding_model,
+            grounding_reasoning_effort: r.grounding_reasoning_effort,
             image_strategy: r.image_strategy,
         })
         .collect();
@@ -95,6 +97,8 @@ pub async fn app_topics(
                 daily_update_time: r.daily_update_time,
                 compression_level: r.compression_level,
                 grounding_strategy: r.grounding_strategy,
+                grounding_model: r.grounding_model,
+                grounding_reasoning_effort: r.grounding_reasoning_effort,
                 image_strategy: r.image_strategy,
                 total_cards: r.total_cards,
                 due_cards: r.due_cards,
@@ -122,6 +126,8 @@ pub async fn update_topic(
             daily_update_time: req.daily_update_time,
             compression_level: req.compression_level,
             grounding_strategy: req.grounding_strategy,
+            grounding_model: req.grounding_model,
+            grounding_reasoning_effort: req.grounding_reasoning_effort,
             image_strategy: req.image_strategy,
         },
     )

@@ -407,6 +407,8 @@ mod tests {
             icon_id: None,
             color_hue: None,
             grounding_strategy: None,
+            grounding_model: None,
+            grounding_reasoning_effort: None,
             image_strategy: None,
         }
     }

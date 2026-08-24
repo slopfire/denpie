@@ -4,12 +4,25 @@
     "topic_name": "English Grammar",
     "title": "Prepositions of movement",
     "images": [
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mOwz9+KFTEMLQkAkEZYwRhBVQsAAAAASUVORK5CYII="
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='800'%3E%3Crect width='1200' height='800' fill='%23dbeafe'/%3E%3Cpath d='M120 610h720V360l250 210-250 210V690H120z' fill='%232563eb'/%3E%3Ccircle cx='310' cy='310' r='105' fill='%2393c5fd'/%3E%3C/svg%3E"
     ],
     "full_content": "Prepositions like from, to, into, and toward describe movement direction. Compare “walk into the room” with “walk to the room”.",
     "compressed_content": "Use from, to, into, and toward to describe movement direction.",
     "tipcard_type": "repeatable_tip",
     "status": "active",
+    "created_at": "2026-08-24T08:15:00Z",
+    "next_review_at": "2026-08-25T08:15:00Z",
+    "repeat_count": 2,
+    "topic_icon": "mdi:book-open-page-variant",
+    "topic_color": "#2563eb",
+    "sources": [
+      {
+        "document_id": 0,
+        "source_type": "link",
+        "title": "Cambridge Grammar reference",
+        "url": "https://dictionary.cambridge.org/grammar/"
+      }
+    ],
     "pinned": false,
     "pending_count": 0,
     "review_message": null,
@@ -76,10 +89,10 @@
     "tipcard_type": "repeatable_tip",
     "status": "active",
     "images": [
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mN4sMEfK2IYWhIA7rp3wZnXEAkAAAAASUVORK5CYII=",
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mOQqg/FihiGlgQAMWE7gW3JvaAAAAAASUVORK5CYII=",
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mOoitqHFTEMLQkANBFkgRDq4fYAAAAASUVORK5CYII=",
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mOwz9+KFTEMLQkAkEZYwRhBVQsAAAAASUVORK5CYII="
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1600' height='500'%3E%3Crect width='1600' height='500' fill='%230f172a'/%3E%3Cpath d='M0 430L350 130l260 240 270-270 320 300 220-180 180 210z' fill='%2338bdf8'/%3E%3C/svg%3E",
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='675'%3E%3Crect width='1200' height='675' fill='%234c1d95'/%3E%3Ccircle cx='330' cy='338' r='210' fill='%23c4b5fd'/%3E%3Crect x='650' y='170' width='360' height='335' rx='36' fill='%238b5cf6'/%3E%3C/svg%3E",
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='720' height='1080'%3E%3Crect width='720' height='1080' fill='%237c2d12'/%3E%3Cpath d='M120 920V520h140v400zm220 0V260h140v660zm220 0V650h100v270z' fill='%23fdba74'/%3E%3C/svg%3E",
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='900'%3E%3Crect width='900' height='900' fill='%23166534'/%3E%3Ccircle cx='450' cy='450' r='300' fill='%2386efac'/%3E%3Ccircle cx='450' cy='450' r='145' fill='%23166534'/%3E%3C/svg%3E"
     ],
     "pinned": false,
     "pending_count": 3,
@@ -101,5 +114,153 @@
     "pinned": false,
     "review_message": null,
     "notes": "FlowCard detects full_content starting with `LLM Error:` and renders the error panel instead of card text."
+  },
+  {
+    "id": "long-markdown",
+    "topic_name": "Rust ownership and memory safety in concurrent services",
+    "title": "A deliberately long title that must truncate cleanly without moving card controls off a narrow mobile viewport",
+    "full_content": "## Borrow checker field guide\n\nThe **borrow checker** proves that references never outlive their data and prevents overlapping mutable access.\n\n```rust\nfn longest<'a>(left: &'a str, right: &'a str) -> &'a str {\n    if left.len() >= right.len() { left } else { right }\n}\n```\n\n| Situation | Use | Avoid |\n| --- | --- | --- |\n| Shared read | `&T` | cloning by habit |\n| Exclusive write | `&mut T` | hidden global state |\n| Shared ownership | `Arc<T>` | `Rc<T>` across threads |\n\nA_very_long_unbroken_token_that_should_wrap_instead_of_expanding_the_card_beyond_the_mobile_viewport_0123456789abcdef.",
+    "compressed_content": "The **borrow checker** prevents dangling references and overlapping mutable access.\n\n| Access | Type |\n| --- | --- |\n| read | `&T` |\n| write | `&mut T` |",
+    "tipcard_type": "repeatable_tip",
+    "status": "active",
+    "created_at": "2026-08-20T03:05:00Z",
+    "next_review_at": "2026-08-27T03:05:00Z",
+    "repeat_count": 11,
+    "topic_icon": "mdi:language-rust",
+    "topic_color": "#f97316",
+    "pinned": false,
+    "pending_count": 2,
+    "review_message": null,
+    "notes": "Long title, GFM table, fenced code, inline code, and a long token expose wrapping and compact-body regressions."
+  },
+  {
+    "id": "two-images",
+    "topic_name": "Architectural composition",
+    "title": "Compare landscape and portrait references",
+    "full_content": "A two-image card mixes a wide diagram with a tall reference photo. Both crops must remain usable.",
+    "compressed_content": "Mixed landscape and portrait image crops.",
+    "tipcard_type": "repeatable_tip",
+    "status": "active",
+    "images": [
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='675' viewBox='0 0 1200 675'%3E%3Crect width='1200' height='675' fill='%230f766e'/%3E%3Cpath d='M80 560L360 210l210 230 170-190 380 310z' fill='%2399f6e4'/%3E%3Ccircle cx='950' cy='150' r='70' fill='%23fef3c7'/%3E%3C/svg%3E",
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='720' height='1080' viewBox='0 0 720 1080'%3E%3Crect width='720' height='1080' fill='%23312e81'/%3E%3Crect x='90' y='110' width='540' height='860' rx='40' fill='%23c7d2fe'/%3E%3Cpath d='M180 820V420h110v400zm170 0V260h110v560zm170 0V560h110v260z' fill='%234f46e5'/%3E%3C/svg%3E"
+    ],
+    "pinned": false,
+    "pending_count": 0,
+    "review_message": null,
+    "notes": "Two images with 16:9 and 2:3 source ratios test paired image crops."
+  },
+  {
+    "id": "three-images",
+    "topic_name": "Visual comparison",
+    "title": "Three source images",
+    "full_content": "Three images leave one item alone on the final grid row. The odd image must not stretch or collapse.",
+    "compressed_content": "Odd image count in the card image grid.",
+    "tipcard_type": "repeatable_tip",
+    "status": "active",
+    "images": [
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='900'%3E%3Crect width='900' height='900' fill='%237c3aed'/%3E%3Ccircle cx='450' cy='450' r='270' fill='%23ddd6fe'/%3E%3C/svg%3E",
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1280' height='720'%3E%3Crect width='1280' height='720' fill='%23be123c'/%3E%3Cpath d='M0 610L320 220l250 270 250-330 460 450z' fill='%23fecdd3'/%3E%3C/svg%3E",
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='960'%3E%3Crect width='640' height='960' fill='%23047857'/%3E%3Cpath d='M110 810Q320 130 530 810z' fill='%23a7f3d0'/%3E%3C/svg%3E"
+    ],
+    "pinned": false,
+    "pending_count": 0,
+    "review_message": null,
+    "notes": "Three square, landscape, and portrait images exercise the incomplete grid row."
+  },
+  {
+    "id": "broken-image",
+    "topic_name": "Image fallback",
+    "title": "Unavailable remote illustration",
+    "full_content": "A card must remain readable when its image cannot be decoded or fetched.",
+    "compressed_content": "Readable card content despite a broken image.",
+    "tipcard_type": "repeatable_tip",
+    "status": "active",
+    "images": [
+      "data:image/png;base64,broken-on-purpose"
+    ],
+    "pinned": false,
+    "pending_count": 0,
+    "review_message": null,
+    "notes": "Invalid data URL verifies that image decode failure does not remove the rest of the card."
+  },
+  {
+    "id": "api-key-missing",
+    "topic_name": "LLM configuration",
+    "title": "Provider credentials missing",
+    "full_content": "API key missing: OPENAI_API_KEY is not configured for the selected provider. Add the key at the process boundary, then retry generation.",
+    "compressed_content": "The API key is missing. Expand the full error for details.",
+    "tipcard_type": "repeatable_tip",
+    "status": "active",
+    "pinned": false,
+    "pending_count": 0,
+    "review_message": null,
+    "notes": "Dedicated missing-API-key error state, separate from a generic provider failure."
+  },
+  {
+    "id": "manual-tip",
+    "topic_name": "Field notes",
+    "title": "A manually written observation",
+    "full_content": "Manual cards preserve the author's wording and should identify their type in card information.",
+    "compressed_content": "A manually written card.",
+    "tipcard_type": "manual_tip",
+    "status": "active",
+    "created_at": "2026-08-18T12:30:00Z",
+    "repeat_count": 0,
+    "topic_icon": "mdi:notebook-edit-outline",
+    "topic_color": "#7c3aed",
+    "pinned": false,
+    "pending_count": 0,
+    "review_message": null,
+    "notes": "Production manual-tip badge and metadata."
+  },
+  {
+    "id": "custom-tip",
+    "topic_name": "Team conventions",
+    "title": "Repository-specific review rule",
+    "full_content": "A custom card represents generated content whose prompt or template belongs to the user.",
+    "compressed_content": "User-defined generated card.",
+    "tipcard_type": "custom_tip",
+    "status": "reviewed",
+    "created_at": "2026-08-16T09:00:00Z",
+    "next_review_at": "2026-09-02T09:00:00Z",
+    "repeat_count": 4,
+    "topic_icon": "mdi:tune-variant",
+    "topic_color": "#0891b2",
+    "pinned": true,
+    "pending_count": 0,
+    "review_message": "Review saved",
+    "notes": "Reviewed custom-tip with a pin, dates, repeat count, color, and icon."
+  },
+  {
+    "id": "casual-tip",
+    "topic_name": "Useful trivia",
+    "title": "Octopuses have three hearts",
+    "full_content": "Two hearts move blood through the gills and the third pumps it through the body.",
+    "compressed_content": "Two hearts serve the gills; one serves the body.",
+    "tipcard_type": "casual_tip",
+    "status": "active",
+    "created_at": "2026-08-24T01:20:00Z",
+    "repeat_count": 0,
+    "topic_icon": "mdi:octopus",
+    "topic_color": "#db2777",
+    "sources": [
+      {
+        "document_id": 73,
+        "source_type": "document",
+        "title": "Marine biology notes",
+        "url": ""
+      },
+      {
+        "document_id": 0,
+        "source_type": "link",
+        "title": "Smithsonian Ocean",
+        "url": "https://ocean.si.edu/ocean-life/invertebrates/octopuses"
+      }
+    ],
+    "pinned": false,
+    "pending_count": 0,
+    "review_message": null,
+    "notes": "Casual card with both document and link sources. Used by the delete interaction smoke."
   }
 ]

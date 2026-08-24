@@ -1,0 +1,7 @@
+{
+  "title": "Ownership after",
+  "full_content": "Every Rust value has one owner. When that owner leaves scope, Rust drops the value without a garbage collector.",
+  "compressed_content": "One owner, one automatic drop when the owner leaves scope.",
+  "use_image": false,
+  "image_query": ""
+}

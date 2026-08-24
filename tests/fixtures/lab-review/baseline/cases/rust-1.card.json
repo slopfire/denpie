@@ -1,0 +1,7 @@
+{
+  "title": "Ownership before",
+  "full_content": "Ownership lets Rust release a value when its owner leaves scope.",
+  "compressed_content": "One owner controls when a Rust value is released.",
+  "use_image": false,
+  "image_query": ""
+}

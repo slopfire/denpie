@@ -63,6 +63,8 @@ just ci             # full gate including Astro release build
 just lab list       # opt-in research runner; see docs/lab.md
 just lab-check      # deterministic offline lab contract
 just lab-cards-ui   # Astro FlowCard fixture page on :3027
+just lab-cards-dev  # Astro production-card fixture page with HMR on :3027
+just lab-review <baseline> <candidate>  # blinded A/B artifact review on :3027
 ```
 
 Detail: `dev-loop` skill. Feature paths: `docs/feature-integration.md`. Astro UI: `docs/frontend-astro.md`. API for agents: `docs/agent-server-guide.md`.

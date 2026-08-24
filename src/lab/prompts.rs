@@ -2,13 +2,18 @@
 //! production `generate_card` for one-shot cases and therefore needs a real
 //! `DENPIE_LAB_LLM_API_KEY`. Array cases are assembled but not generated.
 
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::context::CardContext;
+use crate::lab::artifacts::{
+    RetryPolicy, RunManifest, redact_provider_error, sanitize_endpoint, validate_resume,
+    write_manifest,
+};
 use crate::lab::cases::{PromptCase, load_prompt_cases};
 use crate::llm::cards::{GeneratedCard, assemble_array_prompt, assemble_one_shot_prompt};
 use crate::llm::{CompressionLevel, DEFAULT_PROMPT_TEMPLATE, ReasoningConfig};
@@ -21,9 +26,22 @@ pub(crate) const DEFAULT_BASE_URL: &str = "https://openrouter.ai/api/v1";
 const GENERATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
 const RUNS_DIR: &str = "lab/runs";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct PromptRunConfig<'a> {
+    pub(crate) cases_path: &'a str,
+    pub(crate) dry_run: bool,
+    pub(crate) case_ids: &'a [String],
+    pub(crate) tags: &'a [String],
+    pub(crate) repeat: usize,
+    pub(crate) label: Option<&'a str>,
+    pub(crate) resume: Option<&'a str>,
+    pub(crate) retry: Option<RetryPolicy>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct PromptScorecardRow {
     pub(crate) case_id: String,
+    #[serde(default = "default_repeat_index")]
+    pub(crate) repeat_index: usize,
     pub(crate) topic: String,
     pub(crate) mode: String,
     pub(crate) compression: String,
@@ -78,20 +96,59 @@ fn env_or(name: &str, default: &str) -> String {
 }
 
 pub(crate) async fn run_prompts(
-    cases_path: &str,
-    dry_run: bool,
+    config: &PromptRunConfig<'_>,
     stdout: &mut dyn Write,
 ) -> Result<(), String> {
+    let cases_path = config.cases_path;
+    let dry_run = config.dry_run;
+    let case_ids = config.case_ids;
+    let tags = config.tags;
+    let repeat = config.repeat;
+    let label = config.label;
+    let resume = config.resume;
+    let retry = config.retry;
+    let cases = select_cases(load_prompt_cases(cases_path)?, case_ids, tags)?;
     if dry_run {
-        let cases = load_prompt_cases(cases_path)?;
-        write!(stdout, "{}", dry_run_plan(cases_path, &cases))
+        write!(stdout, "{}", dry_run_plan(cases_path, &cases, repeat))
             .map_err(|error| format!("failed to print prompt dry-run plan: {error}"))?;
         return Ok(());
     }
 
     let settings = LivePromptSettings::from_env()?;
-    let cases = load_prompt_cases(cases_path)?;
-    let run_dir = create_run_dir().await?;
+    let compatibility = BTreeMap::from([("reasoning".to_string(), serde_json::json!("none"))]);
+    let execution = BTreeMap::from([
+        ("repeat".to_string(), serde_json::json!(repeat)),
+        ("case_ids".to_string(), serde_json::json!(case_ids)),
+        ("tags".to_string(), serde_json::json!(tags)),
+        (
+            "timeout_seconds".to_string(),
+            serde_json::json!(GENERATION_TIMEOUT.as_secs()),
+        ),
+    ]);
+    let mut manifest = RunManifest::new(
+        "prompts",
+        cases_path,
+        Some(&settings.model),
+        Some(&settings.api_base),
+        compatibility,
+        execution,
+    )?;
+    manifest.label = label.map(str::to_string);
+    let (run_dir, existing_rows) = if let Some(run_dir) = resume {
+        let mut existing_manifest = validate_resume(run_dir, &manifest)?;
+        if label.is_some() {
+            existing_manifest.label = manifest.label.clone();
+            write_manifest(run_dir, &existing_manifest).await?;
+        }
+        (run_dir.to_string(), load_scorecard(run_dir).await?)
+    } else {
+        let run_dir = create_run_dir().await?;
+        write_manifest(&run_dir, &manifest).await?;
+        // Create the first checkpoint before any provider call so interrupted runs
+        // remain inspectable and can be distinguished from runs that never began.
+        write_scorecard(&run_dir, &[]).await?;
+        (run_dir, Vec::new())
+    };
     let cases_dir = format!("{run_dir}/cases");
     tokio::fs::create_dir_all(&cases_dir)
         .await
@@ -100,9 +157,9 @@ pub(crate) async fn run_prompts(
     writeln!(
         stdout,
         "live: {} prompt cases; model {}; api_base {}",
-        cases.len(),
+        cases.len() * repeat,
         settings.model,
-        settings.api_base
+        sanitize_endpoint(&settings.api_base)
     )
     .map_err(|error| format!("failed to print live prompt plan: {error}"))?;
     stdout
@@ -110,18 +167,34 @@ pub(crate) async fn run_prompts(
         .map_err(|error| format!("failed to flush live prompt plan: {error}"))?;
 
     let reasoning = ReasoningConfig::new("none");
-    let mut rows = Vec::with_capacity(cases.len());
-    let total = cases.len();
-    for (index, case) in cases.iter().enumerate() {
-        let row = run_live_case(case, &run_dir, &settings, &reasoning).await?;
-        let progress = progress_line(index + 1, total, &row);
-        rows.push(row);
-        write_scorecard(&run_dir, &rows).await?;
-        writeln!(stdout, "{progress}")
-            .map_err(|error| format!("failed to print prompt job progress: {error}"))?;
-        stdout
-            .flush()
-            .map_err(|error| format!("failed to flush prompt job progress: {error}"))?;
+    let mut existing = existing_rows
+        .into_iter()
+        .map(|row| ((row.case_id.clone(), row.repeat_index), row))
+        .collect::<BTreeMap<_, _>>();
+    let mut rows = Vec::with_capacity(cases.len() * repeat);
+    let total = cases.len() * repeat;
+    for case in &cases {
+        for repeat_index in 1..=repeat {
+            let key = (case.id.clone(), repeat_index);
+            if let Some(row) = existing.remove(&key)
+                && !should_retry_prompt(&row, retry)
+            {
+                rows.push(row);
+                continue;
+            }
+            let row = run_live_case(case, repeat_index, &run_dir, &settings, &reasoning).await?;
+            let progress = progress_line(rows.len() + 1, total, &row);
+            rows.push(row);
+            write_scorecard(&run_dir, &rows).await?;
+            writeln!(stdout, "{progress}")
+                .map_err(|error| format!("failed to print prompt job progress: {error}"))?;
+            stdout
+                .flush()
+                .map_err(|error| format!("failed to flush prompt job progress: {error}"))?;
+        }
+    }
+    if !existing.is_empty() {
+        return Err("resume scorecard contains rows outside the configured job set".to_string());
     }
 
     let hit = rows.iter().filter(|row| row.generated == "hit").count();
@@ -134,22 +207,46 @@ pub(crate) async fn run_prompts(
         .map_err(|error| format!("failed to print prompt scorecard path: {error}"))?;
     writeln!(
         stdout,
-        "summary: {} cases; hit {hit}, assembled_only {assembled_only}, miss {miss}",
-        cases.len(),
+        "summary: {} cases x {repeat} samples = {} runs; hit {hit}, assembled_only {assembled_only}, miss {miss}; {}",
+        cases.len(), rows.len(), aggregate_stats(&rows),
     )
     .map_err(|error| format!("failed to print prompt scorecard summary: {error}"))?;
     Ok(())
 }
 
+fn should_retry_prompt(row: &PromptScorecardRow, retry: Option<RetryPolicy>) -> bool {
+    match retry {
+        None => false,
+        Some(RetryPolicy::Miss) => {
+            row.generated == "miss" && !matches!(row.kind.as_str(), "timeout" | "assembled_only")
+        }
+        Some(RetryPolicy::Timeout) => row.kind == "timeout",
+    }
+}
+
+async fn load_scorecard(run_dir: &str) -> Result<Vec<PromptScorecardRow>, String> {
+    let path = format!("{run_dir}/scorecard.json");
+    let json = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|error| format!("failed to read resume scorecard `{path}`: {error}"))?;
+    serde_json::from_str(&json)
+        .map_err(|error| format!("failed to parse resume scorecard `{path}`: {error}"))
+}
+
+const fn default_repeat_index() -> usize {
+    1
+}
+
 async fn run_live_case(
     case: &PromptCase,
+    repeat_index: usize,
     run_dir: &str,
     settings: &LivePromptSettings,
     reasoning: &ReasoningConfig,
 ) -> Result<PromptScorecardRow, String> {
     let rendered = render_case_prompt(case);
     let prompt = assemble_case_prompt(case);
-    let prompt_path = format!("{run_dir}/cases/{}.prompt.txt", case.id);
+    let prompt_path = format!("{run_dir}/cases/{}-{repeat_index}.prompt.txt", case.id);
     tokio::fs::write(&prompt_path, &prompt)
         .await
         .map_err(|error| format!("failed to write `{prompt_path}`: {error}"))?;
@@ -174,7 +271,7 @@ async fn run_live_case(
         {
             Ok(Ok(card)) => PromptOutcome::Generated(card),
             Ok(Err(error)) => {
-                let error = redact_error(&error, &settings.api_key);
+                let error = redact_provider_error(&error, &settings.api_key, &settings.api_base);
                 tracing::warn!(
                     case_id = %case.id,
                     error = %error,
@@ -199,7 +296,7 @@ async fn run_live_case(
     let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     if let PromptOutcome::Generated(card) = &outcome {
-        let card_path = format!("{run_dir}/cases/{}.card.json", case.id);
+        let card_path = format!("{run_dir}/cases/{}-{repeat_index}.card.json", case.id);
         let record = PromptCardRecord::from_card(card);
         let json = serde_json::to_string_pretty(&record).map_err(|error| {
             format!("failed to serialize generated card `{card_path}`: {error}")
@@ -209,7 +306,7 @@ async fn run_live_case(
             .map_err(|error| format!("failed to write `{card_path}`: {error}"))?;
     }
 
-    Ok(scorecard_row(case, &outcome, elapsed_ms))
+    Ok(scorecard_row(case, repeat_index, &outcome, elapsed_ms))
 }
 
 enum PromptOutcome {
@@ -217,14 +314,6 @@ enum PromptOutcome {
     AssembledOnly,
     Failed(String),
     TimedOut(String),
-}
-
-fn redact_error(error: &str, api_key: &str) -> String {
-    if api_key.is_empty() {
-        error.to_string()
-    } else {
-        error.replace(api_key, "[redacted]")
-    }
 }
 
 #[derive(Serialize)]
@@ -281,9 +370,10 @@ pub(crate) fn assemble_case_prompt(case: &PromptCase) -> String {
     }
 }
 
-pub(crate) fn dry_run_plan(cases_path: &str, cases: &[PromptCase]) -> String {
-    let mut plan =
-        format!("bench: prompts\nmode: dry-run (no LLM calls)\ncases: {cases_path}\nplan:\n");
+pub(crate) fn dry_run_plan(cases_path: &str, cases: &[PromptCase], repeat: usize) -> String {
+    let mut plan = format!(
+        "bench: prompts\nmode: dry-run (no LLM calls)\ncases: {cases_path}\nrepeat: {repeat}\nplan:\n"
+    );
     for case in cases {
         let prompt = assemble_case_prompt(case);
         plan.push_str(&format!(
@@ -296,12 +386,17 @@ pub(crate) fn dry_run_plan(cases_path: &str, cases: &[PromptCase]) -> String {
             prompt_length = prompt.len(),
         ));
     }
-    plan.push_str(&format!("{} cases (0 LLM calls)\n", cases.len()));
+    plan.push_str(&format!(
+        "{} cases x {repeat} samples = {} runs (0 LLM calls)\n",
+        cases.len(),
+        cases.len() * repeat
+    ));
     plan
 }
 
 fn scorecard_row(
     case: &PromptCase,
+    repeat_index: usize,
     outcome: &PromptOutcome,
     elapsed_ms: u64,
 ) -> PromptScorecardRow {
@@ -369,6 +464,7 @@ fn scorecard_row(
 
     PromptScorecardRow {
         case_id: case.id.clone(),
+        repeat_index,
         topic: case.topic.clone(),
         mode: case.mode.clone(),
         compression: case.compression.clone(),
@@ -403,13 +499,14 @@ fn progress_line(done: usize, total: usize, row: &PromptScorecardRow) -> String 
 
 pub(crate) fn scorecard_markdown(rows: &[PromptScorecardRow]) -> String {
     let mut markdown = String::from(
-        "| case_id | topic | mode | compression | batch_count | assembled | generated | kind | title_words | full_content_words | compressed_content_words | use_image | prompt_tokens | completion_tokens | total_tokens | elapsed_ms | error | visual | expected |\n\
-         |---|:---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---|---|\n",
+        "| case_id | sample | topic | mode | compression | batch_count | assembled | generated | kind | title_words | full_content_words | compressed_content_words | use_image | prompt_tokens | completion_tokens | total_tokens | elapsed_ms | error | visual | expected |\n\
+         |---|---:|:---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---|---|\n",
     );
     for row in rows {
         markdown.push_str(&format!(
-            "| {case_id} | {topic} | {mode} | {compression} | {batch_count} | {assembled} | {generated} | {kind} | {title_words} | {full_content_words} | {compressed_content_words} | {use_image} | {prompt_tokens} | {completion_tokens} | {total_tokens} | {elapsed_ms} | {error} | {visual} | {expected} |\n",
+            "| {case_id} | {repeat_index} | {topic} | {mode} | {compression} | {batch_count} | {assembled} | {generated} | {kind} | {title_words} | {full_content_words} | {compressed_content_words} | {use_image} | {prompt_tokens} | {completion_tokens} | {total_tokens} | {elapsed_ms} | {error} | {visual} | {expected} |\n",
             case_id = markdown_cell(&row.case_id),
+            repeat_index = row.repeat_index,
             topic = markdown_cell(&row.topic),
             mode = row.mode,
             compression = row.compression,
@@ -440,6 +537,48 @@ pub(crate) fn scorecard_markdown(rows: &[PromptScorecardRow]) -> String {
         ));
     }
     markdown
+}
+
+fn select_cases(
+    cases: Vec<PromptCase>,
+    selected: &[String],
+    tags: &[String],
+) -> Result<Vec<PromptCase>, String> {
+    if selected.is_empty() && tags.is_empty() {
+        return Ok(cases);
+    }
+    let filtered = cases
+        .into_iter()
+        .filter(|case| {
+            (selected.is_empty() || selected.contains(&case.id))
+                && (tags.is_empty() || case.tags.iter().any(|tag| tags.contains(tag)))
+        })
+        .collect::<Vec<_>>();
+    let missing = selected
+        .iter()
+        .filter(|id| !filtered.iter().any(|case| &case.id == *id))
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(format!(
+            "prompt case pack has no selected case id(s): {missing:?}"
+        ));
+    }
+    if filtered.is_empty() {
+        return Err(format!("no prompt cases match selected tag(s): {tags:?}"));
+    }
+    Ok(filtered)
+}
+
+fn aggregate_stats(rows: &[PromptScorecardRow]) -> String {
+    let mut elapsed = rows.iter().map(|row| row.elapsed_ms).collect::<Vec<_>>();
+    elapsed.sort_unstable();
+    if elapsed.is_empty() {
+        return "latency n/a, tokens 0".to_string();
+    }
+    let median = elapsed[(elapsed.len() - 1) / 2];
+    let p95 = elapsed[((elapsed.len() * 95).div_ceil(100)).saturating_sub(1)];
+    let tokens: i64 = rows.iter().map(|row| row.total_tokens).sum();
+    format!("latency median {median}ms, p95 {p95}ms, tokens {tokens}")
 }
 
 fn markdown_cell(value: &str) -> String {
@@ -521,6 +660,7 @@ mod tests {
     fn rendered_and_assembled_prompts_have_the_expected_relationship() {
         let case = PromptCase {
             id: "one-shot".to_string(),
+            tags: Vec::new(),
             topic: "Rust".to_string(),
             template: None,
             compression: "strong".to_string(),
@@ -552,6 +692,7 @@ mod tests {
     fn assemble_case_prompt_array_uses_batch_count() {
         let case = PromptCase {
             id: "array".to_string(),
+            tags: Vec::new(),
             topic: "Rust".to_string(),
             template: None,
             compression: "strong".to_string(),
@@ -587,7 +728,7 @@ mod tests {
             },
         };
 
-        let row = scorecard_row(&case, &PromptOutcome::Generated(card), 44);
+        let row = scorecard_row(&case, 1, &PromptOutcome::Generated(card), 44);
 
         assert_eq!(row.title_words, Some(3));
         assert_eq!(row.full_content_words, Some(4));
@@ -600,8 +741,12 @@ mod tests {
     #[test]
     fn error_rows_redact_the_api_key_and_escape_markdown_cells() {
         let case = test_case("bad|case");
-        let error = redact_error("provider rejected secret-key\nwith | details", "secret-key");
-        let row = scorecard_row(&case, &PromptOutcome::Failed(error), 44);
+        let error = redact_provider_error(
+            "provider rejected secret-key\nwith | details",
+            "secret-key",
+            DEFAULT_BASE_URL,
+        );
+        let row = scorecard_row(&case, 1, &PromptOutcome::Failed(error), 44);
 
         let markdown = scorecard_markdown(std::slice::from_ref(&row));
         let json = serde_json::to_value(&row).expect("row serializes to JSON");
@@ -622,6 +767,7 @@ mod tests {
             .expect("temporary run directory is created");
         let row = scorecard_row(
             &test_case("checkpoint"),
+            1,
             &PromptOutcome::Failed("provider error".to_string()),
             9,
         );
@@ -780,6 +926,7 @@ mod tests {
     fn test_case(id: &str) -> PromptCase {
         PromptCase {
             id: id.to_string(),
+            tags: Vec::new(),
             topic: "Rust".to_string(),
             template: None,
             compression: "strong".to_string(),

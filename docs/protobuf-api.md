@@ -167,6 +167,12 @@ Topic override: `update_topic.compression_level` (empty = inherit). Fenced code 
 
 Empty → inherit `model` / `reasoning_effort`. Both are optional partial fields on `update_settings`.
 
+Generated topics can override the grounding model and its reasoning effort with
+`UpdateTopicRequest.grounding_model` and `grounding_reasoning_effort`. Empty
+values clear the topic override and inherit the corresponding user setting.
+`AdminTopic` and `AppTopicInfo` return the stored override; an empty returned
+value means inheritance.
+
 An effort of `none` (the default) is sent to OpenRouter-compatible providers as
 `reasoning: {"enabled": false}` so thinking models cannot spend the completion
 budget on hidden reasoning. Batch grounding requests start with an 8192-token

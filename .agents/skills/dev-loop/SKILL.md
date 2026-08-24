@@ -22,7 +22,9 @@ Prefer `just` recipes over raw cargo when they exist.
 `just lab` is the opt-in research runner. It must never be added to
 `just test`, `just verify`, or `just ci`; live lab image runs use the network.
 Use `just lab-check` for the deterministic offline lab contract and
-`just lab-cards-ui` for the Astro `FlowCard` fixture page on `:3027`.
+`just lab-cards-dev` for the Astro production-card fixture page with HMR on
+`:3027`. Use `just lab-review <baseline> <candidate>` for blinded artifact
+review. `just lab-cards-ui` remains the built, no-HMR fixture server.
 
 ## Tight edit loop
 

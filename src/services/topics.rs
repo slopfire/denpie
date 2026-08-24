@@ -84,6 +84,14 @@ impl TopicService {
                 })
             })
             .unwrap_or(current.grounding_strategy);
+        let grounding_model = settings
+            .grounding_model
+            .map(trimmed_optional)
+            .unwrap_or(current.grounding_model);
+        let grounding_reasoning_effort = settings
+            .grounding_reasoning_effort
+            .map(trimmed_optional)
+            .unwrap_or(current.grounding_reasoning_effort);
         let image_strategy = settings
             .image_strategy
             .map(|value| {
@@ -105,6 +113,8 @@ impl TopicService {
                 daily_update_time,
                 compression_level,
                 grounding_strategy,
+                grounding_model,
+                grounding_reasoning_effort,
                 image_strategy,
             },
         )
@@ -214,6 +224,8 @@ impl TopicService {
                 daily_update_time: row.daily_update_time.unwrap_or_default(),
                 compression_level: row.compression_level.unwrap_or_default(),
                 grounding_strategy: row.grounding_strategy.unwrap_or_default(),
+                grounding_model: row.grounding_model.unwrap_or_default(),
+                grounding_reasoning_effort: row.grounding_reasoning_effort.unwrap_or_default(),
                 image_strategy: row
                     .image_strategy
                     .filter(|value| !value.trim().is_empty())
@@ -264,6 +276,8 @@ pub struct UpdateTopicSettings {
     pub daily_update_time: Option<String>,
     pub compression_level: Option<String>,
     pub grounding_strategy: Option<String>,
+    pub grounding_model: Option<String>,
+    pub grounding_reasoning_effort: Option<String>,
     pub image_strategy: Option<String>,
 }
 
@@ -279,6 +293,8 @@ pub struct AdminTopicInfo {
     pub daily_update_time: String,
     pub compression_level: String,
     pub grounding_strategy: String,
+    pub grounding_model: String,
+    pub grounding_reasoning_effort: String,
     pub image_strategy: String,
 }
 

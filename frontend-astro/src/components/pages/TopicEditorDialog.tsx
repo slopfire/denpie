@@ -50,6 +50,15 @@ const IMAGE_STRATEGIES = [
     "bing_playwright",
     "ddgs_text_og",
 ] as const;
+const GROUNDING_REASONING_EFFORTS = [
+    INHERIT,
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+] as const;
 
 function compressionLabel(value: string): string {
     switch (value) {
@@ -105,6 +114,27 @@ function imageStrategyLabel(value: string): string {
             return t("grounding.image_strategy.bing_playwright");
         case "ddgs_text_og":
             return t("grounding.image_strategy.ddgs_text_og");
+        default:
+            return value;
+    }
+}
+
+function reasoningEffortLabel(value: string): string {
+    switch (value) {
+        case INHERIT:
+            return t("grounding.topic_editor.inherit");
+        case "none":
+            return t("common.none");
+        case "minimal":
+            return t("settings.reasoning.minimal");
+        case "low":
+            return t("common.low");
+        case "medium":
+            return t("common.medium");
+        case "high":
+            return t("common.high");
+        case "xhigh":
+            return t("settings.reasoning.extra_high");
         default:
             return value;
     }
@@ -251,6 +281,63 @@ export function TopicEditorDialog({
                                                     {compressionLabel(value)}
                                                 </SelectItem>
                                             ))}
+                                        </SelectContent>
+                                    </Select>
+                                </Field>
+                                <Field>
+                                    <FieldLabel htmlFor="topic-grounding-model">
+                                        {t(
+                                            "grounding.topic_editor.grounding_model",
+                                        )}
+                                    </FieldLabel>
+                                    <Input
+                                        id="topic-grounding-model"
+                                        value={shown.groundingModel}
+                                        placeholder={t(
+                                            "grounding.topic_editor.inherit",
+                                        )}
+                                        onChange={(event) =>
+                                            setField(
+                                                "groundingModel",
+                                                event.target.value,
+                                            )
+                                        }
+                                    />
+                                </Field>
+                                <Field>
+                                    <FieldLabel>
+                                        {t(
+                                            "grounding.topic_editor.grounding_reasoning",
+                                        )}
+                                    </FieldLabel>
+                                    <Select
+                                        value={storedStrategy(
+                                            shown.groundingReasoningEffort,
+                                        )}
+                                        onValueChange={(value) =>
+                                            value !== null &&
+                                            setField(
+                                                "groundingReasoningEffort",
+                                                selectedStrategy(value),
+                                            )
+                                        }
+                                    >
+                                        <SelectTrigger className="w-full">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {GROUNDING_REASONING_EFFORTS.map(
+                                                (value) => (
+                                                    <SelectItem
+                                                        key={value}
+                                                        value={value}
+                                                    >
+                                                        {reasoningEffortLabel(
+                                                            value,
+                                                        )}
+                                                    </SelectItem>
+                                                ),
+                                            )}
                                         </SelectContent>
                                     </Select>
                                 </Field>

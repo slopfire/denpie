@@ -237,6 +237,8 @@ message AdminTopic {
     string grounding_strategy = 8;
     string image_strategy = 9;
     reserved 10;
+    string grounding_model = 11;
+    string grounding_reasoning_effort = 12;
 }
 
 message AdminTopics {
@@ -294,6 +296,8 @@ message AppTopicInfo {
     string icon_id = 16;
     string topic_color = 17;
     int64 pending_cards = 18;
+    string grounding_model = 19;
+    string grounding_reasoning_effort = 20;
 }
 
 message AppTopics {
@@ -310,6 +314,8 @@ message UpdateTopicRequest {
     optional string grounding_strategy = 7;
     optional string image_strategy = 8;
     reserved 9;
+    optional string grounding_model = 10;
+    optional string grounding_reasoning_effort = 11;
 }
 
 message PinTipcardRequest {

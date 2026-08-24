@@ -8,6 +8,8 @@ async fn migrations_create_postgres_grounding_schema() {
 
     for (table, column) in [
         ("topics", "grounding_strategy"),
+        ("topics", "grounding_model"),
+        ("topics", "grounding_reasoning_effort"),
         ("topics", "image_strategy"),
         ("tipcards", "use_image"),
         ("tipcards", "image_query"),

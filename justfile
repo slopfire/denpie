@@ -40,7 +40,20 @@ lab *args:
 # Render checked-in card fixtures with the production FlowCard on :3027.
 lab-cards-ui:
   sh scripts/build-frontend.sh
-  cd frontend-astro && bun run preview -- --host 127.0.0.1 --port 3027
+  cd frontend-astro && ASTRO_PREVIEW_BACKGROUND=0 bun run preview -- --host 127.0.0.1 --port 3027
+
+# Fast card-polish loop with Astro HMR. This is opt-in and never part of CI.
+lab-cards-dev:
+  cd frontend-astro && ASTRO_DEV_BACKGROUND=0 bun run dev -- --ignore-lock --host 127.0.0.1 --port 3027
+
+# Opt-in light/dark and responsive screenshot matrix. Artifacts stay ignored.
+lab-cards-shot output="test-results/lab-card-matrix":
+  LAB_CARD_SCREENSHOT_DIR='{{output}}' PLAYWRIGHT_BROWSERS_PATH=0 bunx playwright test --config tests/e2e-astro/lab-cards.config.mjs --grep @screenshot
+
+# Compare two local run directories in the static review workbench on :3027.
+lab-review baseline candidate:
+  DENPIE_LAB_REVIEW_BASELINE='{{baseline}}' DENPIE_LAB_REVIEW_CANDIDATE='{{candidate}}' sh scripts/build-frontend.sh
+  cd frontend-astro && ASTRO_PREVIEW_BACKGROUND=0 bun run preview -- --host 127.0.0.1 --port 3027
 
 # Deterministic offline proof for the lab CLI, fixtures, comparisons, and lab UI build.
 lab-check:

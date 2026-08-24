@@ -1,24 +1,41 @@
 //! Live image bake-off runner. The dry-run path is CI-safe; the live path
 //! deliberately calls production `retrieve_image` and therefore needs network.
 
+use std::collections::BTreeMap;
 use std::io::{ErrorKind, Write};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
 use crate::domain::grounding::ImageStrategy;
+use crate::lab::artifacts::{RetryPolicy, RunManifest, validate_resume, write_manifest};
 use crate::lab::cases::{ImageCase, load_image_cases};
 use crate::llm::{ImageInput, ReasoningConfig, RetrievedImage};
 
 pub(crate) const DEFAULT_CONCURRENCY: usize = 5;
 const RETRIEVE_TIMEOUT: Duration = Duration::from_secs(90);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct ImageRunConfig<'a> {
+    pub(crate) cases_path: &'a str,
+    pub(crate) strategies: &'a [ImageStrategy],
+    pub(crate) dry_run: bool,
+    pub(crate) concurrency: usize,
+    pub(crate) case_ids: &'a [u64],
+    pub(crate) tags: &'a [String],
+    pub(crate) repeat: usize,
+    pub(crate) label: Option<&'a str>,
+    pub(crate) resume: Option<&'a str>,
+    pub(crate) retry: Option<RetryPolicy>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ScorecardRow {
     pub(crate) case_id: u64,
+    #[serde(default = "default_repeat_index")]
+    pub(crate) repeat_index: usize,
     pub(crate) strategy: String,
     pub(crate) search_or_download: String,
     pub(crate) kind: String,
@@ -26,39 +43,83 @@ pub(crate) struct ScorecardRow {
     pub(crate) mime_type: Option<String>,
     pub(crate) extension: Option<String>,
     pub(crate) elapsed_ms: u64,
+    #[serde(default)]
+    pub(crate) queue_ms: u64,
+    #[serde(default)]
+    pub(crate) failure_stage: Option<String>,
     pub(crate) visual: String,
     pub(crate) expected: String,
 }
 
 pub(crate) async fn run_images(
-    cases_path: &str,
-    strategies: &[ImageStrategy],
-    dry_run: bool,
-    concurrency: usize,
+    config: &ImageRunConfig<'_>,
     stdout: &mut dyn Write,
 ) -> Result<(), String> {
-    let cases = load_image_cases(cases_path)?;
+    let cases_path = config.cases_path;
+    let strategies = config.strategies;
+    let dry_run = config.dry_run;
+    let concurrency = config.concurrency;
+    let case_ids = config.case_ids;
+    let tags = config.tags;
+    let repeat = config.repeat;
+    let label = config.label;
+    let resume = config.resume;
+    let retry = config.retry;
+    let cases = select_cases(load_image_cases(cases_path)?, case_ids, tags)?;
 
     if dry_run {
         write!(
             stdout,
             "{}",
-            dry_run_plan(cases_path, strategies, &cases, concurrency)
+            dry_run_plan(cases_path, strategies, &cases, concurrency, repeat)
         )
         .map_err(|error| format!("failed to print dry-run plan: {error}"))?;
         return Ok(());
     }
 
-    let run_dir = create_run_dir().await?;
-    // Leave evidence that the bench started even if it is interrupted before
-    // its first retrieval completes.
-    write_scorecard(&run_dir, &[]).await?;
+    let compatibility = BTreeMap::from([(
+        "strategies".to_string(),
+        serde_json::json!(
+            strategies
+                .iter()
+                .map(|strategy| strategy.as_str())
+                .collect::<Vec<_>>()
+        ),
+    )]);
+    let execution = BTreeMap::from([
+        ("concurrency".to_string(), serde_json::json!(concurrency)),
+        ("repeat".to_string(), serde_json::json!(repeat)),
+        ("case_ids".to_string(), serde_json::json!(case_ids)),
+        ("tags".to_string(), serde_json::json!(tags)),
+        (
+            "timeout_seconds".to_string(),
+            serde_json::json!(RETRIEVE_TIMEOUT.as_secs()),
+        ),
+    ]);
+    let mut manifest =
+        RunManifest::new("images", cases_path, None, None, compatibility, execution)?;
+    manifest.label = label.map(str::to_string);
+    let (run_dir, existing_rows) = if let Some(run_dir) = resume {
+        let mut existing_manifest = validate_resume(run_dir, &manifest)?;
+        if label.is_some() {
+            existing_manifest.label = manifest.label.clone();
+            write_manifest(run_dir, &existing_manifest).await?;
+        }
+        (run_dir.to_string(), load_scorecard(run_dir).await?)
+    } else {
+        let run_dir = create_run_dir().await?;
+        write_manifest(&run_dir, &manifest).await?;
+        // Leave evidence that the bench started even if it is interrupted before
+        // its first retrieval completes.
+        write_scorecard(&run_dir, &[]).await?;
+        (run_dir, Vec::new())
+    };
 
-    let total = cases.len() * strategies.len();
+    let total = cases.len() * strategies.len() * repeat;
     let in_flight = concurrency.min(total).max(1);
     writeln!(
         stdout,
-        "live: {} cases x {} {} = {total} runs; concurrency {in_flight}",
+        "live: {} cases x {} {} x {repeat} samples = {total} runs; concurrency {in_flight}",
         cases.len(),
         strategies.len(),
         strategy_noun(strategies.len()),
@@ -71,23 +132,48 @@ pub(crate) async fn run_images(
     let network_slots = Arc::new(Semaphore::new(in_flight));
     let playwright_slots = Arc::new(Semaphore::new(1));
     let mut jobs = JoinSet::new();
+    let mut existing = existing_rows
+        .into_iter()
+        .map(|row| ((row.case_id, row.strategy.clone(), row.repeat_index), row))
+        .collect::<BTreeMap<_, _>>();
+    let mut ranked = Vec::with_capacity(total);
     let mut order = 0usize;
     for case in &cases {
         for strategy in strategies {
-            jobs.spawn(run_live_job(
-                order,
-                case.clone(),
-                *strategy,
-                run_dir.clone(),
-                network_slots.clone(),
-                playwright_slots.clone(),
-            ));
-            order += 1;
+            for repeat_index in 1..=repeat {
+                let key = (case.id, strategy.as_str().to_string(), repeat_index);
+                if let Some(row) = existing.remove(&key)
+                    && !should_retry_image(&row, retry)
+                {
+                    ranked.push((order, row));
+                } else {
+                    jobs.spawn(run_live_job(
+                        order,
+                        repeat_index,
+                        case.clone(),
+                        *strategy,
+                        run_dir.clone(),
+                        network_slots.clone(),
+                        playwright_slots.clone(),
+                    ));
+                }
+                order += 1;
+            }
         }
     }
 
-    let mut ranked = Vec::with_capacity(total);
-    let mut done = 0usize;
+    if !existing.is_empty() {
+        return Err("resume scorecard contains rows outside the configured job set".to_string());
+    }
+    let mut done = ranked.len();
+    if resume.is_some() {
+        writeln!(
+            stdout,
+            "resume: kept {done} completed jobs; running {}",
+            total - done
+        )
+        .map_err(|error| format!("failed to print resume plan: {error}"))?;
+    }
     while let Some(joined) = jobs.join_next().await {
         let (job_order, row) =
             joined.map_err(|error| format!("lab image job panicked: {error}"))??;
@@ -112,28 +198,67 @@ pub(crate) async fn run_images(
         .map_err(|error| format!("failed to print scorecard path: {error}"))?;
     writeln!(
         stdout,
-        "summary: {} cases x {} {} = {} runs; hit {hit}, miss {miss}",
+        "summary: {} cases x {} {} x {repeat} samples = {} runs; hit {hit}, miss {miss}; {}",
         cases.len(),
         strategies.len(),
         strategy_noun(strategies.len()),
         rows.len(),
+        aggregate_elapsed(&rows),
     )
     .map_err(|error| format!("failed to print scorecard summary: {error}"))?;
     Ok(())
 }
 
+fn should_retry_image(row: &ScorecardRow, retry: Option<RetryPolicy>) -> bool {
+    match retry {
+        None => false,
+        Some(RetryPolicy::Miss) => row.search_or_download == "miss" && row.kind != "timeout",
+        Some(RetryPolicy::Timeout) => row.kind == "timeout",
+    }
+}
+
+async fn load_scorecard(run_dir: &str) -> Result<Vec<ScorecardRow>, String> {
+    let path = format!("{run_dir}/scorecard.json");
+    let json = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|error| format!("failed to read resume scorecard `{path}`: {error}"))?;
+    serde_json::from_str(&json)
+        .map_err(|error| format!("failed to parse resume scorecard `{path}`: {error}"))
+}
+
+const fn default_repeat_index() -> usize {
+    1
+}
+
 async fn run_live_job(
     order: usize,
+    repeat_index: usize,
     case: ImageCase,
     strategy: ImageStrategy,
     run_dir: String,
     network_slots: Arc<Semaphore>,
     playwright_slots: Arc<Semaphore>,
 ) -> Result<(usize, ScorecardRow), String> {
+    let queued = Instant::now();
+    let network_permit = network_slots
+        .acquire_owned()
+        .await
+        .expect("lab network slot is never closed");
+    let playwright_permit = if strategy == ImageStrategy::BingPlaywright {
+        Some(
+            playwright_slots
+                .acquire_owned()
+                .await
+                .expect("lab Playwright slot is never closed"),
+        )
+    } else {
+        None
+    };
+    let queue_ms = millis(queued.elapsed());
     let started = Instant::now();
     let outcome = match tokio::time::timeout(
         RETRIEVE_TIMEOUT,
-        retrieve_live_image(&case, strategy, &run_dir, network_slots, playwright_slots),
+        retrieve_live_image(&case, repeat_index, strategy, &run_dir),
     )
     .await
     {
@@ -148,33 +273,29 @@ async fn run_live_job(
             RetrievalOutcome::TimedOut
         }
     };
-    let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let elapsed_ms = millis(started.elapsed());
+    drop(playwright_permit);
+    drop(network_permit);
 
-    Ok((order, scorecard_row(&case, strategy, &outcome, elapsed_ms)))
+    Ok((
+        order,
+        scorecard_row(
+            &case,
+            repeat_index,
+            strategy,
+            &outcome,
+            elapsed_ms,
+            queue_ms,
+        ),
+    ))
 }
 
 async fn retrieve_live_image(
     case: &ImageCase,
+    repeat_index: usize,
     strategy: ImageStrategy,
     run_dir: &str,
-    network_slots: Arc<Semaphore>,
-    playwright_slots: Arc<Semaphore>,
 ) -> Result<RetrievalOutcome, String> {
-    let _playwright_permit = if strategy == ImageStrategy::BingPlaywright {
-        Some(
-            playwright_slots
-                .acquire_owned()
-                .await
-                .expect("lab Playwright slot is never closed"),
-        )
-    } else {
-        None
-    };
-    let _network_permit = network_slots
-        .acquire_owned()
-        .await
-        .expect("lab network slot is never closed");
-
     let reasoning = ReasoningConfig::new("none");
     let input = ImageInput {
         topic_name: &case.topic_name,
@@ -198,7 +319,10 @@ async fn retrieve_live_image(
                 format!("failed to create image case directory `{case_dir}`: {error}")
             })?;
         let extension = safe_extension(&prepared.extension);
-        let image_path = format!("{case_dir}/{}.{extension}", strategy.as_str());
+        let image_path = format!(
+            "{case_dir}/{}-{repeat_index}.{extension}",
+            strategy.as_str()
+        );
         tokio::fs::write(&image_path, &prepared.bytes)
             .await
             .map_err(|error| format!("failed to write prepared image `{image_path}`: {error}"))?;
@@ -217,6 +341,7 @@ pub(crate) fn dry_run_plan(
     strategies: &[ImageStrategy],
     cases: &[ImageCase],
     concurrency: usize,
+    repeat: usize,
 ) -> String {
     let strategy_count = strategies.len();
     let strategy_names = strategies
@@ -224,11 +349,11 @@ pub(crate) fn dry_run_plan(
         .map(|strategy| strategy.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    let total = cases.len() * strategy_count;
+    let total = cases.len() * strategy_count * repeat;
     let in_flight = concurrency.min(total).max(1);
 
     let mut plan = format!(
-        "bench: images\nmode: dry-run (no downloads)\ncases: {cases_path}\nstrategies: {strategy_names}\nconcurrency: {in_flight}\nplan:\n"
+        "bench: images\nmode: dry-run (no downloads)\ncases: {cases_path}\nstrategies: {strategy_names}\nrepeat: {repeat}\nconcurrency: {in_flight}\nplan:\n"
     );
     for case in cases {
         plan.push_str(&format!(
@@ -237,11 +362,11 @@ pub(crate) fn dry_run_plan(
         ));
     }
     plan.push_str(&format!(
-        "{} cases x {} {} = {} runs (0 downloads)\n",
+        "{} cases x {} {} x {repeat} samples = {} runs (0 downloads)\n",
         cases.len(),
         strategy_count,
         strategy_noun(strategy_count),
-        cases.len() * strategy_count,
+        cases.len() * strategy_count * repeat,
     ));
     plan
 }
@@ -271,9 +396,11 @@ fn progress_line(done: usize, total: usize, row: &ScorecardRow) -> String {
 
 fn scorecard_row(
     case: &ImageCase,
+    repeat_index: usize,
     strategy: ImageStrategy,
     outcome: &RetrievalOutcome,
     elapsed_ms: u64,
+    queue_ms: u64,
 ) -> ScorecardRow {
     let (search_or_download, kind, bytes, mime_type, extension) = match outcome {
         RetrievalOutcome::Retrieved(Some(RetrievedImage::Prepared(prepared))) => (
@@ -294,6 +421,7 @@ fn scorecard_row(
 
     ScorecardRow {
         case_id: case.id,
+        repeat_index,
         strategy: strategy.as_str().to_string(),
         search_or_download,
         kind,
@@ -301,6 +429,12 @@ fn scorecard_row(
         mime_type,
         extension,
         elapsed_ms,
+        queue_ms,
+        failure_stage: match outcome {
+            RetrievalOutcome::Retrieved(None) => Some("production_returned_none".to_string()),
+            RetrievalOutcome::TimedOut => Some("retrieval_timeout".to_string()),
+            RetrievalOutcome::Retrieved(Some(_)) => None,
+        },
         visual: "needs_review".to_string(),
         expected: case.expected.clone(),
     }
@@ -308,13 +442,14 @@ fn scorecard_row(
 
 pub(crate) fn scorecard_markdown(rows: &[ScorecardRow]) -> String {
     let mut markdown = String::from(
-        "| case_id | strategy | search_or_download | kind | bytes | mime_type | extension | elapsed_ms | visual | expected |\n\
-         |---:|---|---|---|---:|---|---|---:|---|---|\n",
+        "| case_id | sample | strategy | search_or_download | kind | bytes | mime_type | extension | elapsed_ms | queue_ms | failure_stage | visual | expected |\n\
+         |---:|---:|---|---|---|---:|---|---|---:|---:|---|---|---|\n",
     );
     for row in rows {
         markdown.push_str(&format!(
-            "| {case_id} | {strategy} | {search_or_download} | {kind} | {bytes} | {mime_type} | {extension} | {elapsed_ms} | {visual} | {expected} |\n",
+            "| {case_id} | {repeat_index} | {strategy} | {search_or_download} | {kind} | {bytes} | {mime_type} | {extension} | {elapsed_ms} | {queue_ms} | {failure_stage} | {visual} | {expected} |\n",
             case_id = row.case_id,
+            repeat_index = row.repeat_index,
             strategy = markdown_cell(&row.strategy),
             search_or_download = markdown_cell(&row.search_or_download),
             kind = markdown_cell(&row.kind),
@@ -322,11 +457,58 @@ pub(crate) fn scorecard_markdown(rows: &[ScorecardRow]) -> String {
             mime_type = markdown_cell(row.mime_type.as_deref().unwrap_or("")),
             extension = markdown_cell(row.extension.as_deref().unwrap_or("")),
             elapsed_ms = row.elapsed_ms,
+            queue_ms = row.queue_ms,
+            failure_stage = markdown_cell(row.failure_stage.as_deref().unwrap_or("")),
             visual = markdown_cell(&row.visual),
             expected = markdown_cell(&row.expected),
         ));
     }
     markdown
+}
+
+fn select_cases(
+    cases: Vec<ImageCase>,
+    selected: &[u64],
+    tags: &[String],
+) -> Result<Vec<ImageCase>, String> {
+    if selected.is_empty() && tags.is_empty() {
+        return Ok(cases);
+    }
+    let filtered = cases
+        .into_iter()
+        .filter(|case| {
+            (selected.is_empty() || selected.contains(&case.id))
+                && (tags.is_empty() || case.tags.iter().any(|tag| tags.contains(tag)))
+        })
+        .collect::<Vec<_>>();
+    let missing = selected
+        .iter()
+        .filter(|id| !filtered.iter().any(|case| case.id == **id))
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(format!(
+            "image case pack has no selected case id(s): {missing:?}"
+        ));
+    }
+    if filtered.is_empty() {
+        return Err(format!("no image cases match selected tag(s): {tags:?}"));
+    }
+    Ok(filtered)
+}
+
+fn aggregate_elapsed(rows: &[ScorecardRow]) -> String {
+    let mut elapsed = rows.iter().map(|row| row.elapsed_ms).collect::<Vec<_>>();
+    elapsed.sort_unstable();
+    if elapsed.is_empty() {
+        return "latency n/a".to_string();
+    }
+    let median = elapsed[(elapsed.len() - 1) / 2];
+    let p95 = elapsed[((elapsed.len() * 95).div_ceil(100)).saturating_sub(1)];
+    format!("latency median {median}ms, p95 {p95}ms")
+}
+
+fn millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 fn markdown_cell(value: &str) -> String {
@@ -476,6 +658,7 @@ mod tests {
     fn progress_line_distinguishes_hit_miss_and_timeout() {
         let hit = ScorecardRow {
             case_id: 270,
+            repeat_index: 1,
             strategy: "bing_html".to_string(),
             search_or_download: "hit".to_string(),
             kind: "prepared".to_string(),
@@ -483,11 +666,14 @@ mod tests {
             mime_type: Some("image/png".to_string()),
             extension: Some("png".to_string()),
             elapsed_ms: 42,
+            queue_ms: 0,
+            failure_stage: None,
             visual: "needs_review".to_string(),
             expected: "movement diagram".to_string(),
         };
         let miss = ScorecardRow {
             case_id: 286,
+            repeat_index: 1,
             strategy: "ddgs_text_og".to_string(),
             search_or_download: "miss".to_string(),
             kind: "none".to_string(),
@@ -495,11 +681,14 @@ mod tests {
             mime_type: None,
             extension: None,
             elapsed_ms: 99,
+            queue_ms: 0,
+            failure_stage: Some("production_returned_none".to_string()),
             visual: "needs_review".to_string(),
             expected: "place diagram".to_string(),
         };
         let timeout = ScorecardRow {
             case_id: 8,
+            repeat_index: 1,
             strategy: "bing_html".to_string(),
             search_or_download: "miss".to_string(),
             kind: "timeout".to_string(),
@@ -507,6 +696,8 @@ mod tests {
             mime_type: None,
             extension: None,
             elapsed_ms: 90_000,
+            queue_ms: 12,
+            failure_stage: Some("retrieval_timeout".to_string()),
             visual: "needs_review".to_string(),
             expected: "helix".to_string(),
         };
@@ -552,6 +743,7 @@ mod tests {
         let rows = vec![
             ScorecardRow {
                 case_id: 270,
+                repeat_index: 1,
                 strategy: "bing_html".to_string(),
                 search_or_download: "hit".to_string(),
                 kind: "prepared".to_string(),
@@ -559,11 +751,14 @@ mod tests {
                 mime_type: Some("image/png".to_string()),
                 extension: Some("png".to_string()),
                 elapsed_ms: 42,
+                queue_ms: 0,
+                failure_stage: None,
                 visual: "needs_review".to_string(),
                 expected: "movement diagram".to_string(),
             },
             ScorecardRow {
                 case_id: 286,
+                repeat_index: 1,
                 strategy: "ddgs_text_og".to_string(),
                 search_or_download: "miss".to_string(),
                 kind: "none".to_string(),
@@ -571,6 +766,8 @@ mod tests {
                 mime_type: None,
                 extension: None,
                 elapsed_ms: 99,
+                queue_ms: 0,
+                failure_stage: Some("production_returned_none".to_string()),
                 visual: "needs_review".to_string(),
                 expected: "place diagram".to_string(),
             },
@@ -582,11 +779,11 @@ mod tests {
         assert!(markdown.contains("| visual |"));
         let hit_line = markdown
             .lines()
-            .find(|line| line.contains("| 270 | bing_html | hit | prepared |"))
+            .find(|line| line.contains("| 270 | 1 | bing_html | hit | prepared |"))
             .expect("hit row must be present");
         let miss_line = markdown
             .lines()
-            .find(|line| line.contains("| 286 | ddgs_text_og | miss | none |"))
+            .find(|line| line.contains("| 286 | 1 | ddgs_text_og | miss | none |"))
             .expect("miss row must be present");
         assert!(hit_line.contains("needs_review"));
         assert!(miss_line.contains("needs_review"));
@@ -598,6 +795,7 @@ mod tests {
     fn scorecard_markdown_escapes_every_text_cell() {
         let markdown = scorecard_markdown(&[ScorecardRow {
             case_id: 7,
+            repeat_index: 1,
             strategy: "bing|html\\stable\nnext".to_string(),
             search_or_download: "hit|maybe".to_string(),
             kind: "prepared\r\nwith|note".to_string(),
@@ -605,6 +803,8 @@ mod tests {
             mime_type: Some("image|png\\x".to_string()),
             extension: Some("p|ng\n".to_string()),
             elapsed_ms: 2,
+            queue_ms: 3,
+            failure_stage: None,
             visual: "needs|review\nnow".to_string(),
             expected: "a\\b|c\r\nd".to_string(),
         }]);
@@ -623,6 +823,7 @@ mod tests {
     fn ordered_rows_keeps_partial_scorecards_in_case_pack_order() {
         let row = |case_id| ScorecardRow {
             case_id,
+            repeat_index: 1,
             strategy: "bing_html".to_string(),
             search_or_download: "miss".to_string(),
             kind: "none".to_string(),
@@ -630,6 +831,8 @@ mod tests {
             mime_type: None,
             extension: None,
             elapsed_ms: 1,
+            queue_ms: 0,
+            failure_stage: None,
             visual: "needs_review".to_string(),
             expected: String::new(),
         };
@@ -649,5 +852,130 @@ mod tests {
         assert_eq!(base, "lab/runs/20260822T000000.000Z-images");
         assert_eq!(retry, "lab/runs/20260822T000000.000Z-images-1");
         assert_ne!(base, retry);
+    }
+
+    #[test]
+    fn retry_policies_select_only_requested_failures() {
+        let row = |kind: &str, status: &str| ScorecardRow {
+            case_id: 1,
+            repeat_index: 1,
+            strategy: "bing_html".to_string(),
+            search_or_download: status.to_string(),
+            kind: kind.to_string(),
+            bytes: 0,
+            mime_type: None,
+            extension: None,
+            elapsed_ms: 1,
+            queue_ms: 0,
+            failure_stage: None,
+            visual: "needs_review".to_string(),
+            expected: String::new(),
+        };
+        assert!(should_retry_image(
+            &row("none", "miss"),
+            Some(RetryPolicy::Miss)
+        ));
+        assert!(!should_retry_image(
+            &row("none", "miss"),
+            Some(RetryPolicy::Timeout)
+        ));
+        assert!(should_retry_image(
+            &row("timeout", "miss"),
+            Some(RetryPolicy::Timeout)
+        ));
+        assert!(!should_retry_image(
+            &row("timeout", "miss"),
+            Some(RetryPolicy::Miss)
+        ));
+        assert!(!should_retry_image(
+            &row("prepared", "hit"),
+            Some(RetryPolicy::Miss)
+        ));
+    }
+
+    #[tokio::test]
+    async fn resume_keeps_completed_jobs_without_network_calls() {
+        let run_dir = temporary_run_root("resume-complete");
+        tokio::fs::create_dir_all(&run_dir)
+            .await
+            .expect("resume directory is created");
+        let compatibility =
+            BTreeMap::from([("strategies".to_string(), serde_json::json!(["bing_html"]))]);
+        let execution = BTreeMap::from([
+            ("concurrency".to_string(), serde_json::json!(1)),
+            ("repeat".to_string(), serde_json::json!(1)),
+            ("case_ids".to_string(), serde_json::json!([270])),
+            ("tags".to_string(), serde_json::json!([])),
+            (
+                "timeout_seconds".to_string(),
+                serde_json::json!(RETRIEVE_TIMEOUT.as_secs()),
+            ),
+        ]);
+        let manifest = RunManifest::new(
+            "images",
+            crate::lab::cases::DEFAULT_GOLD_CASES_PATH,
+            None,
+            None,
+            compatibility,
+            execution,
+        )
+        .expect("manifest builds");
+        write_manifest(run_dir.to_str().expect("UTF-8 path"), &manifest)
+            .await
+            .expect("manifest writes");
+        let row = ScorecardRow {
+            case_id: 270,
+            repeat_index: 1,
+            strategy: "bing_html".to_string(),
+            search_or_download: "hit".to_string(),
+            kind: "prepared".to_string(),
+            bytes: 10,
+            mime_type: Some("image/png".to_string()),
+            extension: Some("png".to_string()),
+            elapsed_ms: 20,
+            queue_ms: 1,
+            failure_stage: None,
+            visual: "needs_review".to_string(),
+            expected: "diagram".to_string(),
+        };
+        tokio::fs::write(
+            run_dir.join("scorecard.json"),
+            serde_json::to_string(&[row]).expect("scorecard serializes"),
+        )
+        .await
+        .expect("scorecard writes");
+        let mut stdout = Vec::new();
+        let config = ImageRunConfig {
+            cases_path: crate::lab::cases::DEFAULT_GOLD_CASES_PATH,
+            strategies: &[ImageStrategy::BingHtml],
+            dry_run: false,
+            concurrency: 1,
+            case_ids: &[270],
+            tags: &[],
+            repeat: 1,
+            label: None,
+            resume: Some(run_dir.to_str().expect("UTF-8 path")),
+            retry: None,
+        };
+
+        run_images(&config, &mut stdout)
+            .await
+            .expect("complete resume succeeds without retrieval");
+        let output = String::from_utf8(stdout).expect("UTF-8 output");
+        assert!(output.contains("resume: kept 1 completed jobs; running 0"));
+        tokio::fs::remove_dir_all(run_dir)
+            .await
+            .expect("resume directory removed");
+    }
+
+    fn temporary_run_root(label: &str) -> std::path::PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "denpie-images-{label}-{}-{nonce}",
+            std::process::id()
+        ))
     }
 }

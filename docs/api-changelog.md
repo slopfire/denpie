@@ -3,6 +3,12 @@
 This log records consumer-visible changes to the versioned public API. Entries
 describe wire behavior rather than dashboard internals.
 
+## 2026-08-24 - Per-topic grounding model overrides
+
+- `AdminTopic` and `AppTopicInfo` now expose optional per-topic grounding model
+  and reasoning-effort overrides. `UpdateTopicRequest` can set either field;
+  an empty value clears the override and inherits the user setting.
+
 ## 2026-08-23 — Versioned tipcard image editing
 
 - Added replayable `append_tipcard_images` and `replace_tipcard_images`

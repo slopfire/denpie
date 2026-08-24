@@ -49,8 +49,8 @@ Backend-only hacking: `DENPIE_SKIP_FRONTEND_BUILD=1`.
 
 ## Screenshots
 
-| Grounding | Transmission | Fullscreen Card |
-| :---: | :---: | :---: |
+|                Grounding                |                 Transmission                  |                   Fullscreen Card                   |
+| :-------------------------------------: | :-------------------------------------------: | :-------------------------------------------------: |
 | ![Grounding](docs/assets/grounding.png) | ![Transmission](docs/assets/unified-flow.png) | ![Fullscreen Card](docs/assets/fullscreen-card.png) |
 
 Transmission keeps pinned cards in a separate top section. Beneath it, topic picks show up to three cards per topic and nine cards total, reducing the per-topic allowance evenly when the total would exceed nine. All remaining due cards continue in an "Other cards" section below the picks. The grid switch opens a quick column picker; the saved maximum remains constrained by the current page width.
@@ -68,7 +68,9 @@ just lab run images --dry-run  # print the image bake-off plan (no network)
 just lab run cards --dry-run   # print repeatable-card fixture states (no network)
 just lab compare <old.json> <new.json>  # compare image or prompt scorecards
 just lab-check        # deterministic offline lab contract
+just lab-cards-dev    # production card fixtures with HMR on isolated :3027
 just lab-cards-ui     # production FlowCard fixtures on isolated :3027
+just lab-review <baseline> <candidate>  # blinded A/B review workbench on :3027
 just agent-server     # isolated :3027 runtime, test login, smoke
 just playwright-install # install local Playwright + Chromium (once per clone)
 just playwright       # headless Chromium UI smoke against isolated :3027
@@ -81,8 +83,10 @@ just ci               # verify + Astro tests and release build
 `just test`, `just verify`, or `just ci`; live `just lab run images` and
 `just lab run prompts` use the network. `run cards` builds its gallery
 locally. `just lab-cards-ui` mounts the checked-in states in the production
-`FlowCard` at `/lab-cards` on `:3027`. Its actions are local simulations and
-cannot mutate server images. New UI work: [`docs/frontend-astro.md`](docs/frontend-astro.md).
+review-slot card at `/lab-cards` on `:3027`. Its actions are local simulations
+and cannot mutate server images. `just lab-review` loads two run artifacts into
+a blinded, exportable A/B review. New UI work:
+[`docs/frontend-astro.md`](docs/frontend-astro.md).
 
 ```bash
 RUST_LOG=denpie=debug just backend
@@ -92,40 +96,40 @@ Grounding/image strategies log stage progress at `info`. LLM transport detail is
 
 ## Docs map
 
-| Need | Open |
-|---|---|
-| Recommended API v1 | [`docs/api-v1.md`](docs/api-v1.md) |
-| Complete v1 operation table | [`docs/api-v1-reference.md`](docs/api-v1-reference.md) |
-| API examples (curl, Python, TypeScript, Rust) | [`examples/api/README.md`](examples/api/README.md) |
-| API schema bundle | [`api/schema/v1/README.md`](api/schema/v1/README.md) |
-| Rules for adding/changing API operations | [`docs/api-development-rules.md`](docs/api-development-rules.md) |
-| API compatibility and changelog | [`docs/api-compatibility.md`](docs/api-compatibility.md), [`docs/api-changelog.md`](docs/api-changelog.md) |
-| `POST /api` compatibility reference | [`docs/protobuf-api.md`](docs/protobuf-api.md) |
-| Agent ops cheat sheet | [`docs/agent-server-guide.md`](docs/agent-server-guide.md) |
-| Where new code goes | [`docs/feature-integration.md`](docs/feature-integration.md) |
-| Browser UI | [`docs/frontend-astro.md`](docs/frontend-astro.md) |
-| Opt-in research lab | [`docs/lab.md`](docs/lab.md) |
+| Need                                          | Open                                                                                                       |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Recommended API v1                            | [`docs/api-v1.md`](docs/api-v1.md)                                                                         |
+| Complete v1 operation table                   | [`docs/api-v1-reference.md`](docs/api-v1-reference.md)                                                     |
+| API examples (curl, Python, TypeScript, Rust) | [`examples/api/README.md`](examples/api/README.md)                                                         |
+| API schema bundle                             | [`api/schema/v1/README.md`](api/schema/v1/README.md)                                                       |
+| Rules for adding/changing API operations      | [`docs/api-development-rules.md`](docs/api-development-rules.md)                                           |
+| API compatibility and changelog               | [`docs/api-compatibility.md`](docs/api-compatibility.md), [`docs/api-changelog.md`](docs/api-changelog.md) |
+| `POST /api` compatibility reference           | [`docs/protobuf-api.md`](docs/protobuf-api.md)                                                             |
+| Agent ops cheat sheet                         | [`docs/agent-server-guide.md`](docs/agent-server-guide.md)                                                 |
+| Where new code goes                           | [`docs/feature-integration.md`](docs/feature-integration.md)                                               |
+| Browser UI                                    | [`docs/frontend-astro.md`](docs/frontend-astro.md)                                                         |
+| Opt-in research lab                           | [`docs/lab.md`](docs/lab.md)                                                                               |
 
 ## Config
 
 ### Global — `settings.yaml` (generated, do not commit)
 
-| Key | Default | What |
-|---|---|---|
-| `admin_token` | auto | First-user setup token |
-| `autoupdate_enabled` | `false` | GitHub self-updates |
-| `autoupdate_repo` | `slopfire/denpie` | `owner/repo` or URL |
-| `autoupdate_branch` | `master` | Branch to watch |
-| `autoupdate_check_interval_secs` | `3600` (min 60) | Poll interval |
-| `autoupdate_command` | empty | Non-systemd update command |
-| `autoupdate_last_seen_sha` | empty | Last seen remote SHA |
+| Key                              | Default           | What                       |
+| -------------------------------- | ----------------- | -------------------------- |
+| `admin_token`                    | auto              | First-user setup token     |
+| `autoupdate_enabled`             | `false`           | GitHub self-updates        |
+| `autoupdate_repo`                | `slopfire/denpie` | `owner/repo` or URL        |
+| `autoupdate_branch`              | `master`          | Branch to watch            |
+| `autoupdate_check_interval_secs` | `3600` (min 60)   | Poll interval              |
+| `autoupdate_command`             | empty             | Non-systemd update command |
+| `autoupdate_last_seen_sha`       | empty             | Last seen remote SHA       |
 
 ### Per-user (PostgreSQL)
 
-| Page | Owns |
-|---|---|
-| **Settings** | Default LLM, endpoints, credentials, prompt, reasoning/compression, appearance, schedule, `max_active_cards` |
-| **Grounding** | Grounding-agent model/reasoning, fact grounding, Tavily or Firecrawl, link scraper, image retrieval |
+| Page          | Owns                                                                                                         |
+| ------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Settings**  | Default LLM, endpoints, credentials, prompt, reasoning/compression, appearance, schedule, `max_active_cards` |
+| **Grounding** | Grounding-agent model/reasoning, fact grounding, Tavily or Firecrawl, link scraper, image retrieval          |
 
 Empty grounding-agent fields inherit default LLM settings.
 
@@ -193,19 +197,19 @@ Topic cards link to their queued pending cards and reviewed SM-2 scheduled cards
 
 ## Env vars
 
-| Variable | Default |
-|---|---|
-| `DATABASE_URL` | required |
-| `DENPIE_DB_SCHEMA` | `public` |
-| `DENPIE_BIND_ADDR` | `127.0.0.1:3017` |
-| `DENPIE_RP_ORIGIN` | `http://localhost:3017` |
-| `DENPIE_RP_ID` | from `DENPIE_RP_ORIGIN` |
-| `DENPIE_RP_EXTRA_ORIGINS` | none |
-| `DENPIE_PROD` | off (on for `https`) |
-| `DENPIE_DATA_DIR` | current directory |
-| `DENPIE_FRONTEND_DIST` | `./frontend-astro/dist` |
-| `DENPIE_STATIC_DIR` | `./static` |
-| `DENPIE_IMAGE_DIR` | `$DENPIE_DATA_DIR/tipcard-images` |
+| Variable                  | Default                           |
+| ------------------------- | --------------------------------- |
+| `DATABASE_URL`            | required                          |
+| `DENPIE_DB_SCHEMA`        | `public`                          |
+| `DENPIE_BIND_ADDR`        | `127.0.0.1:3017`                  |
+| `DENPIE_RP_ORIGIN`        | `http://localhost:3017`           |
+| `DENPIE_RP_ID`            | from `DENPIE_RP_ORIGIN`           |
+| `DENPIE_RP_EXTRA_ORIGINS` | none                              |
+| `DENPIE_PROD`             | off (on for `https`)              |
+| `DENPIE_DATA_DIR`         | current directory                 |
+| `DENPIE_FRONTEND_DIST`    | `./frontend-astro/dist`           |
+| `DENPIE_STATIC_DIR`       | `./static`                        |
+| `DENPIE_IMAGE_DIR`        | `$DENPIE_DATA_DIR/tipcard-images` |
 
 ## Deploy
 
@@ -279,21 +283,21 @@ settings.yaml   # local only — do not commit
 
 ## Tables
 
-| Table | Holds |
-|---|---|
-| `api_keys` | SHA-256 hashed client keys |
-| `users` | Profiles, roles, avatars |
-| `topics` | Type, prompt, icon, color, daily overrides |
-| `tipcards` | Content, title, pin state |
-| `review_states` | SM-2 state, learning feedback, active/pending deck status, repeats, next review |
-| `tipcard_images` | Attachment metadata |
-| `card_image_jobs` | Durable automatic-image enrichment leases and retry state |
-| `user_documents` / `document_topics` | Grounding sources + topic links |
-| `image_pool` | Local image pool entries |
-| `llm_token_usage` | Per-call token totals |
-| `user_settings` | LLM / UI / schedule |
-| `daily_refresh_runs` | Processed topic windows |
-| `passkeys` | WebAuthn credentials |
+| Table                                | Holds                                                                           |
+| ------------------------------------ | ------------------------------------------------------------------------------- |
+| `api_keys`                           | SHA-256 hashed client keys                                                      |
+| `users`                              | Profiles, roles, avatars                                                        |
+| `topics`                             | Type, prompt, icon, color, daily overrides                                      |
+| `tipcards`                           | Content, title, pin state                                                       |
+| `review_states`                      | SM-2 state, learning feedback, active/pending deck status, repeats, next review |
+| `tipcard_images`                     | Attachment metadata                                                             |
+| `card_image_jobs`                    | Durable automatic-image enrichment leases and retry state                       |
+| `user_documents` / `document_topics` | Grounding sources + topic links                                                 |
+| `image_pool`                         | Local image pool entries                                                        |
+| `llm_token_usage`                    | Per-call token totals                                                           |
+| `user_settings`                      | LLM / UI / schedule                                                             |
+| `daily_refresh_runs`                 | Processed topic windows                                                         |
+| `passkeys`                           | WebAuthn credentials                                                            |
 
 ## Tests
 
@@ -305,16 +309,16 @@ Integration tests use real servers on ephemeral ports, isolated PostgreSQL schem
 
 ## Stack
 
-| Layer | Tech |
-|---|---|
-| Language | Rust 2024 |
-| Web | Axum |
-| DB | PostgreSQL + SQLx |
-| Runtime | Tokio |
-| LLM | `async-openai` + dedicated 300s `reqwest` client |
-| Wire format | Protobuf (`prost`) |
-| Frontend | Astro + React + Tailwind v4 (shadcn CLI) in `frontend-astro/` |
-| Public API | `POST /api` |
+| Layer       | Tech                                                          |
+| ----------- | ------------------------------------------------------------- |
+| Language    | Rust 2024                                                     |
+| Web         | Axum                                                          |
+| DB          | PostgreSQL + SQLx                                             |
+| Runtime     | Tokio                                                         |
+| LLM         | `async-openai` + dedicated 300s `reqwest` client              |
+| Wire format | Protobuf (`prost`)                                            |
+| Frontend    | Astro + React + Tailwind v4 (shadcn CLI) in `frontend-astro/` |
+| Public API  | `POST /api`                                                   |
 
 ## License
 

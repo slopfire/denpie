@@ -486,6 +486,18 @@
             "oneof": null,
             "type": "string"
           },
+          "grounding_model": {
+            "cardinality": "singular",
+            "number": 11,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_reasoning_effort": {
+            "cardinality": "singular",
+            "number": 12,
+            "oneof": null,
+            "type": "string"
+          },
           "grounding_strategy": {
             "cardinality": "singular",
             "number": 8,
@@ -1171,6 +1183,18 @@
             "number": 7,
             "oneof": null,
             "type": "int64"
+          },
+          "grounding_model": {
+            "cardinality": "singular",
+            "number": 19,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_reasoning_effort": {
+            "cardinality": "singular",
+            "number": 20,
+            "oneof": null,
+            "type": "string"
           },
           "grounding_strategy": {
             "cardinality": "singular",
@@ -2742,6 +2766,18 @@
           "daily_update_time": {
             "cardinality": "optional",
             "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_model": {
+            "cardinality": "optional",
+            "number": 10,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_reasoning_effort": {
+            "cardinality": "optional",
+            "number": 11,
             "oneof": null,
             "type": "string"
           },

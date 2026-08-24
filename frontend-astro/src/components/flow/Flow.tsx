@@ -1239,7 +1239,7 @@ function FollowUpActions({
     return null;
 }
 
-const ReviewSlotCard = memo(function ReviewSlotCard({
+export const ReviewSlotCard = memo(function ReviewSlotCard({
     slot,
     onReview,
     onRetry,
@@ -1255,6 +1255,7 @@ const ReviewSlotCard = memo(function ReviewSlotCard({
     onPinnedDragStart,
     onPinnedDragEnd,
     flowActive = true,
+    loadDetailCard,
 }: {
     slot: ReviewSlot;
     onReview: (cardId: bigint, choice: ReviewChoice) => void;
@@ -1271,6 +1272,7 @@ const ReviewSlotCard = memo(function ReviewSlotCard({
     onPinnedDragStart: (cardId: bigint) => void;
     onPinnedDragEnd: (cardId: bigint) => void;
     flowActive?: boolean;
+    loadDetailCard?: (cardId: bigint) => Promise<FlowCardInfo>;
 }) {
     const live = isLiveReviewSlot(slot);
     const repeatable = slotIsRepeatable(slot);
@@ -1355,7 +1357,7 @@ const ReviewSlotCard = memo(function ReviewSlotCard({
                                 aria-hidden="true"
                                 data-stack-layer={layer}
                                 className={cn(
-                                    "absolute inset-0 rounded-md border border-border bg-card shadow-sm",
+                                    "absolute inset-0 rounded-xl border border-border bg-card shadow-sm",
                                     layer === 1 &&
                                         "translate-x-1 translate-y-1 opacity-85",
                                     layer === 2 &&
@@ -1363,7 +1365,7 @@ const ReviewSlotCard = memo(function ReviewSlotCard({
                                     layer === 3 &&
                                         "translate-x-3 translate-y-3 opacity-55",
                                 )}
-                                style={{ zIndex: -layer }}
+                                style={{ zIndex: stackLayers - layer }}
                             />
                         );
                     })}
@@ -1435,6 +1437,7 @@ const ReviewSlotCard = memo(function ReviewSlotCard({
                     onOpenChange={(next) => onDetailOpenChange(next)}
                     onCardChanged={setCard}
                     actions={detailActions}
+                    loadCard={loadDetailCard}
                 />
             ) : null}
         </Dialog>
@@ -2304,12 +2307,14 @@ export function Flow({ active = true }: { active?: boolean }) {
                                 >
                                     <ToggleGroupItem
                                         value="topic"
+                                        className="bg-card/70 supports-backdrop-filter:backdrop-blur-md"
                                         data-testid="flow-sort-topic"
                                     >
                                         {t("flow.sort_topic")}
                                     </ToggleGroupItem>
                                     <ToggleGroupItem
                                         value="date"
+                                        className="bg-card/70 supports-backdrop-filter:backdrop-blur-md"
                                         data-testid="flow-sort-date"
                                     >
                                         {t("flow.sort_date")}
@@ -2333,6 +2338,7 @@ export function Flow({ active = true }: { active?: boolean }) {
                                         render={
                                             <ToggleGroupItem
                                                 value="grid"
+                                                className="bg-card/70 supports-backdrop-filter:backdrop-blur-md"
                                                 aria-label={t(
                                                     "flow.grid_layout_aria",
                                                 )}
@@ -2367,6 +2373,7 @@ export function Flow({ active = true }: { active?: boolean }) {
                                 </DropdownMenu>
                                 <ToggleGroupItem
                                     value="list"
+                                    className="bg-card/70 supports-backdrop-filter:backdrop-blur-md"
                                     aria-label={t("flow.list_layout")}
                                     data-testid="flow-list-btn"
                                 >

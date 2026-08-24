@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS topics (
     icon_id TEXT,
     color_hue BIGINT,
     grounding_strategy TEXT,
+    grounding_model TEXT,
+    grounding_reasoning_effort TEXT,
     image_strategy TEXT,
     UNIQUE(user_id, name)
 );

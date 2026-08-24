@@ -79,6 +79,19 @@ describe("slotsFromCards / appendIdleSlots", () => {
     expect(slots.map((s) => (s.kind === "idle" ? s.card.id : null))).toEqual([1n, 2n]);
   });
 
+  test("initial page keeps one repeatable stack per topic", () => {
+    const slots = slotsFromCards([
+      card({ id: 1n, topicName: "English grammar", tipcardType: "repeatable_tip" }),
+      card({ id: 2n, topicName: "English grammar", tipcardType: "repeatable_tip" }),
+      card({ id: 3n, topicName: "English grammar", tipcardType: "casual_tip" }),
+      card({ id: 3n, topicName: "English grammar", tipcardType: "casual_tip" }),
+    ]);
+    expect(slots.map((slot) => (slot.kind === "idle" ? slot.card.id : null))).toEqual([
+      1n,
+      3n,
+    ]);
+  });
+
   test("load-more keeps existing slot states and appends new idle slots", () => {
     const initial = slotsFromCards([card({ id: 1n }), card({ id: 2n })]);
     const reviewing = initial.map((slot, index) =>
@@ -129,6 +142,21 @@ describe("slotsFromCards / appendIdleSlots", () => {
     expect(next.slice(0, 2)).toEqual(slots);
     expect(next).toHaveLength(3);
     expect(next[2]).toEqual({ kind: "idle", card: card({ id: 3n }) });
+  });
+
+  test("load-more does not append another repeatable stack for a topic", () => {
+    const slots = slotsFromCards([
+      card({ id: 1n, topicName: "English grammar", tipcardType: "repeatable_tip" }),
+    ]);
+    const next = appendIdleSlots(slots, [
+      card({ id: 2n, topicName: "English grammar", tipcardType: "repeatable_tip" }),
+      card({ id: 3n, topicName: "Vocabulary", tipcardType: "repeatable_tip" }),
+      card({ id: 4n, topicName: "Vocabulary", tipcardType: "repeatable_tip" }),
+    ]);
+    expect(next.map((slot) => (slot.kind === "idle" ? slot.card.id : null))).toEqual([
+      1n,
+      3n,
+    ]);
   });
 });
 

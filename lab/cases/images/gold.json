@@ -1,6 +1,7 @@
 [
   {
     "id": 270,
+    "tags": ["grammar", "diagram"],
     "topic_name": "English Grammar",
     "card_title": "Prepositions of movement",
     "card_content": "Prepositions like from, to, into, and toward describe movement direction.",
@@ -9,6 +10,7 @@
   },
   {
     "id": 286,
+    "tags": ["grammar", "diagram"],
     "topic_name": "English Grammar",
     "card_title": "Prepositions of place",
     "card_content": "Use in, on, and at for containers, surfaces, and points in space.",
@@ -17,6 +19,7 @@
   },
   {
     "id": 290,
+    "tags": ["grammar", "diagram"],
     "topic_name": "English Grammar",
     "card_title": "Adjective order",
     "card_content": "Order adjectives by opinion, size, age, shape, color, origin, material, and purpose.",
@@ -25,6 +28,7 @@
   },
   {
     "id": 45,
+    "tags": ["rust", "screenshot"],
     "topic_name": "Rust",
     "card_title": "Clippy pedantic lints",
     "card_content": "Clippy's pedantic lints flag style nits and show code-level diagnostics.",
@@ -33,6 +37,7 @@
   },
   {
     "id": 8,
+    "tags": ["helix", "screenshot", "ambiguous"],
     "topic_name": "Helix Editor",
     "card_title": "Helix modal editor",
     "card_content": "Helix is a keyboard-first modal text editor with normal and insert modes.",

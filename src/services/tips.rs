@@ -1131,11 +1131,23 @@ impl TipService {
                 .as_deref()
                 .unwrap_or(&ctx.settings.image_strategy),
         );
+        let topic_grounding_reasoning = ctx
+            .topic
+            .grounding_reasoning_effort
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(llm::ReasoningConfig::new);
         let (generation_model, generation_reasoning) =
             if matches!(grounding, domain::grounding::GroundingStrategy::Factual) {
                 (llm.model, llm.reasoning)
             } else {
-                (llm.grounding_model, llm.grounding_reasoning)
+                (
+                    topic_override(ctx.topic.grounding_model.as_deref(), llm.grounding_model),
+                    topic_grounding_reasoning
+                        .as_ref()
+                        .unwrap_or(llm.grounding_reasoning),
+                )
             };
 
         let should_promote =
@@ -1537,11 +1549,22 @@ impl TipService {
         );
         let llm_reasoning = llm::ReasoningConfig::new(settings.llm_reasoning_effort.clone());
         let grounding_reasoning = llm::ReasoningConfig::new(settings.grounding_reasoning_effort());
+        let topic_grounding_reasoning = topic
+            .grounding_reasoning_effort
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(llm::ReasoningConfig::new);
         let (generation_model, generation_reasoning) =
             if matches!(grounding, domain::grounding::GroundingStrategy::Factual) {
-                (settings.llm_model.as_str(), llm_reasoning)
+                (settings.llm_model.as_str(), &llm_reasoning)
             } else {
-                (settings.grounding_model(), grounding_reasoning)
+                (
+                    topic_override(topic.grounding_model.as_deref(), settings.grounding_model()),
+                    topic_grounding_reasoning
+                        .as_ref()
+                        .unwrap_or(&grounding_reasoning),
+                )
             };
         let compression_level = topic
             .compression_level
@@ -1582,7 +1605,7 @@ impl TipService {
                 model: generation_model,
                 api_key: &settings.llm_api_key,
                 api_base: &settings.llm_base_url,
-                reasoning: &generation_reasoning,
+                reasoning: generation_reasoning,
                 existing_titles: card_context.existing_titles(),
                 documents: &documents,
                 daily_card_count: REPEATABLE_BATCH.clamp(5, 12) as i64,
@@ -1698,9 +1721,16 @@ fn pending_needs_generation(pending_count: i64) -> bool {
     pending_count <= REFILL_LOW_WATER
 }
 
+fn topic_override<'a>(topic_value: Option<&'a str>, inherited: &'a str) -> &'a str {
+    topic_value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(inherited)
+}
+
 #[cfg(test)]
 mod generation_queue_tests {
-    use super::pending_needs_generation;
+    use super::{pending_needs_generation, topic_override};
 
     #[test]
     fn bootstraps_empty_queue_and_refills_only_at_low_water_mark() {
@@ -1710,5 +1740,15 @@ mod generation_queue_tests {
         assert!(pending_needs_generation(3));
         assert!(!pending_needs_generation(4));
         assert!(!pending_needs_generation(10));
+    }
+
+    #[test]
+    fn topic_grounding_value_inherits_when_missing_or_empty() {
+        assert_eq!(topic_override(None, "global-model"), "global-model");
+        assert_eq!(topic_override(Some("  "), "global-model"), "global-model");
+        assert_eq!(
+            topic_override(Some(" topic-model "), "global-model"),
+            "topic-model"
+        );
     }
 }

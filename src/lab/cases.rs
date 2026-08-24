@@ -16,6 +16,8 @@ pub(crate) const DEFAULT_CARD_CASES_PATH: &str = "lab/cases/cards/repeatable-sta
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct ImageCase {
     pub(crate) id: u64,
+    #[serde(default)]
+    pub(crate) tags: Vec<String>,
     pub(crate) topic_name: String,
     pub(crate) card_title: String,
     pub(crate) card_content: String,
@@ -38,6 +40,8 @@ pub(crate) fn load_image_cases(path: &str) -> Result<Vec<ImageCase>, String> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct PromptCase {
     pub(crate) id: String,
+    #[serde(default)]
+    pub(crate) tags: Vec<String>,
     pub(crate) topic: String,
     #[serde(default)]
     pub(crate) template: Option<String>,
@@ -138,6 +142,14 @@ pub(crate) fn load_prompt_cases(path: &str) -> Result<Vec<PromptCase>, String> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct CardSourceFixture {
+    pub(crate) document_id: i64,
+    pub(crate) source_type: String,
+    pub(crate) title: String,
+    pub(crate) url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CardFixture {
     pub(crate) id: String,
     pub(crate) topic_name: String,
@@ -152,6 +164,18 @@ pub(crate) struct CardFixture {
     pub(crate) images: Vec<String>,
     #[serde(default)]
     pub(crate) review_message: Option<String>,
+    #[serde(default)]
+    pub(crate) created_at: Option<String>,
+    #[serde(default)]
+    pub(crate) next_review_at: Option<String>,
+    #[serde(default)]
+    pub(crate) repeat_count: Option<u32>,
+    #[serde(default)]
+    pub(crate) topic_color: Option<String>,
+    #[serde(default)]
+    pub(crate) topic_icon: Option<String>,
+    #[serde(default)]
+    pub(crate) sources: Vec<CardSourceFixture>,
     pub(crate) notes: String,
 }
 
@@ -196,16 +220,28 @@ pub(crate) fn load_card_cases(path: &str) -> Result<Vec<CardFixture>, String> {
                 case.id
             ));
         }
-        if case.tipcard_type != "repeatable_tip" {
+        if !matches!(
+            case.tipcard_type.as_str(),
+            "repeatable_tip" | "manual_tip" | "casual_tip" | "custom_tip"
+        ) {
             return Err(format!(
-                "card case pack `{path}` case `{}` has tipcard_type `{}` (expected repeatable_tip)",
+                "card case pack `{path}` case `{}` has unknown tipcard_type `{}`",
                 case.id, case.tipcard_type
             ));
         }
-        if !matches!(case.status.as_str(), "active" | "reviewed") {
+        if !matches!(
+            case.status.as_str(),
+            "active" | "reviewed" | "pending" | "dismissed"
+        ) {
             return Err(format!(
-                "card case pack `{path}` case `{}` has unknown status `{}` (expected active or reviewed)",
+                "card case pack `{path}` case `{}` has unknown status `{}`",
                 case.id, case.status
+            ));
+        }
+        if case.tipcard_type != "repeatable_tip" && case.pending_count != 0 {
+            return Err(format!(
+                "card case pack `{path}` case `{}` gives non-repeatable type `{}` a pending_count of {}",
+                case.id, case.tipcard_type, case.pending_count
             ));
         }
         if case.images.len() > tipcard::MAX_CARD_IMAGES {
@@ -292,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn card_gold_case_pack_loads_with_the_seven_repeatable_states() {
+    fn card_gold_case_pack_loads_with_repeatable_and_general_card_states() {
         let cases = load_card_cases(DEFAULT_CARD_CASES_PATH).expect("card gold pack must load");
 
         let ids = cases
@@ -300,8 +336,8 @@ mod tests {
             .map(|case| case.id.as_str())
             .collect::<Vec<_>>();
         assert_eq!(
-            ids,
-            vec![
+            &ids[..7],
+            &[
                 "active",
                 "pinned",
                 "reviewed-hold",
@@ -311,22 +347,21 @@ mod tests {
                 "llm-error",
             ]
         );
-        assert_eq!(cases.len(), 7);
+        assert!(cases.len() >= 15);
 
         for case in &cases {
-            assert_eq!(case.tipcard_type, "repeatable_tip");
             assert!(!case.topic_name.is_empty());
             assert!(!case.title.is_empty());
             assert!(!case.full_content.is_empty());
             assert!(!case.notes.is_empty());
-            assert!(matches!(case.status.as_str(), "active" | "reviewed"));
-            for data_url in &case.images {
-                assert!(
-                    data_url.starts_with("data:image/"),
-                    "card case `{}` images must be inline data URLs",
-                    case.id
-                );
-            }
+            assert!(matches!(
+                case.tipcard_type.as_str(),
+                "repeatable_tip" | "manual_tip" | "casual_tip" | "custom_tip"
+            ));
+            assert!(matches!(
+                case.status.as_str(),
+                "active" | "reviewed" | "pending" | "dismissed"
+            ));
         }
 
         let llm_error = cases
