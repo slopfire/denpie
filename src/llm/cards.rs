@@ -18,6 +18,22 @@ Each card should be practical, specific, and worth saving:
 
 Keep each card focused. Markdown is allowed. Avoid filler, hype, and invented facts.";
 
+/// Topic override, then the user template, then the built-in default.
+/// Blank and whitespace-only values are treated as missing.
+pub fn effective_prompt_template<'a>(
+    topic_override: Option<&'a str>,
+    user_template: &'a str,
+) -> &'a str {
+    topic_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            let value = user_template.trim();
+            (!value.is_empty()).then_some(value)
+        })
+        .unwrap_or(DEFAULT_PROMPT_TEMPLATE)
+}
+
 const MIN_COMPRESS_CHARS: usize = 420;
 const MIN_COMPRESS_WORDS: usize = 70;
 pub const DEFAULT_COMPRESSION_LEVEL: &str = "strong";
@@ -689,9 +705,10 @@ mod tests {
 
     use super::{
         ARRAY_FORMAT_INSTRUCTIONS, DEFAULT_PROMPT_TEMPLATE, ONE_SHOT_FORMAT_INSTRUCTIONS,
-        ParsedGeneratedCard, assemble_array_prompt, assemble_one_shot_prompt, extract_json_object,
-        fallback_title, normalize_image_decision, parse_card_array, parse_generated_card_response,
-        should_keep_full_card, strip_markdown_fences,
+        ParsedGeneratedCard, assemble_array_prompt, assemble_one_shot_prompt,
+        effective_prompt_template, extract_json_object, fallback_title, normalize_image_decision,
+        parse_card_array, parse_generated_card_response, should_keep_full_card,
+        strip_markdown_fences,
     };
 
     #[test]
@@ -719,6 +736,23 @@ mod tests {
         assert!(DEFAULT_PROMPT_TEMPLATE.contains("tip cards"));
         assert!(!DEFAULT_PROMPT_TEMPLATE.contains("Write one"));
         assert!(!DEFAULT_PROMPT_TEMPLATE.contains("180-260"));
+    }
+
+    #[test]
+    fn empty_prompt_falls_back_to_default() {
+        assert_eq!(effective_prompt_template(None, ""), DEFAULT_PROMPT_TEMPLATE);
+        assert_eq!(
+            effective_prompt_template(Some("  "), " \n"),
+            DEFAULT_PROMPT_TEMPLATE
+        );
+        assert_eq!(
+            effective_prompt_template(None, "Write about {topic}."),
+            "Write about {topic}."
+        );
+        assert_eq!(
+            effective_prompt_template(Some("Topic {topic} only."), "Write about {topic}."),
+            "Topic {topic} only."
+        );
     }
 
     #[test]

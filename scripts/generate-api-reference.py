@@ -202,8 +202,9 @@ The API currently exposes **{len(operations)} operations**: **{reads} reads** an
   for the same credential, idempotency key, and exact operation payload.
 - Successful key creation is deliberately not replayable because Denpie never
   persists raw generated credentials in the idempotency store.
-- `explore_link` and `test_vision_model` are classified as reads for transport
-  idempotency even though they may perform external I/O.
+- `explore_link`, `test_vision_model`, and `enhance_prompt_template` are
+  classified as reads for transport idempotency even though they may perform
+  external I/O.
 """
 
 

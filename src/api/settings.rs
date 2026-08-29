@@ -1,4 +1,7 @@
-use crate::{AppState, auth::AuthUser, config::SettingsPatch, services::settings::SettingsService};
+use crate::{
+    AppState, auth::AuthUser, config::SettingsPatch,
+    services::prompt_enhance::PromptEnhanceService, services::settings::SettingsService,
+};
 
 use super::{pb, types::ApiResult};
 
@@ -72,6 +75,24 @@ pub(crate) async fn current_settings(
         },
         search_base_url: settings.search_base_url,
         image_sources: settings.image_sources,
+    })
+}
+
+pub(crate) async fn enhance_prompt_template(
+    state: &AppState,
+    user_id: &str,
+    topic_id: i64,
+) -> ApiResult<pb::EnhancePromptTemplateResult> {
+    let suggestion = PromptEnhanceService::suggest(state, user_id, topic_id)
+        .await
+        .map_err(|err| err.into_status_body())?;
+    Ok(pb::EnhancePromptTemplateResult {
+        prompt_template: suggestion.prompt_template,
+        grounding_strategy: suggestion.grounding_strategy,
+        grounding_model: suggestion.grounding_model,
+        grounding_reasoning_effort: suggestion.grounding_reasoning_effort,
+        image_strategy: suggestion.image_strategy,
+        rationale: suggestion.rationale,
     })
 }
 

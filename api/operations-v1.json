@@ -43,7 +43,8 @@
     "create_api_key_v1": "api_key_created",
     "review_and_advance": "review_and_advance",
     "append_tipcard_images": "ok",
-    "replace_tipcard_images": "ok"
+    "replace_tipcard_images": "ok",
+    "enhance_prompt_template": "enhance_prompt_template"
   },
   "operations": [
     {
@@ -432,6 +433,15 @@
       "scope": "cards:write",
       "kind": "mutation",
       "summary": "Replace an owned tipcard's images with validated uploads; an empty list clears them."
+    },
+    {
+      "operation": "enhance_prompt_template",
+      "request": "EnhancePromptTemplateRequest",
+      "result": "EnhancePromptTemplateResult",
+      "auth": "Bearer API key",
+      "scope": "settings:read",
+      "kind": "read",
+      "summary": "Inspect generated-card history and suggest a stronger prompt template plus optional grounding changes. Does not persist."
     }
   ]
 }

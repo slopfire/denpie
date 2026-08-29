@@ -1178,13 +1178,8 @@ impl TipService {
             return Ok(0);
         }
 
-        let template = ctx
-            .topic
-            .prompt_template
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or(template);
+        let template =
+            llm::effective_prompt_template(ctx.topic.prompt_template.as_deref(), template);
         let card_context = context::load_card_context(
             ctx.state,
             ctx.user_id,
@@ -1573,12 +1568,10 @@ impl TipService {
             .unwrap_or_else(|| {
                 llm::CompressionLevel::from_setting(&settings.llm_compression_level)
             });
-        let template = topic
-            .prompt_template
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or(&settings.prompt_template);
+        let template = llm::effective_prompt_template(
+            topic.prompt_template.as_deref(),
+            &settings.prompt_template,
+        );
 
         let card_context = context::load_card_context(state, user_id, topic_id, tipcard_type)
             .await

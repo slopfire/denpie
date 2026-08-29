@@ -39,6 +39,7 @@ ApiRequest {
 | `tips` | `tips` | Due cards, current daily cards, new cards after refresh, or `manual_tip` |
 | `review` | `ok` | Grade or queue action |
 | `get_settings` / `update_settings` | `settings` / `ok` | LLM, prompt, appearance, admin-only instance/autoupdate settings (`update` is partial) |
+| `enhance_prompt_template` | `enhance_prompt_template` | Suggested prompt and grounding from generated-card history; does not persist |
 | `force_daily_refresh` | `force_daily_refresh` | For an explicit topic, atomically make an eligible card available; for an empty topic list, refill generated-topic queues at their eligible low-water mark |
 
 `ForceDailyRefreshResponse.outcome` distinguishes `CARD_AVAILABLE`,

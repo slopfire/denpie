@@ -15,6 +15,10 @@ rules that are easy to miss when reading field declarations alone.
   and credential fields in `Settings` are empty unless the caller also has
   `secrets:read`.
 - An empty response is `ApiResponse.ok`, not a missing `result` oneof.
+- `EnhancePromptTemplateResult` grounding fields that are empty mean "leave
+  the current setting unchanged". `prompt_template` is always filled and always
+  contains `{topic}`. The operation does not persist; copy the values into
+  `update_settings` or `update_topic`.
 
 ## Identifiers and numbers
 

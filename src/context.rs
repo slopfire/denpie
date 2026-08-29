@@ -52,6 +52,31 @@ impl CardContext {
         &self.existing_titles
     }
 
+    pub fn known_count(&self) -> usize {
+        self.known_items.len()
+    }
+
+    pub fn hard_count(&self) -> usize {
+        self.difficult_items.len()
+    }
+
+    pub fn skip_count(&self) -> usize {
+        self.uninterested_items.len() + self.dismissed_titles.len()
+    }
+
+    pub(crate) fn from_title_records(
+        rows: impl IntoIterator<Item = tipcards::CardContextTitleRecord>,
+    ) -> Self {
+        let mut context = Self::default();
+        for row in rows {
+            if row.feedback == "superseded" {
+                continue;
+            }
+            ingest_title(&mut context, &row.title, &row.status, &row.feedback);
+        }
+        context
+    }
+
     pub fn render_all(&self) -> String {
         let lines = self.labeled_title_lines();
         if lines.is_empty() {
@@ -133,15 +158,7 @@ pub async fn load_card_context(
     .await
     .map_err(|err| err.into_status_body())?;
 
-    let mut context = CardContext::default();
-    for row in rows {
-        if row.feedback == "superseded" {
-            continue;
-        }
-        ingest_title(&mut context, &row.title, &row.status, &row.feedback);
-    }
-
-    Ok(context)
+    Ok(CardContext::from_title_records(rows))
 }
 
 pub fn render_generation_prompt(topic: &str, template: &str, context: &CardContext) -> String {

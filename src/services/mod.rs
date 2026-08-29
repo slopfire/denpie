@@ -2,6 +2,7 @@ pub mod api_keys;
 pub mod autoupdate;
 pub mod documents;
 pub mod image_enrichment;
+pub mod prompt_enhance;
 pub mod review;
 pub mod settings;
 pub mod tipcards;

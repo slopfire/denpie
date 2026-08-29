@@ -133,7 +133,7 @@ Grounding/image strategies log stage progress at `info`. LLM transport detail is
 
 Empty grounding-agent fields inherit default LLM settings.
 
-Generated-card prompts include a single compact list of existing **titles**: up to 24 recent unlabeled titles, plus any `known` / `hard` / `skip` titles from the last 80 cards. Each title appears once, with an inline review label when there is feedback. Card bodies are not sent. The default prompt template is batch-agnostic (`Write useful daily tip cards about {topic}`) so agentic/RAG wrappers do not stack a second “write one 180–260 word tip” brief.
+Generated-card prompts include a single compact list of existing **titles**: up to 24 recent unlabeled titles, plus any `known` / `hard` / `skip` titles from the last 80 cards. Each title appears once, with an inline review label when there is feedback. Card bodies are not sent. The default prompt template is batch-agnostic (`Write useful daily tip cards about {topic}`) so agentic/RAG wrappers do not stack a second “write one 180–260 word tip” brief. An empty topic prompt uses the user template; an empty user template uses that built-in default. Settings and the topic editor can reset a template by pasting the current prompt (built-in default, or the global settings template on a topic) and run **Enhance**, which reads that title history and fills a suggested prompt plus optional grounding changes. Save still applies them.
 
 **Image modes:** No Images · Local Image Pool · Bing Images (HTML) · Bing Images (Playwright) · DDGS + Open Graph.
 

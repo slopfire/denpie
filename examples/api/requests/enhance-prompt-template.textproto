@@ -1,0 +1,6 @@
+request_id: "curl-enhance-prompt-template"
+call {
+  enhance_prompt_template {
+    topic_id: 0
+  }
+}

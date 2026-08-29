@@ -61,6 +61,7 @@ Put returned `sk_live_*` in `ApiRequest.auth` for every later call.
 | Call | Use it for |
 |---|---|
 | `get_settings` / `update_settings` | LLM + runtime config |
+| `enhance_prompt_template` | Suggested prompt + grounding from generated-card history (does not save) |
 | `create_api_key` / `list_api_keys` / `delete_api_key` | Key management |
 | `tips` | Due cards, current daily cards, or cards after window rollover; repeatable topics stop at their per-topic daily limit |
 | `force_daily_refresh` | Empty topics refill all generated queues. An explicit topic atomically makes one eligible card available and reports a structured outcome; use `available_cards` instead of inferring availability from `refreshed_cards`. |

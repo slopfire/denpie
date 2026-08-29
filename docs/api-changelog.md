@@ -3,6 +3,13 @@
 This log records consumer-visible changes to the versioned public API. Entries
 describe wire behavior rather than dashboard internals.
 
+## 2026-08-24 — Prompt template enhancement
+
+- Added read-only `enhance_prompt_template`. `topic_id` 0 inspects the global
+  prompt and recent cards across topics; a positive id inspects that topic.
+  The result is a suggested template plus optional grounding changes. It does
+  not persist. Empty grounding fields mean leave the current value unchanged.
+
 ## 2026-08-24 - Per-topic grounding model overrides
 
 - `AdminTopic` and `AppTopicInfo` now expose optional per-topic grounding model

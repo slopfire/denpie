@@ -96,6 +96,7 @@ message ApiRequest {
         ReviewAndAdvanceRequest review_and_advance = 43;
         AppendTipcardImagesRequest append_tipcard_images = 44;
         ReplaceTipcardImagesRequest replace_tipcard_images = 45;
+        EnhancePromptTemplateRequest enhance_prompt_template = 46;
     }
 }
 
@@ -124,6 +125,7 @@ message ApiResponse {
         DocumentDetail document_created = 22;
         PoolImageCreated pool_image_created = 23;
         ReviewAndAdvanceResponse review_and_advance = 24;
+        EnhancePromptTemplateResult enhance_prompt_template = 25;
     }
 }
 
@@ -540,6 +542,25 @@ message VisionModelTest {
     bool ok = 1;
     string model = 2;
     string message = 3;
+}
+
+// 0 topic_id inspects the user's global prompt and recent cards across topics.
+// A positive id inspects that topic's override and its own generated-card history.
+message EnhancePromptTemplateRequest {
+    int64 topic_id = 1;
+}
+
+// Suggested prompt and grounding values. Empty grounding fields mean "leave
+// the current setting unchanged". The prompt_template is always filled and
+// always contains the {topic} placeholder. This result does not persist;
+// clients copy it into a draft and save with update_settings or update_topic.
+message EnhancePromptTemplateResult {
+    string prompt_template = 1;
+    string grounding_strategy = 2;
+    string grounding_model = 3;
+    string grounding_reasoning_effort = 4;
+    string image_strategy = 5;
+    string rationale = 6;
 }
 
 enum TipcardTypeValue {

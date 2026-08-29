@@ -12,7 +12,9 @@ mod pending;
 mod queue;
 mod writes;
 
-pub use context_titles::list_context_titles;
+pub use context_titles::{
+    list_context_titles, list_history_titles_for_topic, list_history_titles_for_user,
+};
 pub use daily_allowances::{
     add_extra_cards, extra_cards_in_window, promote_pending_within_daily_limits,
 };

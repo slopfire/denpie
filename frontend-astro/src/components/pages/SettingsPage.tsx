@@ -3,6 +3,7 @@ import {
     CheckCircle2Icon,
     CircleAlertIcon,
     LoaderCircleIcon,
+    RotateCcwIcon,
     SaveIcon,
     SparklesIcon,
 } from "lucide-react";
@@ -37,6 +38,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { newIdempotencyKey } from "@/lib/api-v1/transport";
 import { t, tf } from "@/lib/i18n";
 import {
+    enhancePromptTemplate,
     getSettings,
     testVisionModel,
     updateSettings,
@@ -50,6 +52,10 @@ import {
 import { useToast } from "@/islands/toast-context";
 import { useViewRefresh } from "@/islands/use-view-refresh";
 import type { MessageKey } from "@/lib/i18n";
+import {
+    applyPromptSuggestionToSettings,
+    resetSettingsPrompt,
+} from "@/lib/pages/prompt-template";
 import {
     hasSettingsPatch,
     settingsDraft,
@@ -208,6 +214,8 @@ export function SettingsPage({
     const [visionFeedback, setVisionFeedback] = useState<Feedback>({
         kind: "idle",
     });
+    const [enhancingPrompt, setEnhancingPrompt] = useState(false);
+    const [promptRationale, setPromptRationale] = useState("");
 
     const loadSettings = useCallback(async () => {
         setFeedback({ kind: "loading", message: t("settings.loading") });
@@ -307,6 +315,36 @@ export function SettingsPage({
             setFeedback({ kind: "error", message: errorMessage(error) });
         }
     }, [baseline, draft]);
+
+    const resetPrompt = useCallback(() => {
+        dirtyRef.current = true;
+        setDraft((current) =>
+            current === null ? current : resetSettingsPrompt(current),
+        );
+        setPromptRationale("");
+        if (feedback.kind === "success" || feedback.kind === "error") {
+            setFeedback({ kind: "idle" });
+        }
+    }, [feedback.kind]);
+
+    const enhancePrompt = useCallback(async () => {
+        setEnhancingPrompt(true);
+        try {
+            const { suggestion } = await enhancePromptTemplate({ topicId: 0n });
+            dirtyRef.current = true;
+            setDraft((current) =>
+                current === null
+                    ? current
+                    : applyPromptSuggestionToSettings(current, suggestion),
+            );
+            setPromptRationale(suggestion.rationale);
+            toast.show(t("settings.models.prompt_enhanced"), "success");
+        } catch (error) {
+            toast.show(errorMessage(error), "error");
+        } finally {
+            setEnhancingPrompt(false);
+        }
+    }, [toast]);
 
     const testVision = useCallback(async () => {
         setVisionFeedback({
@@ -517,9 +555,49 @@ export function SettingsPage({
                                     />
                                 </div>
                                 <Field>
-                                    <FieldLabel htmlFor="settings-template">
-                                        {t("settings.models.prompt_template")}
-                                    </FieldLabel>
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                        <FieldLabel htmlFor="settings-template">
+                                            {t(
+                                                "settings.models.prompt_template",
+                                            )}
+                                        </FieldLabel>
+                                        <div className="flex gap-2">
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                disabled={
+                                                    saving || enhancingPrompt
+                                                }
+                                                onClick={resetPrompt}
+                                                data-testid="settings-prompt-reset"
+                                            >
+                                                <RotateCcwIcon data-icon="inline-start" />
+                                                {t("common.reset")}
+                                            </Button>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                disabled={
+                                                    saving || enhancingPrompt
+                                                }
+                                                onClick={() =>
+                                                    void enhancePrompt()
+                                                }
+                                                data-testid="settings-prompt-enhance"
+                                            >
+                                                {enhancingPrompt ? (
+                                                    <Spinner data-icon="inline-start" />
+                                                ) : (
+                                                    <SparklesIcon data-icon="inline-start" />
+                                                )}
+                                                {enhancingPrompt
+                                                    ? t("common.enhancing")
+                                                    : t("common.enhance")}
+                                            </Button>
+                                        </div>
+                                    </div>
                                     <Textarea
                                         id="settings-template"
                                         value={draft.template}
@@ -531,6 +609,12 @@ export function SettingsPage({
                                             )
                                         }
                                     />
+                                    <FieldDescription>
+                                        {promptRationale ||
+                                            t(
+                                                "settings.models.prompt_description",
+                                            )}
+                                    </FieldDescription>
                                 </Field>
                                 <div className="grid gap-4 md:grid-cols-2">
                                     <Field>

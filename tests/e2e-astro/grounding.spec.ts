@@ -12,7 +12,9 @@ import {
     AppTopicInfoSchema,
     AppTopicsSchema,
     DocumentsSchema,
+    EnhancePromptTemplateResultSchema,
     PoolImagesSchema,
+    SettingsSchema,
     type ApiResponse,
     type ApiV1Request,
 } from "../../frontend-astro/src/generated/denpie_pb";
@@ -106,6 +108,21 @@ async function installGroundingFixture(page: import("@playwright/test").Page) {
                     }),
                 );
                 return;
+            case "getSettings":
+                await fulfill(
+                    route,
+                    request,
+                    create(ApiResponseSchema, {
+                        result: {
+                            case: "settings",
+                            value: create(SettingsSchema, {
+                                template:
+                                    "Write useful daily tip cards about {topic}.",
+                            }),
+                        },
+                    }),
+                );
+                return;
             case "listDocuments":
                 await fulfill(
                     route,
@@ -126,6 +143,24 @@ async function installGroundingFixture(page: import("@playwright/test").Page) {
                         result: {
                             case: "poolImages",
                             value: create(PoolImagesSchema, { images: [] }),
+                        },
+                    }),
+                );
+                return;
+            case "enhancePromptTemplate":
+                await fulfill(
+                    route,
+                    request,
+                    create(ApiResponseSchema, {
+                        result: {
+                            case: "enhancePromptTemplate",
+                            value: create(EnhancePromptTemplateResultSchema, {
+                                promptTemplate:
+                                    "Write useful daily tip cards about {topic}. Go deeper than known titles.",
+                                groundingStrategy: "agentic",
+                                rationale:
+                                    "Looked at recent titles: known cards should not be repeated.",
+                            }),
                         },
                     }),
                 );
@@ -213,4 +248,25 @@ test("topic cards match the compact layout and the icon picker can set an icon",
         page.getByRole("status").filter({ hasText: "Topic icon updated" }),
     ).toBeVisible();
     expect(setBodies).toEqual([{ id: 11, icon_id: "lucide:flame" }]);
+});
+
+test("topic editor can reset and enhance the prompt template", async ({
+    page,
+}) => {
+    await installGroundingFixture(page);
+    await page.goto("/grounding");
+    await page.getByTestId("topic-edit-11").click();
+    const editor = page.getByTestId("topic-editor");
+    await expect(editor).toBeVisible();
+    const prompt = editor.locator("#topic-prompt");
+    await prompt.fill("Custom {topic} brief");
+    await editor.getByTestId("topic-prompt-reset").click();
+    await expect(prompt).toHaveValue(
+        "Write useful daily tip cards about {topic}.",
+    );
+    await editor.getByTestId("topic-prompt-enhance").click();
+    await expect(prompt).toHaveValue(
+        "Write useful daily tip cards about {topic}. Go deeper than known titles.",
+    );
+    await expect(editor.getByText("known cards should not be repeated")).toBeVisible();
 });

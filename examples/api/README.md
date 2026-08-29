@@ -22,6 +22,13 @@ DENPIE_API_KEY='sk_live_...' \
   examples/api/curl/call.sh examples/api/requests/list-flow-cards.textproto
 ```
 
+Suggest a prompt from generated-card history (`topic_id` 0 is the global template):
+
+```bash
+DENPIE_API_KEY='sk_live_...' \
+  examples/api/curl/call.sh examples/api/requests/enhance-prompt-template.textproto
+```
+
 For the mutation fixture, replace its demonstration idempotency key when you
 intend a new logical create. Re-running the unchanged fixture safely replays the
 original result.

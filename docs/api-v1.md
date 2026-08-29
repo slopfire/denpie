@@ -190,6 +190,9 @@ ApiV1Request {
   path.
 - `get_document`, `explore_link`, `continue_daily_review`, and
   `test_vision_model` close the previous browser-only gaps.
+- `enhance_prompt_template` inspects generated-card titles and review labels
+  and returns a suggested prompt plus optional grounding changes. It does not
+  write settings or topic overrides.
 - `continue_daily_review` returns `active_card_id` for the exact repeatable card
   prepared for its single topic plus its `pending_count`, allowing clients to
   preserve the existing visual slot and queue depth while fetching replacement

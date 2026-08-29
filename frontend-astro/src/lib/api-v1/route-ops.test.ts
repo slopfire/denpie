@@ -8,6 +8,7 @@ import {
     AppSummarySchema,
     DocumentDetailSchema,
     EmptySchema,
+    EnhancePromptTemplateResultSchema,
     SettingsSchema,
     TipcardInfoSchema,
     TipcardsSchema,
@@ -19,6 +20,7 @@ import {
     createApiKey,
     createDocument,
     deleteApiKey,
+    enhancePromptTemplate,
     getSettings,
     getSummary,
     listTipcards,
@@ -60,6 +62,38 @@ function fakeDeps(reply: () => Response): CallDeps & {
 }
 
 describe("route operation wrappers", () => {
+    test("enhancePromptTemplate sends the topic id and maps the suggestion", async () => {
+        const deps = fakeDeps(() =>
+            success({
+                case: "enhancePromptTemplate",
+                value: create(EnhancePromptTemplateResultSchema, {
+                    promptTemplate: "Write useful daily tip cards about {topic}.",
+                    groundingStrategy: "agentic",
+                    rationale: "too many skip titles",
+                }),
+            }),
+        );
+
+        const result = await enhancePromptTemplate({
+            topicId: 11n,
+            deps,
+        });
+
+        expect(deps.requests[0]!.call.op.case).toBe("enhancePromptTemplate");
+        if (deps.requests[0]!.call.op.case === "enhancePromptTemplate") {
+            expect(deps.requests[0]!.call.op.value.topicId).toBe(11n);
+        }
+        expect(result.suggestion.groundingStrategy).toBe("agentic");
+        expect(result.suggestion.rationale).toBe("too many skip titles");
+        await expect(
+            enhancePromptTemplate({
+                deps: fakeDeps(() => success()),
+            }),
+        ).rejects.toThrow(
+            /enhance_prompt_template returned unexpected result case/,
+        );
+    });
+
     test("getSettings decodes the exact result and preserves uint64 bigint", async () => {
         const maxActiveCards = 9_007_199_254_740_993n;
         const deps = fakeDeps(() =>

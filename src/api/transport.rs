@@ -26,7 +26,7 @@ use super::{
     pb, resources,
     response::{empty_response, protobuf_response, protobuf_response_with_status, tip_to_pb},
     reviews::apply_review,
-    settings::{current_settings, update_settings_file},
+    settings::{current_settings, enhance_prompt_template, update_settings_file},
     tipcards::{
         append_tipcard_images, delete_tipcard_by_id, set_tipcard_images, set_tipcard_pinned,
     },
@@ -536,7 +536,8 @@ fn mutation_policy(op: &pb::api_request::Op) -> MutationPolicy {
         | pb::api_request::Op::GetTipcard(_)
         | pb::api_request::Op::GetDocument(_)
         | pb::api_request::Op::ExploreLink(_)
-        | pb::api_request::Op::TestVisionModel(_) => MutationPolicy::ReadOnly,
+        | pb::api_request::Op::TestVisionModel(_)
+        | pb::api_request::Op::EnhancePromptTemplate(_) => MutationPolicy::ReadOnly,
         pb::api_request::Op::BootstrapApiKey(_)
         | pb::api_request::Op::CreateApiKey(_)
         | pb::api_request::Op::CreateApiKeyV1(_) => MutationPolicy::OneTimeSecret,
@@ -1152,6 +1153,19 @@ async fn handle_authenticated_op(
                 resources::test_vision_model(state, &user.id).await?,
             )),
         }),
+        pb::api_request::Op::EnhancePromptTemplate(req) => {
+            if req.topic_id < 0 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "topic_id must be 0 (global) or a positive topic id".to_string(),
+                ));
+            }
+            Ok(pb::ApiResponse {
+                result: Some(pb::api_response::Result::EnhancePromptTemplate(
+                    enhance_prompt_template(state, &user.id, req.topic_id).await?,
+                )),
+            })
+        }
         pb::api_request::Op::BootstrapApiKey(_) | pb::api_request::Op::GetApiInfo(_) => {
             unreachable!()
         }
@@ -1263,7 +1277,9 @@ fn required_scope(op: &pb::api_request::Op) -> &'static str {
         | pb::api_request::Op::AppendTipcardImages(_)
         | pb::api_request::Op::ReplaceTipcardImages(_) => "cards:write",
         pb::api_request::Op::UpdateTopic(_) | pb::api_request::Op::DeleteTopic(_) => "topics:write",
-        pb::api_request::Op::GetSettings(_) => "settings:read",
+        pb::api_request::Op::GetSettings(_) | pb::api_request::Op::EnhancePromptTemplate(_) => {
+            "settings:read"
+        }
         pb::api_request::Op::UpdateSettings(_) => "settings:write",
         pb::api_request::Op::CreateApiKey(_)
         | pb::api_request::Op::CreateApiKeyV1(_)
@@ -1333,6 +1349,7 @@ fn api_op_name(op: &pb::api_request::Op) -> &'static str {
         pb::api_request::Op::ReviewV1(_) => "review_v1",
         pb::api_request::Op::ReviewAndAdvance(_) => "review_and_advance",
         pb::api_request::Op::CreateApiKeyV1(_) => "create_api_key_v1",
+        pb::api_request::Op::EnhancePromptTemplate(_) => "enhance_prompt_template",
     }
 }
 

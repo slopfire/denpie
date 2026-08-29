@@ -10,6 +10,7 @@ import {
     CreateApiKeyRequestSchema,
     DeleteByIdRequestSchema,
     EmptySchema,
+    EnhancePromptTemplateRequestSchema,
     ExploreLinkRequestSchema,
     ForceDailyRefreshRequestSchema,
     GetByIdRequestSchema,
@@ -27,6 +28,7 @@ import type {
     AppTopicInfo,
     DocumentDetail,
     Documents,
+    EnhancePromptTemplateResult,
     ForceDailyRefreshResponse,
     ExploredLinks,
     PoolImageCreated,
@@ -524,6 +526,32 @@ export async function exploreLink({
         throw unexpectedResult("explore_link", response);
     }
     return { requestId, links: response.result.value.links };
+}
+
+export interface EnhancePromptTemplateOptions {
+    topicId?: bigint;
+    deps?: CallDeps;
+}
+
+export async function enhancePromptTemplate({
+    topicId = 0n,
+    deps = {},
+}: EnhancePromptTemplateOptions = {}): Promise<{
+    requestId: string;
+    suggestion: EnhancePromptTemplateResult;
+}> {
+    const { requestId, response } = await readOperation(
+        {
+            case: "enhancePromptTemplate",
+            value: create(EnhancePromptTemplateRequestSchema, { topicId }),
+        },
+        "prompt",
+        deps,
+    );
+    if (response.result.case !== "enhancePromptTemplate") {
+        throw unexpectedResult("enhance_prompt_template", response);
+    }
+    return { requestId, suggestion: response.result.value };
 }
 
 export async function testVisionModel({ deps = {} }: ReadDeps = {}): Promise<{

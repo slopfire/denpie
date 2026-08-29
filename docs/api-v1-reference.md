@@ -5,7 +5,7 @@ and checked against `ApiRequest.op` and `ApiResponse.result` in
 [`proto/denpie.proto`](../proto/denpie.proto). Do not edit it by hand; run
 `just api-reference` after changing the manifest or protobuf operation set.
 
-The API currently exposes **43 operations**: **15 reads** and
+The API currently exposes **44 operations**: **16 reads** and
 **28 mutations**. Every mutation requires an idempotency key. See the
 [API v1 guide](api-v1.md) for transport behavior and the
 [field semantics](api-v1-semantics.md) for representation details.
@@ -55,6 +55,7 @@ The API currently exposes **43 operations**: **15 reads** and
 | `review_and_advance` | `ReviewAndAdvanceRequest` | `review_and_advance` (`ReviewAndAdvanceResponse`) | Bearer API key | `reviews:write` | mutation | required; replayable | Atomically review one card and return the next occupant of that repeatable topic slot (promoted pending card or already-due sibling). |
 | `append_tipcard_images` | `AppendTipcardImagesRequest` | `ok` (`Empty`) | Bearer API key | `cards:write` | mutation | required; replayable | Append validated uploads, owned pool images, or safe remote images to an owned tipcard. |
 | `replace_tipcard_images` | `ReplaceTipcardImagesRequest` | `ok` (`Empty`) | Bearer API key | `cards:write` | mutation | required; replayable | Replace an owned tipcard's images with validated uploads; an empty list clears them. |
+| `enhance_prompt_template` | `EnhancePromptTemplateRequest` | `enhance_prompt_template` (`EnhancePromptTemplateResult`) | Bearer API key | `settings:read` | read | not required | Inspect generated-card history and suggest a stronger prompt template plus optional grounding changes. Does not persist. |
 
 ## Interpreting the table
 
@@ -66,5 +67,6 @@ The API currently exposes **43 operations**: **15 reads** and
   for the same credential, idempotency key, and exact operation payload.
 - Successful key creation is deliberately not replayable because Denpie never
   persists raw generated credentials in the idempotency store.
-- `explore_link` and `test_vision_model` are classified as reads for transport
-  idempotency even though they may perform external I/O.
+- `explore_link`, `test_vision_model`, and `enhance_prompt_template` are
+  classified as reads for transport idempotency even though they may perform
+  external I/O.

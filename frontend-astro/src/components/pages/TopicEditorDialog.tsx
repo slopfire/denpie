@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { RotateCcwIcon, SparklesIcon } from "lucide-react";
 import type { AppTopicInfo } from "@/generated/denpie_pb";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,7 +10,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
     Select,
@@ -18,6 +19,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { t, tf } from "@/lib/i18n";
 import {
@@ -27,8 +29,16 @@ import {
     topicEditorPatch,
     type TopicEditorDraft,
 } from "@/lib/pages/topic-editor";
+import {
+    applyPromptSuggestionToTopic,
+    resetTopicPrompt,
+} from "@/lib/pages/prompt-template";
 import { tipTypeLabel } from "@/lib/tip-type";
-import { updateTopic } from "@/lib/api-v1/route-ops";
+import {
+    enhancePromptTemplate,
+    getSettings,
+    updateTopic,
+} from "@/lib/api-v1/route-ops";
 import { newIdempotencyKey } from "@/lib/api-v1/transport";
 import { useToast } from "@/islands/toast-context";
 
@@ -154,6 +164,8 @@ export function TopicEditorDialog({
     const toast = useToast();
     const [draft, setDraft] = useState<TopicEditorDraft | null>(null);
     const [saving, setSaving] = useState(false);
+    const [enhancing, setEnhancing] = useState(false);
+    const [promptRationale, setPromptRationale] = useState("");
     const open = topic !== null;
     const shown = topic === null ? null : (draft ?? topicEditorDraft(topic));
 
@@ -166,6 +178,54 @@ export function TopicEditorDialog({
             ...(current ?? topicEditorDraft(topic)),
             [key]: value,
         }));
+    };
+
+    const resetPrompt = async () => {
+        if (topic === null) return;
+        try {
+            const { settings } = await getSettings();
+            setDraft((current) =>
+                resetTopicPrompt(
+                    current ?? topicEditorDraft(topic),
+                    settings.template,
+                ),
+            );
+            setPromptRationale("");
+        } catch (error) {
+            toast.show(
+                error instanceof Error
+                    ? error.message
+                    : t("toast.request_failed"),
+                "error",
+            );
+        }
+    };
+
+    const enhancePrompt = async () => {
+        if (topic === null) return;
+        setEnhancing(true);
+        try {
+            const { suggestion } = await enhancePromptTemplate({
+                topicId: topic.id,
+            });
+            setDraft((current) =>
+                applyPromptSuggestionToTopic(
+                    current ?? topicEditorDraft(topic),
+                    suggestion,
+                ),
+            );
+            setPromptRationale(suggestion.rationale);
+            toast.show(t("grounding.topic_editor.prompt_enhanced"), "success");
+        } catch (error) {
+            toast.show(
+                error instanceof Error
+                    ? error.message
+                    : t("toast.request_failed"),
+                "error",
+            );
+        } finally {
+            setEnhancing(false);
+        }
     };
 
     const save = async () => {
@@ -182,6 +242,7 @@ export function TopicEditorDialog({
             }
             await onSaved(applyTopicEditorDraft(topic, next));
             setDraft(null);
+            setPromptRationale("");
             toast.show(t("grounding.topic_editor.saved"), "success");
         } catch (error) {
             toast.show(
@@ -199,8 +260,9 @@ export function TopicEditorDialog({
         <Dialog
             open={open}
             onOpenChange={(nextOpen) => {
-                if (!nextOpen && !saving) {
+                if (!nextOpen && !saving && !enhancing) {
                     setDraft(null);
+                    setPromptRationale("");
                     onClose();
                 }
             }}
@@ -223,9 +285,41 @@ export function TopicEditorDialog({
                         </DialogHeader>
                         <FieldGroup>
                             <Field>
-                                <FieldLabel htmlFor="topic-prompt">
-                                    {t("grounding.topic_editor.prompt")}
-                                </FieldLabel>
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <FieldLabel htmlFor="topic-prompt">
+                                        {t("grounding.topic_editor.prompt")}
+                                    </FieldLabel>
+                                    <div className="flex gap-2">
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={saving || enhancing}
+                                            onClick={() => void resetPrompt()}
+                                            data-testid="topic-prompt-reset"
+                                        >
+                                            <RotateCcwIcon data-icon="inline-start" />
+                                            {t("common.reset")}
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={saving || enhancing}
+                                            onClick={() => void enhancePrompt()}
+                                            data-testid="topic-prompt-enhance"
+                                        >
+                                            {enhancing ? (
+                                                <Spinner data-icon="inline-start" />
+                                            ) : (
+                                                <SparklesIcon data-icon="inline-start" />
+                                            )}
+                                            {enhancing
+                                                ? t("common.enhancing")
+                                                : t("common.enhance")}
+                                        </Button>
+                                    </div>
+                                </div>
                                 <Textarea
                                     id="topic-prompt"
                                     rows={5}
@@ -237,6 +331,12 @@ export function TopicEditorDialog({
                                         )
                                     }
                                 />
+                                <FieldDescription>
+                                    {promptRationale ||
+                                        t(
+                                            "grounding.topic_editor.prompt_description",
+                                        )}
+                                </FieldDescription>
                             </Field>
                             <div className="grid gap-3 sm:grid-cols-2">
                                 <Field>
@@ -444,14 +544,14 @@ export function TopicEditorDialog({
                             <Button
                                 type="button"
                                 variant="outline"
-                                disabled={saving}
+                                disabled={saving || enhancing}
                                 onClick={onClose}
                             >
                                 {t("common.close")}
                             </Button>
                             <Button
                                 type="button"
-                                disabled={busy || saving}
+                                disabled={busy || saving || enhancing}
                                 onClick={() => void save()}
                             >
                                 {saving
