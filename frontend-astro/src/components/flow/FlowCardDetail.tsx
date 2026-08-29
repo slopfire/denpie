@@ -316,7 +316,7 @@ function DetailReady({
 export function FlowCardDetailTrigger({ cardId }: { cardId: bigint }) {
     return (
         <DialogTrigger
-            render={<Button variant="outline" size="icon" />}
+            render={<Button variant="outline" size="icon-xs" />}
             aria-label={tf("card.detail.open_aria", {
                 id: cardId.toString(),
             })}

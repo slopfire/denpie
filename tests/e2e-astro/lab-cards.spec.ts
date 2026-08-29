@@ -38,6 +38,22 @@ test("@smoke fixtures hydrate and local card actions work", async ({
     }
 
     const active = page.getByTestId("lab-fixture-active");
+    const titleBar = active.getByTestId("card-title-bar-1");
+    await expect(titleBar).toBeVisible();
+    const titlePad = await titleBar.evaluate((el) => {
+        const style = getComputedStyle(el);
+        return { top: style.paddingTop, bottom: style.paddingBottom };
+    });
+    expect(titlePad.top).toBe(titlePad.bottom);
+    const newChip = active.getByRole("button", {
+        name: "Show information for card 1",
+    });
+    const expand = active.getByTestId("detail-open-1");
+    const chipBox = await newChip.boundingBox();
+    const expandBox = await expand.boundingBox();
+    expect(chipBox).not.toBeNull();
+    expect(expandBox).not.toBeNull();
+    expect(expandBox?.height).toBe(chipBox?.height);
     await active
         .getByRole("button", { name: "Expand text for card 1" })
         .click();

@@ -379,7 +379,7 @@ export function CardBodies({
     return (
         <>
             <CardHeader
-                className="flex flex-row items-center gap-2 overflow-hidden rounded-none border-b px-4 py-3"
+                className="flex flex-row items-center gap-2 overflow-hidden rounded-none border-b px-4 py-(--card-spacing) [.border-b]:pb-(--card-spacing)"
                 data-testid={`card-title-bar-${card.id}`}
             >
                 <div className="flex min-w-0 flex-1 items-center gap-2">

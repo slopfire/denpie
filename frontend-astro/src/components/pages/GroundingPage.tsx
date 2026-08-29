@@ -798,7 +798,7 @@ function SourcesPanel({
                         {t("grounding.sources.add_description")}
                     </CardDescription>
                 </CardHeader>
-                <form onSubmit={submit}>
+                <form className="contents" onSubmit={submit}>
                     <CardContent>
                         <FieldGroup>
                             <Field>
