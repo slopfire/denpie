@@ -33,7 +33,6 @@ jobs:
           --health-retries 20
     env:
       DATABASE_URL: postgres://denpie:denpie@127.0.0.1:5432/denpie
-      DENPIE_PSQL_DOCKER_CONTAINER: ${{ job.services.postgres.id }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,6 +63,8 @@ jobs:
           fi
 
       - name: Test SQLite to PostgreSQL migration
+        env:
+          DENPIE_PSQL_DOCKER_CONTAINER: ${{ job.services.postgres.id }}
         run: python3 -m unittest scripts.tests.test_sqlite_postgres_migration
 
       - name: Check formatting
