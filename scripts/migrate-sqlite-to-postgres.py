@@ -87,6 +87,37 @@ SEQUENCED_TABLES = (
     "llm_token_usage", "user_documents", "image_pool",
 )
 
+# The production SQLite database predates several PostgreSQL-era fields.  Keep
+# the compatibility policy explicit: a missing column is accepted only when a
+# deterministic value can be derived without changing existing data.
+MISSING_COLUMN_EXPRESSIONS: dict[tuple[str, str], str] = {
+    ("topics", "grounding_strategy"): "NULL",
+    ("topics", "image_strategy"): "NULL",
+    ("tipcards", "use_image"): "0",
+    ("tipcards", "image_query"): "''",
+    ("review_states", "feedback"): "''",
+    ("review_states", "reviewed_at"): "NULL",
+    ("user_settings", "llm_grounding_model"): '"llm_model"',
+    ("user_settings", "llm_vision_model"): '"llm_model"',
+    ("user_settings", "llm_grounding_reasoning_effort"): "''",
+    ("user_settings", "grounding_strategy"): "'factual'",
+    ("user_settings", "image_strategy"): "'none'",
+    ("user_settings", "search_provider"): "'tavily'",
+    ("user_settings", "scrape_provider"): "'scrapling'",
+    ("user_settings", "search_api_key"): "''",
+    ("user_settings", "search_base_url"): "'https://api.tavily.com'",
+    ("user_settings", "image_sources"): "'[]'",
+}
+
+# These feature tables were added after the oldest supported SQLite schema.
+# Their absence means that the feature had no rows to migrate.
+OPTIONAL_EMPTY_TABLES = {
+    "user_documents",
+    "document_topics",
+    "image_pool",
+    "document_chunks",
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -140,15 +171,35 @@ def csv_value(value: object) -> object:
     return value
 
 
-def copy_block(connection: sqlite3.Connection, table: str, columns: tuple[str, ...]) -> tuple[str, int]:
+def copy_block(
+    connection: sqlite3.Connection,
+    table: str,
+    columns: tuple[str, ...],
+    present_tables: set[str],
+) -> tuple[str, int]:
+    if table not in present_tables:
+        if table in OPTIONAL_EMPTY_TABLES:
+            return "", 0
+        raise SystemExit(f"source database is missing required table: {table}")
+
     available = source_columns(connection, table)
-    missing = [column for column in columns if column not in available]
+    missing = [
+        column
+        for column in columns
+        if column not in available and (table, column) not in MISSING_COLUMN_EXPRESSIONS
+    ]
     if missing:
         raise SystemExit(f"source table {table} is missing required columns: {', '.join(missing)}")
 
     output = io.StringIO(newline="")
     writer = csv.writer(output, lineterminator="\n")
-    query = f'SELECT {", ".join(f"\"{column}\"" for column in columns)} FROM "{table}"'
+    selections = [
+        f'"{column}"'
+        if column in available
+        else f'{MISSING_COLUMN_EXPRESSIONS[(table, column)]} AS "{column}"'
+        for column in columns
+    ]
+    query = f'SELECT {", ".join(selections)} FROM "{table}"'
     rows = connection.execute(query)
     count = 0
     for row in rows:
@@ -191,12 +242,18 @@ def main() -> int:
     connection = sqlite3.connect(f"file:{args.sqlite.resolve()}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     present = source_tables(connection)
-    missing_tables = [table for table, _ in TABLES if table not in present]
+    missing_tables = [
+        table
+        for table, _ in TABLES
+        if table not in present and table not in OPTIONAL_EMPTY_TABLES
+    ]
     if missing_tables:
         raise SystemExit("source database is missing tables: " + ", ".join(missing_tables))
 
     owner_tables = [
-        table for table, columns in TABLES if "user_id" in columns and table != "users"
+        table
+        for table, columns in TABLES
+        if "user_id" in columns and table != "users" and table in present
     ]
     owner_union = " UNION ".join(f'SELECT user_id FROM "{table}"' for table in owner_tables)
     orphan_user_ids = [
@@ -206,18 +263,20 @@ def main() -> int:
             "WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)"
         )
     ]
+    topic_references = [
+        "SELECT topic_id, user_id, tipcard_type FROM tipcards",
+        "SELECT topic_id, user_id, tipcard_type FROM daily_refresh_runs",
+    ]
+    if "document_topics" in present and "user_documents" in present:
+        topic_references.append(
+            "SELECT links.topic_id, docs.user_id, 'repeatable_tip' "
+            "FROM document_topics links "
+            "JOIN user_documents docs ON docs.id = links.document_id"
+        )
     orphan_topics = list(
         connection.execute(
             "SELECT refs.topic_id, MIN(refs.user_id), MIN(refs.tipcard_type) "
-            "FROM ("
-            "  SELECT topic_id, user_id, tipcard_type FROM tipcards "
-            "  UNION ALL "
-            "  SELECT topic_id, user_id, tipcard_type FROM daily_refresh_runs "
-            "  UNION ALL "
-            "  SELECT links.topic_id, docs.user_id, 'repeatable_tip' "
-            "  FROM document_topics links "
-            "  JOIN user_documents docs ON docs.id = links.document_id"
-            ") refs "
+            f"FROM ({' UNION ALL '.join(topic_references)}) refs "
             "LEFT JOIN topics ON topics.id = refs.topic_id "
             "WHERE topics.id IS NULL "
             "GROUP BY refs.topic_id"
@@ -229,7 +288,7 @@ def main() -> int:
     counts: dict[str, int] = {}
     copy_blocks: list[str] = []
     for table, columns in TABLES:
-        block, count = copy_block(connection, table, columns)
+        block, count = copy_block(connection, table, columns, present)
         counts[table] = count
         if block:
             copy_blocks.append(block)

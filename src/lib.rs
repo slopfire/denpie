@@ -144,9 +144,13 @@ pub async fn run() {
         self_arc: std::sync::OnceLock::new(),
     });
     let _ = shared_state.self_arc.set(shared_state.clone());
-    autoupdate::spawn(shared_state.settings_path.clone());
-    daily_refresh::spawn(shared_state.clone());
-    image_enrichment::spawn(shared_state.clone());
+    if std::env::var_os("DENPIE_DISABLE_BACKGROUND_JOBS").is_some() {
+        tracing::warn!("background jobs disabled by DENPIE_DISABLE_BACKGROUND_JOBS");
+    } else {
+        autoupdate::spawn(shared_state.settings_path.clone());
+        daily_refresh::spawn(shared_state.clone());
+        image_enrichment::spawn(shared_state.clone());
+    }
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(webauthn_setup.session_secure)
         .with_same_site(tower_sessions::cookie::SameSite::Strict)

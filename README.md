@@ -210,6 +210,7 @@ Topic cards link to their queued pending cards and reviewed SM-2 scheduled cards
 | `DENPIE_FRONTEND_DIST`    | `./frontend-astro/dist`           |
 | `DENPIE_STATIC_DIR`       | `./static`                        |
 | `DENPIE_IMAGE_DIR`        | `$DENPIE_DATA_DIR/tipcard-images` |
+| `DENPIE_DISABLE_BACKGROUND_JOBS` | unset (jobs run)          |
 
 ## Deploy
 
@@ -257,6 +258,8 @@ scripts/migrate-sqlite-to-postgres.py --sqlite denpie.db
 ```
 
 The importer opens SQLite read-only, refuses a non-empty PostgreSQL target, preserves IDs, repairs historical orphan owners/topics with labeled placeholders, resets PostgreSQL sequences, and verifies every table count before committing. Use `--database-url` and `--schema` for a non-default target.
+
+Set `DENPIE_DISABLE_BACKGROUND_JOBS=1` while validating a migrated database. This keeps the HTTP service available but does not start automatic update checks, daily refreshes, or image-enrichment workers. Remove the variable after the cutover is accepted.
 
 ### DockerHub CI
 
