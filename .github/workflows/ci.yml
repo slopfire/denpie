@@ -145,16 +145,12 @@ jobs:
           name: denpie-api-v1-schema
           path: target/api-schema/v1/
 
-  # Skip entirely when Docker Hub credentials are unavailable — no build or push
-  # without an ability to publish. PR validation of the image is also skipped in
-  # that case to avoid burning CI minutes on a non-actionable artifact.
+  # GitHub does not allow the secrets context in a job-level condition. This job
+  # runs only for pushes; the login step reports a missing deployment secret.
   docker:
     runs-on: ubuntu-latest
     needs: [rust, frontend, api-docs]
-    if: >-
-      github.event_name == 'push'
-      && secrets.DOCKERHUB_USERNAME != ''
-      && secrets.DOCKERHUB_TOKEN != ''
+    if: github.event_name == 'push'
     permissions:
       contents: read
     env:
