@@ -26,6 +26,7 @@ COPY migrations ./migrations
 COPY proto ./proto
 COPY src ./src
 COPY config ./config
+COPY frontend-astro/public/service-worker.js ./frontend-astro/public/service-worker.js
 COPY static ./static
 
 ENV DENPIE_SKIP_FRONTEND_BUILD=1
