@@ -132,6 +132,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def psql_command(database_url: str) -> list[str]:
+    service_container = os.environ.get("DENPIE_PSQL_DOCKER_CONTAINER", "")
+    if service_container:
+        if not re.fullmatch(r"[0-9a-f]{12,64}", service_container):
+            raise SystemExit("DENPIE_PSQL_DOCKER_CONTAINER must be a Docker container ID")
+        return [
+            "docker", "exec", "-i", service_container,
+            "psql", "-U", "denpie", "-d", "denpie",
+        ]
     if shutil.which("psql"):
         return ["psql", database_url]
     local_compose_urls = {

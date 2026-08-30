@@ -87,9 +87,8 @@ class HistoricalSqliteCompatibilityTests(unittest.TestCase):
                 first = subprocess.run(command, capture_output=True, text=True, check=False)
                 self.assertEqual(first.returncode, 0, first.stderr)
                 verification = subprocess.run(
-                    [
-                        "psql",
-                        database_url,
+                    MIGRATION.psql_command(database_url)
+                    + [
                         "-At",
                         "-v",
                         "ON_ERROR_STOP=1",
@@ -114,9 +113,8 @@ class HistoricalSqliteCompatibilityTests(unittest.TestCase):
                 self.assertIn("target Denpie schema is not empty", second.stderr)
             finally:
                 subprocess.run(
-                    [
-                        "psql",
-                        database_url,
+                    MIGRATION.psql_command(database_url)
+                    + [
                         "-v",
                         "ON_ERROR_STOP=1",
                         "-c",
