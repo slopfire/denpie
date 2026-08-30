@@ -21,6 +21,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY Cargo.toml build.rs schema.sql ./
+COPY api/operations-v1.json ./api/operations-v1.json
 COPY migrations ./migrations
 COPY proto ./proto
 COPY src ./src
