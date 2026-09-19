@@ -8,6 +8,11 @@ shell:
 setup:
   sh scripts/bootstrap-dev.sh
 
+# Keep generated Rust artifacts below the project cache limit.
+[private]
+cache-prune:
+  sh scripts/prune-build-cache.sh
+
 db-up:
   docker compose -f compose.dev.yaml up -d --wait postgres
 
@@ -19,7 +24,7 @@ db-reset:
   docker compose -f compose.dev.yaml down --volumes
   docker compose -f compose.dev.yaml up -d --wait postgres
 
-backend:
+backend: cache-prune
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo run --bin denpie
 
 frontend:
@@ -34,7 +39,7 @@ dev-astro: dev
 
 # Opt-in research runner. Never part of just test / verify / ci.
 # libcaesium alone is optimized in the shared dev profile so lab builds reuse it.
-lab *args:
+lab *args: cache-prune
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo run --bin denpie-lab -- {{args}}
 
 # Render checked-in card fixtures with the production FlowCard on :3027.
@@ -62,7 +67,7 @@ lab-check:
 # --- verification tiers -------------------------------------------------------
 
 # Fastest loop while editing: fmt check + compile (no tests, no frontend rebuild).
-quick: api-check
+quick: api-check cache-prune
   cargo fmt --all --check
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo check --workspace
 
@@ -70,17 +75,17 @@ quick: api-check
 check: quick
 
 # Run one filtered test target, e.g. `just test-one grounding` or `just test-one test_login`.
-test-one filter:
+test-one filter: cache-prune
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo test --workspace {{filter}}
 
 # Full unit/integration suite (no frontend rebuild).
-test:
+test: cache-prune
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo test --workspace
 
 fmt:
   cargo fmt --all
 
-lint:
+lint: cache-prune
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo clippy --workspace --all-targets -- -D warnings
 
 # Regenerate the complete operation table after protobuf or policy changes.
@@ -106,7 +111,7 @@ docs-check:
   sh scripts/check-api-docs.sh
 
 # One full local gate: fmt + clippy + tests. Prefer this once at the end of a task.
-verify: api-check
+verify: api-check cache-prune
   cargo fmt --all --check
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo clippy --workspace --all-targets -- -D warnings
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo test --workspace
@@ -173,7 +178,7 @@ playwright-install:
   PLAYWRIGHT_BROWSERS_PATH=0 bunx playwright install chromium
 
 # Full gate including release frontend build (CI-shaped).
-ci: api-check
+ci: api-check cache-prune
   cargo fmt --all --check
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo clippy --workspace --all-targets -- -D warnings
   DENPIE_SKIP_FRONTEND_BUILD=1 cargo test --workspace
