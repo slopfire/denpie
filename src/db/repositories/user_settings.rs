@@ -20,6 +20,10 @@ struct SettingsRow {
     daily_update_time: String,
     max_active_cards: i64,
     grounding_strategy: String,
+    grounding_source_mode: String,
+    grounding_verification_mode: String,
+    grounding_behavior: String,
+    grounding_search_profile: serde_json::Value,
     image_strategy: String,
     search_provider: String,
     scrape_provider: String,
@@ -34,7 +38,8 @@ pub async fn get(pool: &PgPool, user_id: &str, defaults: Settings) -> AppResult<
                 llm_api_key, llm_base_url, llm_compress_base_url, llm_reasoning_effort,
                 llm_grounding_reasoning_effort, llm_compress_reasoning_effort,
                 llm_compression_level, daily_time_zone, daily_update_time, max_active_cards,
-                grounding_strategy, image_strategy, search_provider, scrape_provider,
+                grounding_strategy, grounding_source_mode, grounding_verification_mode, grounding_behavior,
+                grounding_search_profile, image_strategy, search_provider, scrape_provider,
                 search_api_key, search_base_url, image_sources
          FROM user_settings
          WHERE user_id = $1",
@@ -61,6 +66,11 @@ pub async fn get(pool: &PgPool, user_id: &str, defaults: Settings) -> AppResult<
             daily_update_time: row.daily_update_time,
             max_active_cards: row.max_active_cards.max(0) as u64,
             grounding_strategy: row.grounding_strategy,
+            grounding_source_mode: row.grounding_source_mode,
+            grounding_verification_mode: row.grounding_verification_mode,
+            grounding_behavior: row.grounding_behavior,
+            grounding_search_profile: serde_json::from_value(row.grounding_search_profile)
+                .unwrap_or_default(),
             image_strategy: crate::domain::grounding::ImageStrategy::from_setting(
                 &row.image_strategy,
             )
@@ -84,9 +94,10 @@ pub async fn upsert(pool: &PgPool, user_id: &str, settings: &Settings) -> AppRes
             prompt_template, llm_api_key, llm_base_url, llm_compress_base_url,
             llm_reasoning_effort, llm_grounding_reasoning_effort,
             llm_compress_reasoning_effort, llm_compression_level, daily_time_zone,
-            daily_update_time, max_active_cards, grounding_strategy, image_strategy,
+            daily_update_time, max_active_cards, grounding_strategy, grounding_source_mode,
+            grounding_verification_mode, grounding_behavior, grounding_search_profile, image_strategy,
             search_provider, scrape_provider, search_api_key, search_base_url, image_sources
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
         ON CONFLICT(user_id) DO UPDATE SET
             llm_model = excluded.llm_model,
             llm_grounding_model = excluded.llm_grounding_model,
@@ -104,6 +115,10 @@ pub async fn upsert(pool: &PgPool, user_id: &str, settings: &Settings) -> AppRes
             daily_update_time = excluded.daily_update_time,
             max_active_cards = excluded.max_active_cards,
             grounding_strategy = excluded.grounding_strategy,
+            grounding_source_mode = excluded.grounding_source_mode,
+            grounding_verification_mode = excluded.grounding_verification_mode,
+            grounding_behavior = excluded.grounding_behavior,
+            grounding_search_profile = excluded.grounding_search_profile,
             image_strategy = excluded.image_strategy,
             search_provider = excluded.search_provider,
             scrape_provider = excluded.scrape_provider,
@@ -128,6 +143,10 @@ pub async fn upsert(pool: &PgPool, user_id: &str, settings: &Settings) -> AppRes
     .bind(&settings.daily_update_time)
     .bind(settings.max_active_cards as i64)
     .bind(&settings.grounding_strategy)
+    .bind(&settings.grounding_source_mode)
+    .bind(&settings.grounding_verification_mode)
+    .bind(&settings.grounding_behavior)
+    .bind(serde_json::to_value(&settings.grounding_search_profile)?)
     .bind(&settings.image_strategy)
     .bind(&settings.search_provider)
     .bind(&settings.scrape_provider)

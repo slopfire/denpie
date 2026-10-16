@@ -21,6 +21,10 @@ pub struct TopicRecord {
     pub grounding_strategy: Option<String>,
     pub grounding_model: Option<String>,
     pub grounding_reasoning_effort: Option<String>,
+    pub grounding_source_mode: Option<String>,
+    pub grounding_verification_mode: Option<String>,
+    pub grounding_behavior: Option<String>,
+    pub grounding_search_profile: Option<crate::domain::grounding::GroundingSearchProfile>,
     pub image_strategy: Option<String>,
 }
 
@@ -45,6 +49,10 @@ pub struct AppTopicRecord {
     pub grounding_strategy: String,
     pub grounding_model: String,
     pub grounding_reasoning_effort: String,
+    pub grounding_source_mode: String,
+    pub grounding_verification_mode: String,
+    pub grounding_behavior: String,
+    pub grounding_search_profile: Option<crate::domain::grounding::GroundingSearchProfile>,
     pub image_strategy: String,
     pub icon_id: String,
     pub topic_color: String,
@@ -64,46 +72,61 @@ pub struct TopicSettingsRecord {
     pub grounding_strategy: Option<String>,
     pub grounding_model: Option<String>,
     pub grounding_reasoning_effort: Option<String>,
+    pub grounding_source_mode: Option<String>,
+    pub grounding_verification_mode: Option<String>,
+    pub grounding_behavior: Option<String>,
+    pub grounding_search_profile: Option<crate::domain::grounding::GroundingSearchProfile>,
     pub image_strategy: Option<String>,
 }
 
-type TopicRow = (
-    i64,
-    String,
-    String,
-    Option<String>,
-    Option<i64>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<i64>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
+#[derive(sqlx::FromRow)]
+struct TopicRow {
+    id: i64,
+    name: String,
+    tipcard_type: String,
+    prompt_template: Option<String>,
+    daily_card_count: Option<i64>,
+    daily_time_zone: Option<String>,
+    daily_update_time: Option<String>,
+    compression_level: Option<String>,
+    icon_id: Option<String>,
+    color_hue: Option<i64>,
+    grounding_strategy: Option<String>,
+    image_strategy: Option<String>,
+    grounding_model: Option<String>,
+    grounding_reasoning_effort: Option<String>,
+    grounding_source_mode: Option<String>,
+    grounding_verification_mode: Option<String>,
+    grounding_behavior: Option<String>,
+    grounding_search_profile: Option<serde_json::Value>,
+}
 
 fn map_topic_row(row: TopicRow) -> TopicRecord {
     TopicRecord {
-        id: row.0,
-        name: row.1,
-        tipcard_type: row.2,
-        prompt_template: row.3,
-        daily_card_count: row.4,
-        daily_time_zone: row.5,
-        daily_update_time: row.6,
-        compression_level: row.7,
-        icon_id: row.8,
-        color_hue: row.9.map(|hue| hue as i32),
-        grounding_strategy: row.10,
-        image_strategy: row.11,
-        grounding_model: row.12,
-        grounding_reasoning_effort: row.13,
+        id: row.id,
+        name: row.name,
+        tipcard_type: row.tipcard_type,
+        prompt_template: row.prompt_template,
+        daily_card_count: row.daily_card_count,
+        daily_time_zone: row.daily_time_zone,
+        daily_update_time: row.daily_update_time,
+        compression_level: row.compression_level,
+        icon_id: row.icon_id,
+        color_hue: row.color_hue.map(|hue| hue as i32),
+        grounding_strategy: row.grounding_strategy,
+        image_strategy: row.image_strategy,
+        grounding_model: row.grounding_model,
+        grounding_reasoning_effort: row.grounding_reasoning_effort,
+        grounding_source_mode: row.grounding_source_mode,
+        grounding_verification_mode: row.grounding_verification_mode,
+        grounding_behavior: row.grounding_behavior,
+        grounding_search_profile: row
+            .grounding_search_profile
+            .and_then(|value| serde_json::from_value(value).ok()),
     }
 }
 
-const TOPIC_SELECT: &str = "SELECT id, name, tipcard_type, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level, icon_id, color_hue, grounding_strategy, image_strategy, grounding_model, grounding_reasoning_effort";
+const TOPIC_SELECT: &str = "SELECT id, name, tipcard_type, prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level, icon_id, color_hue, grounding_strategy, image_strategy, grounding_model, grounding_reasoning_effort, grounding_source_mode, grounding_verification_mode, grounding_behavior, grounding_search_profile";
 
 pub async fn list_admin(pool: &PgPool, user_id: &str) -> AppResult<Vec<TopicRecord>> {
     let query = format!("{TOPIC_SELECT} FROM topics WHERE user_id = $1 ORDER BY name ASC");
@@ -139,7 +162,7 @@ pub async fn list_generated_targets(
     Ok(rows
         .into_iter()
         .map(|row| {
-            let tipcard_type = row.2.clone();
+            let tipcard_type = row.tipcard_type.clone();
             (map_topic_row(row), tipcard_type)
         })
         .collect())
@@ -165,7 +188,9 @@ pub async fn find_for_card(
                 topics.daily_card_count, topics.daily_time_zone, topics.daily_update_time,
                 topics.compression_level, topics.icon_id, topics.color_hue,
                 topics.grounding_strategy, topics.image_strategy,
-                topics.grounding_model, topics.grounding_reasoning_effort
+                topics.grounding_model, topics.grounding_reasoning_effort,
+                topics.grounding_source_mode, topics.grounding_verification_mode,
+                topics.grounding_behavior, topics.grounding_search_profile
          FROM topics
          JOIN tipcards card ON card.topic_id = topics.id AND card.user_id = topics.user_id
          WHERE topics.user_id = $1 AND card.id = $2";
@@ -239,6 +264,10 @@ pub async fn get_or_create_topic(
             grounding_strategy: None,
             grounding_model: None,
             grounding_reasoning_effort: None,
+            grounding_source_mode: None,
+            grounding_verification_mode: None,
+            grounding_behavior: None,
+            grounding_search_profile: None,
             image_strategy: None,
         }),
         Ok(None) => find_by_name(pool, user_id, topic_name)
@@ -343,9 +372,13 @@ pub async fn get_settings(pool: &PgPool, user_id: &str, id: i64) -> AppResult<To
             Option<String>,
             Option<String>,
             Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<serde_json::Value>,
         ),
     >(
-        "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level, grounding_strategy, image_strategy, grounding_model, grounding_reasoning_effort
+        "SELECT prompt_template, daily_card_count, daily_time_zone, daily_update_time, compression_level, grounding_strategy, image_strategy, grounding_model, grounding_reasoning_effort, grounding_source_mode, grounding_verification_mode, grounding_behavior, grounding_search_profile
          FROM topics
          WHERE id = $1 AND user_id = $2",
     )
@@ -365,6 +398,10 @@ pub async fn get_settings(pool: &PgPool, user_id: &str, id: i64) -> AppResult<To
         image_strategy: row.6,
         grounding_model: row.7,
         grounding_reasoning_effort: row.8,
+        grounding_source_mode: row.9,
+        grounding_verification_mode: row.10,
+        grounding_behavior: row.11,
+        grounding_search_profile: row.12.and_then(|value| serde_json::from_value(value).ok()),
     })
 }
 
@@ -376,8 +413,8 @@ pub async fn update_settings(
 ) -> AppResult<()> {
     sqlx::query(
         "UPDATE topics
-         SET prompt_template = $1, daily_card_count = $2, daily_time_zone = $3, daily_update_time = $4, compression_level = $5, grounding_strategy = $6, image_strategy = $7, grounding_model = $8, grounding_reasoning_effort = $9
-         WHERE id = $10 AND user_id = $11",
+         SET prompt_template = $1, daily_card_count = $2, daily_time_zone = $3, daily_update_time = $4, compression_level = $5, grounding_strategy = $6, image_strategy = $7, grounding_model = $8, grounding_reasoning_effort = $9, grounding_source_mode = $10, grounding_verification_mode = $11, grounding_behavior = $12, grounding_search_profile = $13
+         WHERE id = $14 AND user_id = $15",
     )
     .bind(settings.prompt_template)
     .bind(settings.daily_card_count)
@@ -388,6 +425,15 @@ pub async fn update_settings(
     .bind(settings.image_strategy)
     .bind(settings.grounding_model)
     .bind(settings.grounding_reasoning_effort)
+    .bind(settings.grounding_source_mode)
+    .bind(settings.grounding_verification_mode)
+    .bind(settings.grounding_behavior)
+    .bind(
+        settings
+            .grounding_search_profile
+            .map(serde_json::to_value)
+            .transpose()?,
+    )
     .bind(id)
     .bind(user_id)
     .execute(pool)
@@ -444,6 +490,10 @@ pub async fn list_app_topics(
                 top.image_strategy,
                 top.grounding_model,
                 top.grounding_reasoning_effort,
+                top.grounding_source_mode,
+                top.grounding_verification_mode,
+                top.grounding_behavior,
+                top.grounding_search_profile,
                 COUNT(t.id) AS total_cards,
                 SUM(CASE WHEN r.status = 'active' AND (r.next_review_at <= $1 OR t.pinned = 1) THEN 1 ELSE 0 END) AS due_cards,
                 SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) AS pending_cards,
@@ -452,7 +502,7 @@ pub async fn list_app_topics(
          LEFT JOIN tipcards t ON t.topic_id = top.id
          LEFT JOIN review_states r ON r.card_id = t.id
          WHERE top.user_id = $2
-         GROUP BY top.id, top.name, top.tipcard_type, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level, top.icon_id, top.color_hue, top.grounding_strategy, top.image_strategy, top.grounding_model, top.grounding_reasoning_effort
+         GROUP BY top.id, top.name, top.tipcard_type, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level, top.icon_id, top.color_hue, top.grounding_strategy, top.image_strategy, top.grounding_model, top.grounding_reasoning_effort, top.grounding_source_mode, top.grounding_verification_mode, top.grounding_behavior, top.grounding_search_profile
          ORDER BY due_cards DESC, top.name ASC",
     )
     .bind(now)
@@ -493,6 +543,18 @@ pub async fn list_app_topics(
                 grounding_reasoning_effort: row
                     .get::<Option<String>, _>("grounding_reasoning_effort")
                     .unwrap_or_default(),
+                grounding_source_mode: row
+                    .get::<Option<String>, _>("grounding_source_mode")
+                    .unwrap_or_default(),
+                grounding_verification_mode: row
+                    .get::<Option<String>, _>("grounding_verification_mode")
+                    .unwrap_or_default(),
+                grounding_behavior: row
+                    .get::<Option<String>, _>("grounding_behavior")
+                    .unwrap_or_default(),
+                grounding_search_profile: row
+                    .get::<Option<serde_json::Value>, _>("grounding_search_profile")
+                    .and_then(|value| serde_json::from_value(value).ok()),
                 image_strategy: row
                     .get::<Option<String>, _>("image_strategy")
                     .unwrap_or_default(),

@@ -71,6 +71,10 @@ covers research-grade backend generations that legitimately take minutes.
 
 **Prompt templates.** Settings and the topic editor expose Reset and Enhance next to the template. Reset pastes the current prompt into the field (the built-in default on Settings, the global settings template on a topic). Enhance calls `enhance_prompt_template` (`topic_id` 0 for Settings) and copies the suggestion into the draft, including grounding fields when they are non-empty. Save still persists. Helpers live in `src/lib/pages/prompt-template.ts`.
 
+**Grounding policy.** Settings define the default source (`model`, `web`, `documents`, or both), Behavior depth (`standard`, `fact_check`, or `agentic`), and web-search controls. Standard retrieves once, Fact Check adds a separate verification pass, and Agentic plans and iterates through a bounded set of queries. A topic can inherit those defaults or override them. The shared search provider is selected inside the Web search section of Grounding defaults; topic editors show that inherited provider read-only because its endpoint and credential are user-level settings. Document and link assignments appear only when the effective source uses them; web controls appear only when the effective source uses the web. Preview sends the unsaved topic policy and current source selection to `preview_grounding`, so the editor can show the effective backend, query plan, evidence, warnings, and failures before Save. The shared policy model lives in `src/lib/grounding-policy.ts`.
+
+**Topic sources and card evidence.** Save applies the topic field patch and only the changed source attachments. The assignment planner lives in `src/lib/pages/topic-editor.ts`. Topic assignments are inputs for future research; a card detail renders the immutable `grounding_evidence` captured when that card was generated, with current topic assignments retained only as a legacy fallback.
+
 ## Add a page
 
 Done when the static route, `AppView` discriminant, History mapping, catalog title, and a focused test all exist, and `just frontend-astro-test` passes.

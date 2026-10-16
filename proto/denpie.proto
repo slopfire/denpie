@@ -97,6 +97,7 @@ message ApiRequest {
         AppendTipcardImagesRequest append_tipcard_images = 44;
         ReplaceTipcardImagesRequest replace_tipcard_images = 45;
         EnhancePromptTemplateRequest enhance_prompt_template = 46;
+        PreviewGroundingRequest preview_grounding = 47;
     }
 }
 
@@ -126,6 +127,7 @@ message ApiResponse {
         PoolImageCreated pool_image_created = 23;
         ReviewAndAdvanceResponse review_and_advance = 24;
         EnhancePromptTemplateResult enhance_prompt_template = 25;
+        PreviewGroundingResult preview_grounding = 26;
     }
 }
 
@@ -180,6 +182,18 @@ message Settings {
     string vision_model = 29;
     string transparency = 30;
     string blur_intensity = 31;
+    string grounding_source_mode = 32;
+    string grounding_verification_mode = 33;
+    GroundingSearchProfile grounding_search_profile = 34;
+    string grounding_behavior = 35;
+}
+
+message GroundingSearchProfile {
+    string depth = 1;
+    string freshness = 2;
+    string guidance = 3;
+    repeated string include_domains = 4;
+    string failure_policy = 5;
 }
 
 message UpdateSettingsRequest {
@@ -213,6 +227,10 @@ message UpdateSettingsRequest {
     optional string vision_model = 28;
     optional string transparency = 29;
     optional string blur_intensity = 30;
+    optional string grounding_source_mode = 31;
+    optional string grounding_verification_mode = 32;
+    optional GroundingSearchProfile grounding_search_profile = 33;
+    optional string grounding_behavior = 34;
 }
 
 message ApiKeyInfo {
@@ -241,6 +259,10 @@ message AdminTopic {
     reserved 10;
     string grounding_model = 11;
     string grounding_reasoning_effort = 12;
+    string grounding_source_mode = 13;
+    string grounding_verification_mode = 14;
+    optional GroundingSearchProfile grounding_search_profile = 15;
+    string grounding_behavior = 16;
 }
 
 message AdminTopics {
@@ -265,6 +287,9 @@ message TipcardInfo {
     string topic_color = 14;
     // Stored attachments for active, completed, and pending inventory cards.
     repeated TipcardImageInfo images = 15;
+    string grounding_status = 16;
+    string grounding_source_mode = 17;
+    repeated GroundingEvidence grounding_evidence = 18;
 }
 
 message Tipcards {
@@ -300,6 +325,10 @@ message AppTopicInfo {
     int64 pending_cards = 18;
     string grounding_model = 19;
     string grounding_reasoning_effort = 20;
+    string grounding_source_mode = 21;
+    string grounding_verification_mode = 22;
+    optional GroundingSearchProfile grounding_search_profile = 23;
+    string grounding_behavior = 24;
 }
 
 message AppTopics {
@@ -318,6 +347,11 @@ message UpdateTopicRequest {
     reserved 9;
     optional string grounding_model = 10;
     optional string grounding_reasoning_effort = 11;
+    optional string grounding_source_mode = 12;
+    optional string grounding_verification_mode = 13;
+    optional GroundingSearchProfile grounding_search_profile = 14;
+    optional bool clear_grounding_search_profile = 15;
+    optional string grounding_behavior = 16;
 }
 
 message PinTipcardRequest {
@@ -470,6 +504,18 @@ message FlowCardInfo {
     int64 pending_count = 14;
     repeated TipcardImageInfo images = 15;
     repeated CardSource sources = 16;
+    string grounding_status = 17;
+    string grounding_source_mode = 18;
+    repeated GroundingEvidence grounding_evidence = 19;
+}
+
+message GroundingEvidence {
+    string source_type = 1;
+    string title = 2;
+    optional string url = 3;
+    optional int64 document_id = 4;
+    string excerpt = 5;
+    string retrieved_at = 6;
 }
 
 // A grounding source (user document or link) assigned to the card's topic.
@@ -542,6 +588,26 @@ message VisionModelTest {
     bool ok = 1;
     string model = 2;
     string message = 3;
+}
+
+message PreviewGroundingRequest {
+    int64 topic_id = 1;
+    optional string grounding_source_mode = 2;
+    optional string grounding_verification_mode = 3;
+    optional GroundingSearchProfile grounding_search_profile = 4;
+    repeated int64 document_ids = 5;
+    optional string grounding_behavior = 6;
+}
+
+message PreviewGroundingResult {
+    string grounding_source_mode = 1;
+    string grounding_verification_mode = 2;
+    GroundingSearchProfile grounding_search_profile = 3;
+    string backend = 4;
+    repeated string queries = 5;
+    repeated GroundingEvidence evidence = 6;
+    repeated string warnings = 7;
+    string grounding_behavior = 8;
 }
 
 // 0 topic_id inspects the user's global prompt and recent cards across topics.

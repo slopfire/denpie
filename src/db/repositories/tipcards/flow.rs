@@ -5,6 +5,27 @@ use crate::error::AppResult;
 
 use super::{models::FlowCardRecord, queries, topic_color_from_row};
 
+#[derive(sqlx::FromRow)]
+struct FlowCardRow {
+    id: i64,
+    topic_name: String,
+    topic_icon: String,
+    color_hue: Option<i64>,
+    title: String,
+    full_content: String,
+    compressed_content: String,
+    created_at: String,
+    tipcard_type: String,
+    status: String,
+    next_review_at: String,
+    state_data: String,
+    repeats: i64,
+    pinned: i64,
+    grounding_status: String,
+    grounding_source_mode: String,
+    pending_count: i64,
+}
+
 pub async fn list_flow_cards(
     pool: &PgPool,
     user_id: &str,
@@ -89,44 +110,30 @@ pub async fn list_flow_cards(
     builder.push_bind(limit);
 
     let rows = builder
-        .build_query_as::<(
-            i64,
-            String,
-            String,
-            Option<i64>,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            i64,
-            i64,
-            i64,
-        )>()
+        .build_query_as::<FlowCardRow>()
         .fetch_all(pool)
         .await?;
 
     Ok(rows
         .into_iter()
         .map(|row| FlowCardRecord {
-            id: row.0,
-            topic_name: row.1.clone(),
-            topic_icon: row.2,
-            topic_color: topic_color_from_row(&row.1, row.3),
-            title: row.4,
-            full_content: row.5,
-            compressed_content: row.6,
-            created_at: row.7,
-            tipcard_type: row.8,
-            status: row.9,
-            next_review_at: row.10,
-            state_data: row.11,
-            pinned: row.13 != 0,
-            repeats: row.12 as u32,
-            pending_count: row.14,
+            id: row.id,
+            topic_name: row.topic_name.clone(),
+            topic_icon: row.topic_icon,
+            topic_color: topic_color_from_row(&row.topic_name, row.color_hue),
+            title: row.title,
+            full_content: row.full_content,
+            compressed_content: row.compressed_content,
+            created_at: row.created_at,
+            tipcard_type: row.tipcard_type,
+            status: row.status,
+            next_review_at: row.next_review_at,
+            state_data: row.state_data,
+            pinned: row.pinned != 0,
+            repeats: row.repeats as u32,
+            grounding_status: row.grounding_status,
+            grounding_source_mode: row.grounding_source_mode,
+            pending_count: row.pending_count,
         })
         .collect())
 }

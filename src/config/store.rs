@@ -2,7 +2,14 @@ use rand::Rng;
 use serde_yaml::{Mapping, Value};
 use std::path::{Path, PathBuf};
 
-use crate::{error::AppResult, llm};
+use crate::{
+    domain::grounding::{
+        GroundingBehavior, GroundingPolicy, GroundingSearchProfile, GroundingSourceMode,
+        VerificationMode,
+    },
+    error::AppResult,
+    llm,
+};
 
 #[derive(Clone)]
 pub struct SettingsStore {
@@ -37,6 +44,10 @@ pub struct Settings {
     pub daily_update_time: String,
     pub max_active_cards: u64,
     pub grounding_strategy: String,
+    pub grounding_source_mode: String,
+    pub grounding_verification_mode: String,
+    pub grounding_behavior: String,
+    pub grounding_search_profile: GroundingSearchProfile,
     pub image_strategy: String,
     pub search_provider: String,
     pub scrape_provider: String,
@@ -72,6 +83,10 @@ pub struct SettingsPatch {
     pub daily_update_time: Option<String>,
     pub max_active_cards: Option<u64>,
     pub grounding_strategy: Option<String>,
+    pub grounding_source_mode: Option<String>,
+    pub grounding_verification_mode: Option<String>,
+    pub grounding_behavior: Option<String>,
+    pub grounding_search_profile: Option<GroundingSearchProfile>,
     pub image_strategy: Option<String>,
     pub search_provider: Option<String>,
     pub scrape_provider: Option<String>,
@@ -111,6 +126,11 @@ impl SettingsStore {
     }
 
     pub fn update(&self, patch: SettingsPatch) -> AppResult<Settings> {
+        let legacy_policy = patch.grounding_strategy.as_deref().map(|value| {
+            GroundingPolicy::from_legacy(crate::domain::grounding::GroundingStrategy::from_setting(
+                value,
+            ))
+        });
         let mut raw = self.load_raw()?;
         if let Value::Mapping(ref mut map) = raw {
             put_string(map, "llm_model", patch.model);
@@ -176,6 +196,52 @@ impl SettingsStore {
                         .to_string()
                 }),
             );
+            put_string(
+                map,
+                "grounding_source_mode",
+                patch
+                    .grounding_source_mode
+                    .map(|value| {
+                        GroundingSourceMode::from_setting(&value)
+                            .as_str()
+                            .to_string()
+                    })
+                    .or_else(|| {
+                        legacy_policy
+                            .as_ref()
+                            .map(|policy| policy.source_mode.as_str().to_string())
+                    }),
+            );
+            put_string(
+                map,
+                "grounding_verification_mode",
+                patch
+                    .grounding_verification_mode
+                    .map(|value| VerificationMode::from_setting(&value).as_str().to_string())
+                    .or_else(|| {
+                        legacy_policy
+                            .as_ref()
+                            .map(|policy| policy.legacy_verification_mode().as_str().to_string())
+                    }),
+            );
+            put_string(
+                map,
+                "grounding_behavior",
+                patch
+                    .grounding_behavior
+                    .map(|value| GroundingBehavior::from_setting(&value).as_str().to_string())
+                    .or_else(|| {
+                        legacy_policy
+                            .as_ref()
+                            .map(|policy| policy.behavior.as_str().to_string())
+                    }),
+            );
+            if let Some(profile) = patch.grounding_search_profile {
+                map.insert(
+                    Value::String("grounding_search_profile".to_string()),
+                    serde_yaml::to_value(profile.normalized())?,
+                );
+            }
             put_string(
                 map,
                 "image_strategy",
@@ -306,10 +372,23 @@ impl Settings {
             ))
             .as_str()
             .to_string(),
+            grounding_source_mode: grounding_policy_from_value(settings)
+                .source_mode
+                .as_str()
+                .to_string(),
+            grounding_verification_mode: grounding_policy_from_value(settings)
+                .legacy_verification_mode()
+                .as_str()
+                .to_string(),
+            grounding_behavior: grounding_policy_from_value(settings)
+                .behavior
+                .as_str()
+                .to_string(),
+            grounding_search_profile: grounding_policy_from_value(settings).search_profile,
             search_provider: crate::domain::grounding::SearchProvider::from_setting(&string(
                 settings,
                 "search_provider",
-                "tavily",
+                "native",
             ))
             .as_str()
             .to_string(),
@@ -331,6 +410,14 @@ impl Settings {
     }
 
     pub fn apply_patch(mut self, patch: SettingsPatch) -> Self {
+        let typed_policy_present = patch.grounding_source_mode.is_some()
+            || patch.grounding_verification_mode.is_some()
+            || patch.grounding_behavior.is_some();
+        let legacy_policy = patch.grounding_strategy.as_deref().map(|value| {
+            GroundingPolicy::from_legacy(crate::domain::grounding::GroundingStrategy::from_setting(
+                value,
+            ))
+        });
         if let Some(value) = patch.model {
             self.llm_model = value;
         }
@@ -392,6 +479,48 @@ impl Settings {
                     .as_str()
                     .to_string();
         }
+        if let Some(value) = patch.grounding_source_mode {
+            self.grounding_source_mode = GroundingSourceMode::from_setting(&value)
+                .as_str()
+                .to_string();
+        } else if let Some(policy) = legacy_policy.as_ref() {
+            self.grounding_source_mode = policy.source_mode.as_str().to_string();
+        }
+        if let Some(value) = patch.grounding_verification_mode {
+            self.grounding_verification_mode =
+                VerificationMode::from_setting(&value).as_str().to_string();
+            if patch.grounding_behavior.is_none() {
+                self.grounding_behavior = GroundingBehavior::from_legacy_verification(
+                    VerificationMode::from_setting(&value),
+                )
+                .as_str()
+                .to_string();
+            }
+        } else if let Some(policy) = legacy_policy.as_ref() {
+            self.grounding_verification_mode =
+                policy.legacy_verification_mode().as_str().to_string();
+        }
+        if let Some(value) = patch.grounding_behavior {
+            let behavior = GroundingBehavior::from_setting(&value);
+            self.grounding_behavior = behavior.as_str().to_string();
+            self.grounding_verification_mode = behavior.legacy_verification().as_str().to_string();
+        } else if let Some(policy) = legacy_policy.as_ref() {
+            self.grounding_behavior = policy.behavior.as_str().to_string();
+        }
+        if let Some(value) = patch.grounding_search_profile {
+            self.grounding_search_profile = value.normalized();
+        }
+        if self.grounding_source_mode == GroundingSourceMode::Model.as_str() {
+            self.grounding_behavior = GroundingBehavior::Standard.as_str().to_string();
+            self.grounding_verification_mode = VerificationMode::Standard.as_str().to_string();
+        }
+        if typed_policy_present {
+            self.grounding_strategy = self
+                .grounding_policy()
+                .legacy_strategy()
+                .as_str()
+                .to_string();
+        }
         if let Some(value) = patch.image_strategy {
             self.image_strategy = crate::domain::grounding::ImageStrategy::from_setting(&value)
                 .as_str()
@@ -435,6 +564,15 @@ impl Settings {
             effort
         }
     }
+
+    pub fn grounding_policy(&self) -> GroundingPolicy {
+        GroundingPolicy {
+            source_mode: GroundingSourceMode::from_setting(&self.grounding_source_mode),
+            behavior: GroundingBehavior::from_setting(&self.grounding_behavior),
+            search_profile: self.grounding_search_profile.clone(),
+        }
+        .normalized()
+    }
 }
 
 impl Default for Settings {
@@ -457,6 +595,42 @@ fn string(settings: &Value, key: &str, default: &str) -> String {
         .and_then(Value::as_str)
         .unwrap_or(default)
         .to_string()
+}
+
+fn grounding_policy_from_value(settings: &Value) -> GroundingPolicy {
+    let legacy = crate::domain::grounding::GroundingStrategy::from_setting(&string(
+        settings,
+        "grounding_strategy",
+        "factual",
+    ));
+    let legacy_policy = GroundingPolicy::from_legacy(legacy);
+    let profile = settings
+        .get("grounding_search_profile")
+        .cloned()
+        .and_then(|value| serde_yaml::from_value::<GroundingSearchProfile>(value).ok())
+        .unwrap_or_default();
+    GroundingPolicy {
+        source_mode: GroundingSourceMode::from_setting(&string(
+            settings,
+            "grounding_source_mode",
+            legacy_policy.source_mode.as_str(),
+        )),
+        behavior: settings
+            .get("grounding_behavior")
+            .and_then(Value::as_str)
+            .map(GroundingBehavior::from_setting)
+            .unwrap_or_else(|| {
+                GroundingBehavior::from_legacy_verification(VerificationMode::from_setting(
+                    &string(
+                        settings,
+                        "grounding_verification_mode",
+                        legacy_policy.legacy_verification_mode().as_str(),
+                    ),
+                ))
+            }),
+        search_profile: profile,
+    }
+    .normalized()
 }
 
 fn put_string(map: &mut Mapping, key: &str, value: Option<String>) {
@@ -494,7 +668,14 @@ mod tests {
         assert_eq!(settings.daily_time_zone, "UTC");
         assert_eq!(settings.daily_update_time, "03:00");
         assert_eq!(settings.max_active_cards, 0);
-        assert_eq!(settings.search_provider, "tavily");
+        assert_eq!(settings.search_provider, "native");
+        assert_eq!(settings.grounding_source_mode, "model");
+        assert_eq!(settings.grounding_verification_mode, "standard");
+        assert_eq!(settings.grounding_behavior, "standard");
+        assert_eq!(
+            settings.grounding_search_profile.failure_policy,
+            crate::domain::grounding::FailurePolicy::Stop
+        );
         assert_eq!(settings.scrape_provider, "scrapling");
         assert_eq!(settings.search_base_url, "https://api.tavily.com");
         assert_eq!(

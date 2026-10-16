@@ -65,6 +65,10 @@ pub(crate) async fn current_settings(
         daily_update_time: settings.daily_update_time,
         max_active_cards: settings.max_active_cards,
         grounding_strategy: settings.grounding_strategy,
+        grounding_source_mode: settings.grounding_source_mode,
+        grounding_verification_mode: settings.grounding_verification_mode,
+        grounding_behavior: settings.grounding_behavior,
+        grounding_search_profile: Some(profile_to_pb(&settings.grounding_search_profile)),
         image_strategy: settings.image_strategy,
         search_provider: settings.search_provider,
         scrape_provider: settings.scrape_provider,
@@ -127,6 +131,10 @@ pub(crate) async fn update_settings_file(
             autoupdate_check_interval_secs: req.autoupdate_check_interval_secs,
             autoupdate_command: req.autoupdate_command,
             grounding_strategy: req.grounding_strategy,
+            grounding_source_mode: req.grounding_source_mode,
+            grounding_verification_mode: req.grounding_verification_mode,
+            grounding_behavior: req.grounding_behavior,
+            grounding_search_profile: req.grounding_search_profile.map(profile_from_pb),
             image_strategy: req.image_strategy,
             search_provider: req.search_provider,
             scrape_provider: req.scrape_provider,
@@ -141,4 +149,31 @@ pub(crate) async fn update_settings_file(
     )
     .await
     .map_err(|err| err.into_status_body())
+}
+
+pub(crate) fn profile_to_pb(
+    profile: &crate::domain::grounding::GroundingSearchProfile,
+) -> pb::GroundingSearchProfile {
+    pb::GroundingSearchProfile {
+        depth: profile.depth.as_str().to_string(),
+        freshness: profile.freshness.as_str().to_string(),
+        guidance: profile.guidance.clone(),
+        include_domains: profile.include_domains.clone(),
+        failure_policy: profile.failure_policy.as_str().to_string(),
+    }
+}
+
+pub(crate) fn profile_from_pb(
+    profile: pb::GroundingSearchProfile,
+) -> crate::domain::grounding::GroundingSearchProfile {
+    crate::domain::grounding::GroundingSearchProfile {
+        depth: crate::domain::grounding::SearchDepth::from_setting(&profile.depth),
+        freshness: crate::domain::grounding::Freshness::from_setting(&profile.freshness),
+        guidance: profile.guidance,
+        include_domains: profile.include_domains,
+        failure_policy: crate::domain::grounding::FailurePolicy::from_setting(
+            &profile.failure_policy,
+        ),
+    }
+    .normalized()
 }

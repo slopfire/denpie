@@ -3,9 +3,32 @@ use sqlx::{PgPool, Postgres, QueryBuilder};
 use crate::error::{AppError, AppResult};
 
 use super::{
-    models::{TipcardFilter, TipcardInfoRecord, TipcardRow},
+    models::{GroundingEvidenceRecord, TipcardFilter, TipcardInfoRecord, TipcardRow},
     queries, topic_color_from_row,
 };
+
+pub async fn list_grounding_evidence_for_cards(
+    pool: &PgPool,
+    user_id: &str,
+    card_ids: &[i64],
+) -> AppResult<Vec<GroundingEvidenceRecord>> {
+    if card_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(sqlx::query_as::<_, GroundingEvidenceRecord>(
+        "SELECT evidence.card_id, evidence.position, evidence.source_type, evidence.title,
+                evidence.url, evidence.document_id, evidence.excerpt,
+                CAST(evidence.retrieved_at AS TEXT) AS retrieved_at
+         FROM tipcard_grounding_evidence evidence
+         JOIN tipcards card ON card.id = evidence.card_id
+         WHERE card.user_id = $1 AND evidence.card_id = ANY($2)
+         ORDER BY evidence.card_id, evidence.position",
+    )
+    .bind(user_id)
+    .bind(card_ids)
+    .fetch_all(pool)
+    .await?)
+}
 
 pub async fn list_admin(pool: &PgPool, user_id: &str) -> AppResult<Vec<TipcardInfoRecord>> {
     let sql = format!(
@@ -130,6 +153,8 @@ fn map_info_row(row: TipcardRow) -> TipcardInfoRecord {
         state_data: row.state_data,
         pinned: row.pinned != 0,
         repeats: row.repeats as u32,
+        grounding_status: row.grounding_status,
+        grounding_source_mode: row.grounding_source_mode,
     }
 }
 

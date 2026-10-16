@@ -19,6 +19,17 @@ rules that are easy to miss when reading field declarations alone.
   the current setting unchanged". `prompt_template` is always filled and always
   contains `{topic}`. The operation does not persist; copy the values into
   `update_settings` or `update_topic`.
+- `AppTopicInfo.grounding_source_mode` and `grounding_behavior` return stored
+  topic overrides. Empty strings mean inherit the user settings. An absent
+  `grounding_search_profile` also means inherit. The verification field is a
+  legacy compatibility projection.
+- `UpdateTopicRequest.clear_grounding_search_profile = true` clears the stored
+  topic profile. When false or absent, an absent profile means leave unchanged.
+- `PreviewGroundingRequest` optional policy fields override only that preview.
+  The operation does not persist its draft or evidence.
+- `grounding_status` is `verified` only after a fact-check pass succeeds with
+  captured evidence. `unverified` means the selected `mark_unverified` policy
+  allowed generation after required evidence or verification failed.
 
 ## Identifiers and numbers
 

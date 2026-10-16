@@ -1,5 +1,193 @@
 //! Pure grounding/image strategy enums. No SQL, no IO.
 
+use serde::{Deserialize, Serialize};
+
+macro_rules! string_enum {
+    ($name:ident, $default:ident, {$($value:literal => $variant:ident),+ $(,)?}) => {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum $name { $($variant),+ }
+
+        impl $name {
+            pub fn from_setting(value: &str) -> Self {
+                match value.trim() { $($value => Self::$variant,)+ _ => Self::$default }
+            }
+
+            pub fn as_str(self) -> &'static str {
+                match self { $(Self::$variant => $value,)+ }
+            }
+        }
+
+        impl Default for $name {
+            fn default() -> Self { Self::$default }
+        }
+    };
+}
+
+string_enum!(GroundingSourceMode, Model, {
+    "model" => Model,
+    "web" => Web,
+    "documents" => Documents,
+    "web_and_documents" => WebAndDocuments,
+});
+
+impl GroundingSourceMode {
+    pub fn uses_web(self) -> bool {
+        matches!(self, Self::Web | Self::WebAndDocuments)
+    }
+
+    pub fn uses_documents(self) -> bool {
+        matches!(self, Self::Documents | Self::WebAndDocuments)
+    }
+}
+
+string_enum!(VerificationMode, Standard, {
+    "standard" => Standard,
+    "thorough" => Thorough,
+});
+
+string_enum!(GroundingBehavior, Standard, {
+    "standard" => Standard,
+    "fact_check" => FactCheck,
+    "agentic" => Agentic,
+});
+
+impl GroundingBehavior {
+    pub fn from_legacy_verification(value: VerificationMode) -> Self {
+        match value {
+            VerificationMode::Standard => Self::Standard,
+            VerificationMode::Thorough => Self::FactCheck,
+        }
+    }
+
+    pub fn legacy_verification(self) -> VerificationMode {
+        match self {
+            Self::Standard | Self::Agentic => VerificationMode::Standard,
+            Self::FactCheck => VerificationMode::Thorough,
+        }
+    }
+}
+
+string_enum!(SearchDepth, Balanced, {
+    "quick" => Quick,
+    "balanced" => Balanced,
+    "deep" => Deep,
+});
+
+impl SearchDepth {
+    pub fn result_limit(self) -> usize {
+        match self {
+            Self::Quick => 3,
+            Self::Balanced => 6,
+            Self::Deep => 12,
+        }
+    }
+}
+
+string_enum!(Freshness, Any, {
+    "any" => Any,
+    "week" => Week,
+    "month" => Month,
+    "year" => Year,
+});
+
+string_enum!(FailurePolicy, Stop, {
+    "stop" => Stop,
+    "mark_unverified" => MarkUnverified,
+});
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GroundingSearchProfile {
+    pub depth: SearchDepth,
+    pub freshness: Freshness,
+    pub guidance: String,
+    pub include_domains: Vec<String>,
+    pub failure_policy: FailurePolicy,
+}
+
+impl Default for GroundingSearchProfile {
+    fn default() -> Self {
+        Self {
+            depth: SearchDepth::Balanced,
+            freshness: Freshness::Any,
+            guidance: String::new(),
+            include_domains: Vec::new(),
+            failure_policy: FailurePolicy::Stop,
+        }
+    }
+}
+
+impl GroundingSearchProfile {
+    pub fn normalized(mut self) -> Self {
+        self.guidance = self.guidance.trim().to_string();
+        self.include_domains = self
+            .include_domains
+            .into_iter()
+            .map(|domain| domain.trim().to_ascii_lowercase())
+            .filter(|domain| !domain.is_empty())
+            .collect();
+        self.include_domains.sort();
+        self.include_domains.dedup();
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GroundingPolicy {
+    pub source_mode: GroundingSourceMode,
+    pub behavior: GroundingBehavior,
+    pub search_profile: GroundingSearchProfile,
+}
+
+impl GroundingPolicy {
+    pub fn normalized(mut self) -> Self {
+        if self.source_mode == GroundingSourceMode::Model {
+            self.behavior = GroundingBehavior::Standard;
+        }
+        self.search_profile = self.search_profile.normalized();
+        self
+    }
+
+    pub fn from_legacy(strategy: GroundingStrategy) -> Self {
+        let (source_mode, behavior) = match strategy {
+            GroundingStrategy::Factual => (GroundingSourceMode::Model, GroundingBehavior::Standard),
+            GroundingStrategy::Agentic => (GroundingSourceMode::Web, GroundingBehavior::Agentic),
+            GroundingStrategy::CreateAndGround => {
+                (GroundingSourceMode::Web, GroundingBehavior::FactCheck)
+            }
+            GroundingStrategy::Rag => (GroundingSourceMode::Documents, GroundingBehavior::Standard),
+        };
+        Self {
+            source_mode,
+            behavior,
+            search_profile: GroundingSearchProfile::default(),
+        }
+    }
+
+    pub fn legacy_strategy(&self) -> GroundingStrategy {
+        match (self.source_mode, self.behavior) {
+            (GroundingSourceMode::Model, _) => GroundingStrategy::Factual,
+            (GroundingSourceMode::Documents, GroundingBehavior::Standard) => GroundingStrategy::Rag,
+            (
+                GroundingSourceMode::Web
+                | GroundingSourceMode::Documents
+                | GroundingSourceMode::WebAndDocuments,
+                GroundingBehavior::FactCheck,
+            ) => GroundingStrategy::CreateAndGround,
+            (
+                GroundingSourceMode::Web | GroundingSourceMode::WebAndDocuments,
+                GroundingBehavior::Standard | GroundingBehavior::Agentic,
+            ) => GroundingStrategy::Agentic,
+            (GroundingSourceMode::Documents, GroundingBehavior::Agentic) => GroundingStrategy::Rag,
+        }
+    }
+
+    pub fn legacy_verification_mode(&self) -> VerificationMode {
+        self.behavior.legacy_verification()
+    }
+}
+
 /// How the LLM sources facts when generating a tip card.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GroundingStrategy {
@@ -37,6 +225,7 @@ impl GroundingStrategy {
 /// External service used for web search and (optionally) remote document extraction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SearchProvider {
+    Native,
     Tavily,
     Firecrawl,
 }
@@ -44,6 +233,7 @@ pub enum SearchProvider {
 impl SearchProvider {
     pub fn from_setting(value: &str) -> Self {
         match value.trim() {
+            "native" => Self::Native,
             "firecrawl" => Self::Firecrawl,
             _ => Self::Tavily,
         }
@@ -51,6 +241,7 @@ impl SearchProvider {
 
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Native => "native",
             Self::Tavily => "tavily",
             Self::Firecrawl => "firecrawl",
         }
@@ -159,6 +350,49 @@ mod tests {
             GroundingStrategy::from_setting(""),
             GroundingStrategy::Factual
         );
+    }
+
+    #[test]
+    fn legacy_strategies_map_to_typed_policies() {
+        let cases = [
+            (
+                GroundingStrategy::Factual,
+                GroundingSourceMode::Model,
+                GroundingBehavior::Standard,
+            ),
+            (
+                GroundingStrategy::Agentic,
+                GroundingSourceMode::Web,
+                GroundingBehavior::Agentic,
+            ),
+            (
+                GroundingStrategy::CreateAndGround,
+                GroundingSourceMode::Web,
+                GroundingBehavior::FactCheck,
+            ),
+            (
+                GroundingStrategy::Rag,
+                GroundingSourceMode::Documents,
+                GroundingBehavior::Standard,
+            ),
+        ];
+        for (legacy, source_mode, behavior) in cases {
+            let policy = GroundingPolicy::from_legacy(legacy);
+            assert_eq!(policy.source_mode, source_mode);
+            assert_eq!(policy.behavior, behavior);
+            assert_eq!(policy.search_profile.failure_policy, FailurePolicy::Stop);
+        }
+    }
+
+    #[test]
+    fn model_agentic_normalizes_to_standard() {
+        let policy = GroundingPolicy {
+            source_mode: GroundingSourceMode::Model,
+            behavior: GroundingBehavior::Agentic,
+            search_profile: GroundingSearchProfile::default(),
+        }
+        .normalized();
+        assert_eq!(policy.behavior, GroundingBehavior::Standard);
     }
 
     #[test]

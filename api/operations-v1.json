@@ -45,6 +45,7 @@
     "append_tipcard_images": "ok",
     "replace_tipcard_images": "ok",
     "enhance_prompt_template": "enhance_prompt_template"
+    ,"preview_grounding": "preview_grounding"
   },
   "operations": [
     {
@@ -181,6 +182,15 @@
       "scope": "topics:write",
       "kind": "mutation",
       "summary": "Partially update one topic's overrides."
+    },
+    {
+      "operation": "preview_grounding",
+      "request": "PreviewGroundingRequest",
+      "result": "PreviewGroundingResult",
+      "auth": "Bearer API key",
+      "scope": "topics:read",
+      "kind": "read",
+      "summary": "Preview the effective Grounding policy and evidence retrieval for a topic without saving the draft."
     },
     {
       "operation": "delete_topic",

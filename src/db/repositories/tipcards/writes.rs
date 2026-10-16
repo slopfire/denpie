@@ -6,7 +6,7 @@ use crate::{
     error::{AppError, AppResult},
 };
 
-use super::models::{CreateManualParams, GeneratedCardParams};
+use super::models::{CreateManualParams, GeneratedCardParams, GeneratedGrounding};
 
 pub async fn delete_with_review(pool: &PgPool, user_id: &str, id: i64) -> AppResult<Vec<String>> {
     let mut tx = pool.begin().await?;
@@ -157,6 +157,7 @@ pub async fn create_generated_with_status(
             image_query,
         },
         status,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -183,6 +184,30 @@ pub async fn create_pending_batch_if_needed(
         low_water,
         cards,
         false,
+        None,
+    )
+    .await
+    .map(|(ids, _)| ids)
+}
+
+pub async fn create_pending_batch_if_needed_grounded(
+    pool: &PgPool,
+    user_id: &str,
+    topic_id: i64,
+    tipcard_type: &str,
+    low_water: i64,
+    cards: &[GeneratedCardParams<'_>],
+    grounding: GeneratedGrounding<'_>,
+) -> AppResult<Vec<i64>> {
+    create_pending_batch(
+        pool,
+        user_id,
+        topic_id,
+        tipcard_type,
+        low_water,
+        cards,
+        false,
+        Some(grounding),
     )
     .await
     .map(|(ids, _)| ids)
@@ -191,6 +216,7 @@ pub async fn create_pending_batch_if_needed(
 /// Persist a generated batch and promote its oldest eligible card in the same
 /// topic-locked transaction. This is used by explicit Load-card requests so a
 /// successful response always corresponds to a card that can be listed.
+#[allow(dead_code)]
 pub async fn create_pending_batch_and_promote_if_needed(
     pool: &PgPool,
     user_id: &str,
@@ -207,6 +233,29 @@ pub async fn create_pending_batch_and_promote_if_needed(
         low_water,
         cards,
         true,
+        None,
+    )
+    .await
+}
+
+pub async fn create_pending_batch_and_promote_if_needed_grounded(
+    pool: &PgPool,
+    user_id: &str,
+    topic_id: i64,
+    tipcard_type: &str,
+    low_water: i64,
+    cards: &[GeneratedCardParams<'_>],
+    grounding: GeneratedGrounding<'_>,
+) -> AppResult<(Vec<i64>, Option<super::models::ScheduledCardRecord>)> {
+    create_pending_batch(
+        pool,
+        user_id,
+        topic_id,
+        tipcard_type,
+        low_water,
+        cards,
+        true,
+        Some(grounding),
     )
     .await
 }
@@ -220,6 +269,7 @@ async fn create_pending_batch(
     low_water: i64,
     cards: &[GeneratedCardParams<'_>],
     promote: bool,
+    grounding: Option<GeneratedGrounding<'_>>,
 ) -> AppResult<(Vec<i64>, Option<super::models::ScheduledCardRecord>)> {
     if cards.is_empty() {
         return Ok((Vec::new(), None));
@@ -278,6 +328,7 @@ async fn create_pending_batch(
                         image_query: card.image_query,
                     },
                     "pending",
+                    grounding.as_ref(),
                 )
                 .await?,
             )
@@ -305,10 +356,15 @@ async fn insert_generated_with_status(
     tipcard_type: &str,
     card: GeneratedCardParams<'_>,
     status: &str,
+    grounding: Option<&GeneratedGrounding<'_>>,
 ) -> AppResult<i64> {
+    let grounding_status = grounding
+        .map(|value| value.status)
+        .unwrap_or("not_applicable");
+    let grounding_source_mode = grounding.map(|value| value.source_mode).unwrap_or("model");
     let card_id = sqlx::query_scalar::<_, i64>(
-        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content, use_image, image_query)
-         SELECT $1, top.id, $3, $4, $5, $6, $7, $8
+        "INSERT INTO tipcards (user_id, topic_id, tipcard_type, title, full_content, compressed_content, use_image, image_query, grounding_status, grounding_source_mode)
+         SELECT $1, top.id, $3, $4, $5, $6, $7, $8, $9, $10
          FROM topics top
          WHERE top.id = $2 AND top.user_id = $1 AND top.tipcard_type = $3
          RETURNING id",
@@ -321,6 +377,8 @@ async fn insert_generated_with_status(
     .bind(card.compressed_content)
     .bind(if card.use_image { 1 } else { 0 })
     .bind(card.image_query)
+    .bind(grounding_status)
+    .bind(grounding_source_mode)
     .fetch_optional(&mut **tx)
     .await?
     .ok_or_else(|| AppError::NotFound("Matching topic not found".to_string()))?;
@@ -343,6 +401,24 @@ async fn insert_generated_with_status(
     .await?;
     if card.use_image && !card.image_query.trim().is_empty() {
         crate::db::repositories::image_jobs::enqueue_in_tx(tx, user_id, card_id).await?;
+    }
+    if let Some(grounding) = grounding {
+        for (position, evidence) in grounding.evidence.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO tipcard_grounding_evidence
+                    (card_id, position, source_type, title, url, document_id, excerpt)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            )
+            .bind(card_id)
+            .bind(position as i64)
+            .bind(evidence.source_type)
+            .bind(evidence.title)
+            .bind(evidence.url)
+            .bind(evidence.document_id)
+            .bind(evidence.excerpt)
+            .execute(&mut **tx)
+            .await?;
+        }
     }
     Ok(card_id)
 }

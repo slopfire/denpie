@@ -107,6 +107,22 @@ function cardStatusLabel(status: string): string {
     }
 }
 
+function groundingStatusLabel(status: string): string {
+    switch (status) {
+        case "grounded":
+            return t("card.grounding.grounded");
+        case "verified":
+            return t("card.grounding.verified");
+        case "unverified":
+            return t("card.grounding.unverified");
+        case "not_applicable":
+        case "":
+            return "";
+        default:
+            return status;
+    }
+}
+
 function SourceIcon({ kind }: { kind: DetailSourceIconKind }) {
     switch (kind) {
         case "link":
@@ -136,26 +152,35 @@ function DetailLoading() {
 
 function DetailSources({ card }: { card: FlowCardInfo }) {
     const sources = detailSources(card);
+    const actualEvidence = card.groundingEvidence.length > 0;
     if (sources.length === 0) return null;
     return (
         <Card size="sm" data-testid="card-detail-sources">
             <CardHeader>
-                <CardTitle>{t("card.sources.title")}</CardTitle>
+                <CardTitle>
+                    {actualEvidence
+                        ? t("card.evidence.title")
+                        : t("card.sources.title")}
+                </CardTitle>
                 <CardDescription>
-                    {t("card.sources.description")}
+                    {actualEvidence
+                        ? t("card.evidence.description")
+                        : t("card.sources.description")}
                 </CardDescription>
             </CardHeader>
             <CardContent>
                 <ItemGroup>
                     {sources.map((source, index) => {
                         const description =
-                            source.href !== null
-                                ? t("card.sources.external_link")
-                                : source.icon === "document"
-                                  ? t("card.sources.stored_document")
-                                  : source.icon === "link"
-                                    ? t("card.sources.link_unavailable")
-                                    : t("card.sources.source");
+                            source.excerpt !== ""
+                                ? source.excerpt
+                                : source.href !== null
+                                  ? t("card.sources.external_link")
+                                  : source.icon === "document"
+                                    ? t("card.sources.stored_document")
+                                    : source.icon === "link"
+                                      ? t("card.sources.link_unavailable")
+                                      : t("card.sources.source");
                         const content = (
                             <>
                                 <ItemMedia variant="icon">
@@ -214,6 +239,7 @@ function DetailReady({
 }) {
     const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
     const created = humanDetailDate(card.createdAt);
+    const groundingStatus = groundingStatusLabel(card.groundingStatus);
     const content =
         card.fullContent.trim() === ""
             ? card.compressedContent
@@ -228,6 +254,17 @@ function DetailReady({
                     <div className="flex flex-wrap gap-2">
                         <Badge variant="outline">{card.topicName}</Badge>
                         {card.pinned ? <Badge>{t("card.pinned")}</Badge> : null}
+                        {groundingStatus === "" ? null : (
+                            <Badge
+                                variant={
+                                    card.groundingStatus === "unverified"
+                                        ? "destructive"
+                                        : "secondary"
+                                }
+                            >
+                                {groundingStatus}
+                            </Badge>
+                        )}
                         {created === null ? null : (
                             <Badge variant="secondary">
                                 {tf("card.created", { date: created })}

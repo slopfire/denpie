@@ -26,6 +26,15 @@ pub(crate) async fn update_topic_prompt(
             grounding_strategy: req.grounding_strategy,
             grounding_model: req.grounding_model,
             grounding_reasoning_effort: req.grounding_reasoning_effort,
+            grounding_source_mode: req.grounding_source_mode,
+            grounding_verification_mode: req.grounding_verification_mode,
+            grounding_behavior: req.grounding_behavior,
+            grounding_search_profile: if req.clear_grounding_search_profile == Some(true) {
+                Some(None)
+            } else {
+                req.grounding_search_profile
+                    .map(|profile| Some(crate::api::settings::profile_from_pb(profile)))
+            },
             image_strategy: req.image_strategy,
         },
     )

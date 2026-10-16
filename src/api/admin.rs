@@ -1,4 +1,5 @@
 use chrono::Utc;
+use std::collections::HashMap;
 
 use crate::{
     AppState,
@@ -29,6 +30,13 @@ pub(crate) async fn list_admin_topics_pb(
                 grounding_strategy: row.grounding_strategy.unwrap_or_default(),
                 grounding_model: row.grounding_model.unwrap_or_default(),
                 grounding_reasoning_effort: row.grounding_reasoning_effort.unwrap_or_default(),
+                grounding_source_mode: row.grounding_source_mode.unwrap_or_default(),
+                grounding_verification_mode: row.grounding_verification_mode.unwrap_or_default(),
+                grounding_behavior: row.grounding_behavior.unwrap_or_default(),
+                grounding_search_profile: row
+                    .grounding_search_profile
+                    .as_ref()
+                    .map(crate::api::settings::profile_to_pb),
                 image_strategy: row.image_strategy.unwrap_or_default(),
             })
             .collect(),
@@ -43,6 +51,15 @@ pub(crate) async fn list_tipcards_pb(state: &AppState, user_id: &str) -> ApiResu
     let images_by_card = tipcards::list_images_for_cards(&state.db, user_id, &card_ids)
         .await
         .map_err(|err| err.into_status_body())?;
+    let evidence_by_card =
+        tipcards::list_grounding_evidence_for_cards(&state.db, user_id, &card_ids)
+            .await
+            .map_err(|err| err.into_status_body())?
+            .into_iter()
+            .fold(HashMap::<i64, Vec<_>>::new(), |mut grouped, evidence| {
+                grouped.entry(evidence.card_id).or_default().push(evidence);
+                grouped
+            });
 
     Ok(pb::Tipcards {
         cards: rows
@@ -75,6 +92,21 @@ pub(crate) async fn list_tipcards_pb(state: &AppState, user_id: &str) -> ApiResu
                     topic_icon: row.topic_icon,
                     topic_color: row.topic_color,
                     images,
+                    grounding_status: row.grounding_status,
+                    grounding_source_mode: row.grounding_source_mode,
+                    grounding_evidence: evidence_by_card
+                        .get(&row.id)
+                        .into_iter()
+                        .flatten()
+                        .map(|evidence| pb::GroundingEvidence {
+                            source_type: evidence.source_type.clone(),
+                            title: evidence.title.clone(),
+                            url: evidence.url.clone(),
+                            document_id: evidence.document_id,
+                            excerpt: evidence.excerpt.clone(),
+                            retrieved_at: evidence.retrieved_at.clone(),
+                        })
+                        .collect(),
                 }
             })
             .collect(),
@@ -114,6 +146,13 @@ pub(crate) async fn app_topics_pb(state: &AppState, user_id: &str) -> ApiResult<
                 grounding_strategy: row.grounding_strategy,
                 grounding_model: row.grounding_model,
                 grounding_reasoning_effort: row.grounding_reasoning_effort,
+                grounding_source_mode: row.grounding_source_mode,
+                grounding_verification_mode: row.grounding_verification_mode,
+                grounding_behavior: row.grounding_behavior,
+                grounding_search_profile: row
+                    .grounding_search_profile
+                    .as_ref()
+                    .map(crate::api::settings::profile_to_pb),
                 image_strategy: row.image_strategy,
                 total_cards: row.total_cards,
                 due_cards: row.due_cards,

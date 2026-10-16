@@ -161,6 +161,45 @@ Topic override: `update_topic.compression_level` (empty = inherit). Fenced code 
 
 ## Grounding
 
+Grounding policy separates the evidence source from model behavior:
+
+| Field | Values |
+|---|---|
+| `grounding_source_mode` | `model`, `web`, `documents`, `web_and_documents` |
+| `grounding_behavior` | `standard`, `fact_check`, `agentic` |
+| `grounding_verification_mode` | Legacy projection: `standard`, `thorough` |
+| `GroundingSearchProfile.depth` | `quick` (3), `balanced` (6), `deep` (12) |
+| `freshness` | `any`, `week`, `month`, `year` |
+| `failure_policy` | `stop`, `mark_unverified` |
+
+The profile also carries free-form search guidance and an `include_domains`
+allowlist. Search provider, credentials, and base URL remain global connection
+settings. `standard` retrieves once and generates. `fact_check` drafts, then
+runs a separate claim-checking pass. `agentic` plans up to three queries,
+retrieves evidence, assesses gaps or conflicts, runs at most two follow-up
+queries, then generates. `model` always normalizes to `standard` because it has
+no retrieval tools.
+
+Topics may override the source, behavior, and complete search profile. Empty
+source and behavior strings mean inherit. An absent topic profile
+means leave the stored profile unchanged during an update. Set
+`UpdateTopicRequest.clear_grounding_search_profile` to clear it and inherit the
+global profile. Legacy `grounding_strategy` remains readable:
+`factual` maps to model + standard, `agentic` to web + agentic,
+`create_and_ground` to web + fact check, and `rag` to documents + standard.
+`grounding_verification_mode` remains additive compatibility data: `thorough`
+projects to `fact_check`; other values project to `standard`.
+
+`preview_grounding` resolves an unsaved policy draft without persisting it. It
+returns the effective policy, backend, query plan, captured evidence, and
+warnings. External search failures return an error under `stop`; under
+`mark_unverified`, the result carries the failure as a warning.
+
+Generated card responses expose `grounding_status`, `grounding_source_mode`,
+and immutable `grounding_evidence`. Status values are `not_applicable`,
+`grounded`, `verified`, or `unverified`. The evidence snapshot remains attached
+to the card even if topic source assignments change later.
+
 | Setting | Role |
 |---|---|
 | `Settings.grounding_model` | Model for non-factual grounding |

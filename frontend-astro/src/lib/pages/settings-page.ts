@@ -1,6 +1,22 @@
 import { create } from "@bufbuild/protobuf";
-import { UpdateSettingsRequestSchema } from "@/generated/denpie_pb";
+import {
+    GroundingSearchProfileSchema,
+    UpdateSettingsRequestSchema,
+} from "@/generated/denpie_pb";
 import type { Settings, UpdateSettingsRequest } from "@/generated/denpie_pb";
+import {
+    formatDomainList,
+    behaviorFromLegacyVerification,
+    legacyGroundingPolicy,
+    legacyStrategyForPolicy,
+    legacyVerificationForBehavior,
+    parseDomainList,
+    type GroundingFailurePolicy,
+    type GroundingFreshness,
+    type GroundingSearchDepth,
+    type GroundingSourceMode,
+    type GroundingBehavior,
+} from "@/lib/grounding-policy";
 
 /** Browser-editable representation of the settings fields exposed by this page. */
 export interface SettingsDraft {
@@ -16,6 +32,13 @@ export interface SettingsDraft {
     groundingModel: string;
     groundingReasoningEffort: string;
     groundingStrategy: string;
+    groundingSourceMode: GroundingSourceMode;
+    groundingBehavior: GroundingBehavior;
+    groundingSearchDepth: GroundingSearchDepth;
+    groundingFreshness: GroundingFreshness;
+    groundingSearchGuidance: string;
+    groundingIncludeDomains: string;
+    groundingFailurePolicy: GroundingFailurePolicy;
     imageStrategy: string;
     searchProvider: string;
     scrapeProvider: string;
@@ -36,6 +59,8 @@ export interface SettingsDraft {
 }
 
 export function settingsDraft(settings: Settings): SettingsDraft {
+    const legacy = legacyGroundingPolicy(settings.groundingStrategy);
+    const profile = settings.groundingSearchProfile;
     return {
         model: settings.model,
         compressModel: settings.compressModel,
@@ -49,6 +74,23 @@ export function settingsDraft(settings: Settings): SettingsDraft {
         groundingModel: settings.groundingModel,
         groundingReasoningEffort: settings.groundingReasoningEffort,
         groundingStrategy: settings.groundingStrategy,
+        groundingSourceMode:
+            (settings.groundingSourceMode as GroundingSourceMode) ||
+            legacy.sourceMode,
+        groundingBehavior:
+            (settings.groundingBehavior as GroundingBehavior) ||
+            (settings.groundingVerificationMode
+                ? behaviorFromLegacyVerification(settings.groundingVerificationMode)
+                : legacy.behavior),
+        groundingSearchDepth:
+            (profile?.depth as GroundingSearchDepth) || "balanced",
+        groundingFreshness: (profile?.freshness as GroundingFreshness) || "any",
+        groundingSearchGuidance: profile?.guidance ?? "",
+        groundingIncludeDomains: formatDomainList(
+            profile?.includeDomains ?? [],
+        ),
+        groundingFailurePolicy:
+            (profile?.failurePolicy as GroundingFailurePolicy) || "stop",
         imageStrategy: settings.imageStrategy,
         searchProvider: settings.searchProvider,
         scrapeProvider: settings.scrapeProvider,
@@ -104,6 +146,38 @@ export function settingsPatch(
         patch.groundingReasoningEffort = current.groundingReasoningEffort;
     if (current.groundingStrategy !== previous.groundingStrategy)
         patch.groundingStrategy = current.groundingStrategy;
+    if (current.groundingSourceMode !== previous.groundingSourceMode)
+        patch.groundingSourceMode = current.groundingSourceMode;
+    if (current.groundingBehavior !== previous.groundingBehavior) {
+        patch.groundingBehavior = current.groundingBehavior;
+        patch.groundingVerificationMode = legacyVerificationForBehavior(
+            current.groundingBehavior,
+        );
+    }
+    if (
+        current.groundingSearchDepth !== previous.groundingSearchDepth ||
+        current.groundingFreshness !== previous.groundingFreshness ||
+        current.groundingSearchGuidance !== previous.groundingSearchGuidance ||
+        current.groundingIncludeDomains !== previous.groundingIncludeDomains ||
+        current.groundingFailurePolicy !== previous.groundingFailurePolicy
+    ) {
+        patch.groundingSearchProfile = create(GroundingSearchProfileSchema, {
+            depth: current.groundingSearchDepth,
+            freshness: current.groundingFreshness,
+            guidance: current.groundingSearchGuidance,
+            includeDomains: parseDomainList(current.groundingIncludeDomains),
+            failurePolicy: current.groundingFailurePolicy,
+        });
+    }
+    if (
+        current.groundingSourceMode !== previous.groundingSourceMode ||
+        current.groundingBehavior !== previous.groundingBehavior
+    ) {
+        patch.groundingStrategy = legacyStrategyForPolicy({
+            sourceMode: current.groundingSourceMode,
+            behavior: current.groundingBehavior,
+        });
+    }
     if (current.imageStrategy !== previous.imageStrategy)
         patch.imageStrategy = current.imageStrategy;
     if (current.searchProvider !== previous.searchProvider)
@@ -168,6 +242,10 @@ const SETTINGS_PATCH_KEYS = [
     "groundingModel",
     "groundingReasoningEffort",
     "groundingStrategy",
+    "groundingSourceMode",
+    "groundingVerificationMode",
+    "groundingBehavior",
+    "groundingSearchProfile",
     "imageStrategy",
     "searchProvider",
     "scrapeProvider",

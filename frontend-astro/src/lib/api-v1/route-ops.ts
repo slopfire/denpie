@@ -14,6 +14,7 @@ import {
     ExploreLinkRequestSchema,
     ForceDailyRefreshRequestSchema,
     GetByIdRequestSchema,
+    PreviewGroundingRequestSchema,
     UpdateSettingsRequestSchema,
     UpdateTopicRequestSchema,
     UploadDocumentRequestSchema,
@@ -33,6 +34,8 @@ import type {
     ExploredLinks,
     PoolImageCreated,
     PoolImageInfo,
+    GroundingSearchProfile,
+    PreviewGroundingResult,
     Settings,
     TipcardInfo,
     UpdateSettingsRequest,
@@ -98,6 +101,50 @@ export async function getSettings({ deps = {} }: ReadDeps = {}): Promise<{
         throw unexpectedResult("get_settings", response);
     }
     return { requestId, settings: response.result.value };
+}
+
+export interface PreviewGroundingOptions {
+    topicId: bigint;
+    groundingSourceMode?: string;
+    groundingVerificationMode?: string;
+    groundingBehavior?: string;
+    groundingSearchProfile?: GroundingSearchProfile;
+    documentIds?: bigint[];
+    deps?: CallDeps;
+}
+
+export async function previewGrounding({
+    topicId,
+    groundingSourceMode,
+    groundingVerificationMode,
+    groundingBehavior,
+    groundingSearchProfile,
+    documentIds = [],
+    deps = {},
+}: PreviewGroundingOptions): Promise<{
+    requestId: string;
+    preview: PreviewGroundingResult;
+}> {
+    requirePositiveId(topicId, "preview_grounding");
+    const { requestId, response } = await readOperation(
+        {
+            case: "previewGrounding",
+            value: create(PreviewGroundingRequestSchema, {
+                topicId,
+                groundingSourceMode,
+                groundingVerificationMode,
+                groundingBehavior,
+                groundingSearchProfile,
+                documentIds,
+            }),
+        },
+        "grounding-preview",
+        deps,
+    );
+    if (response.result.case !== "previewGrounding") {
+        throw unexpectedResult("preview_grounding", response);
+    }
+    return { requestId, preview: response.result.value };
 }
 
 export interface UpdateSettingsOptions {

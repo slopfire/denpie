@@ -1,7 +1,21 @@
-import { useState } from "react";
-import { RotateCcwIcon, SparklesIcon } from "lucide-react";
-import type { AppTopicInfo } from "@/generated/denpie_pb";
+import { useEffect, useState } from "react";
+import { create } from "@bufbuild/protobuf";
+import {
+    ExternalLinkIcon,
+    RotateCcwIcon,
+    SearchIcon,
+    SparklesIcon,
+} from "lucide-react";
+import {
+    GroundingSearchProfileSchema,
+    type AppTopicInfo,
+    type DocumentInfo,
+    type PreviewGroundingResult,
+} from "@/generated/denpie_pb";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { GroundingPolicyEditor } from "@/components/pages/GroundingPolicyEditor";
 import {
     Dialog,
     DialogContent,
@@ -10,8 +24,25 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import {
+    Field,
+    FieldContent,
+    FieldDescription,
+    FieldGroup,
+    FieldLabel,
+    FieldLegend,
+    FieldSet,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+    Item,
+    ItemActions,
+    ItemContent,
+    ItemDescription,
+    ItemGroup,
+    ItemTitle,
+} from "@/components/ui/item";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
     Select,
     SelectContent,
@@ -20,13 +51,17 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { t, tf } from "@/lib/i18n";
 import {
     applyTopicEditorDraft,
     hasTopicEditorPatch,
+    setTopicSourceAssignment,
     topicEditorDraft,
     topicEditorPatch,
+    topicSourceIds,
+    topicSourceMutations,
     type TopicEditorDraft,
 } from "@/lib/pages/topic-editor";
 import {
@@ -35,23 +70,29 @@ import {
 } from "@/lib/pages/prompt-template";
 import { tipTypeLabel } from "@/lib/tip-type";
 import {
+    attachDocumentTopic,
+    detachDocumentTopic,
     enhancePromptTemplate,
     getSettings,
+    previewGrounding,
     updateTopic,
 } from "@/lib/api-v1/route-ops";
 import { newIdempotencyKey } from "@/lib/api-v1/transport";
 import { useToast } from "@/islands/toast-context";
+import {
+    legacyStrategyForPolicy,
+    legacyVerificationForBehavior,
+    parseDomainList,
+    resolveGroundingPolicy,
+    type GroundingPolicyDraft,
+    type ResolvedGroundingPolicy,
+} from "@/lib/grounding-policy";
+import { settingsDraft } from "@/lib/pages/settings-page";
+import { safeSourceUrl } from "@/lib/flow-detail-state";
 
 const INHERIT = "inherit";
 
 const COMPRESSION = ["light", "balanced", "strong", "ultra"] as const;
-const STRATEGIES = [
-    INHERIT,
-    "factual",
-    "create_and_ground",
-    "agentic",
-    "rag",
-] as const;
 const IMAGE_STRATEGIES = [
     INHERIT,
     "none",
@@ -91,23 +132,6 @@ function storedStrategy(value: string): string {
 
 function selectedStrategy(value: string): string {
     return value === INHERIT ? "" : value;
-}
-
-function strategyLabel(value: string): string {
-    switch (value) {
-        case INHERIT:
-            return t("grounding.topic_editor.inherit");
-        case "factual":
-            return t("settings.grounding.strategy_factual");
-        case "create_and_ground":
-            return t("settings.grounding.strategy_fact_check");
-        case "agentic":
-            return t("settings.grounding.strategy_agentic");
-        case "rag":
-            return t("settings.grounding.strategy_documents");
-        default:
-            return value;
-    }
 }
 
 function imageStrategyLabel(value: string): string {
@@ -150,24 +174,257 @@ function reasoningEffortLabel(value: string): string {
     }
 }
 
+function sourceTypeLabel(sourceType: string): string {
+    switch (sourceType) {
+        case "document":
+            return t("format.source_type.document");
+        case "link":
+            return t("format.source_type.link");
+        default:
+            return sourceType;
+    }
+}
+
+function previewSourceLabel(sourceMode: string): string {
+    switch (sourceMode) {
+        case "model":
+            return t("grounding.policy.source_model");
+        case "web":
+            return t("grounding.policy.source_web");
+        case "documents":
+            return t("grounding.policy.source_documents");
+        case "web_and_documents":
+            return t("grounding.policy.source_web_and_documents");
+        default:
+            return sourceMode;
+    }
+}
+
+function previewBehaviorLabel(behavior: string): string {
+    switch (behavior) {
+        case "standard":
+            return t("grounding.policy.behavior_standard");
+        case "fact_check":
+            return t("grounding.policy.behavior_fact_check");
+        case "agentic":
+            return t("grounding.policy.behavior_agentic");
+        default:
+            return behavior;
+    }
+}
+
+interface TopicSourceDraft {
+    topicId: bigint;
+    sourceIds: bigint[];
+}
+
+type PreviewState =
+    | { kind: "idle" }
+    | { kind: "loading" }
+    | { kind: "ready"; preview: PreviewGroundingResult }
+    | { kind: "error"; message: string };
+
+function editorPolicy(draft: TopicEditorDraft): GroundingPolicyDraft {
+    return {
+        sourceMode: draft.groundingSourceMode,
+        behavior: draft.groundingBehavior,
+        searchDepth: draft.groundingSearchDepth,
+        freshness: draft.groundingFreshness,
+        searchGuidance: draft.groundingSearchGuidance,
+        includeDomains: draft.groundingIncludeDomains,
+        failurePolicy: draft.groundingFailurePolicy,
+    };
+}
+
+function inheritedPolicy(
+    settings: ReturnType<typeof settingsDraft>,
+): ResolvedGroundingPolicy {
+    return {
+        sourceMode: settings.groundingSourceMode,
+        behavior: settings.groundingBehavior,
+        searchDepth: settings.groundingSearchDepth,
+        freshness: settings.groundingFreshness,
+        searchGuidance: settings.groundingSearchGuidance,
+        includeDomains: parseDomainList(settings.groundingIncludeDomains),
+        failurePolicy: settings.groundingFailurePolicy,
+    };
+}
+
+function errorText(error: unknown): string {
+    return error instanceof Error ? error.message : t("toast.request_failed");
+}
+
+function GroundingPreviewPanel({ state }: { state: PreviewState }) {
+    if (state.kind === "idle") return null;
+    if (state.kind === "loading") {
+        return (
+            <Alert data-testid="grounding-preview-loading">
+                <Spinner />
+                <AlertTitle>{t("grounding.preview.loading")}</AlertTitle>
+                <AlertDescription>
+                    {t("grounding.preview.loading_description")}
+                </AlertDescription>
+            </Alert>
+        );
+    }
+    if (state.kind === "error") {
+        return (
+            <Alert variant="destructive" data-testid="grounding-preview-error">
+                <AlertTitle>{t("grounding.preview.failed")}</AlertTitle>
+                <AlertDescription>{state.message}</AlertDescription>
+            </Alert>
+        );
+    }
+
+    const { preview } = state;
+    return (
+        <FieldSet data-testid="grounding-preview-ready">
+            <FieldLegend>{t("grounding.preview.title")}</FieldLegend>
+            <div className="flex flex-wrap gap-2">
+                <Badge variant="secondary">
+                    {tf("grounding.preview.backend", {
+                        backend: preview.backend,
+                    })}
+                </Badge>
+                <Badge variant="outline">
+                    {tf("grounding.preview.source", {
+                        source: previewSourceLabel(preview.groundingSourceMode),
+                    })}
+                </Badge>
+                <Badge variant="outline">
+                    {tf("grounding.preview.behavior", {
+                        behavior: previewBehaviorLabel(
+                            preview.groundingBehavior,
+                        ),
+                    })}
+                </Badge>
+            </div>
+            {preview.queries.length === 0 ? null : (
+                <FieldDescription>
+                    {preview.queries.join(" · ")}
+                </FieldDescription>
+            )}
+            {preview.warnings.map((warning) => (
+                <Alert key={warning} variant="destructive">
+                    <AlertTitle>{t("grounding.preview.warning")}</AlertTitle>
+                    <AlertDescription>{warning}</AlertDescription>
+                </Alert>
+            ))}
+            {preview.evidence.length === 0 ? (
+                <FieldDescription>
+                    {t("grounding.preview.no_evidence")}
+                </FieldDescription>
+            ) : (
+                <ItemGroup>
+                    {preview.evidence.map((evidence, index) => {
+                        const href = safeSourceUrl(evidence.url);
+                        const content = (
+                            <>
+                                <ItemContent>
+                                    <ItemTitle>
+                                        {evidence.title ||
+                                            t("grounding.preview.untitled")}
+                                    </ItemTitle>
+                                    <ItemDescription>
+                                        {evidence.excerpt ||
+                                            evidence.sourceType}
+                                    </ItemDescription>
+                                </ItemContent>
+                                {href === null ? null : (
+                                    <ItemActions>
+                                        <ExternalLinkIcon aria-hidden />
+                                    </ItemActions>
+                                )}
+                            </>
+                        );
+                        return href === null ? (
+                            <Item
+                                key={`${evidence.sourceType}:${evidence.title}:${index}`}
+                                variant="outline"
+                                size="sm"
+                            >
+                                {content}
+                            </Item>
+                        ) : (
+                            <Item
+                                key={`${href}:${index}`}
+                                variant="outline"
+                                size="sm"
+                                render={
+                                    <a
+                                        href={href}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    />
+                                }
+                            >
+                                {content}
+                            </Item>
+                        );
+                    })}
+                </ItemGroup>
+            )}
+        </FieldSet>
+    );
+}
+
 export function TopicEditorDialog({
     topic,
+    documents,
     busy,
     onClose,
     onSaved,
 }: {
     topic: AppTopicInfo | null;
+    documents: DocumentInfo[];
     busy: boolean;
     onClose: () => void;
-    onSaved: (topic: AppTopicInfo) => Promise<void> | void;
+    onSaved: (saved: {
+        topic: AppTopicInfo;
+        sourceIds: bigint[];
+    }) => Promise<void> | void;
 }) {
     const toast = useToast();
     const [draft, setDraft] = useState<TopicEditorDraft | null>(null);
     const [saving, setSaving] = useState(false);
     const [enhancing, setEnhancing] = useState(false);
     const [promptRationale, setPromptRationale] = useState("");
+    const [groundingDefaults, setGroundingDefaults] =
+        useState<ResolvedGroundingPolicy | null>(null);
+    const [searchProvider, setSearchProvider] = useState("native");
+    const [previewState, setPreviewState] = useState<PreviewState>({
+        kind: "idle",
+    });
+    const [sourceDraft, setSourceDraft] = useState<TopicSourceDraft | null>(
+        null,
+    );
     const open = topic !== null;
     const shown = topic === null ? null : (draft ?? topicEditorDraft(topic));
+    const shownSourceIds =
+        topic === null
+            ? []
+            : sourceDraft?.topicId === topic.id
+              ? sourceDraft.sourceIds
+              : topicSourceIds(documents, topic.id);
+
+    useEffect(() => {
+        if (!open) return;
+        let cancelled = false;
+        void getSettings()
+            .then(({ settings }) => {
+                if (!cancelled) {
+                    const defaults = settingsDraft(settings);
+                    setGroundingDefaults(inheritedPolicy(defaults));
+                    setSearchProvider(defaults.searchProvider);
+                }
+            })
+            .catch(() => {
+                if (!cancelled) setGroundingDefaults(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open, topic?.id]);
 
     const setField = <Key extends keyof TopicEditorDraft>(
         key: Key,
@@ -178,6 +435,62 @@ export function TopicEditorDialog({
             ...(current ?? topicEditorDraft(topic)),
             [key]: value,
         }));
+    };
+
+    const setPolicy = (policy: GroundingPolicyDraft) => {
+        if (topic === null) return;
+        setDraft((current) => {
+            const next = current ?? topicEditorDraft(topic);
+            return {
+                ...next,
+                groundingSourceMode: policy.sourceMode,
+                groundingBehavior: policy.behavior,
+                groundingSearchDepth: policy.searchDepth,
+                groundingFreshness: policy.freshness,
+                groundingSearchGuidance: policy.searchGuidance,
+                groundingIncludeDomains: policy.includeDomains,
+                groundingFailurePolicy: policy.failurePolicy,
+                groundingStrategy:
+                    policy.sourceMode === ""
+                        ? ""
+                        : legacyStrategyForPolicy({
+                              sourceMode: policy.sourceMode,
+                              behavior: policy.behavior || "standard",
+                          }),
+            };
+        });
+        setPreviewState({ kind: "idle" });
+    };
+
+    const runPreview = async () => {
+        if (topic === null) return;
+        const next = draft ?? topicEditorDraft(topic);
+        const effective = resolveGroundingPolicy(
+            editorPolicy(next),
+            groundingDefaults ?? undefined,
+        );
+        setPreviewState({ kind: "loading" });
+        try {
+            const { preview } = await previewGrounding({
+                topicId: topic.id,
+                groundingSourceMode: effective.sourceMode,
+                groundingBehavior: effective.behavior,
+                groundingVerificationMode: legacyVerificationForBehavior(
+                    effective.behavior,
+                ),
+                groundingSearchProfile: create(GroundingSearchProfileSchema, {
+                    depth: effective.searchDepth,
+                    freshness: effective.freshness,
+                    guidance: effective.searchGuidance,
+                    includeDomains: effective.includeDomains,
+                    failurePolicy: effective.failurePolicy,
+                }),
+                documentIds: shownSourceIds,
+            });
+            setPreviewState({ kind: "ready", preview });
+        } catch (error) {
+            setPreviewState({ kind: "error", message: errorText(error) });
+        }
     };
 
     const resetPrompt = async () => {
@@ -232,6 +545,11 @@ export function TopicEditorDialog({
         if (topic === null) return;
         const next = draft ?? topicEditorDraft(topic);
         const patch = topicEditorPatch(topic, next);
+        const sourceMutations = topicSourceMutations(
+            documents,
+            topic.id,
+            shownSourceIds,
+        );
         setSaving(true);
         try {
             if (hasTopicEditorPatch(patch)) {
@@ -240,9 +558,29 @@ export function TopicEditorDialog({
                     idempotencyKey: newIdempotencyKey(),
                 });
             }
-            await onSaved(applyTopicEditorDraft(topic, next));
+            await Promise.all(
+                sourceMutations.map((mutation) => {
+                    const options = {
+                        documentId: mutation.documentId,
+                        topicId: topic.id,
+                        idempotencyKey: newIdempotencyKey(),
+                    };
+                    switch (mutation.kind) {
+                        case "attach":
+                            return attachDocumentTopic(options);
+                        case "detach":
+                            return detachDocumentTopic(options);
+                    }
+                }),
+            );
+            await onSaved({
+                topic: applyTopicEditorDraft(topic, next),
+                sourceIds: shownSourceIds,
+            });
             setDraft(null);
+            setSourceDraft(null);
             setPromptRationale("");
+            setPreviewState({ kind: "idle" });
             toast.show(t("grounding.topic_editor.saved"), "success");
         } catch (error) {
             toast.show(
@@ -262,13 +600,15 @@ export function TopicEditorDialog({
             onOpenChange={(nextOpen) => {
                 if (!nextOpen && !saving && !enhancing) {
                     setDraft(null);
+                    setSourceDraft(null);
                     setPromptRationale("");
+                    setPreviewState({ kind: "idle" });
                     onClose();
                 }
             }}
         >
             <DialogContent
-                className="max-h-[90dvh] overflow-y-auto sm:max-w-xl"
+                className="max-h-[calc(100dvh-1rem)] max-w-[calc(100%-1rem)] overflow-y-auto sm:max-h-[90dvh] sm:max-w-xl"
                 data-testid="topic-editor"
             >
                 {topic === null || shown === null ? null : (
@@ -338,10 +678,114 @@ export function TopicEditorDialog({
                                         )}
                                 </FieldDescription>
                             </Field>
+                            <GroundingPolicyEditor
+                                value={editorPolicy(shown)}
+                                inherited={groundingDefaults ?? undefined}
+                                allowInherit
+                                disabled={busy || saving || enhancing}
+                                onChange={setPolicy}
+                                searchProvider={searchProvider}
+                                documentControls={
+                                    <FieldSet>
+                                        <FieldLegend>
+                                            {t(
+                                                "grounding.topic_editor.sources",
+                                            )}
+                                        </FieldLegend>
+                                        <FieldDescription>
+                                            {t(
+                                                "grounding.topic_editor.sources_description",
+                                            )}
+                                        </FieldDescription>
+                                        {documents.length === 0 ? (
+                                            <FieldDescription>
+                                                {t(
+                                                    "grounding.topic_editor.sources_empty",
+                                                )}
+                                            </FieldDescription>
+                                        ) : (
+                                            <ScrollArea className="max-h-56">
+                                                <FieldGroup className="gap-3 pr-3">
+                                                    {documents.map(
+                                                        (document) => {
+                                                            const controlId = `topic-source-${document.id}`;
+                                                            const assigned =
+                                                                shownSourceIds.includes(
+                                                                    document.id,
+                                                                );
+                                                            const disabled =
+                                                                busy ||
+                                                                saving ||
+                                                                enhancing;
+                                                            return (
+                                                                <Field
+                                                                    key={document.id.toString()}
+                                                                    orientation="horizontal"
+                                                                    data-disabled={
+                                                                        disabled ||
+                                                                        undefined
+                                                                    }
+                                                                >
+                                                                    <FieldContent>
+                                                                        <FieldLabel
+                                                                            htmlFor={
+                                                                                controlId
+                                                                            }
+                                                                        >
+                                                                            {
+                                                                                document.title
+                                                                            }
+                                                                        </FieldLabel>
+                                                                        <FieldDescription>
+                                                                            {sourceTypeLabel(
+                                                                                document.sourceType,
+                                                                            )}
+                                                                        </FieldDescription>
+                                                                    </FieldContent>
+                                                                    <Switch
+                                                                        id={
+                                                                            controlId
+                                                                        }
+                                                                        checked={
+                                                                            assigned
+                                                                        }
+                                                                        disabled={
+                                                                            disabled
+                                                                        }
+                                                                        onCheckedChange={(
+                                                                            checked,
+                                                                        ) =>
+                                                                            setSourceDraft(
+                                                                                {
+                                                                                    topicId:
+                                                                                        topic.id,
+                                                                                    sourceIds:
+                                                                                        setTopicSourceAssignment(
+                                                                                            shownSourceIds,
+                                                                                            document.id,
+                                                                                            checked,
+                                                                                        ),
+                                                                                },
+                                                                            )
+                                                                        }
+                                                                    />
+                                                                </Field>
+                                                            );
+                                                        },
+                                                    )}
+                                                </FieldGroup>
+                                            </ScrollArea>
+                                        )}
+                                    </FieldSet>
+                                }
+                            />
+                            <GroundingPreviewPanel state={previewState} />
                             <div className="grid gap-3 sm:grid-cols-2">
                                 <Field>
                                     <FieldLabel htmlFor="topic-daily-count">
-                                        {t("grounding.topic_editor.daily_count")}
+                                        {t(
+                                            "grounding.topic_editor.daily_count",
+                                        )}
                                     </FieldLabel>
                                     <Input
                                         id="topic-daily-count"
@@ -444,39 +888,6 @@ export function TopicEditorDialog({
                                 <Field>
                                     <FieldLabel>
                                         {t(
-                                            "grounding.topic_editor.grounding_strategy",
-                                        )}
-                                    </FieldLabel>
-                                    <Select
-                                        value={storedStrategy(
-                                            shown.groundingStrategy,
-                                        )}
-                                        onValueChange={(value) =>
-                                            value !== null &&
-                                            setField(
-                                                "groundingStrategy",
-                                                selectedStrategy(value),
-                                            )
-                                        }
-                                    >
-                                        <SelectTrigger className="w-full">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {STRATEGIES.map((value) => (
-                                                <SelectItem
-                                                    key={value}
-                                                    value={value}
-                                                >
-                                                    {strategyLabel(value)}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </Field>
-                                <Field>
-                                    <FieldLabel>
-                                        {t(
                                             "grounding.topic_editor.image_strategy",
                                         )}
                                     </FieldLabel>
@@ -524,7 +935,9 @@ export function TopicEditorDialog({
                                 </Field>
                                 <Field>
                                     <FieldLabel htmlFor="topic-update-time">
-                                        {t("grounding.topic_editor.update_time")}
+                                        {t(
+                                            "grounding.topic_editor.update_time",
+                                        )}
                                     </FieldLabel>
                                     <Input
                                         id="topic-update-time"
@@ -548,6 +961,25 @@ export function TopicEditorDialog({
                                 onClick={onClose}
                             >
                                 {t("common.close")}
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                disabled={
+                                    busy ||
+                                    saving ||
+                                    enhancing ||
+                                    previewState.kind === "loading"
+                                }
+                                onClick={() => void runPreview()}
+                                data-testid="grounding-preview"
+                            >
+                                {previewState.kind === "loading" ? (
+                                    <Spinner data-icon="inline-start" />
+                                ) : (
+                                    <SearchIcon data-icon="inline-start" />
+                                )}
+                                {t("grounding.preview.action")}
                             </Button>
                             <Button
                                 type="button"

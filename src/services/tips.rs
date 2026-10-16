@@ -1109,6 +1109,46 @@ pub(crate) struct GenerationContext<'a> {
     pub(crate) settings: &'a crate::config::Settings,
 }
 
+struct TopicDocumentSearcher<'a> {
+    pool: &'a sqlx::PgPool,
+    user_id: &'a str,
+    topic_id: i64,
+}
+
+impl llm::DocumentSearcher for TopicDocumentSearcher<'_> {
+    fn search<'a>(
+        &'a self,
+        query: &'a str,
+        limit: usize,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Vec<llm::DocChunk>, String>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            documents::retrieve_chunks_with_metadata(
+                self.pool,
+                self.user_id,
+                self.topic_id,
+                query,
+                limit as i64,
+            )
+            .await
+            .map_err(|error| error.into_status_body().1)
+            .map(|chunks| {
+                chunks
+                    .into_iter()
+                    .map(|chunk| llm::DocChunk {
+                        document_id: chunk.document_id,
+                        source_type: chunk.source_type,
+                        title: chunk.title,
+                        url: chunk.url,
+                        chunk: chunk.chunk,
+                    })
+                    .collect()
+            })
+        })
+    }
+}
+
 impl TipService {
     async fn generate_tipcard(
         ctx: GenerationContext<'_>,
@@ -1119,12 +1159,7 @@ impl TipService {
         delivery: GeneratedCardDelivery,
         responses: &mut Vec<TipCardJson>,
     ) -> ApiResult<usize> {
-        let grounding = domain::grounding::GroundingStrategy::from_setting(
-            ctx.topic
-                .grounding_strategy
-                .as_deref()
-                .unwrap_or(&ctx.settings.grounding_strategy),
-        );
+        let grounding_policy = effective_grounding_policy(ctx.topic, ctx.settings);
         let image_strategy = domain::grounding::ImageStrategy::from_setting(
             ctx.topic
                 .image_strategy
@@ -1139,7 +1174,7 @@ impl TipService {
             .filter(|value| !value.is_empty())
             .map(llm::ReasoningConfig::new);
         let (generation_model, generation_reasoning) =
-            if matches!(grounding, domain::grounding::GroundingStrategy::Factual) {
+            if grounding_policy.source_mode == domain::grounding::GroundingSourceMode::Model {
                 (llm.model, llm.reasoning)
             } else {
                 (
@@ -1187,7 +1222,7 @@ impl TipService {
             &ctx.topic.tipcard_type,
         )
         .await?;
-        let prompt = context::render_generation_prompt(ctx.topic_name, template, &card_context);
+        let mut prompt = context::render_generation_prompt(ctx.topic_name, template, &card_context);
         let compression_level = ctx
             .topic
             .compression_level
@@ -1196,51 +1231,119 @@ impl TipService {
             .unwrap_or(llm.compression_level);
 
         // For RAG, retrieve top-k chunks explicitly assigned to this topic.
-        let documents: Vec<llm::DocChunk> =
-            if matches!(grounding, domain::grounding::GroundingStrategy::Rag) {
-                documents::retrieve_chunks(
-                    &ctx.state.db,
-                    ctx.user_id,
-                    ctx.topic.id,
-                    ctx.topic_name,
-                    12,
-                )
-                .await
-                .map_err(|err| err.into_status_body())?
-                .into_iter()
-                .map(|chunk| llm::DocChunk { chunk })
-                .collect()
-            } else {
-                Vec::new()
-            };
+        let documents: Vec<llm::DocChunk> = if grounding_policy.source_mode.uses_documents() {
+            documents::retrieve_chunks_with_metadata(
+                &ctx.state.db,
+                ctx.user_id,
+                ctx.topic.id,
+                ctx.topic_name,
+                12,
+            )
+            .await
+            .map_err(|err| err.into_status_body())?
+            .into_iter()
+            .map(|chunk| llm::DocChunk {
+                document_id: chunk.document_id,
+                source_type: chunk.source_type,
+                title: chunk.title,
+                url: chunk.url,
+                chunk: chunk.chunk,
+            })
+            .collect()
+        } else {
+            Vec::new()
+        };
+        if grounding_policy.source_mode.uses_documents()
+            && documents.is_empty()
+            && grounding_policy.behavior != domain::grounding::GroundingBehavior::Agentic
+            && grounding_policy.search_profile.failure_policy
+                == domain::grounding::FailurePolicy::Stop
+        {
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Grounding found no matching assigned document evidence".to_string(),
+            ));
+        }
+        if grounding_policy.source_mode == domain::grounding::GroundingSourceMode::WebAndDocuments
+            && !documents.is_empty()
+        {
+            prompt.push_str("\n\nAssigned document evidence:\n");
+            for document in &documents {
+                prompt.push_str(&format!("\n[{}] {}", document.title, document.chunk));
+            }
+        }
 
-        let outcome = match llm::ground_and_generate(
-            grounding,
-            llm::GroundingInput {
-                topic_name: ctx.topic_name,
-                rendered_prompt: &prompt,
-                compression_level,
-                model: generation_model,
-                api_key: llm.api_key,
-                api_base: llm.base_url,
-                reasoning: generation_reasoning,
-                existing_titles: card_context.existing_titles(),
-                documents: &documents,
-                daily_card_count: batch_size.clamp(5, 12) as i64,
-                search: llm::SearchConfig {
-                    provider: &ctx.settings.search_provider,
-                    external_key: &ctx.settings.search_api_key,
-                    base_url: &ctx.settings.search_base_url,
-                },
+        let document_searcher = TopicDocumentSearcher {
+            pool: &ctx.state.db,
+            user_id: ctx.user_id,
+            topic_id: ctx.topic.id,
+        };
+        let outcome = match llm::ground_and_generate(llm::GroundingInput {
+            topic_name: ctx.topic_name,
+            rendered_prompt: &prompt,
+            compression_level,
+            model: generation_model,
+            api_key: llm.api_key,
+            api_base: llm.base_url,
+            reasoning: generation_reasoning,
+            existing_titles: card_context.existing_titles(),
+            documents: &documents,
+            daily_card_count: batch_size.clamp(5, 12) as i64,
+            search: llm::SearchConfig {
+                provider: &ctx.settings.search_provider,
+                external_key: &ctx.settings.search_api_key,
+                base_url: &ctx.settings.search_base_url,
+                profile: &grounding_policy.search_profile,
             },
-        )
+            source_mode: grounding_policy.source_mode,
+            behavior: grounding_policy.behavior,
+            document_searcher: grounding_policy
+                .source_mode
+                .uses_documents()
+                .then_some(&document_searcher as &dyn llm::DocumentSearcher),
+        })
         .await
         {
-            Ok(outcome) => outcome,
+            Ok(outcome) => (outcome, false),
+            Err(message)
+                if grounding_policy.search_profile.failure_policy
+                    == domain::grounding::FailurePolicy::MarkUnverified =>
+            {
+                tracing::warn!(topic = ctx.topic_name, error = %message, "grounding failed; generating an explicitly unverified batch");
+                let outcome = llm::ground_and_generate(llm::GroundingInput {
+                    topic_name: ctx.topic_name,
+                    rendered_prompt: &prompt,
+                    compression_level,
+                    model: generation_model,
+                    api_key: llm.api_key,
+                    api_base: llm.base_url,
+                    reasoning: generation_reasoning,
+                    existing_titles: card_context.existing_titles(),
+                    documents: &[],
+                    daily_card_count: batch_size.clamp(5, 12) as i64,
+                    search: llm::SearchConfig {
+                        provider: &ctx.settings.search_provider,
+                        external_key: &ctx.settings.search_api_key,
+                        base_url: &ctx.settings.search_base_url,
+                        profile: &grounding_policy.search_profile,
+                    },
+                    source_mode: domain::grounding::GroundingSourceMode::Model,
+                    behavior: domain::grounding::GroundingBehavior::Standard,
+                    document_searcher: None,
+                })
+                .await
+                .map_err(|fallback| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Card generation failed after Grounding fallback: {fallback}"),
+                    )
+                })?;
+                (outcome, true)
+            }
             Err(message) => {
                 tracing::error!(
                     topic = ctx.topic_name,
-                    strategy = ?grounding,
+                    behavior = ?grounding_policy.behavior,
                     error = %message,
                     "card generation failed"
                 );
@@ -1250,6 +1353,22 @@ impl TipService {
                 ));
             }
         };
+        let (outcome, grounding_degraded) = outcome;
+
+        let grounding_status =
+            if grounding_policy.source_mode == domain::grounding::GroundingSourceMode::Model {
+                "not_applicable"
+            } else if grounding_degraded
+                || (outcome.citations.is_empty()
+                    && documents.is_empty()
+                    && outcome.document_evidence.is_empty())
+            {
+                "unverified"
+            } else if grounding_policy.behavior == domain::grounding::GroundingBehavior::FactCheck {
+                "verified"
+            } else {
+                "grounded"
+            };
 
         Self::record_llm_token_usage(
             ctx.state,
@@ -1300,17 +1419,47 @@ impl TipService {
                 image_query: &card.image_query,
             })
             .collect::<Vec<_>>();
+        let mut evidence = documents
+            .iter()
+            .chain(outcome.document_evidence.iter())
+            .map(|document| tipcards::NewGroundingEvidence {
+                source_type: document.source_type.as_str(),
+                title: document.title.as_str(),
+                url: document.url.as_deref(),
+                document_id: Some(document.document_id),
+                excerpt: document.chunk.as_str(),
+            })
+            .collect::<Vec<_>>();
+        evidence.extend(
+            outcome
+                .citations
+                .iter()
+                .map(|url| tipcards::NewGroundingEvidence {
+                    source_type: "web",
+                    title: url.as_str(),
+                    url: Some(url.as_str()),
+                    document_id: None,
+                    excerpt: "",
+                }),
+        );
+        let grounding_record = tipcards::GeneratedGrounding {
+            status: grounding_status,
+            source_mode: grounding_policy.source_mode.as_str(),
+            evidence: &evidence,
+        };
         if should_promote && atomic_delivery {
-            let (created_ids, promoted) = tipcards::create_pending_batch_and_promote_if_needed(
-                &ctx.state.db,
-                ctx.user_id,
-                ctx.topic.id,
-                &ctx.topic.tipcard_type,
-                REFILL_LOW_WATER,
-                &cards,
-            )
-            .await
-            .map_err(|err| err.into_status_body())?;
+            let (created_ids, promoted) =
+                tipcards::create_pending_batch_and_promote_if_needed_grounded(
+                    &ctx.state.db,
+                    ctx.user_id,
+                    ctx.topic.id,
+                    &ctx.topic.tipcard_type,
+                    REFILL_LOW_WATER,
+                    &cards,
+                    grounding_record,
+                )
+                .await
+                .map_err(|err| err.into_status_body())?;
             if let Some(card) = promoted {
                 responses.push(tip_response_json(
                     card.id,
@@ -1536,12 +1685,7 @@ impl TipService {
             .map_err(|err| err.into_status_body().1)?
             .ok_or_else(|| "topic no longer exists".to_string())?;
 
-        let grounding = domain::grounding::GroundingStrategy::from_setting(
-            topic
-                .grounding_strategy
-                .as_deref()
-                .unwrap_or(&settings.grounding_strategy),
-        );
+        let grounding_policy = effective_grounding_policy(&topic, &settings);
         let llm_reasoning = llm::ReasoningConfig::new(settings.llm_reasoning_effort.clone());
         let grounding_reasoning = llm::ReasoningConfig::new(settings.grounding_reasoning_effort());
         let topic_grounding_reasoning = topic
@@ -1551,7 +1695,7 @@ impl TipService {
             .filter(|value| !value.is_empty())
             .map(llm::ReasoningConfig::new);
         let (generation_model, generation_reasoning) =
-            if matches!(grounding, domain::grounding::GroundingStrategy::Factual) {
+            if grounding_policy.source_mode == domain::grounding::GroundingSourceMode::Model {
                 (settings.llm_model.as_str(), &llm_reasoning)
             } else {
                 (
@@ -1576,40 +1720,102 @@ impl TipService {
         let card_context = context::load_card_context(state, user_id, topic_id, tipcard_type)
             .await
             .map_err(|err| err.1)?;
-        let prompt = context::render_generation_prompt(topic_name, template, &card_context);
-        let documents: Vec<llm::DocChunk> =
-            if matches!(grounding, domain::grounding::GroundingStrategy::Rag) {
-                documents::retrieve_chunks(&state.db, user_id, topic_id, topic_name, 12)
-                    .await
-                    .map_err(|err| err.into_status_body().1)?
-                    .into_iter()
-                    .map(|chunk| llm::DocChunk { chunk })
-                    .collect()
-            } else {
-                Vec::new()
-            };
+        let mut prompt = context::render_generation_prompt(topic_name, template, &card_context);
+        let documents: Vec<llm::DocChunk> = if grounding_policy.source_mode.uses_documents() {
+            documents::retrieve_chunks_with_metadata(&state.db, user_id, topic_id, topic_name, 12)
+                .await
+                .map_err(|err| err.into_status_body().1)?
+                .into_iter()
+                .map(|chunk| llm::DocChunk {
+                    document_id: chunk.document_id,
+                    source_type: chunk.source_type,
+                    title: chunk.title,
+                    url: chunk.url,
+                    chunk: chunk.chunk,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if grounding_policy.source_mode.uses_documents()
+            && documents.is_empty()
+            && grounding_policy.behavior != domain::grounding::GroundingBehavior::Agentic
+            && grounding_policy.search_profile.failure_policy
+                == domain::grounding::FailurePolicy::Stop
+        {
+            return Err("Grounding found no matching assigned document evidence".to_string());
+        }
+        if grounding_policy.source_mode == domain::grounding::GroundingSourceMode::WebAndDocuments {
+            prompt.push_str("\n\nAssigned document evidence:\n");
+            for document in &documents {
+                prompt.push_str(&format!("\n[{}] {}", document.title, document.chunk));
+            }
+        }
 
-        let outcome = llm::ground_and_generate(
-            grounding,
-            llm::GroundingInput {
-                topic_name,
-                rendered_prompt: &prompt,
-                compression_level,
-                model: generation_model,
-                api_key: &settings.llm_api_key,
-                api_base: &settings.llm_base_url,
-                reasoning: generation_reasoning,
-                existing_titles: card_context.existing_titles(),
-                documents: &documents,
-                daily_card_count: REPEATABLE_BATCH.clamp(5, 12) as i64,
-                search: llm::SearchConfig {
-                    provider: &settings.search_provider,
-                    external_key: &settings.search_api_key,
-                    base_url: &settings.search_base_url,
-                },
+        let document_searcher = TopicDocumentSearcher {
+            pool: &state.db,
+            user_id,
+            topic_id,
+        };
+        let outcome = llm::ground_and_generate(llm::GroundingInput {
+            topic_name,
+            rendered_prompt: &prompt,
+            compression_level,
+            model: generation_model,
+            api_key: &settings.llm_api_key,
+            api_base: &settings.llm_base_url,
+            reasoning: generation_reasoning,
+            existing_titles: card_context.existing_titles(),
+            documents: &documents,
+            daily_card_count: REPEATABLE_BATCH.clamp(5, 12) as i64,
+            search: llm::SearchConfig {
+                provider: &settings.search_provider,
+                external_key: &settings.search_api_key,
+                base_url: &settings.search_base_url,
+                profile: &grounding_policy.search_profile,
             },
-        )
-        .await?;
+            source_mode: grounding_policy.source_mode,
+            behavior: grounding_policy.behavior,
+            document_searcher: grounding_policy
+                .source_mode
+                .uses_documents()
+                .then_some(&document_searcher as &dyn llm::DocumentSearcher),
+        })
+        .await;
+        let outcome = match outcome {
+            Ok(outcome) => (outcome, false),
+            Err(message)
+                if grounding_policy.search_profile.failure_policy
+                    == domain::grounding::FailurePolicy::MarkUnverified =>
+            {
+                let outcome = llm::ground_and_generate(llm::GroundingInput {
+                    topic_name,
+                    rendered_prompt: &prompt,
+                    compression_level,
+                    model: generation_model,
+                    api_key: &settings.llm_api_key,
+                    api_base: &settings.llm_base_url,
+                    reasoning: generation_reasoning,
+                    existing_titles: card_context.existing_titles(),
+                    documents: &[],
+                    daily_card_count: REPEATABLE_BATCH.clamp(5, 12) as i64,
+                    search: llm::SearchConfig {
+                        provider: &settings.search_provider,
+                        external_key: &settings.search_api_key,
+                        base_url: &settings.search_base_url,
+                        profile: &grounding_policy.search_profile,
+                    },
+                    source_mode: domain::grounding::GroundingSourceMode::Model,
+                    behavior: domain::grounding::GroundingBehavior::Standard,
+                    document_searcher: None,
+                })
+                .await
+                .map_err(|fallback| format!("{message}; unverified fallback failed: {fallback}"))?;
+                (outcome, true)
+            }
+            Err(message) => return Err(message),
+        };
+        let (outcome, grounding_degraded) = outcome;
 
         // Another request may have refilled this topic while the LLM call ran.
         let current_pending = tipcards::count_pending(&state.db, user_id, topic_id, tipcard_type)
@@ -1629,13 +1835,51 @@ impl TipService {
                 image_query: &card.image_query,
             })
             .collect::<Vec<_>>();
-        tipcards::create_pending_batch_if_needed(
+        let mut evidence = documents
+            .iter()
+            .chain(outcome.document_evidence.iter())
+            .map(|document| tipcards::NewGroundingEvidence {
+                source_type: document.source_type.as_str(),
+                title: document.title.as_str(),
+                url: document.url.as_deref(),
+                document_id: Some(document.document_id),
+                excerpt: document.chunk.as_str(),
+            })
+            .collect::<Vec<_>>();
+        evidence.extend(
+            outcome
+                .citations
+                .iter()
+                .map(|url| tipcards::NewGroundingEvidence {
+                    source_type: "web",
+                    title: url.as_str(),
+                    url: Some(url.as_str()),
+                    document_id: None,
+                    excerpt: "",
+                }),
+        );
+        let grounding_status =
+            if grounding_policy.source_mode == domain::grounding::GroundingSourceMode::Model {
+                "not_applicable"
+            } else if grounding_degraded || evidence.is_empty() {
+                "unverified"
+            } else if grounding_policy.behavior == domain::grounding::GroundingBehavior::FactCheck {
+                "verified"
+            } else {
+                "grounded"
+            };
+        tipcards::create_pending_batch_if_needed_grounded(
             &state.db,
             user_id,
             topic_id,
             tipcard_type,
             REFILL_LOW_WATER,
             &cards,
+            tipcards::GeneratedGrounding {
+                status: grounding_status,
+                source_mode: grounding_policy.source_mode.as_str(),
+                evidence: &evidence,
+            },
         )
         .await
         .map(|ids| ids.len())
@@ -1719,6 +1963,50 @@ fn topic_override<'a>(topic_value: Option<&'a str>, inherited: &'a str) -> &'a s
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(inherited)
+}
+
+fn effective_grounding_policy(
+    topic: &topics::TopicRecord,
+    settings: &crate::config::Settings,
+) -> domain::grounding::GroundingPolicy {
+    let global = settings.grounding_policy();
+    let has_typed_policy = topic.grounding_source_mode.is_some()
+        || topic.grounding_behavior.is_some()
+        || topic.grounding_verification_mode.is_some();
+    let legacy_topic = (!has_typed_policy)
+        .then_some(topic.grounding_strategy.as_deref())
+        .flatten()
+        .map(|value| {
+            domain::grounding::GroundingPolicy::from_legacy(
+                domain::grounding::GroundingStrategy::from_setting(value),
+            )
+        });
+    domain::grounding::GroundingPolicy {
+        source_mode: topic
+            .grounding_source_mode
+            .as_deref()
+            .map(domain::grounding::GroundingSourceMode::from_setting)
+            .or_else(|| legacy_topic.as_ref().map(|policy| policy.source_mode))
+            .unwrap_or(global.source_mode),
+        behavior: topic
+            .grounding_behavior
+            .as_deref()
+            .map(domain::grounding::GroundingBehavior::from_setting)
+            .or_else(|| {
+                topic.grounding_verification_mode.as_deref().map(|value| {
+                    domain::grounding::GroundingBehavior::from_legacy_verification(
+                        domain::grounding::VerificationMode::from_setting(value),
+                    )
+                })
+            })
+            .or_else(|| legacy_topic.as_ref().map(|policy| policy.behavior))
+            .unwrap_or(global.behavior),
+        search_profile: topic
+            .grounding_search_profile
+            .clone()
+            .unwrap_or(global.search_profile),
+    }
+    .normalized()
 }
 
 #[cfg(test)]

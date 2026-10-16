@@ -4,26 +4,19 @@
 use crate::llm::cards::ARRAY_FORMAT_INSTRUCTIONS;
 use crate::llm::transport::create_chat_completion_json;
 
-use super::{GroundingInput, GroundingOutcome, batch_size, factual_fallback};
+use super::{GroundingInput, GroundingOutcome, batch_size};
 
 pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, String> {
     // No key → offline fallback card.
     if input.api_key.is_empty() {
-        return factual_fallback(&input).await;
+        return Err("document grounding requires an LLM API key".to_string());
     }
 
     let sources = render_chunks(input.documents);
-    let prompt = if sources.is_empty() {
-        format!(
-            "{base}\n\n\
-             Note: no grounding documents are available for this topic. Write the best \
-             accurate tip you can from general knowledge, and do not fabricate citations.\n\n\
-             Write {count} distinct cards for this load.\n\n{format}",
-            base = input.rendered_prompt,
-            count = batch_size(&input),
-            format = ARRAY_FORMAT_INSTRUCTIONS,
-        )
-    } else {
+    if sources.is_empty() {
+        return Err("no matching assigned document evidence was found".to_string());
+    }
+    let prompt = {
         format!(
             "{base}\n\n\
              Use ONLY the provided sources below. Cite the source titles you rely on inside \
@@ -68,8 +61,9 @@ pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, Str
         }
         let snippet = crate::llm::transport::content_snippet(&response.content, 200);
         let cards = super::build_batch(response, &input).await;
-        if let Some(outcome) = GroundingOutcome::from_cards(cards, Vec::new()) {
-            return Ok(outcome);
+        if !cards.is_empty() {
+            return Ok(GroundingOutcome::from_cards(cards, Vec::new())
+                .expect("document batch is non-empty"));
         }
         last_error = format!("model returned no parseable card JSON: {snippet}");
         tracing::warn!(
@@ -90,7 +84,7 @@ fn render_chunks(documents: &[super::DocChunk]) -> String {
     documents
         .iter()
         .enumerate()
-        .map(|(idx, doc)| format!("[{}] {}", idx + 1, doc.chunk))
+        .map(|(idx, doc)| format!("[{}] {}: {}", idx + 1, doc.title, doc.chunk))
         .collect::<Vec<_>>()
         .join("\n\n")
 }

@@ -55,6 +55,10 @@ CREATE TABLE IF NOT EXISTS topics (
     grounding_strategy TEXT,
     grounding_model TEXT,
     grounding_reasoning_effort TEXT,
+    grounding_source_mode TEXT,
+    grounding_verification_mode TEXT,
+    grounding_behavior TEXT,
+    grounding_search_profile JSONB,
     image_strategy TEXT,
     UNIQUE(user_id, name)
 );
@@ -71,7 +75,22 @@ CREATE TABLE IF NOT EXISTS tipcards (
     image_query TEXT NOT NULL DEFAULT '',
     image_data TEXT NOT NULL DEFAULT '[]',
     pinned BIGINT NOT NULL DEFAULT 0,
+    grounding_status TEXT NOT NULL DEFAULT 'not_applicable',
+    grounding_source_mode TEXT NOT NULL DEFAULT 'model',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tipcard_grounding_evidence (
+    id BIGSERIAL PRIMARY KEY,
+    card_id BIGINT NOT NULL REFERENCES tipcards(id) ON DELETE CASCADE,
+    position BIGINT NOT NULL,
+    source_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    url TEXT,
+    document_id BIGINT,
+    excerpt TEXT NOT NULL DEFAULT '',
+    retrieved_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(card_id, position)
 );
 
 CREATE TABLE IF NOT EXISTS review_states (
@@ -141,8 +160,12 @@ CREATE TABLE IF NOT EXISTS user_settings (
     daily_update_time TEXT NOT NULL,
     max_active_cards BIGINT NOT NULL DEFAULT 0,
     grounding_strategy TEXT NOT NULL DEFAULT 'factual',
+    grounding_source_mode TEXT NOT NULL DEFAULT 'model',
+    grounding_verification_mode TEXT NOT NULL DEFAULT 'standard',
+    grounding_behavior TEXT NOT NULL DEFAULT 'standard',
+    grounding_search_profile JSONB NOT NULL DEFAULT '{"depth":"balanced","freshness":"any","guidance":"","include_domains":[],"failure_policy":"stop"}'::jsonb,
     image_strategy TEXT NOT NULL DEFAULT 'none',
-    search_provider TEXT NOT NULL DEFAULT 'tavily',
+    search_provider TEXT NOT NULL DEFAULT 'native',
     scrape_provider TEXT NOT NULL DEFAULT 'scrapling',
     search_api_key TEXT NOT NULL DEFAULT '',
     search_base_url TEXT NOT NULL DEFAULT 'https://api.tavily.com',

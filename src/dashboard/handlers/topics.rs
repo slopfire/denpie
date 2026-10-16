@@ -38,6 +38,10 @@ pub async fn list_topics(
             grounding_strategy: r.grounding_strategy,
             grounding_model: r.grounding_model,
             grounding_reasoning_effort: r.grounding_reasoning_effort,
+            grounding_source_mode: r.grounding_source_mode,
+            grounding_verification_mode: r.grounding_verification_mode,
+            grounding_behavior: r.grounding_behavior,
+            grounding_search_profile: r.grounding_search_profile,
             image_strategy: r.image_strategy,
         })
         .collect();
@@ -99,6 +103,10 @@ pub async fn app_topics(
                 grounding_strategy: r.grounding_strategy,
                 grounding_model: r.grounding_model,
                 grounding_reasoning_effort: r.grounding_reasoning_effort,
+                grounding_source_mode: r.grounding_source_mode,
+                grounding_verification_mode: r.grounding_verification_mode,
+                grounding_behavior: r.grounding_behavior,
+                grounding_search_profile: r.grounding_search_profile,
                 image_strategy: r.image_strategy,
                 total_cards: r.total_cards,
                 due_cards: r.due_cards,
@@ -128,6 +136,14 @@ pub async fn update_topic(
             grounding_strategy: req.grounding_strategy,
             grounding_model: req.grounding_model,
             grounding_reasoning_effort: req.grounding_reasoning_effort,
+            grounding_source_mode: req.grounding_source_mode,
+            grounding_verification_mode: req.grounding_verification_mode,
+            grounding_behavior: req.grounding_behavior,
+            grounding_search_profile: if req.clear_grounding_search_profile == Some(true) {
+                Some(None)
+            } else {
+                req.grounding_search_profile.map(Some)
+            },
             image_strategy: req.image_strategy,
         },
     )

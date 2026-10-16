@@ -1,6 +1,7 @@
 import type { EnhancePromptTemplateResult } from "@/generated/denpie_pb";
 import type { SettingsDraft } from "./settings-page";
 import type { TopicEditorDraft } from "./topic-editor";
+import { legacyGroundingPolicy } from "@/lib/grounding-policy";
 
 /** Keep in lockstep with `DEFAULT_PROMPT_TEMPLATE` in `src/llm/cards.rs`. */
 export const DEFAULT_PROMPT_TEMPLATE = `Write useful daily tip cards about {topic}.
@@ -17,11 +18,17 @@ export function applyPromptSuggestionToSettings(
     draft: SettingsDraft,
     suggestion: EnhancePromptTemplateResult,
 ): SettingsDraft {
+    const suggestedPolicy = suggestion.groundingStrategy
+        ? legacyGroundingPolicy(suggestion.groundingStrategy)
+        : null;
     return {
         ...draft,
         template: suggestion.promptTemplate,
         groundingStrategy:
             suggestion.groundingStrategy || draft.groundingStrategy,
+        groundingSourceMode:
+            suggestedPolicy?.sourceMode ?? draft.groundingSourceMode,
+        groundingBehavior: suggestedPolicy?.behavior ?? draft.groundingBehavior,
         groundingModel: suggestion.groundingModel || draft.groundingModel,
         groundingReasoningEffort:
             suggestion.groundingReasoningEffort ||
@@ -34,11 +41,17 @@ export function applyPromptSuggestionToTopic(
     draft: TopicEditorDraft,
     suggestion: EnhancePromptTemplateResult,
 ): TopicEditorDraft {
+    const suggestedPolicy = suggestion.groundingStrategy
+        ? legacyGroundingPolicy(suggestion.groundingStrategy)
+        : null;
     return {
         ...draft,
         promptTemplate: suggestion.promptTemplate,
         groundingStrategy:
             suggestion.groundingStrategy || draft.groundingStrategy,
+        groundingSourceMode:
+            suggestedPolicy?.sourceMode ?? draft.groundingSourceMode,
+        groundingBehavior: suggestedPolicy?.behavior ?? draft.groundingBehavior,
         groundingModel: suggestion.groundingModel || draft.groundingModel,
         groundingReasoningEffort:
             suggestion.groundingReasoningEffort ||

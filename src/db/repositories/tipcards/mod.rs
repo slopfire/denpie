@@ -22,11 +22,12 @@ pub use flow::list_flow_cards;
 pub use images::{
     append_image_records, find_image, list_images, list_images_for_cards, replace_image_records,
 };
-pub use info::{get_tipcard_info, list_admin, list_filtered};
+pub use info::{get_tipcard_info, list_admin, list_filtered, list_grounding_evidence_for_cards};
 #[allow(unused_imports)]
 pub use models::{
     CardContextTitleRecord, CreateManualParams, DailyReviewTarget, FlowCardRecord,
-    GeneratedCardParams, ScheduledCardRecord, TipcardFilter, TipcardImageRecord, TipcardInfoRecord,
+    GeneratedCardParams, GeneratedGrounding, GroundingEvidenceRecord, NewGroundingEvidence,
+    ScheduledCardRecord, TipcardFilter, TipcardImageRecord, TipcardInfoRecord,
 };
 #[allow(unused_imports)]
 pub use pending::{
@@ -40,8 +41,10 @@ pub use queue::{
 #[allow(unused_imports)]
 pub use writes::{
     create_custom, create_generated_with_status, create_manual,
-    create_pending_batch_and_promote_if_needed, create_pending_batch_if_needed,
-    delete_failed_generation_cards, delete_with_review, set_pinned, transfer_pinned_in_tx,
+    create_pending_batch_and_promote_if_needed,
+    create_pending_batch_and_promote_if_needed_grounded, create_pending_batch_if_needed,
+    create_pending_batch_if_needed_grounded, delete_failed_generation_cards, delete_with_review,
+    set_pinned, transfer_pinned_in_tx,
 };
 
 pub(crate) fn topic_color_from_row(name: &str, color_hue: Option<i64>) -> String {

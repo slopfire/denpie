@@ -11,7 +11,9 @@ pub(crate) const BASE_CARD_SELECT: &str = "SELECT t.id,
        COALESCE(CAST(r.next_review_at AS TEXT), '') AS next_review_at,
        COALESCE(r.state_data, '') AS state_data,
        COALESCE(r.repeats, 0) AS repeats,
-       COALESCE(t.pinned, 0) AS pinned";
+       COALESCE(t.pinned, 0) AS pinned,
+       t.grounding_status,
+       t.grounding_source_mode";
 
 pub(crate) const CARD_FROM_JOINS: &str = "FROM tipcards t
 JOIN topics top ON t.topic_id = top.id

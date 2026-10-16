@@ -9,6 +9,9 @@ import {
     DocumentDetailSchema,
     EmptySchema,
     EnhancePromptTemplateResultSchema,
+    GroundingEvidenceSchema,
+    GroundingSearchProfileSchema,
+    PreviewGroundingResultSchema,
     SettingsSchema,
     TipcardInfoSchema,
     TipcardsSchema,
@@ -24,6 +27,7 @@ import {
     getSettings,
     getSummary,
     listTipcards,
+    previewGrounding,
     updateTopic,
 } from "./route-ops";
 
@@ -67,7 +71,8 @@ describe("route operation wrappers", () => {
             success({
                 case: "enhancePromptTemplate",
                 value: create(EnhancePromptTemplateResultSchema, {
-                    promptTemplate: "Write useful daily tip cards about {topic}.",
+                    promptTemplate:
+                        "Write useful daily tip cards about {topic}.",
                     groundingStrategy: "agentic",
                     rationale: "too many skip titles",
                 }),
@@ -107,6 +112,58 @@ describe("route operation wrappers", () => {
 
         expect(deps.requests[0]!.call.op.case).toBe("getSettings");
         expect(result.settings.maxActiveCards).toBe(maxActiveCards);
+    });
+
+    test("previewGrounding sends an unsaved topic policy and returns evidence", async () => {
+        const deps = fakeDeps(() =>
+            success({
+                case: "previewGrounding",
+                value: create(PreviewGroundingResultSchema, {
+                    groundingSourceMode: "web_and_documents",
+                    groundingVerificationMode: "thorough",
+                    backend: "tavily",
+                    queries: ["Rust official documentation"],
+                    evidence: [
+                        create(GroundingEvidenceSchema, {
+                            sourceType: "web",
+                            title: "Rust",
+                            url: "https://www.rust-lang.org/",
+                        }),
+                    ],
+                }),
+            }),
+        );
+        const profile = create(GroundingSearchProfileSchema, {
+            depth: "deep",
+            freshness: "month",
+            includeDomains: ["rust-lang.org"],
+            failurePolicy: "stop",
+        });
+
+        const result = await previewGrounding({
+            topicId: 11n,
+            groundingSourceMode: "web_and_documents",
+            groundingVerificationMode: "thorough",
+            groundingSearchProfile: profile,
+            documentIds: [51n],
+            deps,
+        });
+
+        expect(deps.requests[0]!.call.op.case).toBe("previewGrounding");
+        if (deps.requests[0]!.call.op.case === "previewGrounding") {
+            expect(deps.requests[0]!.call.op.value.topicId).toBe(11n);
+            expect(
+                deps.requests[0]!.call.op.value.groundingSearchProfile?.depth,
+            ).toBe("deep");
+            expect(deps.requests[0]!.call.op.value.documentIds).toEqual([51n]);
+        }
+        expect(result.preview.evidence[0]?.title).toBe("Rust");
+        await expect(
+            previewGrounding({
+                topicId: 11n,
+                deps: fakeDeps(() => success()),
+            }),
+        ).rejects.toThrow(/preview_grounding returned unexpected result case/);
     });
 
     test("createApiKey sends caller-owned idempotency and maps the one-time secret", async () => {

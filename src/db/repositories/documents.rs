@@ -30,6 +30,15 @@ pub struct DocumentTopicLink {
     pub topic_id: i64,
 }
 
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct RetrievedDocumentChunk {
+    pub document_id: i64,
+    pub source_type: String,
+    pub title: String,
+    pub url: Option<String>,
+    pub chunk: String,
+}
+
 /// Insert a reusable document and its searchable chunks, then attach it to the
 /// explicitly supplied topics.
 pub async fn insert_document(
@@ -287,6 +296,7 @@ async fn ensure_document_and_topic_owned(
 
 /// Retrieve up to `limit` matching chunks via PostgreSQL full-text ranking from sources
 /// explicitly assigned to `topic_id`.
+#[allow(dead_code)]
 pub async fn retrieve_chunks(
     pool: &PgPool,
     user_id: &str,
@@ -294,13 +304,29 @@ pub async fn retrieve_chunks(
     query: &str,
     limit: i64,
 ) -> AppResult<Vec<String>> {
+    Ok(
+        retrieve_chunks_with_metadata(pool, user_id, topic_id, query, limit)
+            .await?
+            .into_iter()
+            .map(|value| value.chunk)
+            .collect(),
+    )
+}
+
+pub async fn retrieve_chunks_with_metadata(
+    pool: &PgPool,
+    user_id: &str,
+    topic_id: i64,
+    query: &str,
+    limit: i64,
+) -> AppResult<Vec<RetrievedDocumentChunk>> {
     let sanitized = sanitize_fts_query(query);
     if sanitized.is_empty() {
         return Ok(Vec::new());
     }
 
     let rows = sqlx::query(
-        "SELECT chunks.chunk
+        "SELECT chunks.document_id, docs.source_type, docs.title, docs.url, chunks.chunk
          FROM document_chunks chunks
          JOIN document_topics assignments
            ON assignments.document_id = chunks.document_id
@@ -328,7 +354,13 @@ pub async fn retrieve_chunks(
 
     Ok(rows
         .into_iter()
-        .map(|row| row.get::<String, _>("chunk"))
+        .map(|row| RetrievedDocumentChunk {
+            document_id: row.get("document_id"),
+            source_type: row.get("source_type"),
+            title: row.get("title"),
+            url: row.get("url"),
+            chunk: row.get("chunk"),
+        })
         .collect())
 }
 

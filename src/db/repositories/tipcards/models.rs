@@ -14,6 +14,8 @@ pub(crate) struct TipcardRow {
     pub state_data: String,
     pub repeats: i64,
     pub pinned: i64,
+    pub grounding_status: String,
+    pub grounding_source_mode: String,
 }
 
 #[derive(Clone, Debug)]
@@ -47,6 +49,8 @@ pub struct TipcardInfoRecord {
     pub state_data: String,
     pub pinned: bool,
     pub repeats: u32,
+    pub grounding_status: String,
+    pub grounding_source_mode: String,
 }
 
 #[derive(Clone, Debug, sqlx::FromRow)]
@@ -76,6 +80,35 @@ pub struct FlowCardRecord {
     pub pinned: bool,
     pub repeats: u32,
     pub pending_count: i64,
+    pub grounding_status: String,
+    pub grounding_source_mode: String,
+}
+
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct GroundingEvidenceRecord {
+    pub card_id: i64,
+    pub source_type: String,
+    pub title: String,
+    pub url: Option<String>,
+    pub document_id: Option<i64>,
+    pub excerpt: String,
+    pub retrieved_at: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct NewGroundingEvidence<'a> {
+    pub source_type: &'a str,
+    pub title: &'a str,
+    pub url: Option<&'a str>,
+    pub document_id: Option<i64>,
+    pub excerpt: &'a str,
+}
+
+#[derive(Clone, Debug)]
+pub struct GeneratedGrounding<'a> {
+    pub status: &'a str,
+    pub source_mode: &'a str,
+    pub evidence: &'a [NewGroundingEvidence<'a>],
 }
 
 #[derive(Clone, Debug, Default)]

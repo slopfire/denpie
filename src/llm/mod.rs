@@ -12,7 +12,9 @@ pub use cards::{
     DEFAULT_COMPRESSION_LEVEL, DEFAULT_PROMPT_TEMPLATE, effective_prompt_template, generate_card,
 };
 pub use compression::CompressionLevel;
-pub use grounding::{DocChunk, GroundingInput, SearchConfig, ground_and_generate};
+pub use grounding::{
+    DocChunk, DocumentSearcher, GroundingInput, SearchConfig, ground_and_generate,
+};
 pub use icons::{pick_topic_icon, suggest_topic_icons};
 pub use images::{
     ImageInput, PoolImageMeta, RetrievedImage, annotate_image, remove_tag_json, retrieve_image,

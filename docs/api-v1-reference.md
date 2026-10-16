@@ -5,7 +5,7 @@ and checked against `ApiRequest.op` and `ApiResponse.result` in
 [`proto/denpie.proto`](../proto/denpie.proto). Do not edit it by hand; run
 `just api-reference` after changing the manifest or protobuf operation set.
 
-The API currently exposes **44 operations**: **16 reads** and
+The API currently exposes **45 operations**: **17 reads** and
 **28 mutations**. Every mutation requires an idempotency key. See the
 [API v1 guide](api-v1.md) for transport behavior and the
 [field semantics](api-v1-semantics.md) for representation details.
@@ -27,6 +27,7 @@ The API currently exposes **44 operations**: **16 reads** and
 | `get_summary` | `Empty` | `summary` (`AppSummary`) | Bearer API key | `cards:read` | read | not required | Return topic and card counts for the current user. |
 | `list_app_topics` | `Empty` | `app_topics` (`AppTopics`) | Bearer API key | `topics:read` | read | not required | List topics with card counts and effective configuration. |
 | `update_topic` | `UpdateTopicRequest` | `ok` (`Empty`) | Bearer API key | `topics:write` | mutation | required; replayable | Partially update one topic's overrides. |
+| `preview_grounding` | `PreviewGroundingRequest` | `preview_grounding` (`PreviewGroundingResult`) | Bearer API key | `topics:read` | read | not required | Preview the effective Grounding policy and evidence retrieval for a topic without saving the draft. |
 | `delete_topic` | `DeleteByIdRequest` | `ok` (`Empty`) | Bearer API key | `topics:write` | mutation | required; replayable | Delete a topic and its owned topic data. |
 | `pin_tipcard` | `PinTipcardRequest` | `ok` (`Empty`) | Bearer API key | `cards:write` | mutation | required; replayable | Set or clear a tipcard's pinned state. |
 | `submit_custom_tipcard` | `CustomTipcardRequest` | `tips` (`TipsResponse`) | Bearer API key | `cards:write` | mutation | required; replayable | Create an external custom card without review state. |

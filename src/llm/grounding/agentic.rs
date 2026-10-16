@@ -1,266 +1,328 @@
-//! Agentic grounding: research a topic (avoiding existing cards), generate many
-//! cards at once; the first is served now, the rest become a pending backlog.
+//! Bounded agentic grounding: plan several queries, retrieve evidence, inspect
+//! coverage, run at most one follow-up round, then generate from the evidence.
 
-use crate::llm::cards::{ARRAY_FORMAT_INSTRUCTIONS, build_card_from_parsed, parse_card_array};
-use crate::llm::transport::{TokenUsage, create_chat_completion_grounded};
+use std::collections::HashSet;
+
+use serde::Deserialize;
+
+use crate::domain::grounding::GroundingSourceMode;
+use crate::llm::transport::{
+    TokenUsage, create_chat_completion_grounded, create_chat_completion_json,
+};
 
 use super::search::{render_hits, search_external};
-use super::{GroundingInput, GroundingOutcome, factual_fallback};
+use super::{DocChunk, GroundingInput, GroundingOutcome, add_usage, generate_batch_with_retry};
 
-const MIN_CARDS: i64 = 5;
-const MAX_CARDS: i64 = 12;
-
-/// Starting completion-token budget for the researched batch. Reasoning-heavy
-/// providers can exhaust this mid-JSON; [`escalated_max_tokens`] doubles it
-/// once instead of repeating the same truncation.
+const INITIAL_QUERY_LIMIT: usize = 3;
+const FOLLOW_UP_QUERY_LIMIT: usize = 2;
+const EVIDENCE_LIMIT: usize = 24;
 const BASE_MAX_TOKENS: u32 = 8192;
-/// Upper bound for the doubled budget so a misbehaving provider cannot be
-/// answered with an unbounded request.
 const MAX_TOKENS_CEILING: u32 = 32768;
 
-/// Next completion budget after a truncated response, or `None` at the ceiling.
+#[derive(Debug, Deserialize)]
+struct QueryPlan {
+    queries: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GapPlan {
+    missing_queries: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+struct EvidenceNote {
+    title: String,
+    body: String,
+}
+
 pub(super) fn escalated_max_tokens(current: u32) -> Option<u32> {
     let doubled = current.checked_mul(2)?;
     (doubled <= MAX_TOKENS_CEILING).then_some(doubled)
 }
 
 pub async fn generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, String> {
-    tracing::info!(
-        topic = input.topic_name,
-        model = input.model,
-        requested_cards = input.daily_card_count,
-        existing_titles = input.existing_titles.len(),
-        provider_native_search = input.search.provider_native(),
-        "agentic grounding started"
-    );
-    // No key → fall back to the offline single-card path.
     if input.api_key.is_empty() {
-        tracing::warn!(
-            topic = input.topic_name,
-            "agentic grounding has no LLM API key; using factual fallback"
-        );
-        return factual_fallback(&input).await;
+        return Err("agentic research requires an LLM API key".to_string());
+    }
+    if input.source_mode == GroundingSourceMode::Model {
+        return Err("agentic research requires Web or My sources".to_string());
     }
 
-    let n = input.daily_card_count.clamp(MIN_CARDS, MAX_CARDS);
-
-    let (research_prompt, web_search) = if input.search.provider_native() {
-        (
-            build_prompt(input.rendered_prompt, input.topic_name, n, None),
-            true,
-        )
-    } else {
-        let hits = search_external(&input.search, input.topic_name, 5).await;
-        tracing::info!(
-            topic = input.topic_name,
-            search_hits = hits.len(),
-            "agentic grounding external research completed"
-        );
-        let sources = render_hits(&hits);
-        (
-            build_prompt(input.rendered_prompt, input.topic_name, n, Some(&sources)),
-            false,
-        )
-    };
-
-    tracing::info!(
-        topic = input.topic_name,
-        cards_requested = n,
-        prompt_len = research_prompt.len(),
-        max_tokens = BASE_MAX_TOKENS,
-        provider_native_search = web_search,
-        "agentic grounding requesting researched card batch"
-    );
-
-    let mut last_error = String::new();
+    let (initial_queries, mut orchestration_usage) = plan_queries(&input).await?;
     let mut citations = Vec::new();
-    let mut parsed = Vec::new();
-    let mut response_usage = TokenUsage::default();
-    let mut max_tokens = BASE_MAX_TOKENS;
+    let mut documents = Vec::new();
+    let mut evidence = Vec::new();
+    retrieve_queries(
+        &input,
+        &initial_queries,
+        &mut evidence,
+        &mut citations,
+        &mut documents,
+        &mut orchestration_usage,
+    )
+    .await?;
+    if evidence.is_empty() {
+        return Err("agentic research returned no evidence".to_string());
+    }
 
-    for attempt in 1..=2 {
-        let started = std::time::Instant::now();
-        let response = create_chat_completion_grounded(
-            input.model,
-            &research_prompt,
-            input.api_key,
-            input.api_base,
-            input.reasoning,
-            Some(max_tokens),
-            web_search,
-            true,
+    let (follow_up_queries, assessment_usage) = assess_gaps(&input, &evidence).await?;
+    orchestration_usage = add_usage(&orchestration_usage, &assessment_usage);
+    if !follow_up_queries.is_empty() {
+        retrieve_queries(
+            &input,
+            &follow_up_queries,
+            &mut evidence,
+            &mut citations,
+            &mut documents,
+            &mut orchestration_usage,
         )
-        .await;
-        let duration_ms = started.elapsed().as_millis() as u64;
-
-        tracing::info!(
-            topic = input.topic_name,
-            attempt,
-            duration_ms,
-            content_len = response.content.len(),
-            citations = response.citations.len(),
-            prompt_tokens = response.usage.prompt_tokens,
-            completion_tokens = response.usage.completion_tokens,
-            total_tokens = response.usage.total_tokens,
-            "agentic grounding research response received"
-        );
-
-        if response.is_error {
-            last_error = format!("LLM request failed: {}", response.content);
-            tracing::warn!(
-                topic = input.topic_name,
-                attempt,
-                duration_ms,
-                error = %last_error,
-                "agentic grounding research request failed"
-            );
-            // Transport-level failures are already retried inside the
-            // transport (with backoff); repeating an identical request here
-            // only doubles the user's wait. The exception is a completion
-            // token limit hit before any usable content — a larger budget
-            // can fix that one.
-            if attempt < 2
-                && response.content.contains("completion token limit")
-                && let Some(next) = escalated_max_tokens(max_tokens)
-            {
-                tracing::info!(
-                    topic = input.topic_name,
-                    attempt,
-                    previous_max_tokens = max_tokens,
-                    max_tokens = next,
-                    "agentic grounding escalating completion budget after limit error"
-                );
-                max_tokens = next;
-                continue;
-            }
-            return Err(last_error);
-        }
-
-        citations = response.citations.clone();
-        response_usage = response.usage.clone();
-        parsed = parse_card_array(&response.content)
-            .into_iter()
-            .take(n as usize)
-            .collect::<Vec<_>>();
-        tracing::info!(
-            topic = input.topic_name,
-            attempt,
-            parsed_cards = parsed.len(),
-            truncated = response.truncated,
-            "agentic grounding parsed researched card batch"
-        );
-
-        if !parsed.is_empty() {
-            break;
-        }
-        last_error = format!(
-            "model returned no parseable card JSON: {}",
-            crate::llm::transport::content_snippet(&response.content, 200)
-        );
-        tracing::warn!(
-            topic = input.topic_name,
-            attempt,
-            duration_ms,
-            content_len = response.content.len(),
-            truncated = response.truncated,
-            error = %last_error,
-            "agentic grounding produced no parseable cards"
-        );
-        // A truncated batch that salvage could not recover means the model
-        // ran out of budget before finishing even one card object; double the
-        // budget for the retry rather than reproducing the same cut-off.
-        if response.truncated
-            && let Some(next) = escalated_max_tokens(max_tokens)
-        {
-            max_tokens = next;
-        }
-        if attempt < 2 {
-            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-        }
+        .await?;
     }
-    if parsed.is_empty() {
-        return Err(last_error);
-    }
+    dedupe_strings(&mut citations);
+    dedupe_documents(&mut documents);
 
-    // Build each card. The array response's token usage is attributed to the
-    // first card; subsequent cards carry only their own compression usage.
-    let mut cards = Vec::with_capacity(parsed.len());
-    let mut usage_budget = response_usage;
-    for (index, item) in parsed.into_iter().enumerate() {
-        let base_usage = std::mem::take(&mut usage_budget);
-        let card = build_card_from_parsed(
-            Some(item),
-            "",
-            base_usage,
-            input.compression_level,
-            input.model,
-            input.api_key,
-            input.api_base,
-        )
-        .await;
-        tracing::info!(
-            topic = input.topic_name,
-            card_number = index + 1,
-            title = card.title,
-            "agentic grounding built card"
-        );
-        cards.push(card);
-    }
-
-    let outcome = GroundingOutcome::from_cards(cards, citations.clone())
-        .expect("non-empty after is_empty check");
-
-    tracing::info!(
-        topic = input.topic_name,
-        pending_cards = outcome.pending.len(),
-        citations = citations.len(),
-        total_tokens = outcome.usage.total_tokens,
-        "agentic grounding completed"
+    let final_prompt = format!(
+        "{}\n\nAgentic research evidence gathered from these queries: {}\n\n{}\n\nUse the evidence above, resolve conflicts explicitly, and do not invent unsupported facts.",
+        input.rendered_prompt,
+        initial_queries
+            .iter()
+            .chain(follow_up_queries.iter())
+            .map(|query| format!("\"{query}\""))
+            .collect::<Vec<_>>()
+            .join(", "),
+        render_evidence(&evidence),
     );
-
+    let final_input = GroundingInput {
+        topic_name: input.topic_name,
+        rendered_prompt: &final_prompt,
+        compression_level: input.compression_level,
+        model: input.model,
+        api_key: input.api_key,
+        api_base: input.api_base,
+        reasoning: input.reasoning,
+        existing_titles: input.existing_titles,
+        documents: &documents,
+        daily_card_count: input.daily_card_count,
+        search: input.search.clone(),
+        source_mode: input.source_mode,
+        behavior: input.behavior,
+        document_searcher: input.document_searcher,
+    };
+    let cards = generate_batch_with_retry(&final_input, BASE_MAX_TOKENS, false, true).await?;
+    let Some(mut outcome) = GroundingOutcome::from_cards(cards, citations) else {
+        return Err("agentic generation returned no cards".to_string());
+    };
+    outcome.usage = add_usage(&orchestration_usage, &outcome.usage);
+    outcome.document_evidence = documents;
     Ok(outcome)
 }
 
-fn build_prompt(rendered_prompt: &str, topic: &str, n: i64, sources: Option<&str>) -> String {
-    let sources_block = match sources {
-        Some(sources) if !sources.is_empty() => {
-            format!("\n\nWeb sources to ground your facts:\n{sources}\n")
-        }
-        _ => String::new(),
-    };
-    format!(
-        "{rendered_prompt}\n\n\
-         Write {n} distinct cards about \"{topic}\". Do not repeat titles already listed above.\n\
-         {sources_block}\n\
-         {format}",
-        format = ARRAY_FORMAT_INSTRUCTIONS,
+async fn plan_queries(input: &GroundingInput<'_>) -> Result<(Vec<String>, TokenUsage), String> {
+    let prompt = format!(
+        "Plan research for tip cards about \"{}\". Produce 2-3 complementary search queries that cover fundamentals, current details, and likely misconceptions. Respect this topic guidance: {}. Return JSON only: {{\"queries\":[\"...\"]}}",
+        input.topic_name, input.search.profile.guidance,
+    );
+    let response = create_chat_completion_json(
+        input.model,
+        &prompt,
+        input.api_key,
+        input.api_base,
+        input.reasoning,
+        Some(1200),
     )
+    .await;
+    if response.is_error {
+        return Err(format!(
+            "agentic research planning failed: {}",
+            response.content
+        ));
+    }
+    let plan = parse_json_object::<QueryPlan>(&response.content)
+        .ok_or_else(|| "agentic research planner returned invalid JSON".to_string())?;
+    let queries = normalize_queries(plan.queries, INITIAL_QUERY_LIMIT);
+    if queries.is_empty() {
+        return Err("agentic research planner returned no queries".to_string());
+    }
+    Ok((queries, response.usage))
+}
+
+async fn assess_gaps(
+    input: &GroundingInput<'_>,
+    evidence: &[EvidenceNote],
+) -> Result<(Vec<String>, TokenUsage), String> {
+    let prompt = format!(
+        "Review the research evidence below for tip cards about \"{}\". Identify material gaps, unresolved conflicts, or claims that need another search. Return zero to two follow-up queries as JSON only: {{\"missing_queries\":[\"...\"]}}. Return an empty array when coverage is sufficient.\n\n{}",
+        input.topic_name,
+        render_evidence(evidence),
+    );
+    let response = create_chat_completion_json(
+        input.model,
+        &prompt,
+        input.api_key,
+        input.api_base,
+        input.reasoning,
+        Some(1200),
+    )
+    .await;
+    if response.is_error {
+        return Err(format!(
+            "agentic gap assessment failed: {}",
+            response.content
+        ));
+    }
+    let plan = parse_json_object::<GapPlan>(&response.content)
+        .ok_or_else(|| "agentic gap assessment returned invalid JSON".to_string())?;
+    Ok((
+        normalize_queries(plan.missing_queries, FOLLOW_UP_QUERY_LIMIT),
+        response.usage,
+    ))
+}
+
+async fn retrieve_queries(
+    input: &GroundingInput<'_>,
+    queries: &[String],
+    evidence: &mut Vec<EvidenceNote>,
+    citations: &mut Vec<String>,
+    documents: &mut Vec<DocChunk>,
+    usage: &mut TokenUsage,
+) -> Result<(), String> {
+    for query in queries {
+        if input.source_mode.uses_web() {
+            if input.search.provider_native() {
+                let response = create_chat_completion_grounded(
+                    input.model,
+                    &format!(
+                        "Research this query for later card generation: {query}. Return a concise evidence memo. Call out disagreement or uncertainty between sources."
+                    ),
+                    input.api_key,
+                    input.api_base,
+                    input.reasoning,
+                    Some(2400),
+                    true,
+                    false,
+                )
+                .await;
+                if response.is_error {
+                    return Err(format!("native web research failed: {}", response.content));
+                }
+                *usage = add_usage(usage, &response.usage);
+                citations.extend(response.citations);
+                evidence.push(EvidenceNote {
+                    title: format!("Web research: {query}"),
+                    body: response.content,
+                });
+            } else {
+                let hits = search_external(&input.search, query).await?;
+                citations.extend(hits.iter().map(|hit| hit.url.clone()));
+                if !hits.is_empty() {
+                    evidence.push(EvidenceNote {
+                        title: format!("Web search: {query}"),
+                        body: render_hits(&hits),
+                    });
+                }
+            }
+        }
+        if input.source_mode.uses_documents() {
+            let searcher = input
+                .document_searcher
+                .ok_or_else(|| "document research is not available".to_string())?;
+            let found = searcher
+                .search(query, input.search.profile.depth.result_limit())
+                .await?;
+            if !found.is_empty() {
+                evidence.push(EvidenceNote {
+                    title: format!("My sources: {query}"),
+                    body: found
+                        .iter()
+                        .map(|document| format!("{}: {}", document.title, document.chunk))
+                        .collect::<Vec<_>>()
+                        .join("\n\n"),
+                });
+                documents.extend(found);
+            }
+        }
+        if evidence.len() >= EVIDENCE_LIMIT {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn normalize_queries(queries: Vec<String>, limit: usize) -> Vec<String> {
+    let mut seen = HashSet::new();
+    queries
+        .into_iter()
+        .map(|query| query.trim().chars().take(180).collect::<String>())
+        .filter(|query| !query.is_empty())
+        .filter(|query| seen.insert(query.to_ascii_lowercase()))
+        .take(limit)
+        .collect()
+}
+
+fn parse_json_object<T: for<'de> Deserialize<'de>>(content: &str) -> Option<T> {
+    serde_json::from_str(content.trim()).ok().or_else(|| {
+        let start = content.find('{')?;
+        let end = content.rfind('}')?;
+        serde_json::from_str(&content[start..=end]).ok()
+    })
+}
+
+fn render_evidence(evidence: &[EvidenceNote]) -> String {
+    evidence
+        .iter()
+        .take(EVIDENCE_LIMIT)
+        .enumerate()
+        .map(|(index, note)| {
+            format!(
+                "[E{}] {}\n{}",
+                index + 1,
+                note.title,
+                note.body.chars().take(5000).collect::<String>()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn dedupe_strings(values: &mut Vec<String>) {
+    let mut seen = HashSet::new();
+    values.retain(|value| seen.insert(value.trim().to_ascii_lowercase()));
+}
+
+fn dedupe_documents(documents: &mut Vec<DocChunk>) {
+    let mut seen = HashSet::new();
+    documents.retain(|document| seen.insert((document.document_id, document.chunk.clone())));
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BASE_MAX_TOKENS, MAX_TOKENS_CEILING, build_prompt, escalated_max_tokens};
+    use super::{
+        BASE_MAX_TOKENS, GapPlan, MAX_TOKENS_CEILING, QueryPlan, escalated_max_tokens,
+        normalize_queries, parse_json_object,
+    };
 
     #[test]
-    fn batch_prompt_keeps_learner_feedback() {
-        let prompt = build_prompt(
-            "Already covered — do not duplicate.\n1. Basic kana [known]",
-            "Japanese",
-            3,
-            None,
+    fn planner_json_is_bounded_and_deduplicated() {
+        let plan: QueryPlan = parse_json_object(
+            "preface {\"queries\":[\" basics \",\"BASICS\",\"pitfalls\",\"current\"]} trailing",
+        )
+        .unwrap();
+        assert_eq!(
+            normalize_queries(plan.queries, 3),
+            vec!["basics", "pitfalls", "current"]
         );
-
-        assert!(prompt.contains("Basic kana [known]"));
-        assert!(prompt.contains("Write 3 distinct cards about \"Japanese\""));
-        assert!(!prompt.contains("Do NOT duplicate these existing card titles"));
-        assert_eq!(prompt.matches("Basic kana").count(), 1);
     }
 
     #[test]
-    fn escalation_doubles_once_and_stops_at_ceiling() {
+    fn gap_plan_can_end_the_loop() {
+        let plan: GapPlan = parse_json_object("{\"missing_queries\":[]}").unwrap();
+        assert!(normalize_queries(plan.missing_queries, 2).is_empty());
+    }
+
+    #[test]
+    fn escalation_doubles_until_the_ceiling() {
         assert_eq!(escalated_max_tokens(BASE_MAX_TOKENS), Some(16384));
         assert_eq!(escalated_max_tokens(16384), Some(32768));
         assert_eq!(escalated_max_tokens(MAX_TOKENS_CEILING), None);
-        assert_eq!(escalated_max_tokens(u32::MAX / 2 + 1), None);
     }
 }

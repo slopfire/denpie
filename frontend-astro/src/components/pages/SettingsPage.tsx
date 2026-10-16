@@ -22,12 +22,15 @@ import {
     FieldDescription,
     FieldGroup,
     FieldLabel,
+    FieldLegend,
+    FieldSet,
     FieldTitle,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
     Select,
     SelectContent,
+    SelectGroup,
     SelectItem,
     SelectTrigger,
     SelectValue,
@@ -35,6 +38,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { GroundingPolicyEditor } from "@/components/pages/GroundingPolicyEditor";
 import { newIdempotencyKey } from "@/lib/api-v1/transport";
 import { t, tf } from "@/lib/i18n";
 import {
@@ -63,6 +67,10 @@ import {
     settingsPatchCount,
 } from "@/lib/pages/settings-page";
 import type { SettingsDraft } from "@/lib/pages/settings-page";
+import {
+    legacyStrategyForPolicy,
+    type GroundingPolicyDraft,
+} from "@/lib/grounding-policy";
 
 type Feedback =
     | { kind: "idle" }
@@ -125,11 +133,13 @@ function SelectField({
                     <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                    {options.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                        </SelectItem>
-                    ))}
+                    <SelectGroup>
+                        {options.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                            </SelectItem>
+                        ))}
+                    </SelectGroup>
                 </SelectContent>
             </Select>
             {description === undefined ? null : (
@@ -165,7 +175,8 @@ const AUTOUPDATE_PHASE_KEYS = {
 } as const satisfies Record<string, MessageKey>;
 
 function autoupdatePhaseLabel(phase: string): string {
-    const key = AUTOUPDATE_PHASE_KEYS[phase as keyof typeof AUTOUPDATE_PHASE_KEYS];
+    const key =
+        AUTOUPDATE_PHASE_KEYS[phase as keyof typeof AUTOUPDATE_PHASE_KEYS];
     return key === undefined ? t("settings.admin.phase.unknown") : t(key);
 }
 
@@ -279,6 +290,36 @@ export function SettingsPage({
             dirtyRef.current = true;
             setDraft((current) =>
                 current === null ? current : { ...current, [key]: value },
+            );
+            if (feedback.kind === "success" || feedback.kind === "error") {
+                setFeedback({ kind: "idle" });
+            }
+        },
+        [feedback.kind],
+    );
+
+    const setGroundingPolicy = useCallback(
+        (policy: GroundingPolicyDraft) => {
+            dirtyRef.current = true;
+            setDraft((current) =>
+                current === null
+                    ? current
+                    : {
+                          ...current,
+                          groundingSourceMode: policy.sourceMode || "model",
+                          groundingBehavior: policy.behavior || "standard",
+                          groundingSearchDepth:
+                              policy.searchDepth || "balanced",
+                          groundingFreshness: policy.freshness || "any",
+                          groundingSearchGuidance: policy.searchGuidance,
+                          groundingIncludeDomains: policy.includeDomains,
+                          groundingFailurePolicy:
+                              policy.failurePolicy || "stop",
+                          groundingStrategy: legacyStrategyForPolicy({
+                              sourceMode: policy.sourceMode || "model",
+                              behavior: policy.behavior || "standard",
+                          }),
+                      },
             );
             if (feedback.kind === "success" || feedback.kind === "error") {
                 setFeedback({ kind: "idle" });
@@ -721,41 +762,6 @@ export function SettingsPage({
                                         }
                                     />
                                     <SelectField
-                                        id="settings-grounding-strategy"
-                                        label={t("settings.grounding.strategy")}
-                                        value={draft.groundingStrategy}
-                                        options={[
-                                            {
-                                                value: "factual",
-                                                label: t(
-                                                    "settings.grounding.strategy_factual",
-                                                ),
-                                            },
-                                            {
-                                                value: "create_and_ground",
-                                                label: t(
-                                                    "settings.grounding.strategy_fact_check",
-                                                ),
-                                            },
-                                            {
-                                                value: "agentic",
-                                                label: t(
-                                                    "settings.grounding.strategy_agentic",
-                                                ),
-                                            },
-                                            {
-                                                value: "rag",
-                                                label: t(
-                                                    "settings.grounding.strategy_documents",
-                                                ),
-                                            },
-                                        ]}
-                                        disabled={saving}
-                                        onValueChange={(value) =>
-                                            setField("groundingStrategy", value)
-                                        }
-                                    />
-                                    <SelectField
                                         id="settings-image-strategy"
                                         label={t(
                                             "settings.grounding.image_strategy",
@@ -798,100 +804,122 @@ export function SettingsPage({
                                             setField("imageStrategy", value)
                                         }
                                     />
-                                    <SelectField
-                                        id="settings-search-provider"
-                                        label={t(
-                                            "settings.grounding.search_provider",
-                                        )}
-                                        value={draft.searchProvider}
-                                        options={[
-                                            {
-                                                value: "tavily",
-                                                label: t(
-                                                    "settings.providers.tavily",
-                                                ),
-                                            },
-                                            {
-                                                value: "firecrawl",
-                                                label: t(
-                                                    "settings.providers.firecrawl",
-                                                ),
-                                            },
-                                        ]}
-                                        disabled={saving}
-                                        onValueChange={(value) =>
-                                            setField("searchProvider", value)
-                                        }
-                                    />
-                                    <SelectField
-                                        id="settings-scrape-provider"
-                                        label={t(
-                                            "settings.grounding.link_scraper",
-                                        )}
-                                        value={draft.scrapeProvider}
-                                        options={[
-                                            {
-                                                value: "scrapling",
-                                                label: t(
-                                                    "settings.scraper.scrapling_local",
-                                                ),
-                                            },
-                                            {
-                                                value: "firecrawl",
-                                                label: t(
-                                                    "settings.scraper.firecrawl_cloud",
-                                                ),
-                                            },
-                                            {
-                                                value: "direct",
-                                                label: t(
-                                                    "settings.scraper.direct_http_legacy",
-                                                ),
-                                            },
-                                        ]}
-                                        disabled={saving}
-                                        onValueChange={(value) =>
-                                            setField("scrapeProvider", value)
-                                        }
-                                    />
-                                    <Field>
-                                        <FieldLabel htmlFor="settings-search-api-key">
-                                            {t(
-                                                "settings.grounding.search_api_key",
-                                            )}
-                                        </FieldLabel>
-                                        <Input
-                                            id="settings-search-api-key"
-                                            type="password"
-                                            autoComplete="off"
-                                            value={draft.searchApiKey}
-                                            onChange={(event) =>
-                                                setField(
-                                                    "searchApiKey",
-                                                    event.target.value,
-                                                )
-                                            }
-                                        />
-                                    </Field>
-                                    <Field>
-                                        <FieldLabel htmlFor="settings-search-base-url">
-                                            {t(
-                                                "settings.grounding.search_base_url",
-                                            )}
-                                        </FieldLabel>
-                                        <Input
-                                            id="settings-search-base-url"
-                                            type="url"
-                                            value={draft.searchBaseUrl}
-                                            onChange={(event) =>
-                                                setField(
-                                                    "searchBaseUrl",
-                                                    event.target.value,
-                                                )
-                                            }
-                                        />
-                                    </Field>
                                 </div>
+                                <GroundingPolicyEditor
+                                    value={{
+                                        sourceMode: draft.groundingSourceMode,
+                                        behavior: draft.groundingBehavior,
+                                        searchDepth: draft.groundingSearchDepth,
+                                        freshness: draft.groundingFreshness,
+                                        searchGuidance:
+                                            draft.groundingSearchGuidance,
+                                        includeDomains:
+                                            draft.groundingIncludeDomains,
+                                        failurePolicy:
+                                            draft.groundingFailurePolicy,
+                                    }}
+                                    disabled={saving}
+                                    onChange={setGroundingPolicy}
+                                    searchProvider={draft.searchProvider}
+                                    onSearchProviderChange={(provider) =>
+                                        setField("searchProvider", provider)
+                                    }
+                                />
+                                <FieldSet>
+                                    <FieldLegend>
+                                        {t(
+                                            "settings.grounding.search_connection",
+                                        )}
+                                    </FieldLegend>
+                                    <FieldDescription>
+                                        {draft.searchProvider === "native"
+                                            ? t(
+                                                  "settings.grounding.search_connection_native",
+                                              )
+                                            : draft.searchApiKey.trim() === ""
+                                              ? t(
+                                                    "settings.grounding.search_connection_missing_key",
+                                                )
+                                              : t(
+                                                    "settings.grounding.search_connection_ready",
+                                                )}
+                                    </FieldDescription>
+                                    <FieldGroup>
+                                        <div className="grid gap-4 md:grid-cols-2">
+                                            <SelectField
+                                                id="settings-scrape-provider"
+                                                label={t(
+                                                    "settings.grounding.link_scraper",
+                                                )}
+                                                value={draft.scrapeProvider}
+                                                options={[
+                                                    {
+                                                        value: "scrapling",
+                                                        label: t(
+                                                            "settings.scraper.scrapling_local",
+                                                        ),
+                                                    },
+                                                    {
+                                                        value: "firecrawl",
+                                                        label: t(
+                                                            "settings.scraper.firecrawl_cloud",
+                                                        ),
+                                                    },
+                                                    {
+                                                        value: "direct",
+                                                        label: t(
+                                                            "settings.scraper.direct_http_legacy",
+                                                        ),
+                                                    },
+                                                ]}
+                                                disabled={saving}
+                                                onValueChange={(value) =>
+                                                    setField(
+                                                        "scrapeProvider",
+                                                        value,
+                                                    )
+                                                }
+                                            />
+                                            <Field>
+                                                <FieldLabel htmlFor="settings-search-api-key">
+                                                    {t(
+                                                        "settings.grounding.search_api_key",
+                                                    )}
+                                                </FieldLabel>
+                                                <Input
+                                                    id="settings-search-api-key"
+                                                    type="password"
+                                                    autoComplete="off"
+                                                    value={draft.searchApiKey}
+                                                    onChange={(event) =>
+                                                        setField(
+                                                            "searchApiKey",
+                                                            event.target.value,
+                                                        )
+                                                    }
+                                                />
+                                            </Field>
+                                            <Field>
+                                                <FieldLabel htmlFor="settings-search-base-url">
+                                                    {t(
+                                                        "settings.grounding.search_base_url",
+                                                    )}
+                                                </FieldLabel>
+                                                <Input
+                                                    id="settings-search-base-url"
+                                                    type="url"
+                                                    value={draft.searchBaseUrl}
+                                                    onChange={(event) =>
+                                                        setField(
+                                                            "searchBaseUrl",
+                                                            event.target.value,
+                                                        )
+                                                    }
+                                                />
+                                            </Field>
+                                        </div>
+                                    </FieldGroup>
+                                </FieldSet>
                                 <Field>
                                     <FieldLabel htmlFor="settings-vision-model">
                                         {t("settings.vision.model")}

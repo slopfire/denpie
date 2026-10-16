@@ -29,6 +29,10 @@ pub struct SettingsRes {
     pub daily_update_time: String,
     pub max_active_cards: u64,
     pub grounding_strategy: String,
+    pub grounding_source_mode: String,
+    pub grounding_verification_mode: String,
+    pub grounding_behavior: String,
+    pub grounding_search_profile: crate::domain::grounding::GroundingSearchProfile,
     pub image_strategy: String,
     pub search_provider: String,
     pub scrape_provider: String,
@@ -68,6 +72,10 @@ pub struct UpdateSettingsReq {
     pub daily_update_time: Option<String>,
     pub max_active_cards: Option<u64>,
     pub grounding_strategy: Option<String>,
+    pub grounding_source_mode: Option<String>,
+    pub grounding_verification_mode: Option<String>,
+    pub grounding_behavior: Option<String>,
+    pub grounding_search_profile: Option<crate::domain::grounding::GroundingSearchProfile>,
     pub image_strategy: Option<String>,
     pub search_provider: Option<String>,
     pub scrape_provider: Option<String>,
@@ -129,6 +137,10 @@ pub struct TopicInfo {
     pub grounding_strategy: String,
     pub grounding_model: String,
     pub grounding_reasoning_effort: String,
+    pub grounding_source_mode: String,
+    pub grounding_verification_mode: String,
+    pub grounding_behavior: String,
+    pub grounding_search_profile: Option<crate::domain::grounding::GroundingSearchProfile>,
     pub image_strategy: String,
 }
 
@@ -166,6 +178,10 @@ pub struct AppTopicInfo {
     pub grounding_strategy: String,
     pub grounding_model: String,
     pub grounding_reasoning_effort: String,
+    pub grounding_source_mode: String,
+    pub grounding_verification_mode: String,
+    pub grounding_behavior: String,
+    pub grounding_search_profile: Option<crate::domain::grounding::GroundingSearchProfile>,
     pub image_strategy: String,
 }
 
@@ -180,6 +196,11 @@ pub struct UpdateTopicReq {
     pub grounding_strategy: Option<String>,
     pub grounding_model: Option<String>,
     pub grounding_reasoning_effort: Option<String>,
+    pub grounding_source_mode: Option<String>,
+    pub grounding_verification_mode: Option<String>,
+    pub grounding_behavior: Option<String>,
+    pub grounding_search_profile: Option<crate::domain::grounding::GroundingSearchProfile>,
+    pub clear_grounding_search_profile: Option<bool>,
     pub image_strategy: Option<String>,
 }
 

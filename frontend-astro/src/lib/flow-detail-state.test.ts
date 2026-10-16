@@ -3,8 +3,10 @@ import { create } from "@bufbuild/protobuf";
 import {
     CardSourceSchema,
     FlowCardInfoSchema,
+    GroundingEvidenceSchema,
     type CardSource,
     type FlowCardInfo,
+    type GroundingEvidence,
 } from "../generated/denpie_pb";
 import {
     closeCardDetail,
@@ -34,6 +36,12 @@ function card(id: bigint, overrides: Partial<FlowCardInfo> = {}): FlowCardInfo {
 
 function source(overrides: Partial<CardSource> = {}): CardSource {
     return create(CardSourceSchema, { ...overrides });
+}
+
+function evidence(
+    overrides: Partial<GroundingEvidence> = {},
+): GroundingEvidence {
+    return create(GroundingEvidenceSchema, { ...overrides });
 }
 
 function requireLoading(state: FlowDetailState): DetailRequest {
@@ -144,6 +152,8 @@ describe("detail source projection", () => {
             label: "Rust book",
             href: "https://example.com/",
             icon: "unknown",
+            excerpt: "",
+            evidence: false,
         });
         expect(
             toDetailSourceView(source({ url: "https://example.com/read" })),
@@ -151,11 +161,15 @@ describe("detail source projection", () => {
             label: "https://example.com/read",
             href: "https://example.com/read",
             icon: "unknown",
+            excerpt: "",
+            evidence: false,
         });
         expect(toDetailSourceView(source())).toEqual({
             label: "Untitled source",
             href: null,
             icon: "unknown",
+            excerpt: "",
+            evidence: false,
         });
     });
 
@@ -198,10 +212,45 @@ describe("detail source projection", () => {
             ],
         });
         expect(detailSources(generated)).toEqual([
-            { label: "Guide", href: "https://example.com/", icon: "link" },
-            { label: "Untitled source", href: null, icon: "document" },
+            {
+                label: "Guide",
+                href: "https://example.com/",
+                icon: "link",
+                excerpt: "",
+                evidence: false,
+            },
+            {
+                label: "Untitled source",
+                href: null,
+                icon: "document",
+                excerpt: "",
+                evidence: false,
+            },
         ]);
         expect(generated.sources).toHaveLength(2);
+    });
+
+    test("prefers immutable card evidence over current topic assignments", () => {
+        const generated = card(1n, {
+            sources: [source({ title: "Current topic source" })],
+            groundingEvidence: [
+                evidence({
+                    sourceType: "web",
+                    title: "Captured result",
+                    url: "https://example.com/captured",
+                    excerpt: "The excerpt used during generation.",
+                }),
+            ],
+        });
+        expect(detailSources(generated)).toEqual([
+            {
+                label: "Captured result",
+                href: "https://example.com/captured",
+                icon: "link",
+                excerpt: "The excerpt used during generation.",
+                evidence: true,
+            },
+        ]);
     });
 
     test("formats valid created dates and omits invalid or blank values", () => {

@@ -3,7 +3,9 @@ use axum::http::StatusCode;
 use crate::{
     AppState,
     api::pb,
-    db::repositories::{documents as document_repo, topics as topic_repo},
+    db::repositories::{
+        documents as document_repo, tipcards as tipcard_repo, topics as topic_repo,
+    },
     services::{documents::DocumentService, tipcards::TipcardService, tips::TipService},
     types::ContinueDailyReviewRequest,
 };
@@ -11,6 +13,188 @@ use crate::{
 use std::collections::HashMap;
 
 use super::types::ApiResult;
+
+pub(crate) async fn preview_grounding(
+    state: &AppState,
+    user_id: &str,
+    req: pb::PreviewGroundingRequest,
+) -> ApiResult<pb::PreviewGroundingResult> {
+    use crate::domain::grounding::{
+        FailurePolicy, GroundingBehavior, GroundingPolicy, GroundingSourceMode, VerificationMode,
+    };
+
+    let topic = topic_repo::find_by_id(&state.db, user_id, req.topic_id)
+        .await
+        .map_err(|err| err.into_status_body())?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Topic not found".to_string()))?;
+    let settings = crate::services::settings::SettingsService::user_settings_get(state, user_id)
+        .await
+        .map_err(|err| err.into_status_body())?;
+    let has_typed_policy = topic.grounding_source_mode.is_some()
+        || topic.grounding_behavior.is_some()
+        || topic.grounding_verification_mode.is_some();
+    let legacy_topic = (!has_typed_policy)
+        .then_some(topic.grounding_strategy.as_deref())
+        .flatten()
+        .map(|value| {
+            GroundingPolicy::from_legacy(crate::domain::grounding::GroundingStrategy::from_setting(
+                value,
+            ))
+        });
+    let global = settings.grounding_policy();
+    let policy = GroundingPolicy {
+        source_mode: req
+            .grounding_source_mode
+            .as_deref()
+            .map(GroundingSourceMode::from_setting)
+            .or_else(|| {
+                topic
+                    .grounding_source_mode
+                    .as_deref()
+                    .map(GroundingSourceMode::from_setting)
+            })
+            .or_else(|| legacy_topic.as_ref().map(|policy| policy.source_mode))
+            .unwrap_or(global.source_mode),
+        behavior: req
+            .grounding_behavior
+            .as_deref()
+            .map(GroundingBehavior::from_setting)
+            .or_else(|| {
+                req.grounding_verification_mode.as_deref().map(|value| {
+                    GroundingBehavior::from_legacy_verification(VerificationMode::from_setting(
+                        value,
+                    ))
+                })
+            })
+            .or_else(|| {
+                topic
+                    .grounding_behavior
+                    .as_deref()
+                    .map(GroundingBehavior::from_setting)
+            })
+            .or_else(|| {
+                topic.grounding_verification_mode.as_deref().map(|value| {
+                    GroundingBehavior::from_legacy_verification(VerificationMode::from_setting(
+                        value,
+                    ))
+                })
+            })
+            .or_else(|| legacy_topic.as_ref().map(|policy| policy.behavior))
+            .unwrap_or(global.behavior),
+        search_profile: req
+            .grounding_search_profile
+            .map(crate::api::settings::profile_from_pb)
+            .or(topic.grounding_search_profile)
+            .unwrap_or(global.search_profile),
+    }
+    .normalized();
+
+    let query = if policy.search_profile.guidance.is_empty() {
+        topic.name.clone()
+    } else {
+        format!("{} {}", topic.name, policy.search_profile.guidance)
+    };
+    let mut evidence = Vec::new();
+    let mut warnings = Vec::new();
+    if policy.behavior == GroundingBehavior::Agentic {
+        warnings.push(
+            "Agentic research plans its exact queries during generation; this preview shows the initial evidence lookup and configured limits."
+                .to_string(),
+        );
+    }
+    if policy.source_mode.uses_documents() {
+        if req.document_ids.is_empty() {
+            let chunks = document_repo::retrieve_chunks_with_metadata(
+                &state.db,
+                user_id,
+                topic.id,
+                &topic.name,
+                policy.search_profile.depth.result_limit() as i64,
+            )
+            .await
+            .map_err(|err| err.into_status_body())?;
+            evidence.extend(chunks.into_iter().map(|chunk| pb::GroundingEvidence {
+                source_type: chunk.source_type,
+                title: chunk.title,
+                url: chunk.url,
+                document_id: Some(chunk.document_id),
+                excerpt: chunk.chunk,
+                retrieved_at: chrono::Utc::now().to_rfc3339(),
+            }));
+        } else {
+            for document_id in &req.document_ids {
+                let document = document_repo::get_document_by_id(&state.db, user_id, *document_id)
+                    .await
+                    .map_err(|err| err.into_status_body())?
+                    .ok_or_else(|| {
+                        (
+                            StatusCode::NOT_FOUND,
+                            format!("Document {document_id} not found"),
+                        )
+                    })?;
+                evidence.push(pb::GroundingEvidence {
+                    source_type: document.source_type,
+                    title: document.title,
+                    url: document.url,
+                    document_id: Some(document.id),
+                    excerpt: document.content.chars().take(1000).collect(),
+                    retrieved_at: chrono::Utc::now().to_rfc3339(),
+                });
+            }
+        }
+    }
+    if policy.source_mode.uses_web() {
+        let config = crate::llm::SearchConfig {
+            provider: &settings.search_provider,
+            external_key: &settings.search_api_key,
+            base_url: &settings.search_base_url,
+            profile: &policy.search_profile,
+        };
+        if config.provider_native() {
+            warnings.push("Native web search runs inside the model request; preview can show its query but cannot return provider-native hits in advance.".to_string());
+        } else {
+            match crate::llm::grounding::search::search_external(&config, &topic.name).await {
+                Ok(hits) => evidence.extend(hits.into_iter().map(|hit| pb::GroundingEvidence {
+                    source_type: "web".to_string(),
+                    title: hit.title,
+                    url: Some(hit.url),
+                    document_id: None,
+                    excerpt: hit.snippet,
+                    retrieved_at: chrono::Utc::now().to_rfc3339(),
+                })),
+                Err(message)
+                    if policy.search_profile.failure_policy == FailurePolicy::MarkUnverified =>
+                {
+                    warnings.push(message);
+                }
+                Err(message) => return Err((StatusCode::BAD_GATEWAY, message)),
+            }
+        }
+    }
+    if policy.source_mode != GroundingSourceMode::Model && evidence.is_empty() {
+        warnings.push("No evidence matched this Grounding preview.".to_string());
+    }
+    Ok(pb::PreviewGroundingResult {
+        grounding_source_mode: policy.source_mode.as_str().to_string(),
+        grounding_verification_mode: policy.legacy_verification_mode().as_str().to_string(),
+        grounding_behavior: policy.behavior.as_str().to_string(),
+        grounding_search_profile: Some(crate::api::settings::profile_to_pb(&policy.search_profile)),
+        backend: if policy.source_mode.uses_web() {
+            settings.search_provider
+        } else if policy.source_mode.uses_documents() {
+            "documents".to_string()
+        } else {
+            "model".to_string()
+        },
+        queries: if policy.source_mode.uses_web() {
+            vec![query]
+        } else {
+            Vec::new()
+        },
+        evidence,
+        warnings,
+    })
+}
 
 pub(crate) fn api_info() -> pb::ApiInfo {
     pb::ApiInfo {
@@ -33,6 +217,8 @@ pub(crate) fn api_info() -> pb::ApiInfo {
             "authenticated_image_downloads".to_string(),
             "atomic_review_advance".to_string(),
             "durable_image_enrichment".to_string(),
+            "grounding_policy_preview".to_string(),
+            "immutable_grounding_evidence".to_string(),
         ],
     }
 }
@@ -64,6 +250,15 @@ pub async fn list_flow_cards(
     } else {
         String::new()
     };
+    let evidence_by_card =
+        tipcard_repo::list_grounding_evidence_for_cards(&state.db, user_id, &card_ids)
+            .await
+            .map_err(|err| err.into_status_body())?
+            .into_iter()
+            .fold(HashMap::<i64, Vec<_>>::new(), |mut grouped, evidence| {
+                grouped.entry(evidence.card_id).or_default().push(evidence);
+                grouped
+            });
 
     let sources_by_topic = card_sources_by_topic_name(
         &topic_repo::list_admin(&state.db, user_id)
@@ -82,7 +277,8 @@ pub async fn list_flow_cards(
                 .get(&row.topic_name)
                 .cloned()
                 .unwrap_or_default();
-            flow_card_to_pb(row, card_images, sources)
+            let evidence = evidence_by_card.get(&row.id).cloned().unwrap_or_default();
+            flow_card_to_pb(row, card_images, sources, evidence)
         })
         .collect();
 
@@ -107,6 +303,9 @@ pub async fn get_tipcard(state: &AppState, user_id: &str, id: i64) -> ApiResult<
     )
     .remove(&card.topic_name)
     .unwrap_or_default();
+    let evidence = tipcard_repo::list_grounding_evidence_for_cards(&state.db, user_id, &[id])
+        .await
+        .map_err(|err| err.into_status_body())?;
     Ok(pb::TipcardDetail {
         card: Some(pb::FlowCardInfo {
             id: card.id,
@@ -125,6 +324,9 @@ pub async fn get_tipcard(state: &AppState, user_id: &str, id: i64) -> ApiResult<
             pending_count: 0,
             images: images.into_iter().map(image_to_pb).collect(),
             sources,
+            grounding_status: card.grounding_status,
+            grounding_source_mode: card.grounding_source_mode,
+            grounding_evidence: evidence.into_iter().map(grounding_evidence_to_pb).collect(),
         }),
     })
 }
@@ -274,6 +476,7 @@ fn flow_card_to_pb(
     card: crate::db::repositories::tipcards::FlowCardRecord,
     images: Vec<crate::db::repositories::tipcards::TipcardImageRecord>,
     sources: Vec<pb::CardSource>,
+    evidence: Vec<tipcard_repo::GroundingEvidenceRecord>,
 ) -> pb::FlowCardInfo {
     pb::FlowCardInfo {
         id: card.id,
@@ -292,6 +495,22 @@ fn flow_card_to_pb(
         pending_count: card.pending_count,
         images: images.into_iter().map(image_to_pb).collect(),
         sources,
+        grounding_status: card.grounding_status,
+        grounding_source_mode: card.grounding_source_mode,
+        grounding_evidence: evidence.into_iter().map(grounding_evidence_to_pb).collect(),
+    }
+}
+
+fn grounding_evidence_to_pb(
+    evidence: tipcard_repo::GroundingEvidenceRecord,
+) -> pb::GroundingEvidence {
+    pb::GroundingEvidence {
+        source_type: evidence.source_type,
+        title: evidence.title,
+        url: evidence.url,
+        document_id: evidence.document_id,
+        excerpt: evidence.excerpt,
+        retrieved_at: evidence.retrieved_at,
     }
 }
 
@@ -409,6 +628,10 @@ mod tests {
             grounding_strategy: None,
             grounding_model: None,
             grounding_reasoning_effort: None,
+            grounding_source_mode: None,
+            grounding_verification_mode: None,
+            grounding_behavior: None,
+            grounding_search_profile: None,
             image_strategy: None,
         }
     }

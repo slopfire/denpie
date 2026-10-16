@@ -7,8 +7,11 @@ mod create_and_ground;
 mod factual;
 mod rag;
 pub mod search;
+mod standard;
 
-use crate::domain::grounding::GroundingStrategy;
+use std::{future::Future, pin::Pin};
+
+use crate::domain::grounding::{GroundingBehavior, GroundingSourceMode};
 use crate::llm::{
     cards::{GeneratedCard, build_card_from_parsed, parse_card_array},
     compression::CompressionLevel,
@@ -24,7 +27,21 @@ pub use search::{SearchConfig, SearchHit};
 /// A retrieved document chunk for RAG grounding.
 #[derive(Clone, Debug)]
 pub struct DocChunk {
+    pub document_id: i64,
+    pub source_type: String,
+    pub title: String,
+    pub url: Option<String>,
     pub chunk: String,
+}
+
+/// Boundary used by agentic research to issue follow-up searches against the
+/// documents assigned to the current topic without coupling the LLM layer to SQL.
+pub trait DocumentSearcher: Send + Sync {
+    fn search<'a>(
+        &'a self,
+        query: &'a str,
+        limit: usize,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<DocChunk>, String>> + Send + 'a>>;
 }
 
 /// Inputs to a grounding strategy. Borrows everything; the caller owns the data.
@@ -43,6 +60,9 @@ pub struct GroundingInput<'a> {
     /// Requested batch size, clamped by every strategy to 5-12 cards.
     pub daily_card_count: i64,
     pub search: SearchConfig<'a>,
+    pub source_mode: GroundingSourceMode,
+    pub behavior: GroundingBehavior,
+    pub document_searcher: Option<&'a dyn DocumentSearcher>,
 }
 
 /// Result of a grounding pass. The service persists every card as pending before
@@ -51,6 +71,7 @@ pub struct GroundingOutcome {
     pub primary: GeneratedCard,
     pub pending: Vec<GeneratedCard>,
     pub citations: Vec<String>,
+    pub document_evidence: Vec<DocChunk>,
     pub usage: TokenUsage,
 }
 
@@ -78,6 +99,7 @@ impl GroundingOutcome {
             primary,
             pending: cards,
             citations,
+            document_evidence: Vec::new(),
             usage,
         })
     }
@@ -236,15 +258,12 @@ pub(crate) fn batch_prompt(input: &GroundingInput<'_>) -> String {
 /// extension point: a new strategy = new enum arm + new arm here + new module.
 /// Returns an error message when generation could not produce any usable card
 /// (transport failure after retries, or persistently unparseable model output).
-pub async fn ground_and_generate(
-    strategy: GroundingStrategy,
-    input: GroundingInput<'_>,
-) -> Result<GroundingOutcome, String> {
-    match strategy {
-        GroundingStrategy::Factual => factual::generate(input).await,
-        GroundingStrategy::CreateAndGround => create_and_ground::generate(input).await,
-        GroundingStrategy::Agentic => agentic::generate(input).await,
-        GroundingStrategy::Rag => rag::generate(input).await,
+pub async fn ground_and_generate(input: GroundingInput<'_>) -> Result<GroundingOutcome, String> {
+    match (input.source_mode, input.behavior) {
+        (GroundingSourceMode::Model, _) => factual::generate(input).await,
+        (_, GroundingBehavior::Standard) => standard::generate(input).await,
+        (_, GroundingBehavior::FactCheck) => create_and_ground::generate(input).await,
+        (_, GroundingBehavior::Agentic) => agentic::generate(input).await,
     }
 }
 

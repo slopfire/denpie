@@ -89,12 +89,10 @@ import { TopicIcon, lookupTopicIconId } from "@/lib/topic-icons.generated";
 import { newIdempotencyKey } from "@/lib/api-v1/transport";
 import { t, tf } from "@/lib/i18n";
 import { filterTopicsByName } from "@/lib/card-content";
-import {
-    fetchTokenSpend,
-    type TokenSpend,
-} from "@/lib/dashboard-session";
+import { fetchTokenSpend, type TokenSpend } from "@/lib/dashboard-session";
 import { tipTypeLabel } from "@/lib/tip-type";
 import { TopicEditorDialog } from "@/components/pages/TopicEditorDialog";
+import { applyTopicSourceIds } from "@/lib/pages/topic-editor";
 import { useViewRefresh } from "@/islands/use-view-refresh";
 import {
     INITIAL_ICON_PICKER_STATE,
@@ -301,7 +299,9 @@ function TopicActionsMenu({
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                        <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+                        <AlertDialogCancel>
+                            {t("common.cancel")}
+                        </AlertDialogCancel>
                         <AlertDialogAction
                             variant="destructive"
                             onClick={() => {
@@ -1406,9 +1406,10 @@ export function GroundingPage({ active = true }: { active?: boolean }) {
             ) : null}
             <TopicEditorDialog
                 topic={editing}
+                documents={state.kind === "ready" ? state.data.documents : []}
                 busy={busy}
                 onClose={() => setEditing(null)}
-                onSaved={(topic) => {
+                onSaved={({ topic, sourceIds }) => {
                     setEditing(null);
                     setState((current) => {
                         if (current.kind !== "ready") return current;
@@ -1416,6 +1417,11 @@ export function GroundingPage({ active = true }: { active?: boolean }) {
                             kind: "ready",
                             data: {
                                 ...current.data,
+                                documents: applyTopicSourceIds(
+                                    current.data.documents,
+                                    topic.id,
+                                    sourceIds,
+                                ),
                                 topics: current.data.topics.map((item) =>
                                     item.id === topic.id ? topic : item,
                                 ),

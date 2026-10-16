@@ -2,7 +2,10 @@ use crate::{
     AppState,
     config::topic_icons,
     db::repositories::{token_usage, topics, user_settings},
-    domain::topic_visual,
+    domain::{
+        grounding::{GroundingBehavior, GroundingPolicy, GroundingSourceMode, VerificationMode},
+        topic_visual,
+    },
     error::{AppError, AppResult},
     llm,
 };
@@ -74,7 +77,19 @@ impl TopicService {
             })
             .unwrap_or(current.compression_level);
 
-        let grounding_strategy = settings
+        let legacy_setting_present = settings.grounding_strategy.is_some();
+        let behavior_setting_present = settings.grounding_behavior.is_some();
+        let typed_policy_present = settings.grounding_source_mode.is_some()
+            || settings.grounding_verification_mode.is_some()
+            || settings.grounding_behavior.is_some();
+        let legacy_policy = settings.grounding_strategy.as_deref().and_then(|value| {
+            trimmed_optional(value.to_string()).map(|value| {
+                GroundingPolicy::from_legacy(
+                    crate::domain::grounding::GroundingStrategy::from_setting(&value),
+                )
+            })
+        });
+        let mut grounding_strategy = settings
             .grounding_strategy
             .map(|value| {
                 trimmed_optional(value).map(|value| {
@@ -84,6 +99,100 @@ impl TopicService {
                 })
             })
             .unwrap_or(current.grounding_strategy);
+        let grounding_source_mode = settings
+            .grounding_source_mode
+            .map(|value| {
+                trimmed_optional(value).map(|value| {
+                    GroundingSourceMode::from_setting(&value)
+                        .as_str()
+                        .to_string()
+                })
+            })
+            .unwrap_or_else(|| {
+                if legacy_setting_present {
+                    legacy_policy
+                        .as_ref()
+                        .map(|policy| policy.source_mode.as_str().to_string())
+                } else {
+                    current.grounding_source_mode
+                }
+            });
+        let mut grounding_behavior = settings
+            .grounding_behavior
+            .map(|value| {
+                trimmed_optional(value)
+                    .map(|value| GroundingBehavior::from_setting(&value).as_str().to_string())
+            })
+            .unwrap_or_else(|| {
+                if let Some(value) = settings.grounding_verification_mode.as_deref() {
+                    trimmed_optional(value.to_string()).map(|value| {
+                        GroundingBehavior::from_legacy_verification(VerificationMode::from_setting(
+                            &value,
+                        ))
+                        .as_str()
+                        .to_string()
+                    })
+                } else if legacy_setting_present {
+                    legacy_policy
+                        .as_ref()
+                        .map(|policy| policy.behavior.as_str().to_string())
+                } else {
+                    current.grounding_behavior
+                }
+            });
+        let mut grounding_verification_mode = settings
+            .grounding_verification_mode
+            .map(|value| {
+                trimmed_optional(value)
+                    .map(|value| VerificationMode::from_setting(&value).as_str().to_string())
+            })
+            .unwrap_or_else(|| {
+                if legacy_setting_present {
+                    legacy_policy
+                        .as_ref()
+                        .map(|policy| policy.legacy_verification_mode().as_str().to_string())
+                } else {
+                    current.grounding_verification_mode
+                }
+            });
+        if behavior_setting_present {
+            grounding_verification_mode = grounding_behavior.as_deref().map(|value| {
+                GroundingBehavior::from_setting(value)
+                    .legacy_verification()
+                    .as_str()
+                    .to_string()
+            });
+        }
+        if grounding_source_mode.as_deref() == Some(GroundingSourceMode::Model.as_str()) {
+            grounding_behavior = Some(GroundingBehavior::Standard.as_str().to_string());
+            grounding_verification_mode = Some(VerificationMode::Standard.as_str().to_string());
+        }
+        if typed_policy_present {
+            grounding_strategy = match (
+                grounding_source_mode.as_deref(),
+                grounding_behavior.as_deref(),
+            ) {
+                (Some(source_mode), Some(behavior)) => Some(
+                    GroundingPolicy {
+                        source_mode: GroundingSourceMode::from_setting(source_mode),
+                        behavior: GroundingBehavior::from_setting(behavior),
+                        search_profile: current
+                            .grounding_search_profile
+                            .clone()
+                            .unwrap_or_default(),
+                    }
+                    .normalized()
+                    .legacy_strategy()
+                    .as_str()
+                    .to_string(),
+                ),
+                _ => None,
+            };
+        }
+        let grounding_search_profile = settings
+            .grounding_search_profile
+            .map(|profile| profile.map(|profile| profile.normalized()))
+            .unwrap_or(current.grounding_search_profile);
         let grounding_model = settings
             .grounding_model
             .map(trimmed_optional)
@@ -115,6 +224,10 @@ impl TopicService {
                 grounding_strategy,
                 grounding_model,
                 grounding_reasoning_effort,
+                grounding_source_mode,
+                grounding_verification_mode,
+                grounding_behavior,
+                grounding_search_profile,
                 image_strategy,
             },
         )
@@ -226,6 +339,10 @@ impl TopicService {
                 grounding_strategy: row.grounding_strategy.unwrap_or_default(),
                 grounding_model: row.grounding_model.unwrap_or_default(),
                 grounding_reasoning_effort: row.grounding_reasoning_effort.unwrap_or_default(),
+                grounding_source_mode: row.grounding_source_mode.unwrap_or_default(),
+                grounding_verification_mode: row.grounding_verification_mode.unwrap_or_default(),
+                grounding_behavior: row.grounding_behavior.unwrap_or_default(),
+                grounding_search_profile: row.grounding_search_profile,
                 image_strategy: row
                     .image_strategy
                     .filter(|value| !value.trim().is_empty())
@@ -278,6 +395,10 @@ pub struct UpdateTopicSettings {
     pub grounding_strategy: Option<String>,
     pub grounding_model: Option<String>,
     pub grounding_reasoning_effort: Option<String>,
+    pub grounding_source_mode: Option<String>,
+    pub grounding_verification_mode: Option<String>,
+    pub grounding_behavior: Option<String>,
+    pub grounding_search_profile: Option<Option<crate::domain::grounding::GroundingSearchProfile>>,
     pub image_strategy: Option<String>,
 }
 
@@ -295,6 +416,10 @@ pub struct AdminTopicInfo {
     pub grounding_strategy: String,
     pub grounding_model: String,
     pub grounding_reasoning_effort: String,
+    pub grounding_source_mode: String,
+    pub grounding_verification_mode: String,
+    pub grounding_behavior: String,
+    pub grounding_search_profile: Option<crate::domain::grounding::GroundingSearchProfile>,
     pub image_strategy: String,
 }
 

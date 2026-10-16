@@ -25,6 +25,13 @@ function settingsDraft(): SettingsDraft {
         groundingModel: "keep-me",
         groundingReasoningEffort: "low",
         groundingStrategy: "factual",
+        groundingSourceMode: "model",
+        groundingBehavior: "standard",
+        groundingSearchDepth: "balanced",
+        groundingFreshness: "any",
+        groundingSearchGuidance: "",
+        groundingIncludeDomains: "",
+        groundingFailurePolicy: "stop",
         imageStrategy: "none",
         searchProvider: "tavily",
         scrapeProvider: "scrapling",
@@ -55,6 +62,13 @@ function topicDraft(): TopicEditorDraft {
         groundingModel: "",
         groundingReasoningEffort: "",
         groundingStrategy: "factual",
+        groundingSourceMode: "model",
+        groundingBehavior: "standard",
+        groundingSearchDepth: "",
+        groundingFreshness: "",
+        groundingSearchGuidance: "",
+        groundingIncludeDomains: "",
+        groundingFailurePolicy: "",
         imageStrategy: "",
     };
 }
@@ -69,7 +83,8 @@ describe("prompt template helpers", () => {
 
     test("topic reset pastes the current global prompt", () => {
         expect(
-            resetTopicPrompt(topicDraft(), "Write about {topic} today.").promptTemplate,
+            resetTopicPrompt(topicDraft(), "Write about {topic} today.")
+                .promptTemplate,
         ).toBe("Write about {topic} today.");
         expect(resetTopicPrompt(topicDraft(), "   ").promptTemplate).toBe(
             DEFAULT_PROMPT_TEMPLATE,

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
-import { SettingsSchema } from "@/generated/denpie_pb";
+import {
+    GroundingSearchProfileSchema,
+    SettingsSchema,
+} from "@/generated/denpie_pb";
 import {
     hasSettingsPatch,
     parseUnsignedSetting,
@@ -49,5 +52,36 @@ describe("settings page helpers", () => {
         expect(settingsPatchCount(patch)).toBe(3);
         expect(hasSettingsPatch(patch)).toBe(true);
         expect(hasSettingsPatch(settingsPatch(initial, initial))).toBe(false);
+    });
+
+    test("splits legacy Grounding strategy and patches one search profile", () => {
+        const initial = settingsDraft(
+            create(SettingsSchema, {
+                groundingStrategy: "create_and_ground",
+                groundingSearchProfile: create(GroundingSearchProfileSchema, {
+                    depth: "balanced",
+                    freshness: "any",
+                    failurePolicy: "stop",
+                }),
+            }),
+        );
+        expect(initial.groundingSourceMode).toBe("web");
+        expect(initial.groundingBehavior).toBe("fact_check");
+
+        const patch = settingsPatch(initial, {
+            ...initial,
+            groundingSourceMode: "web_and_documents",
+            groundingSearchDepth: "deep",
+            groundingFreshness: "month",
+            groundingIncludeDomains: "docs.rs\ndoc.rust-lang.org",
+        });
+        expect(patch.groundingSourceMode).toBe("web_and_documents");
+        expect(patch.groundingStrategy).toBe("create_and_ground");
+        expect(patch.groundingSearchProfile?.depth).toBe("deep");
+        expect(patch.groundingSearchProfile?.freshness).toBe("month");
+        expect(patch.groundingSearchProfile?.includeDomains).toEqual([
+            "docs.rs",
+            "doc.rust-lang.org",
+        ]);
     });
 });

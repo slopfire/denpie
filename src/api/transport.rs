@@ -537,7 +537,8 @@ fn mutation_policy(op: &pb::api_request::Op) -> MutationPolicy {
         | pb::api_request::Op::GetDocument(_)
         | pb::api_request::Op::ExploreLink(_)
         | pb::api_request::Op::TestVisionModel(_)
-        | pb::api_request::Op::EnhancePromptTemplate(_) => MutationPolicy::ReadOnly,
+        | pb::api_request::Op::EnhancePromptTemplate(_)
+        | pb::api_request::Op::PreviewGrounding(_) => MutationPolicy::ReadOnly,
         pb::api_request::Op::BootstrapApiKey(_)
         | pb::api_request::Op::CreateApiKey(_)
         | pb::api_request::Op::CreateApiKeyV1(_) => MutationPolicy::OneTimeSecret,
@@ -1008,6 +1009,11 @@ async fn handle_authenticated_op(
             update_topic_prompt(state, &user.id, req).await?;
             Ok(empty_response())
         }
+        pb::api_request::Op::PreviewGrounding(req) => Ok(pb::ApiResponse {
+            result: Some(pb::api_response::Result::PreviewGrounding(
+                resources::preview_grounding(state, &user.id, req).await?,
+            )),
+        }),
         pb::api_request::Op::AddDocument(req) => {
             add_document(state, &user.id, req).await?;
             Ok(empty_response())
@@ -1267,7 +1273,8 @@ fn required_scope(op: &pb::api_request::Op) -> &'static str {
         | pb::api_request::Op::ReviewAndAdvance(_) => "reviews:write",
         pb::api_request::Op::GetTopics(_)
         | pb::api_request::Op::ListAdminTopics(_)
-        | pb::api_request::Op::ListAppTopics(_) => "topics:read",
+        | pb::api_request::Op::ListAppTopics(_)
+        | pb::api_request::Op::PreviewGrounding(_) => "topics:read",
         pb::api_request::Op::GetSummary(_)
         | pb::api_request::Op::ListTipcards(_)
         | pb::api_request::Op::ListFlowCards(_)
@@ -1350,6 +1357,7 @@ fn api_op_name(op: &pb::api_request::Op) -> &'static str {
         pb::api_request::Op::ReviewAndAdvance(_) => "review_and_advance",
         pb::api_request::Op::CreateApiKeyV1(_) => "create_api_key_v1",
         pb::api_request::Op::EnhancePromptTemplate(_) => "enhance_prompt_template",
+        pb::api_request::Op::PreviewGrounding(_) => "preview_grounding",
     }
 }
 

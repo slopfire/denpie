@@ -10,12 +10,22 @@ async fn migrations_create_postgres_grounding_schema() {
         ("topics", "grounding_strategy"),
         ("topics", "grounding_model"),
         ("topics", "grounding_reasoning_effort"),
+        ("topics", "grounding_source_mode"),
+        ("topics", "grounding_verification_mode"),
+        ("topics", "grounding_behavior"),
+        ("topics", "grounding_search_profile"),
         ("topics", "image_strategy"),
         ("tipcards", "use_image"),
         ("tipcards", "image_query"),
+        ("tipcards", "grounding_status"),
+        ("tipcards", "grounding_source_mode"),
         ("review_states", "feedback"),
         ("review_states", "reviewed_at"),
         ("user_settings", "grounding_strategy"),
+        ("user_settings", "grounding_source_mode"),
+        ("user_settings", "grounding_verification_mode"),
+        ("user_settings", "grounding_behavior"),
+        ("user_settings", "grounding_search_profile"),
         ("user_settings", "llm_grounding_model"),
         ("user_settings", "llm_grounding_reasoning_effort"),
         ("user_settings", "image_sources"),
@@ -61,6 +71,65 @@ async fn migrations_create_postgres_grounding_schema() {
     .await
     .unwrap();
     assert_eq!(image_defaults, (0, String::new()));
+}
+
+#[tokio::test]
+async fn generated_grounding_evidence_is_stored_with_the_card_transaction() {
+    let pool = setup_db().await;
+    let topic_id: i64 = sqlx::query_scalar(
+        "INSERT INTO topics (user_id, name, tipcard_type)
+         VALUES ('usr_test_admin', 'evidence topic', 'repeatable_tip')
+         RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let cards = [tipcards::GeneratedCardParams {
+        title: "Evidence card",
+        full_content: "A supported fact",
+        compressed_content: "Supported fact",
+        use_image: false,
+        image_query: "",
+    }];
+    let evidence = [tipcards::NewGroundingEvidence {
+        source_type: "web",
+        title: "Primary source",
+        url: Some("https://example.com/source"),
+        document_id: None,
+        excerpt: "The captured evidence snapshot",
+    }];
+    let ids = tipcards::create_pending_batch_if_needed_grounded(
+        &pool,
+        "usr_test_admin",
+        topic_id,
+        "repeatable_tip",
+        3,
+        &cards,
+        tipcards::GeneratedGrounding {
+            status: "verified",
+            source_mode: "web",
+            evidence: &evidence,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(ids.len(), 1);
+
+    let stored: (String, String) = sqlx::query_as(
+        "SELECT grounding_status, grounding_source_mode FROM tipcards WHERE id = $1",
+    )
+    .bind(ids[0])
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(stored, ("verified".to_string(), "web".to_string()));
+    let stored_evidence =
+        tipcards::list_grounding_evidence_for_cards(&pool, "usr_test_admin", &ids)
+            .await
+            .unwrap();
+    assert_eq!(stored_evidence.len(), 1);
+    assert_eq!(stored_evidence[0].title, "Primary source");
+    assert_eq!(stored_evidence[0].excerpt, "The captured evidence snapshot");
 }
 
 /// RAG retrieval is isolated to explicit topic assignments and supports reuse.

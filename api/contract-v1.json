@@ -265,6 +265,14 @@
       "result_field": "ok",
       "scope": "cards:write"
     },
+    "preview_grounding": {
+      "auth": "Bearer API key",
+      "kind": "read",
+      "request": "PreviewGroundingRequest",
+      "result": "PreviewGroundingResult",
+      "result_field": "preview_grounding",
+      "scope": "topics:read"
+    },
     "replace_tipcard_images": {
       "auth": "Bearer API key",
       "kind": "mutation",
@@ -494,6 +502,12 @@
             "oneof": null,
             "type": "string"
           },
+          "grounding_behavior": {
+            "cardinality": "singular",
+            "number": 16,
+            "oneof": null,
+            "type": "string"
+          },
           "grounding_model": {
             "cardinality": "singular",
             "number": 11,
@@ -506,9 +520,27 @@
             "oneof": null,
             "type": "string"
           },
+          "grounding_search_profile": {
+            "cardinality": "optional",
+            "number": 15,
+            "oneof": null,
+            "type": "GroundingSearchProfile"
+          },
+          "grounding_source_mode": {
+            "cardinality": "singular",
+            "number": 13,
+            "oneof": null,
+            "type": "string"
+          },
           "grounding_strategy": {
             "cardinality": "singular",
             "number": 8,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_verification_mode": {
+            "cardinality": "singular",
+            "number": 14,
             "oneof": null,
             "type": "string"
           },
@@ -873,6 +905,12 @@
             "oneof": "op",
             "type": "PinTipcardRequest"
           },
+          "preview_grounding": {
+            "cardinality": "singular",
+            "number": 47,
+            "oneof": "op",
+            "type": "PreviewGroundingRequest"
+          },
           "replace_tipcard_images": {
             "cardinality": "singular",
             "number": 45,
@@ -1040,6 +1078,12 @@
             "oneof": "result",
             "type": "PoolImages"
           },
+          "preview_grounding": {
+            "cardinality": "singular",
+            "number": 26,
+            "oneof": "result",
+            "type": "PreviewGroundingResult"
+          },
           "review_and_advance": {
             "cardinality": "singular",
             "number": 24,
@@ -1204,6 +1248,12 @@
             "oneof": null,
             "type": "int64"
           },
+          "grounding_behavior": {
+            "cardinality": "singular",
+            "number": 24,
+            "oneof": null,
+            "type": "string"
+          },
           "grounding_model": {
             "cardinality": "singular",
             "number": 19,
@@ -1216,9 +1266,27 @@
             "oneof": null,
             "type": "string"
           },
+          "grounding_search_profile": {
+            "cardinality": "optional",
+            "number": 23,
+            "oneof": null,
+            "type": "GroundingSearchProfile"
+          },
+          "grounding_source_mode": {
+            "cardinality": "singular",
+            "number": 21,
+            "oneof": null,
+            "type": "string"
+          },
           "grounding_strategy": {
             "cardinality": "singular",
             "number": 13,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_verification_mode": {
+            "cardinality": "singular",
+            "number": 22,
             "oneof": null,
             "type": "string"
           },
@@ -1719,6 +1787,24 @@
             "oneof": null,
             "type": "string"
           },
+          "grounding_evidence": {
+            "cardinality": "repeated",
+            "number": 19,
+            "oneof": null,
+            "type": "GroundingEvidence"
+          },
+          "grounding_source_mode": {
+            "cardinality": "singular",
+            "number": 18,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_status": {
+            "cardinality": "singular",
+            "number": 17,
+            "oneof": null,
+            "type": "string"
+          },
           "id": {
             "cardinality": "singular",
             "number": 1,
@@ -1893,6 +1979,82 @@
         },
         "reserved": []
       },
+      "GroundingEvidence": {
+        "fields": {
+          "document_id": {
+            "cardinality": "optional",
+            "number": 4,
+            "oneof": null,
+            "type": "int64"
+          },
+          "excerpt": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "retrieved_at": {
+            "cardinality": "singular",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "source_type": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          },
+          "title": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "url": {
+            "cardinality": "optional",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
+      "GroundingSearchProfile": {
+        "fields": {
+          "depth": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          },
+          "failure_policy": {
+            "cardinality": "singular",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "freshness": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "guidance": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "include_domains": {
+            "cardinality": "repeated",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          }
+        },
+        "reserved": []
+      },
       "ListFlowCardsRequest": {
         "fields": {
           "page_size": {
@@ -2022,6 +2184,100 @@
             "number": 1,
             "oneof": null,
             "type": "PoolImageInfo"
+          }
+        },
+        "reserved": []
+      },
+      "PreviewGroundingRequest": {
+        "fields": {
+          "document_ids": {
+            "cardinality": "repeated",
+            "number": 5,
+            "oneof": null,
+            "type": "int64"
+          },
+          "grounding_behavior": {
+            "cardinality": "optional",
+            "number": 6,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_search_profile": {
+            "cardinality": "optional",
+            "number": 4,
+            "oneof": null,
+            "type": "GroundingSearchProfile"
+          },
+          "grounding_source_mode": {
+            "cardinality": "optional",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_verification_mode": {
+            "cardinality": "optional",
+            "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "topic_id": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "int64"
+          }
+        },
+        "reserved": []
+      },
+      "PreviewGroundingResult": {
+        "fields": {
+          "backend": {
+            "cardinality": "singular",
+            "number": 4,
+            "oneof": null,
+            "type": "string"
+          },
+          "evidence": {
+            "cardinality": "repeated",
+            "number": 6,
+            "oneof": null,
+            "type": "GroundingEvidence"
+          },
+          "grounding_behavior": {
+            "cardinality": "singular",
+            "number": 8,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_search_profile": {
+            "cardinality": "singular",
+            "number": 3,
+            "oneof": null,
+            "type": "GroundingSearchProfile"
+          },
+          "grounding_source_mode": {
+            "cardinality": "singular",
+            "number": 1,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_verification_mode": {
+            "cardinality": "singular",
+            "number": 2,
+            "oneof": null,
+            "type": "string"
+          },
+          "queries": {
+            "cardinality": "repeated",
+            "number": 5,
+            "oneof": null,
+            "type": "string"
+          },
+          "warnings": {
+            "cardinality": "repeated",
+            "number": 7,
+            "oneof": null,
+            "type": "string"
           }
         },
         "reserved": []
@@ -2245,6 +2501,12 @@
             "oneof": null,
             "type": "string"
           },
+          "grounding_behavior": {
+            "cardinality": "singular",
+            "number": 35,
+            "oneof": null,
+            "type": "string"
+          },
           "grounding_model": {
             "cardinality": "singular",
             "number": 25,
@@ -2257,9 +2519,27 @@
             "oneof": null,
             "type": "string"
           },
+          "grounding_search_profile": {
+            "cardinality": "singular",
+            "number": 34,
+            "oneof": null,
+            "type": "GroundingSearchProfile"
+          },
+          "grounding_source_mode": {
+            "cardinality": "singular",
+            "number": 32,
+            "oneof": null,
+            "type": "string"
+          },
           "grounding_strategy": {
             "cardinality": "singular",
             "number": 20,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_verification_mode": {
+            "cardinality": "singular",
+            "number": 33,
             "oneof": null,
             "type": "string"
           },
@@ -2444,6 +2724,24 @@
           "full_content": {
             "cardinality": "singular",
             "number": 3,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_evidence": {
+            "cardinality": "repeated",
+            "number": 18,
+            "oneof": null,
+            "type": "GroundingEvidence"
+          },
+          "grounding_source_mode": {
+            "cardinality": "singular",
+            "number": 17,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_status": {
+            "cardinality": "singular",
+            "number": 16,
             "oneof": null,
             "type": "string"
           },
@@ -2722,6 +3020,12 @@
             "oneof": null,
             "type": "string"
           },
+          "grounding_behavior": {
+            "cardinality": "optional",
+            "number": 34,
+            "oneof": null,
+            "type": "string"
+          },
           "grounding_model": {
             "cardinality": "optional",
             "number": 24,
@@ -2734,9 +3038,27 @@
             "oneof": null,
             "type": "string"
           },
+          "grounding_search_profile": {
+            "cardinality": "optional",
+            "number": 33,
+            "oneof": null,
+            "type": "GroundingSearchProfile"
+          },
+          "grounding_source_mode": {
+            "cardinality": "optional",
+            "number": 31,
+            "oneof": null,
+            "type": "string"
+          },
           "grounding_strategy": {
             "cardinality": "optional",
             "number": 19,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_verification_mode": {
+            "cardinality": "optional",
+            "number": 32,
             "oneof": null,
             "type": "string"
           },
@@ -2817,6 +3139,12 @@
       },
       "UpdateTopicRequest": {
         "fields": {
+          "clear_grounding_search_profile": {
+            "cardinality": "optional",
+            "number": 15,
+            "oneof": null,
+            "type": "bool"
+          },
           "compression_level": {
             "cardinality": "optional",
             "number": 6,
@@ -2841,6 +3169,12 @@
             "oneof": null,
             "type": "string"
           },
+          "grounding_behavior": {
+            "cardinality": "optional",
+            "number": 16,
+            "oneof": null,
+            "type": "string"
+          },
           "grounding_model": {
             "cardinality": "optional",
             "number": 10,
@@ -2853,9 +3187,27 @@
             "oneof": null,
             "type": "string"
           },
+          "grounding_search_profile": {
+            "cardinality": "optional",
+            "number": 14,
+            "oneof": null,
+            "type": "GroundingSearchProfile"
+          },
+          "grounding_source_mode": {
+            "cardinality": "optional",
+            "number": 12,
+            "oneof": null,
+            "type": "string"
+          },
           "grounding_strategy": {
             "cardinality": "optional",
             "number": 7,
+            "oneof": null,
+            "type": "string"
+          },
+          "grounding_verification_mode": {
+            "cardinality": "optional",
+            "number": 13,
             "oneof": null,
             "type": "string"
           },

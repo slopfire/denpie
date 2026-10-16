@@ -2,7 +2,11 @@
 // work; these transitions make a response committable only by its exact card
 // identity and request generation.
 
-import type { CardSource, FlowCardInfo } from "../generated/denpie_pb";
+import type {
+    CardSource,
+    FlowCardInfo,
+    GroundingEvidence,
+} from "../generated/denpie_pb";
 
 /** A single detail fetch, owned by the exact generated card ID. */
 export interface DetailRequest {
@@ -127,6 +131,8 @@ export interface DetailSourceView {
     label: string;
     href: string | null;
     icon: DetailSourceIconKind;
+    excerpt: string;
+    evidence: boolean;
 }
 
 /**
@@ -152,10 +158,11 @@ export function safeSourceUrl(raw: CardSource["url"]): string | null {
 
 /** Map the protocol source type onto the icon vocabulary used by the Sheet. */
 export function detailSourceIcon(
-    source: Pick<CardSource, "sourceType">,
+    source: Pick<CardSource | GroundingEvidence, "sourceType">,
 ): DetailSourceIconKind {
     switch (source.sourceType) {
         case "link":
+        case "web":
             return "link";
         case "document":
             return "document";
@@ -172,14 +179,32 @@ export function toDetailSourceView(source: CardSource): DetailSourceView {
         label: title === "" ? (href ?? "Untitled source") : title,
         href,
         icon: detailSourceIcon(source),
+        excerpt: "",
+        evidence: false,
+    };
+}
+
+export function toDetailEvidenceView(
+    evidence: GroundingEvidence,
+): DetailSourceView {
+    const href = safeSourceUrl(evidence.url);
+    const title = evidence.title.trim();
+    return {
+        label: title === "" ? (href ?? "Untitled evidence") : title,
+        href,
+        icon: detailSourceIcon(evidence),
+        excerpt: evidence.excerpt.trim(),
+        evidence: true,
     };
 }
 
 /** Project all generated sources attached to one detail card. */
 export function detailSources(
-    card: Pick<FlowCardInfo, "sources">,
+    card: Pick<FlowCardInfo, "sources" | "groundingEvidence">,
 ): DetailSourceView[] {
-    return card.sources.map(toDetailSourceView);
+    return card.groundingEvidence.length > 0
+        ? card.groundingEvidence.map(toDetailEvidenceView)
+        : card.sources.map(toDetailSourceView);
 }
 
 /** A stable human date for the Sheet, or null when the server omitted it. */

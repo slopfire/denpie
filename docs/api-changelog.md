@@ -3,6 +3,19 @@
 This log records consumer-visible changes to the versioned public API. Entries
 describe wire behavior rather than dashboard internals.
 
+## 2026-08-29 - Grounding policy and evidence
+
+- Added source mode, behavior depth, and search profiles to global settings and
+  topic overrides while retaining legacy strategy and verification fields.
+- Behavior depth is `standard`, `fact_check`, or `agentic`. Agentic research
+  now plans multiple queries and may run one bounded follow-up round before
+  generation.
+- Added read-only `preview_grounding` for inspecting an effective policy,
+  queries, evidence, backend, and warnings before saving.
+- Added immutable Grounding status and evidence fields to card responses.
+- Added explicit `native` search provider behavior. Tavily and Firecrawl now
+  report missing credentials and request failures instead of switching backend.
+
 ## 2026-08-24 — Prompt template enhancement
 
 - Added read-only `enhance_prompt_template`. `topic_id` 0 inspects the global
