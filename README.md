@@ -11,7 +11,7 @@ just db-up       # start local PostgreSQL
 just dev         # backend + Astro watchers. Open http://localhost:4321/
 ```
 
-No Nix? Need Rust 1.95.0, `protoc`, bun, and Docker Compose (or PostgreSQL 19 beta 2 + `psql`). Pin is in `rust-toolchain.toml`.
+No Nix? Need Rust 1.95.0, `protoc`, bun, and Docker Compose (or PostgreSQL 18.6 + `psql`). Pin is in `rust-toolchain.toml`.
 
 ### First boot (~2 min)
 

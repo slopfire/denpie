@@ -13,7 +13,7 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - denpie-postgres-19:/var/lib/postgresql
+      - denpie-postgres-18:/var/lib/postgresql
 
   app:
     build: .
@@ -29,5 +29,8 @@ services:
       - denpie-data:/var/lib/denpie
 
 volumes:
-  denpie-postgres-19:
+  # PostgreSQL 18.x data directory (18/docker layout). The old
+  # denpie-postgres-19 volume held a pre-release PG 19 cluster and is no
+  # longer used; it is kept aside, not mounted.
+  denpie-postgres-18:
   denpie-data:
