@@ -26,11 +26,18 @@ just agent-server --stop     # stop a server started by the recipe
 just agent-server --smoke    # smoke only against an already-running :3027
 just restart-agent-server    # stop ours + start fresh, return with it running
 just stop-agent-server       # stop the server started by the recipe
+just serve-local             # serve your real data (public schema) on :3027
 just ui-check                # Astro build + oneshot agent-server
 just frontend-astro-runtime  # alias of ui-check
 just playwright              # Astro Playwright on :3027
 just agent-server --frontend-dist frontend-astro/dist  # serve a pre-built Astro dist
 ```
+
+`just serve-local` runs the same :3027 server against the **real** `public`
+schema and the real `settings.yaml` / `tipcard-images` directory, so a human can
+log in with their own account instead of the bootstrapped `test` login. It never
+creates or resets an account and it never touches :3017. Use `just
+restart-agent-server` afterwards to go back to the isolated agent schema.
 
 `just restart-agent-server` is the recipe to run after finalizing a change the
 running server serves (Rust, proto, migrations, frontend). It wraps
@@ -39,6 +46,12 @@ fresh one, smoke-checks it, and returns with the server still running so an
 agent can keep working. A listener it did not start is never killed. Use
 `just agent-server` (foreground) or `--oneshot` when you want the script to own
 the lifecycle instead.
+
+`--detach` runs the server as a transient systemd **user** unit
+(`denpie-agent-3027`) so it survives the caller exiting. A background job or
+`setsid` stays inside the caller's cgroup, which an agent harness reaps at turn
+end; the unit lives outside it. `just stop-agent-server` stops the unit. If
+systemd is unavailable the script falls back to `setsid`.
 
 The recipe:
 

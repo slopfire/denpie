@@ -206,6 +206,11 @@ restart-agent-server *args:
 stop-agent-server:
   sh scripts/agent-server.sh --stop
 
+# Serve your own local data on :3027 (public schema) so you can log in with
+# your own account without starting the :3017 human server. Never touches :3017.
+serve-local *args:
+  sh scripts/agent-server.sh --restart --detach --schema public {{args}}
+
 bench:
   sh benches/run_bench.sh
 
