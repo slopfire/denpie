@@ -76,7 +76,14 @@ just agent-server            # start, bootstrap test user, smoke, foreground
 just agent-server --oneshot  # start, smoke, stop
 just agent-server --stop     # stop a server we started
 just agent-server --smoke    # smoke against already-running :3027
+just restart-agent-server    # stop ours + start fresh, return with it running
+just stop-agent-server       # stop the server we started
 ```
+
+Restart the isolated server with `just restart-agent-server` **after finalizing**
+any change it serves — Rust code, proto, migrations, or a frontend rebuild — so
+the smoke check and any later DOM check exercise the new code. It returns
+immediately with the server still up.
 
 Detail: `agent-server` skill.
 

@@ -192,9 +192,19 @@ ci: api-check cache-prune
 # --- agent runtime ------------------------------------------------------------
 
 # Isolated server on :3027 only. Creates .agent-data/, test login, smoke checks.
-# Pass-through args: --stop, --smoke, --keep-data
+# Pass-through args: --stop, --smoke, --keep-data, --restart, --detach
 agent-server *args:
   sh scripts/agent-server.sh {{args}}
+
+# Restart the isolated :3027 server: stop the one we started, start a fresh one,
+# smoke it, and return with it still running. Run this after finalizing any
+# change the running server serves (Rust, proto, migrations, frontend).
+restart-agent-server *args:
+  sh scripts/agent-server.sh --restart --detach {{args}}
+
+# Stop the isolated :3027 server started by the recipe.
+stop-agent-server:
+  sh scripts/agent-server.sh --stop
 
 bench:
   sh benches/run_bench.sh

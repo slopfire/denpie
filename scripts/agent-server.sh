@@ -17,6 +17,8 @@ KEEP_DATA=0
 SMOKE_ONLY=0
 STOP_ONLY=0
 ONESHOT=0
+RESTART=0
+DETACH=0
 
 usage() {
   cat <<'EOF'
@@ -26,6 +28,11 @@ Usage: scripts/agent-server.sh [options]
   --smoke       Reuse running server if up; only run smoke checks
   --oneshot     Start, smoke, then stop and exit (for just ui-check)
   --stop        Stop a server started by this script (via pid file)
+  --restart     Stop the server this script started (if any), then start a
+                fresh one. A listener we did not start is never killed.
+  --detach      Start (or restart), smoke, then return with the server left
+                running in the background so the caller can keep working.
+                Pairs with --restart for a one-command server restart.
   --frontend-dist DIR
                 Serve an alternative built frontend directory (must contain
                 index.html; relative paths resolve against the repo root).
@@ -48,6 +55,8 @@ while [ "$#" -gt 0 ]; do
     --smoke) SMOKE_ONLY=1 ;;
     --oneshot) ONESHOT=1 ;;
     --stop) STOP_ONLY=1 ;;
+    --restart) RESTART=1 ;;
+    --detach) DETACH=1; KEEP_DATA=1 ;;
     --frontend-dist)
       if [ "$#" -eq 0 ]; then
         echo "--frontend-dist requires a value" >&2; usage >&2; exit 2
@@ -131,6 +140,17 @@ if [ "$STOP_ONLY" -eq 1 ]; then
   exit 0
 fi
 
+if [ "$RESTART" -eq 1 ]; then
+  if is_our_server; then
+    echo "restart: stopping agent server pid=$(cat "$PID_FILE")"
+    stop_our_server
+  elif port_in_use; then
+    echo "restart: :${AGENT_PORT} is held by a listener we did not start — not killing it" >&2
+  else
+    echo "restart: no agent server was running"
+  fi
+fi
+
 mkdir -p "$AGENT_DATA"
 
 if [ "$SMOKE_ONLY" -eq 1 ]; then
@@ -177,6 +197,13 @@ else
       echo "DATABASE_URL is not set; start local PostgreSQL with: just db-up" >&2
       exit 1
     fi
+    # --detach starts the server in its own session so it survives the caller
+    # (agent tool call, shell) exiting and keeps the pid file authoritative.
+    START_PREFIX=
+    if [ "$DETACH" -eq 1 ] && command -v setsid >/dev/null 2>&1; then
+      START_PREFIX=setsid
+    fi
+
     DENPIE_BIND_ADDR="$AGENT_BIND" \
       DENPIE_DB_SCHEMA=denpie_agent \
       DENPIE_RP_ORIGIN="$AGENT_ORIGIN" \
@@ -185,7 +212,7 @@ else
       DENPIE_IMAGE_DIR="$AGENT_DATA/tipcard-images" \
       DENPIE_FRONTEND_DIST="$FRONTEND_DIST" \
       DENPIE_SKIP_FRONTEND_BUILD=1 \
-      cargo run --bin denpie >"$LOG_FILE" 2>&1 &
+      $START_PREFIX cargo run --bin denpie >"$LOG_FILE" 2>&1 </dev/null &
     echo $! >"$PID_FILE"
 
     # Wait for listen
@@ -286,14 +313,28 @@ Agent server ready
   Login:    username=test  password=23452345
 
 Recipes:
-  just agent-server          # start + smoke (blocks until Ctrl-C)
-  just agent-server --stop   # stop server we started
-  just ui-check              # Astro build + one-shot smoke
+  just agent-server            # start + smoke (blocks until Ctrl-C)
+  just restart-agent-server    # stop + start fresh, return with it running
+  just stop-agent-server       # stop the server we started
+  just ui-check                # Astro build + one-shot smoke
 EOF
 
 if [ "$ONESHOT" -eq 1 ]; then
   echo "oneshot complete; stopping agent server"
   # cleanup trap will stop server and wipe data unless --keep-data
+  exit 0
+fi
+
+if [ "$DETACH" -eq 1 ] && [ -f "$PID_FILE" ]; then
+  # Leave the server running in its own session and return to the caller.
+  trap - INT TERM EXIT
+  KEEP_DATA=1
+  pid="$(cat "$PID_FILE")"
+  cat <<EOF
+server left running detached (pid ${pid})
+  stop:  just stop-agent-server
+  again: just restart-agent-server
+EOF
   exit 0
 fi
 

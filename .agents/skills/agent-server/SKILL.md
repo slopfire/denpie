@@ -24,11 +24,21 @@ just agent-server            # isolated data dir, bind :3027, test login, smoke,
 just agent-server --oneshot  # same but exit after smoke (used by just ui-check)
 just agent-server --stop     # stop a server started by the recipe
 just agent-server --smoke    # smoke only against an already-running :3027
+just restart-agent-server    # stop ours + start fresh, return with it running
+just stop-agent-server       # stop the server started by the recipe
 just ui-check                # Astro build + oneshot agent-server
 just frontend-astro-runtime  # alias of ui-check
 just playwright              # Astro Playwright on :3027
 just agent-server --frontend-dist frontend-astro/dist  # serve a pre-built Astro dist
 ```
+
+`just restart-agent-server` is the recipe to run after finalizing a change the
+running server serves (Rust, proto, migrations, frontend). It wraps
+`--restart --detach`: it stops only the server this recipe started, starts a
+fresh one, smoke-checks it, and returns with the server still running so an
+agent can keep working. A listener it did not start is never killed. Use
+`just agent-server` (foreground) or `--oneshot` when you want the script to own
+the lifecycle instead.
 
 The recipe:
 
