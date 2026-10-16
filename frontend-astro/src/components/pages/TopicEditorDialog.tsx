@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import {
     ExternalLinkIcon,
@@ -398,6 +398,13 @@ export function TopicEditorDialog({
     const [sourceDraft, setSourceDraft] = useState<TopicSourceDraft | null>(
         null,
     );
+    // Latest-wins counter for preview requests: editing the policy or closing
+    // the dialog while one is in flight must not let its answer land later.
+    const previewRequestRef = useRef(0);
+    const resetPreview = () => {
+        previewRequestRef.current += 1;
+        setPreviewState({ kind: "idle" });
+    };
     const open = topic !== null;
     const shown = topic === null ? null : (draft ?? topicEditorDraft(topic));
     const shownSourceIds =
@@ -459,7 +466,7 @@ export function TopicEditorDialog({
                           }),
             };
         });
-        setPreviewState({ kind: "idle" });
+        resetPreview();
     };
 
     const runPreview = async () => {
@@ -469,6 +476,7 @@ export function TopicEditorDialog({
             editorPolicy(next),
             groundingDefaults ?? undefined,
         );
+        const request = ++previewRequestRef.current;
         setPreviewState({ kind: "loading" });
         try {
             const { preview } = await previewGrounding({
@@ -487,8 +495,10 @@ export function TopicEditorDialog({
                 }),
                 documentIds: shownSourceIds,
             });
+            if (request !== previewRequestRef.current) return;
             setPreviewState({ kind: "ready", preview });
         } catch (error) {
+            if (request !== previewRequestRef.current) return;
             setPreviewState({ kind: "error", message: errorText(error) });
         }
     };
@@ -580,7 +590,7 @@ export function TopicEditorDialog({
             setDraft(null);
             setSourceDraft(null);
             setPromptRationale("");
-            setPreviewState({ kind: "idle" });
+            resetPreview();
             toast.show(t("grounding.topic_editor.saved"), "success");
         } catch (error) {
             toast.show(
@@ -602,7 +612,7 @@ export function TopicEditorDialog({
                     setDraft(null);
                     setSourceDraft(null);
                     setPromptRationale("");
-                    setPreviewState({ kind: "idle" });
+                    resetPreview();
                     onClose();
                 }
             }}

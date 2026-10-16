@@ -8,14 +8,20 @@
 //   merges through `mergeFlowRefresh` without leaving ready/loading-more/
 //   load-error state: no skeleton flash, no scroll reset. A failed silent
 //   refresh is swallowed (current slots stay).
+// - A refresh requested while another fetch is in flight is queued, not
+//   dropped, and a result fetched before a mutation landed (the read-cache
+//   epoch moved) is discarded and refetched, so it can never overwrite newer
+//   local state such as a just-reviewed slot.
 // - The first ready render saves a session snapshot; every successful merge
-//   refreshes it.
+//   refreshes it (an empty grid clears it).
 
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { listFlowCards } from "@/lib/api-v1/ops";
+import { readCacheEpoch } from "@/lib/api-v1/cache";
 import type { FlowCardsPage } from "@/lib/api-v1/ops";
 import { takePrefetchedFlowPage } from "@/lib/bootstrap-prefetch";
 import {
+    clearFlowSnapshot,
     loadFlowSnapshot,
     type SavedFlowPage,
 } from "@/lib/flow-snapshot";
@@ -93,6 +99,16 @@ export function useFlowPager(options: FlowPagerOptions): FlowPager {
     const generationRef = useRef(0);
     const inFlightRef = useRef(false);
     const mountedRef = useRef(true);
+    // A refresh was requested (or went stale) while the pager was busy.
+    const rerunRef = useRef(false);
+    const loadInitialRef = useRef<() => Promise<void>>(async () => undefined);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+        };
+    }, []);
 
     const saveReadySnapshot = useCallback(
         (slots: readonly ReviewSlot[], cursor: FlowCursor) => {
@@ -107,53 +123,75 @@ export function useFlowPager(options: FlowPagerOptions): FlowPager {
                         : [],
                 )
                 .slice(0, FLOW_PAGE_SIZE);
-            if (cards.length === 0) return;
+            if (cards.length === 0) {
+                // Nothing to seed from; a stale snapshot would resurrect
+                // cards that no longer exist on the next cold start.
+                clearFlowSnapshot();
+                return;
+            }
             saveSnapshot({ savedAt: Date.now(), cards, cursor });
         },
         [saveSnapshot],
     );
 
+    /** Run a queued refresh once the pager is idle again. */
+    const flushQueuedRefresh = useCallback(() => {
+        if (!rerunRef.current || !mountedRef.current) return;
+        rerunRef.current = false;
+        void loadInitialRef.current();
+    }, []);
+
     /**
      * Integrate one successfully fetched first page. With rendered data it
-     * merges silently (no state-kind change); from a cold start it becomes
-     * the ready or empty result.
+     * reconciles silently (no skeleton, no scroll reset); from a cold start it
+     * becomes the ready or empty result.
      */
     const integrateFreshPage = useCallback(
         (page: FlowCardsPage): void => {
-            if (page.cards.length === 0) {
-                // An empty fresh read never clears rendered slots; a cold
-                // start or post-error retry collapses to the empty screen.
-                const currentKind = getState().kind;
-                if (
-                    currentKind === "initial-loading" ||
-                    currentKind === "error"
-                ) {
-                    apply({ kind: "empty" });
-                }
-                return;
-            }
             const current = getState();
             const slotsState = slotsStateOf(current);
-            if (slotsState !== null) {
-                const merged = mergeFlowRefresh({
-                    currentSlots: slotsState.slots,
-                    freshPageCards: page.cards,
-                    cursor: page.cursor,
-                    mutationsInFlight: mutationsInFlight(),
-                });
-                if (merged.slots !== slotsState.slots) {
-                    apply({
-                        kind: "ready",
-                        slots: [...merged.slots],
-                        cursor: merged.cursor,
-                    });
+            if (slotsState === null) {
+                if (page.cards.length === 0) {
+                    if (current.kind !== "empty") apply({ kind: "empty" });
+                    return;
                 }
+                const slots = slotsFromCards(page.cards);
+                apply({ kind: "ready", slots, cursor: page.cursor });
+                saveReadySnapshot(slots, page.cursor);
+                return;
+            }
+            const previousCursor: FlowCursor =
+                slotsState.kind === "ready"
+                    ? slotsState.cursor
+                    : { kind: "more", pageToken: slotsState.pageToken };
+            const merged = mergeFlowRefresh({
+                currentSlots: slotsState.slots,
+                freshPageCards: page.cards,
+                cursor: page.cursor,
+                previousCursor,
+                mutationsInFlight: mutationsInFlight(),
+            });
+            if (merged.slots.length === 0) {
+                apply({ kind: "empty" });
                 saveReadySnapshot(merged.slots, merged.cursor);
                 return;
             }
-            const slots = slotsFromCards(page.cards);
-            apply({ kind: "ready", slots, cursor: page.cursor });
-            saveReadySnapshot(slots, page.cursor);
+            const unchanged =
+                merged.slots === slotsState.slots &&
+                slotsState.kind === "ready" &&
+                slotsState.revalidating !== true &&
+                sameCursor(merged.cursor, slotsState.cursor);
+            if (!unchanged) {
+                apply({
+                    kind: "ready",
+                    slots:
+                        merged.slots === slotsState.slots
+                            ? slotsState.slots
+                            : [...merged.slots],
+                    cursor: merged.cursor,
+                });
+            }
+            saveReadySnapshot(merged.slots, merged.cursor);
         },
         [apply, getState, mutationsInFlight, saveReadySnapshot],
     );
@@ -170,13 +208,23 @@ export function useFlowPager(options: FlowPagerOptions): FlowPager {
     }, []);
 
     const loadInitial = useCallback(async (): Promise<void> => {
-        if (inFlightRef.current) return;
+        if (inFlightRef.current) {
+            // Dropping this request would lose the change that triggered it.
+            rerunRef.current = true;
+            return;
+        }
         inFlightRef.current = true;
         const generation = ++generationRef.current;
+        const startedEpoch = readCacheEpoch();
         try {
             const page = await fetchFirstPage();
             if (!mountedRef.current || generationRef.current !== generation)
                 return;
+            if (readCacheEpoch() !== startedEpoch) {
+                // A mutation landed mid-flight: this page may predate it.
+                rerunRef.current = true;
+                return;
+            }
             integrateFreshPage(page);
         } catch (error) {
             if (!mountedRef.current || generationRef.current !== generation)
@@ -193,10 +241,13 @@ export function useFlowPager(options: FlowPagerOptions): FlowPager {
                 });
             }
         } finally {
-            if (generationRef.current === generation)
+            if (generationRef.current === generation) {
                 inFlightRef.current = false;
+                flushQueuedRefresh();
+            }
         }
-    }, [apply, fetchFirstPage, getState, integrateFreshPage]);
+    }, [apply, fetchFirstPage, flushQueuedRefresh, getState, integrateFreshPage]);
+    loadInitialRef.current = loadInitial;
 
     const loadMoreFrom = useCallback(
         (slots: ReviewSlot[], pageToken: string): void => {
@@ -205,6 +256,7 @@ export function useFlowPager(options: FlowPagerOptions): FlowPager {
             const generation = ++generationRef.current;
             // Rendered slots stay on screen; only the footer changes.
             setStateOnly({ kind: "loading-more", slots, pageToken });
+            const startedEpoch = readCacheEpoch();
             void (async () => {
                 try {
                     const page = await listFlowCards({
@@ -253,15 +305,28 @@ export function useFlowPager(options: FlowPagerOptions): FlowPager {
                                 : String(error),
                     });
                 } finally {
-                    if (generationRef.current === generation)
+                    if (generationRef.current === generation) {
                         inFlightRef.current = false;
+                        // The page may predate a mutation; reconcile page 1.
+                        if (readCacheEpoch() !== startedEpoch)
+                            rerunRef.current = true;
+                        flushQueuedRefresh();
+                    }
                 }
             })();
         },
-        [apply, getState, saveReadySnapshot, setStateOnly],
+        [apply, flushQueuedRefresh, getState, saveReadySnapshot, setStateOnly],
     );
 
     return { loadInitial, loadMoreFrom };
+}
+
+function sameCursor(a: FlowCursor, b: FlowCursor): boolean {
+    return (
+        a.kind === b.kind &&
+        (a.kind === "end" ||
+            (b.kind === "more" && a.pageToken === b.pageToken))
+    );
 }
 
 /**

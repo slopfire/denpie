@@ -132,3 +132,14 @@ export function loadFlowSnapshot(now?: number, storage?: SnapshotStorage): Saved
         return null;
     }
 }
+
+/** Drop the saved snapshot (nothing to show, or the session ended). */
+export function clearFlowSnapshot(storage?: SnapshotStorage): void {
+    const target = resolveStorage(storage);
+    if (target === null) return;
+    try {
+        target.removeItem(FLOW_SNAPSHOT_KEY);
+    } catch {
+        // Removal failure leaves a stale but harmless best-effort entry.
+    }
+}

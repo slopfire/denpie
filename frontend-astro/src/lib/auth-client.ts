@@ -17,6 +17,7 @@ import {
     type PasskeyRegistration,
 } from "./webauthn-client";
 import { startBootstrapPrefetch } from "./bootstrap-prefetch";
+import { clearSessionScopedData } from "./session-data";
 
 /** Result of an auth client call, mapped to the UI's session union. */
 export type AuthResult =
@@ -233,6 +234,8 @@ export function createAuthClient(options: AuthClientOptions = {}): AuthClient {
     function resetMeDedupe(): void {
         inFlightMe = null;
         cachedMe = null;
+        // Every session boundary also ends the previous session's cached data.
+        clearSessionScopedData();
     }
 
     return {

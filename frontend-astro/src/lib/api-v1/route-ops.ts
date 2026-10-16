@@ -43,6 +43,7 @@ import type {
     UploadDocumentRequest,
     VisionModelTest,
 } from "../../generated/denpie_pb";
+import { invalidateReadCache } from "./cache";
 import type { CallDeps } from "./transport";
 import {
     buildEnvelope,
@@ -65,12 +66,22 @@ async function readOperation(
     };
 }
 
+/**
+ * Every route mutation drops the shared read cache, success or not: a failure
+ * can be outcome-indeterminate, and a needless refetch is cheaper than serving
+ * Flow a card list that predates the change (e.g. cards just loaded from
+ * Grounding). Subscribers of the cache epoch refetch off this same signal.
+ */
 async function mutateOperation(
     op: ApiRequest["op"],
     idempotencyKey: string,
     deps: CallDeps,
 ): Promise<CallResult> {
-    return callMutationWithKeyEnvelope(op, idempotencyKey, deps);
+    try {
+        return await callMutationWithKeyEnvelope(op, idempotencyKey, deps);
+    } finally {
+        invalidateReadCache();
+    }
 }
 
 function unexpectedResult(operation: string, response: ApiResponse): TypeError {

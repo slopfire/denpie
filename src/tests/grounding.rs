@@ -251,6 +251,62 @@ async fn rag_retrieval_returns_matching_chunk() {
     assert!(misses.is_empty(), "expected no matches");
 }
 
+/// Topic rows keep a stable alphabetical order no matter how many cards are due:
+/// loading cards into one topic must not reshuffle the Grounding grid.
+#[tokio::test]
+async fn app_topics_keep_a_stable_order_when_due_counts_change() {
+    let pool = setup_db().await;
+    let user = "order_user";
+    sqlx::query(
+        "INSERT INTO users (id, username, role) VALUES ($1, 'order', 'user')
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let mut ids = Vec::new();
+    for name in ["Zebra", "alpha", "Mango"] {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO topics (user_id, name, tipcard_type) VALUES ($1, $2, 'repeatable_tip') RETURNING id",
+        )
+        .bind(user)
+        .bind(name)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        ids.push(id);
+    }
+    let names = |rows: &[topics::AppTopicRecord]| -> Vec<String> {
+        rows.iter().map(|row| row.name.clone()).collect()
+    };
+    let before = topics::list_app_topics(&pool, user, chrono::Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(names(&before), ["alpha", "Mango", "Zebra"]);
+
+    // Make the last topic the only one with a due card.
+    let card = tipcards::create_generated_with_status(
+        &pool,
+        user,
+        ids[0],
+        "repeatable_tip",
+        "Due",
+        "c",
+        "c",
+        false,
+        "",
+        "active",
+    )
+    .await
+    .unwrap();
+    assert!(card > 0);
+    let after = topics::list_app_topics(&pool, user, chrono::Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(names(&after), ["alpha", "Mango", "Zebra"]);
+}
+
 /// Pending backlog: pending cards are promoted oldest-first and flipped active.
 #[tokio::test]
 async fn pending_backlog_promotes_oldest_first() {

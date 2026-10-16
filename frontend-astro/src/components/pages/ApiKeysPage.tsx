@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
-import { useViewRefresh } from "@/islands/use-view-refresh";
+import { useState } from "react";
+import { useLiveResource } from "@/islands/use-live-resource";
 import { CheckIcon, CopyIcon, KeyRoundIcon, Trash2Icon } from "lucide-react";
 import {
     AlertDialog,
@@ -41,34 +41,33 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
+const NO_KEYS: ApiKeyInfo[] = [];
+
 function formatKeyDate(value: string): string {
     return value.trim() === "" ? t("format.never") : formatApiKeyDate(value);
 }
 
 export function ApiKeysPage({ active = true }: { active?: boolean }) {
-    const [keys, setKeys] = useState<ApiKeyInfo[]>([]);
-    const [loading, setLoading] = useState(true);
+    const { state: keysState, refresh } = useLiveResource(
+        active,
+        async () => sortApiKeys((await listApiKeys()).keys),
+        errorMessage,
+    );
+    const keys = keysState.kind === "ready" ? keysState.data : NO_KEYS;
+    const loading = keysState.kind === "loading";
+    const loadError =
+        keysState.kind === "error"
+            ? keysState.message
+            : keysState.kind === "ready"
+              ? keysState.error
+              : null;
     const [busy, setBusy] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const [mutationError, setError] = useState<string | null>(null);
+    const error = mutationError ?? loadError;
     const [clientName, setClientName] = useState("");
     const [secret, setSecret] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<ApiKeyInfo | null>(null);
-
-    const refresh = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const result = await listApiKeys();
-            setKeys(sortApiKeys(result.keys));
-        } catch (cause) {
-            setError(errorMessage(cause));
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useViewRefresh(active, refresh);
 
     const handleCreate = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();

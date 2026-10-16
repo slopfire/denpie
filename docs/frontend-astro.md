@@ -37,11 +37,20 @@ Put UI in `frontend-astro/`. Astro emits a static `dist/`. Axum is the only serv
   `/_astro/` assets cache-first and deletes the whole asset cache once it
   exceeds 250 entries, so deploys cannot grow it without bound.
 - Read ops in `src/lib/api-v1/ops.ts` go through a 30-second TTL read cache
+  (`cache.ts`). Every successful `ops.ts` mutation and every `route-ops.ts`
+  mutation (success or failure) invalidates it, advances a data epoch, and
+  notifies subscribers. A read that was in flight across an invalidation is
+  never stored. Login, logout, and account deletion clear the cache, the Flow
+  snapshot, and the bootstrap prefetch (`src/lib/session-data.ts`). The first
+  real `/auth/me` call also fires `bootstrap-prefetch`, racing the first
+  `list_flow_cards` page against the session check.
   (`cache.ts`); every successful mutation invalidates it. The first real
   `/auth/me` call also fires `bootstrap-prefetch`, racing the first
   `list_flow_cards` page against the session check.
 
 ## Conventions
+
+**Live views.** Server-backed pages (Grounding, Archive, API keys, Admin, Account passkeys) read through `useLiveResource` (`src/islands/use-live-resource.ts`, store in `src/lib/live-resource.ts`). `loading` exists only until the first data arrives; later refreshes (focus, 60 s timer, any cache invalidation) keep the rendered tree, so scroll, dialogs, and half-typed forms survive. A failed refresh is a soft error beside the data. One fetch runs at a time, a refresh requested mid-fetch queues one rerun, and a result that predates a mutation or a local `patch` is discarded and refetched. Pages never set their own `loading` flag on refresh. Keep open details as an ID resolved against live data, not a card copy. Flow follows the same rules through `use-flow-pager.ts` and `flow-refresh-merge.ts`: a fresh page replaces cards in place, drops cards the server no longer serves, and lets a new repeatable card take over a finished topic's placeholder.
 
 **Catalog.** Visible copy, labels, placeholders, feedback, confirmations, alt text, and accessibility names go through `t` / `tf` from `@/lib/i18n`. Keys are a TypeScript union of `frontend-astro/src/i18n/en.json`. Protocol IDs stay raw until the UI edge maps the known ones. Unknown values stay visible. `scripts/check-astro-i18n.mjs` fails the test recipe when TSX bypasses the catalog.
 

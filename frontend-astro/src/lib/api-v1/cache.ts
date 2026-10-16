@@ -21,6 +21,32 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
+/**
+ * Monotonic data epoch. Every invalidation advances it, so a reader that
+ * started before a mutation can tell its result is already stale, and views
+ * can subscribe to "server data changed" instead of polling.
+ */
+let epoch = 0;
+const listeners = new Set<() => void>();
+
+/** Current data epoch; changes exactly when cached reads were invalidated. */
+export function readCacheEpoch(): number {
+    return epoch;
+}
+
+/**
+ * Subscribe to invalidations. The listener runs after the cache is cleared and
+ * the epoch advanced; it returns an unsubscribe function.
+ */
+export function subscribeReadCacheInvalidation(
+    listener: () => void,
+): () => void {
+    listeners.add(listener);
+    return () => {
+        listeners.delete(listener);
+    };
+}
+
 /** Canonical cache key: op case plus its identifying parameters. */
 export function readCacheKey(
     op: string,
@@ -48,13 +74,18 @@ export function withReadCache<T>(
             : (hit.cached.promise as Promise<T>);
     }
     cache.delete(key);
+    const startedAtEpoch = epoch;
     const pending: Promise<T> = producer().then(
         (value) => {
-            // Store the settled value; expiry counts from settle time.
-            cache.set(key, {
-                cached: { state: "done", value },
-                expiresAt: Date.now() + ttlMs,
-            });
+            // A mutation that landed while this read was in flight made the
+            // value stale on arrival: hand it to its own callers but never
+            // store it, or it would be served for a full TTL.
+            if (startedAtEpoch === epoch) {
+                cache.set(key, {
+                    cached: { state: "done", value },
+                    expiresAt: Date.now() + ttlMs,
+                });
+            }
             return value;
         },
         (error: unknown) => {
@@ -84,9 +115,11 @@ export function withReadCache<T>(
 export function invalidateReadCache(prefix?: string): void {
     if (prefix === undefined) {
         cache.clear();
-        return;
+    } else {
+        for (const key of cache.keys()) {
+            if (key.startsWith(prefix)) cache.delete(key);
+        }
     }
-    for (const key of cache.keys()) {
-        if (key.startsWith(prefix)) cache.delete(key);
-    }
+    epoch += 1;
+    for (const listener of listeners) listener();
 }

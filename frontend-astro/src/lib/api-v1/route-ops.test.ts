@@ -9,6 +9,7 @@ import {
     DocumentDetailSchema,
     EmptySchema,
     EnhancePromptTemplateResultSchema,
+    ForceDailyRefreshResponseSchema,
     GroundingEvidenceSchema,
     GroundingSearchProfileSchema,
     PreviewGroundingResultSchema,
@@ -18,12 +19,14 @@ import {
     UpdateTopicRequestSchema,
 } from "../../generated/denpie_pb";
 import type { ApiResponse } from "../../generated/denpie_pb";
+import { readCacheEpoch, withReadCache } from "./cache";
 import type { CallDeps, FetchLike } from "./transport";
 import {
     createApiKey,
     createDocument,
     deleteApiKey,
     enhancePromptTemplate,
+    forceDailyRefresh,
     getSettings,
     getSummary,
     listTipcards,
@@ -208,6 +211,43 @@ describe("route operation wrappers", () => {
         await expect(
             listTipcards({ deps: fakeDeps(() => success()) }),
         ).rejects.toThrow(/list_tipcards returned unexpected result case/);
+    });
+
+    test("a route mutation drops the shared read cache so Flow refetches loaded cards", async () => {
+        let flowReads = 0;
+        const readFlow = () =>
+            withReadCache("listFlowCards:48:", 60_000, async () => ++flowReads);
+        expect(await readFlow()).toBe(1);
+        expect(await readFlow()).toBe(1);
+
+        const before = readCacheEpoch();
+        await forceDailyRefresh({
+            topics: "rust",
+            idempotencyKey: "load-key",
+            deps: fakeDeps(() =>
+                success({
+                    case: "forceDailyRefresh",
+                    value: create(ForceDailyRefreshResponseSchema, {}),
+                }),
+            ),
+        });
+
+        expect(readCacheEpoch()).toBe(before + 1);
+        expect(await readFlow()).toBe(2);
+    });
+
+    test("a failed route mutation also drops the cache (the outcome may be indeterminate)", async () => {
+        const before = readCacheEpoch();
+        await expect(
+            forceDailyRefresh({
+                topics: "rust",
+                idempotencyKey: "load-key-2",
+                deps: fakeDeps(
+                    () => new Response("boom", { status: 500 }),
+                ),
+            }),
+        ).rejects.toThrow();
+        expect(readCacheEpoch()).toBe(before + 1);
     });
 
     test("getSummary maps the generated summary message", async () => {

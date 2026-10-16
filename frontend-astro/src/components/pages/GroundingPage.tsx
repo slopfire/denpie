@@ -93,7 +93,8 @@ import { fetchTokenSpend, type TokenSpend } from "@/lib/dashboard-session";
 import { tipTypeLabel } from "@/lib/tip-type";
 import { TopicEditorDialog } from "@/components/pages/TopicEditorDialog";
 import { applyTopicSourceIds } from "@/lib/pages/topic-editor";
-import { useViewRefresh } from "@/islands/use-view-refresh";
+import { useLiveResource } from "@/islands/use-live-resource";
+import { loadCardsOutcomeMessage } from "@/lib/pages/load-cards-outcome";
 import {
     INITIAL_ICON_PICKER_STATE,
     applyTopicIcon,
@@ -130,12 +131,27 @@ interface GroundingData {
     topics: AppTopicInfo[];
     documents: DocumentInfo[];
     images: PoolImageInfo[];
+    tokenSpend: TokenSpend | null;
 }
 
-type GroundingState =
-    | { kind: "loading" }
-    | { kind: "ready"; data: GroundingData }
-    | { kind: "error"; message: string };
+async function fetchGroundingData(): Promise<GroundingData> {
+    const [summary, topics, documents, images, tokenSpend] = await Promise.all(
+        [
+            getSummary(),
+            listAppTopics(),
+            listDocuments(),
+            listPoolImages(),
+            fetchTokenSpend().catch(() => null),
+        ],
+    );
+    return {
+        summary: summary.summary,
+        topics: topics.topics,
+        documents: documents.documents,
+        images: images.images,
+        tokenSpend,
+    };
+}
 
 type MutationState =
     | { kind: "idle" }
@@ -144,6 +160,15 @@ type MutationState =
     | { kind: "error"; message: string };
 
 const EMPTY_MUTATION: MutationState = { kind: "idle" };
+
+/**
+ * Run one mutation with progress and result feedback. An action may resolve
+ * to its own result message; otherwise the generic "<action> complete" shows.
+ */
+type GroundingRun = (
+    label: string,
+    action: () => Promise<string | void>,
+) => void;
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : t("toast.request_failed");
@@ -460,7 +485,7 @@ function TopicsPanel({
 }: {
     topics: AppTopicInfo[];
     busy: boolean;
-    run: (label: string, action: () => Promise<void>) => void;
+    run: GroundingRun;
     onIconApplied: (topicId: bigint, iconId: string) => void;
     onEdit: (topic: AppTopicInfo) => void;
 }) {
@@ -678,13 +703,21 @@ function TopicsPanel({
                                                     "grounding.actions.loading_cards",
                                                 ),
                                                 async () => {
-                                                    await forceDailyRefresh({
-                                                        topics: topic.name,
-                                                        tipcardType:
-                                                            topic.tipcardType,
-                                                        idempotencyKey:
-                                                            newIdempotencyKey(),
-                                                    });
+                                                    const { refresh } =
+                                                        await forceDailyRefresh(
+                                                            {
+                                                                topics: topic.name,
+                                                                tipcardType:
+                                                                    topic.tipcardType,
+                                                                idempotencyKey:
+                                                                    newIdempotencyKey(),
+                                                            },
+                                                        );
+                                                    return (
+                                                        loadCardsOutcomeMessage(
+                                                            refresh.outcome,
+                                                        ) ?? undefined
+                                                    );
                                                 },
                                             )
                                         }
@@ -756,7 +789,7 @@ function SourcesPanel({
     documents: DocumentInfo[];
     topics: AppTopicInfo[];
     busy: boolean;
-    run: (label: string, action: () => Promise<void>) => void;
+    run: GroundingRun;
 }) {
     const [title, setTitle] = useState("");
     const [url, setUrl] = useState("");
@@ -965,7 +998,7 @@ function ImagesPanel({
 }: {
     images: PoolImageInfo[];
     busy: boolean;
-    run: (label: string, action: () => Promise<void>) => void;
+    run: GroundingRun;
 }) {
     const [name, setName] = useState("");
     const [description, setDescription] = useState("");
@@ -1135,47 +1168,28 @@ function ImagesPanel({
 }
 
 export function GroundingPage({ active = true }: { active?: boolean }) {
-    const [state, setState] = useState<GroundingState>({ kind: "loading" });
+    const {
+        state,
+        refresh: load,
+        patch,
+    } = useLiveResource(active, fetchGroundingData, errorMessage);
     const [mutation, setMutation] = useState<MutationState>(EMPTY_MUTATION);
-    const [tokenSpend, setTokenSpend] = useState<TokenSpend | null>(null);
     const [editing, setEditing] = useState<AppTopicInfo | null>(null);
-    const load = useCallback(async () => {
-        setState({ kind: "loading" });
-        try {
-            const [summary, topics, documents, images, spend] =
-                await Promise.all([
-                    getSummary(),
-                    listAppTopics(),
-                    listDocuments(),
-                    listPoolImages(),
-                    fetchTokenSpend().catch(() => null),
-                ]);
-            setTokenSpend(spend);
-            setState({
-                kind: "ready",
-                data: {
-                    summary: summary.summary,
-                    topics: topics.topics,
-                    documents: documents.documents,
-                    images: images.images,
-                },
-            });
-        } catch (error) {
-            setState({ kind: "error", message: errorMessage(error) });
-        }
-    }, []);
-    useViewRefresh(active, load);
-    const run = useCallback(
-        (label: string, action: () => Promise<void>) => {
+    const run = useCallback<GroundingRun>(
+        (label, action) => {
             setMutation({ kind: "saving", label });
             void action()
-                .then(async () => {
+                .then(async (message) => {
                     setMutation({
                         kind: "success",
-                        message: tf("grounding.action_complete", {
-                            action: label,
-                        }),
+                        message:
+                            message ??
+                            tf("grounding.action_complete", {
+                                action: label,
+                            }),
                     });
+                    // Route mutations already invalidate and trigger a
+                    // refetch; this one makes the result independent of that.
                     await load();
                 })
                 .catch((error) =>
@@ -1201,7 +1215,14 @@ export function GroundingPage({ active = true }: { active?: boolean }) {
                     </p>
                 </div>
                 <Button variant="outline" onClick={() => void load()}>
-                    <RefreshCwIcon data-icon="inline-start" />
+                    <RefreshCwIcon
+                        data-icon="inline-start"
+                        className={
+                            state.kind === "ready" && state.refreshing
+                                ? "animate-spin"
+                                : undefined
+                        }
+                    />
                     {t("common.refresh")}
                 </Button>
             </div>
@@ -1246,6 +1267,14 @@ export function GroundingPage({ active = true }: { active?: boolean }) {
                     </AlertDescription>
                 </Alert>
             ) : null}
+            {state.kind === "ready" && state.error !== null ? (
+                <Alert variant="destructive">
+                    <AlertTitle>{t("grounding.load_failed")}</AlertTitle>
+                    <AlertDescription role="alert">
+                        {state.error}
+                    </AlertDescription>
+                </Alert>
+            ) : null}
             {state.kind === "ready" ? (
                 <div className="flex flex-col gap-8">
                     <section
@@ -1275,7 +1304,7 @@ export function GroundingPage({ active = true }: { active?: boolean }) {
                                 label={t("grounding.summary.active_cards")}
                                 value={state.data.summary.activeCards.toString()}
                             />
-                            {tokenSpend === null ? null : (
+                            {state.data.tokenSpend === null ? null : (
                                 <div
                                     id="token-spend-row"
                                     className="contents"
@@ -1284,7 +1313,7 @@ export function GroundingPage({ active = true }: { active?: boolean }) {
                                     <SummaryCard
                                         label={t("grounding.token_spend.daily")}
                                         value={tf("format.tokens", {
-                                            count: tokenSpend.daily,
+                                            count: state.data.tokenSpend.daily,
                                         })}
                                     />
                                     <SummaryCard
@@ -1292,13 +1321,13 @@ export function GroundingPage({ active = true }: { active?: boolean }) {
                                             "grounding.token_spend.monthly",
                                         )}
                                         value={tf("format.tokens", {
-                                            count: tokenSpend.monthly,
+                                            count: state.data.tokenSpend.monthly,
                                         })}
                                     />
                                     <SummaryCard
                                         label={t("grounding.token_spend.total")}
                                         value={tf("format.tokens", {
-                                            count: tokenSpend.total,
+                                            count: state.data.tokenSpend.total,
                                         })}
                                     />
                                 </div>
@@ -1353,21 +1382,14 @@ export function GroundingPage({ active = true }: { active?: boolean }) {
                             run={run}
                             onEdit={setEditing}
                             onIconApplied={(topicId, iconId) => {
-                                setState((current) => {
-                                    if (current.kind !== "ready")
-                                        return current;
-                                    return {
-                                        kind: "ready",
-                                        data: {
-                                            ...current.data,
-                                            topics: applyTopicIcon(
-                                                current.data.topics,
-                                                topicId,
-                                                iconId,
-                                            ),
-                                        },
-                                    };
-                                });
+                                patch((data) => ({
+                                    ...data,
+                                    topics: applyTopicIcon(
+                                        data.topics,
+                                        topicId,
+                                        iconId,
+                                    ),
+                                }));
                                 setMutation({
                                     kind: "success",
                                     message: t("grounding.icon_picker.updated"),
@@ -1411,23 +1433,17 @@ export function GroundingPage({ active = true }: { active?: boolean }) {
                 onClose={() => setEditing(null)}
                 onSaved={({ topic, sourceIds }) => {
                     setEditing(null);
-                    setState((current) => {
-                        if (current.kind !== "ready") return current;
-                        return {
-                            kind: "ready",
-                            data: {
-                                ...current.data,
-                                documents: applyTopicSourceIds(
-                                    current.data.documents,
-                                    topic.id,
-                                    sourceIds,
-                                ),
-                                topics: current.data.topics.map((item) =>
-                                    item.id === topic.id ? topic : item,
-                                ),
-                            },
-                        };
-                    });
+                    patch((data) => ({
+                        ...data,
+                        documents: applyTopicSourceIds(
+                            data.documents,
+                            topic.id,
+                            sourceIds,
+                        ),
+                        topics: data.topics.map((item) =>
+                            item.id === topic.id ? topic : item,
+                        ),
+                    }));
                 }}
             />
         </section>

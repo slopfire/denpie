@@ -503,7 +503,7 @@ pub async fn list_app_topics(
          LEFT JOIN review_states r ON r.card_id = t.id
          WHERE top.user_id = $2
          GROUP BY top.id, top.name, top.tipcard_type, top.prompt_template, top.daily_card_count, top.daily_time_zone, top.daily_update_time, top.compression_level, top.icon_id, top.color_hue, top.grounding_strategy, top.image_strategy, top.grounding_model, top.grounding_reasoning_effort, top.grounding_source_mode, top.grounding_verification_mode, top.grounding_behavior, top.grounding_search_profile
-         ORDER BY due_cards DESC, top.name ASC",
+         ORDER BY LOWER(top.name) ASC, top.name ASC, top.id ASC",
     )
     .bind(now)
     .bind(user_id)

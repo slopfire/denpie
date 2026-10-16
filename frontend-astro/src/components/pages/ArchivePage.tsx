@@ -1,7 +1,6 @@
 import {
     lazy,
     Suspense,
-    useCallback,
     useEffect,
     useMemo,
     useState,
@@ -58,7 +57,7 @@ import { deleteTipcard, pinTipcard } from "@/lib/api-v1/ops";
 import { listTipcards } from "@/lib/api-v1/route-ops";
 import { newIdempotencyKey } from "@/lib/api-v1/transport";
 import { t, tf } from "@/lib/i18n";
-import { useViewRefresh } from "@/islands/use-view-refresh";
+import { useLiveResource } from "@/islands/use-live-resource";
 import { CardImageManager } from "@/components/flow/CardImageManager";
 import { LoadedImage } from "@/components/content/LoadedImage";
 import { LIST_IMAGE_MAX_EDGE_PX } from "@/lib/image-thumbnail";
@@ -109,6 +108,8 @@ function isArchiveStatus(value: string | null): value is ArchiveStatus {
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
+
+const NO_CARDS: TipcardInfo[] = [];
 
 function imageUrls(card: TipcardInfo): string[] {
     return card.images.map(
@@ -347,10 +348,26 @@ function ArchiveCard({
 }
 
 export function ArchivePage({ active = true }: { active?: boolean }) {
-    const [cards, setCards] = useState<TipcardInfo[]>([]);
-    const [loading, setLoading] = useState(true);
+    const {
+        state: cardsState,
+        refresh,
+        patch,
+    } = useLiveResource(
+        active,
+        async () => (await listTipcards()).cards,
+        errorMessage,
+    );
+    const cards = cardsState.kind === "ready" ? cardsState.data : NO_CARDS;
+    const loading = cardsState.kind === "loading";
+    const loadError =
+        cardsState.kind === "error"
+            ? cardsState.message
+            : cardsState.kind === "ready"
+              ? cardsState.error
+              : null;
     const [busyId, setBusyId] = useState<bigint | null>(null);
-    const [error, setError] = useState<string | null>(null);
+    const [mutationError, setError] = useState<string | null>(null);
+    const error = mutationError ?? loadError;
     const [query, setQuery] = useState("");
     const [status, setStatus] = useState<ArchiveStatus>(() =>
         typeof window === "undefined"
@@ -364,28 +381,23 @@ export function ArchivePage({ active = true }: { active?: boolean }) {
     );
     const [sort, setSort] = useState<ArchiveSort>("topic");
     const [deleteTarget, setDeleteTarget] = useState<TipcardInfo | null>(null);
-    const [detailCard, setDetailCard] = useState<TipcardInfo | null>(null);
+    // The open detail is an ID, not a card copy: the dialog then renders the
+    // current inventory row (pin state, images) after every background
+    // refresh and closes itself if the card disappears.
+    const [detailId, setDetailId] = useState<bigint | null>(null);
+    const detailCard = useMemo(
+        () =>
+            detailId === null
+                ? null
+                : (cards.find((card) => card.id === detailId) ?? null),
+        [cards, detailId],
+    );
     const [lightboxOpen, setLightboxOpen] = useState(false);
     const [lightboxIndex, setLightboxIndex] = useState(0);
 
-    const refresh = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const result = await listTipcards();
-            setCards(result.cards);
-        } catch (cause) {
-            setError(errorMessage(cause));
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useViewRefresh(active, refresh);
-
     useEffect(() => {
         if (active) return;
-        setDetailCard(null);
+        setDetailId(null);
         setLightboxOpen(false);
         setDeleteTarget(null);
     }, [active]);
@@ -425,7 +437,7 @@ export function ArchivePage({ active = true }: { active?: boolean }) {
                     idempotencyKey: newIdempotencyKey(),
                 });
                 setDeleteTarget(null);
-                if (detailCard?.id === card.id) setDetailCard(null);
+                if (detailCard?.id === card.id) setDetailId(null);
             }
             await refresh();
         } catch (cause) {
@@ -621,7 +633,7 @@ export function ArchivePage({ active = true }: { active?: boolean }) {
                             eager={shouldEagerHydrateArchiveCard(index)}
                             onPin={(item) => void mutate(item, "pin")}
                             onDelete={setDeleteTarget}
-                            onDetail={(item) => setDetailCard(item)}
+                            onDetail={(item) => setDetailId(item.id)}
                         />
                     ))}
                 </div>
@@ -670,7 +682,7 @@ export function ArchivePage({ active = true }: { active?: boolean }) {
             <Dialog
                 open={detailCard !== null}
                 onOpenChange={(open) => {
-                    if (!open) setDetailCard(null);
+                    if (!open) setDetailId(null);
                 }}
             >
                 <DialogContent
@@ -745,10 +757,13 @@ export function ArchivePage({ active = true }: { active?: boolean }) {
                             <CardImageManager
                                 card={inventoryToFlowCard(detailCard)}
                                 onChanged={(next) => {
-                                    setDetailCard({
-                                        ...detailCard,
-                                        images: next.images,
-                                    });
+                                    patch((current) =>
+                                        current.map((item) =>
+                                            item.id === detailCard.id
+                                                ? { ...item, images: next.images }
+                                                : item,
+                                        ),
+                                    );
                                     void refresh();
                                 }}
                             />

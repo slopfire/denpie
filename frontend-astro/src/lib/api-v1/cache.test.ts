@@ -144,4 +144,50 @@ describe("withReadCache (default instance)", () => {
             "flow-2",
         );
     });
+
+    test("a read in flight across an invalidation is not stored", async () => {
+        const mod = await freshCache();
+        const { withReadCache: withCache } = mod;
+        let release: (value: string) => void = () => undefined;
+        const slow = new Promise<string>((resolve) => {
+            release = resolve;
+        });
+        const inFlight = withCache("k", 60_000, () => slow);
+        // A mutation lands while the read is still on the wire.
+        mod.invalidateReadCache();
+        release("stale");
+        expect(await inFlight).toBe("stale");
+        // The stale value was handed to its own caller but never cached.
+        expect(await withCache("k", 60_000, async () => "fresh")).toBe("fresh");
+    });
+
+    test("a caller after an invalidation never joins the older in-flight read", async () => {
+        const mod = await freshCache();
+        const { withReadCache: withCache } = mod;
+        let release: (value: string) => void = () => undefined;
+        const slow = new Promise<string>((resolve) => {
+            release = resolve;
+        });
+        const before = withCache("k", 60_000, () => slow);
+        mod.invalidateReadCache();
+        const after = withCache("k", 60_000, async () => "fresh");
+        release("stale");
+        expect(await before).toBe("stale");
+        expect(await after).toBe("fresh");
+    });
+
+    test("invalidation advances the epoch and notifies subscribers", async () => {
+        const mod = await freshCache();
+        const seen: number[] = [];
+        const unsubscribe = mod.subscribeReadCacheInvalidation(() => {
+            seen.push(mod.readCacheEpoch());
+        });
+        const start = mod.readCacheEpoch();
+        mod.invalidateReadCache();
+        mod.invalidateReadCache("listFlowCards:");
+        expect(seen).toEqual([start + 1, start + 2]);
+        unsubscribe();
+        mod.invalidateReadCache();
+        expect(seen).toHaveLength(2);
+    });
 });

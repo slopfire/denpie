@@ -44,13 +44,15 @@ import {
 import type { SessionUser } from "@/lib/auth-types";
 import { browserImageDeps, compressFileToDataUrl } from "@/lib/flow-add-images";
 import { t, tf } from "@/lib/i18n";
-import { useViewRefresh } from "@/islands/use-view-refresh";
+import { useLiveResource } from "@/islands/use-live-resource";
 import {
     requestPasskeyRegistration,
     type PasskeyCredentialCreator,
 } from "@/lib/webauthn-client";
 
 const defaultAuthClient = createAuthClient();
+
+const NO_PASSKEYS: readonly PasskeyInfo[] = [];
 
 function browserCredentialCreator(): PasskeyCredentialCreator | null {
     if (
@@ -98,8 +100,24 @@ export function AccountPage({
 }) {
     const displayName = user.display_name ?? user.username;
     const initial = displayName.charAt(0).toUpperCase();
-    const [passkeys, setPasskeys] = useState<readonly PasskeyInfo[]>([]);
-    const [loading, setLoading] = useState(true);
+    const { state: passkeysState, refresh: refreshPasskeys } = useLiveResource(
+        active,
+        async () => {
+            const result = await authClient.listPasskeys();
+            if (result.kind !== "passkeys") throw new Error(result.message);
+            return result.passkeys;
+        },
+        (cause) => (cause instanceof Error ? cause.message : String(cause)),
+    );
+    const passkeys =
+        passkeysState.kind === "ready" ? passkeysState.data : NO_PASSKEYS;
+    const loading = passkeysState.kind === "loading";
+    const passkeyLoadError =
+        passkeysState.kind === "error"
+            ? passkeysState.message
+            : passkeysState.kind === "ready"
+              ? passkeysState.error
+              : null;
     const [registering, setRegistering] = useState(false);
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [pendingDeletion, setPendingDeletion] = useState<PasskeyInfo | null>(
@@ -114,22 +132,9 @@ export function AccountPage({
     const [password, setPassword] = useState("");
     const [savingProfile, setSavingProfile] = useState(false);
     const [deletingAccount, setDeletingAccount] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const [actionError, setError] = useState<string | null>(null);
+    const error = actionError ?? passkeyLoadError;
     const [notice, setNotice] = useState<string | null>(null);
-
-    const refreshPasskeys = useCallback(async () => {
-        setLoading(true);
-        const result = await authClient.listPasskeys();
-        if (result.kind === "passkeys") {
-            setPasskeys(result.passkeys);
-            setError(null);
-        } else {
-            setError(result.message);
-        }
-        setLoading(false);
-    }, [authClient]);
-
-    useViewRefresh(active, refreshPasskeys);
 
     useEffect(() => {
         setDraftDisplayName(user.display_name ?? "");

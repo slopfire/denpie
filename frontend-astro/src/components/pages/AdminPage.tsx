@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { ArrowLeft, LogOut, Pencil, Trash2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -48,9 +48,11 @@ import {
 } from "@/lib/dashboard-session";
 import { t } from "@/lib/i18n";
 import { useToast } from "@/islands/toast-context";
-import { useViewRefresh } from "@/islands/use-view-refresh";
+import { useLiveResource } from "@/islands/use-live-resource";
 
 const authClient = createAuthClient();
+
+const NO_USERS: AdminUser[] = [];
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : t("toast.request_failed");
@@ -72,10 +74,20 @@ export function AdminPage({
     onLogout: (result: LogoutResult) => void;
 }) {
     const toast = useToast();
-    const [users, setUsers] = useState<AdminUser[]>([]);
-    const [loading, setLoading] = useState(true);
+    const { state: usersState, refresh } = useLiveResource(
+        true,
+        listAdminUsers,
+        errorMessage,
+    );
+    const users = usersState.kind === "ready" ? usersState.data : NO_USERS;
+    const loading = usersState.kind === "loading";
+    const error =
+        usersState.kind === "error"
+            ? usersState.message
+            : usersState.kind === "ready"
+              ? usersState.error
+              : null;
     const [busy, setBusy] = useState(false);
-    const [error, setError] = useState<string | null>(null);
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
     const [displayName, setDisplayName] = useState("");
@@ -84,20 +96,6 @@ export function AdminPage({
     const [editRole, setEditRole] = useState("user");
     const [editPassword, setEditPassword] = useState("");
     const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
-
-    const refresh = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            setUsers(await listAdminUsers());
-        } catch (cause) {
-            setError(errorMessage(cause));
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useViewRefresh(true, refresh);
 
     const create = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();

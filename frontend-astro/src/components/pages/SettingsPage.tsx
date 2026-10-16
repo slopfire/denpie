@@ -228,16 +228,41 @@ export function SettingsPage({
     const [enhancingPrompt, setEnhancingPrompt] = useState(false);
     const [promptRationale, setPromptRationale] = useState("");
 
+    // Latest-wins guard: only the newest request may commit, and never over
+    // an edit or save made while it was in flight.
+    const loadGenerationRef = useRef(0);
+    const loadedRef = useRef(false);
     const loadSettings = useCallback(async () => {
-        setFeedback({ kind: "loading", message: t("settings.loading") });
+        const generation = ++loadGenerationRef.current;
+        // Rendered settings stay on screen during a refresh; only the first
+        // load shows the loading feedback.
+        setFeedback((current) =>
+            current.kind === "idle" || current.kind === "loading"
+                ? { kind: "loading", message: t("settings.loading") }
+                : current,
+        );
         try {
             const { settings } = await getSettings();
+            if (generation !== loadGenerationRef.current || dirtyRef.current)
+                return;
             const next = settingsDraft(settings);
+            loadedRef.current = true;
             setBaseline(next);
             setDraft(next);
-            setFeedback({ kind: "idle" });
+            setFeedback((current) =>
+                current.kind === "loading" ? { kind: "idle" } : current,
+            );
         } catch (error) {
-            setFeedback({ kind: "error", message: errorMessage(error) });
+            if (generation !== loadGenerationRef.current) return;
+            // A failed background refresh keeps the rendered form untouched;
+            // only a failed first load has nothing to show but the error.
+            setFeedback((current) =>
+                current.kind !== "loading" && current.kind !== "idle"
+                    ? current
+                    : loadedRef.current
+                      ? { kind: "idle" }
+                      : { kind: "error", message: errorMessage(error) },
+            );
         }
     }, []);
 
@@ -343,6 +368,8 @@ export function SettingsPage({
                 patch,
                 idempotencyKey: newIdempotencyKey(),
             });
+            // Any load that began before the save would restore old values.
+            loadGenerationRef.current += 1;
             dirtyRef.current = false;
             setBaseline(draft);
             setFeedback({
